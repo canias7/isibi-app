@@ -645,3 +645,23 @@ Byte-for-byte check: the 7 edits Claude Code made on `before.ipynb`, and the 2 o
 
 **Live test:** not done. coder2.gofarther.dev has it (deploy 223), but a chat there needs GitHub, which the gofarther-coder app
 doesn't allow for coder2 yet (its callback URL list has only the live address). The owner: "dont worry about it then".
+
+**Double-checked against Claude Code's docs, every line that names notebooks** (the owner: "Double check that same tool against
+the claude code docs again pls"; the 205 pages downloaded again, unchanged since the morning; 26 pages and 19 changelog entries
+name notebooks or NotebookEdit; the cases the docs raise tried again on the real tool):
+
+| Claude Code's docs | Coder before this check | Coder now |
+|---|---|---|
+| "NotebookEdit isn't covered by `Read` deny rules" (permissions, errors) | refused it, as edit, on a Read deny rule | not covered; an Edit deny rule blocks it |
+| A bare `NotebookEdit` rule matches the tool; `NotebookEdit(path)` never matches, with a warning (permissions, errors) | refused both rules (Coder had no such tool) | `NotebookEdit` and `NotebookEdit(*)` apply, as `Write`'s; a path in one is kept, never matches, Claude Code's warning |
+| "Read file_path cannot contain null bytes …": the message names the tool and its input (errors) | "notebook_edit path …" | "notebook_edit notebook_path …" (the length and white-space ones too) |
+| "Claude can't use NotebookEdit on a file that isn't valid UTF-8 … the same goes for Edit, unless the file starts with a UTF-16LE byte-order mark" (tools-reference) | edited UTF-16LE and UTF-8 marked notebooks | refused: tried on the real tool, both give "Notebook is not valid JSON." after its hooks; so does Coder's |
+| Windows line endings | kept | kept: the real tool tried, the same file byte for byte |
+| A notebook viewed with `cat` counts as read (tools-reference, for Edit) | counted | counted: the real tool tried, it took it as read |
+| "Fixed notebook cell delete/replace approval dialogs silently omitting the existing cell content … the dialog now says why" (changelog; its program: "Current cell contents cannot be shown (…) — the edit cannot be reviewed, so approval is one-time only (deny unless expected).") | the card showed only the new lines | the card shows the cell as it is now, then the new lines; or Claude Code's line saying why it can't |
+| "Fixed NotebookEdit reporting success to hooks … when the notebook changed while the permission prompt was open" (changelog) | (untested) | its run reads it again and refuses it; its hooks get PostToolUseFailure (test NB10) |
+| Already the same | | Edit(…) rules; blockWritesOutsideWorkingDirectories; acceptEdits; security reminders on Edit, Write and NotebookEdit; a folder's CLAUDE.md on edits; Rewind; the row "path@cell"; read first on every model; cell-N; the 100 MB limit |
+| Not for Coder | | Perforce mode (Coder's edit doesn't have it either), worktrees and subagents (no such tools yet), VS Code, telemetry |
+
+Tests: NB2, NB6 and NB8 changed, NB10 new; CD365, CD382b and CD325 changed (a NotebookEdit rule is now kept). The full suite: 1329
+pass, 4 skipped, 0 fail.

@@ -136,7 +136,9 @@ test("CD365 rules Claude Code keeps are saved with its warnings (a rule on the c
   assert.equal(d("npm test", { allow: ["Bash(command:npm *)", "Bsh(npm *)"] }), "ask");
   // A tool of Claude Code's that Coder doesn't apply: not saved (Coder's own message). (An MCP tool's rule, mcp__x__y, is saved
   // since the connectors were merged, 2026-11-13: connectors-merged.test.mjs.)
-  for (const r of ["NotebookEdit", "Agent"]) assert.equal(P.ruleSaved(r), false, r);
+  // (Not NotebookEdit since Coder has it, notebook_edit: the owner, 2026-11-17, "Yes build it".)
+  for (const r of ["Agent"]) assert.equal(P.ruleSaved(r), false, r);
+  assert.equal(P.ruleSaved("NotebookEdit"), true);
   assert.equal(P.ruleSaved("mcp__x__y"), true);
   // (Read and Edit rules are Coder's own since the file rules: file-rules.test.mjs.)
   for (const r of ["Read", "Edit(src/**)"]) assert.equal(P.ruleSaved(r), true, r);

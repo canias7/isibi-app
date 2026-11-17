@@ -188,5 +188,29 @@ export function editNotebook(text, args, { newId = newCellId } = {}) {
   return { text: JSON.stringify(nb, null, 1), said, mode, cellId: id || undefined, oldSource, newSource: new_source, cellType: type || "code", language };
 }
 
+// ── ITS CARD ─────────────────────────────────────────────────────────────────
+/**
+ * THE CELL AS IT IS NOW, FOR THE CARD THAT ASKS ABOUT A REPLACE OR A DELETE (Claude Code 2.1.326's own: its dialog shows the
+ * cell's current text beside the new one, and says why when it can't: its changelog, "Fixed notebook cell delete/replace
+ * approval dialogs silently omitting the existing cell content when the notebook or cell could not be read; the dialog now says
+ * why"; the owner, 2026-11-17: "Double check that same tool against the claude code docs again pls"). Its own check of the
+ * notebook's text, which a byte-order mark fails. → { source }, or { why } in its words.
+ */
+export function cellBefore(text, cell_id) {
+  let nb;
+  try { nb = JSON.parse(text); } catch { return { why: CARD_UNPARSABLE }; }
+  if (nb === null || !isNotebook(nb)) return { why: CARD_UNPARSABLE };
+  let at = -1;
+  if (cell_id) {
+    at = nb.cells.findIndex((c) => c.id === cell_id);
+    if (at === -1) { const n = cellPlace(cell_id); if (n !== undefined && nb.cells[n]) at = n; }
+  }
+  return at < 0 ? { why: CARD_NO_CELL } : { source: sourceText(nb.cells[at].source) };
+}
+/** Its words for a cell it can't show, and its line on the card then (an edit or a deletion approved this once). */
+export const CARD_UNPARSABLE = "the notebook could not be parsed for preview", CARD_NO_CELL = "the target cell was not found in the notebook";
+export const CARD_UNREADABLE = "the notebook could not be read", CARD_TOO_BIG = "the notebook is too large to preview";
+export const cardUnshown = (why, mode) => "Current cell contents cannot be shown (" + why + ") \u2014 the " + (mode === "delete" ? "deletion" : "edit") + " cannot be reviewed, so approval is one-time only (deny unless expected).";
+
 /** Its label in the chat (Claude Code's tool row, its own code: the notebook, then "@" and the cell when one is named). */
 export const notebookLabel = (a) => String((a && a.notebook_path) || "") + (a && typeof a.cell_id === "string" && a.cell_id ? "@" + a.cell_id : "");

@@ -4,6 +4,23 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-17: notebook_edit double-checked against Claude Code's docs: 5 things fixed (your words: "Double check that same tool against the claude code docs again pls")
+
+I downloaded all 205 pages of Claude Code's docs again (none had changed since the morning). I read every line about notebooks on the 26 pages that have one, plus 19 changelog entries, and tried the doubtful cases on Claude Code's real tool. Five things differed and are now fixed:
+
+1. **Read rules:** Claude Code's docs say a "Read" deny rule doesn't stop its notebook tool; only an "Edit" rule does. Coder's stopped it. Now it's the same.
+2. **Rules naming NotebookEdit:** Coder refused to save them, because it had no such tool. Now a plain `NotebookEdit` rule works, like `Write`. A rule with a path in it, like `NotebookEdit(docs/**)`, never matches and gets Claude Code's warning, as in Claude Code.
+3. **Notebooks with a hidden mark at the start** (a "byte-order mark"): Claude Code refuses them with "Notebook is not valid JSON." Coder edited them. Now it refuses them the same way.
+4. **The approval card:** when Coder asks before changing or deleting a cell, the card now shows the cell as it is now, then the new lines, as Claude Code's does. If the cell can't be shown, the card says why in Claude Code's words.
+5. **An error message:** a bad path now names the input the way Claude Code names it, "notebook_path".
+
+Also checked and already the same:
+- A notebook that changes while the card is waiting is refused, and hooks are told it failed.
+- A notebook only viewed with `cat` counts as read.
+- Windows line endings stay as they were.
+
+Tests: 1 new and 6 changed. All 1329 pass.
+
 ## 2026-11-17: Coder can change a notebook one cell at a time, like Claude Code's NotebookEdit (your words: "Yes build it")
 
 This is on this chat's branch only (`claude/sweet-bohr-9xdj4f`), for the coder2.gofarther.dev copy. Nothing went to `main`.

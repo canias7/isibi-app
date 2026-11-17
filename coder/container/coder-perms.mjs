@@ -902,8 +902,9 @@ export function parseRule(text) {
   if (/^mcp__[A-Za-z0-9_-]+$/.test(String(text || "").trim())) return { tool: String(text).trim(), spec: null, mcp: true };
   // (TaskCreate, TaskGet, TaskList and TaskUpdate: Coder's task list since 2026-11-14, the owner: "Do all the talk to you
   // tools execpt for the notify one"; whole-tool rules, as TodoWrite's. EnterPlanMode, Coder's enter_plan_mode, too. And
-  // ToolSearch, Coder's tool_search: denied, tool search is off, as Claude Code's MCP docs say; coder-toolsearch.mjs.)
-  const m = /^(Bash|WebFetch|Read|Edit|Write|Grep|Glob|LSP|Monitor|WebSearch|TaskStop|KillShell|KillBash|AskUserQuestion|ExitPlanMode|EnterPlanMode|TodoWrite|TaskCreate|TaskGet|TaskList|TaskUpdate|PowerShell|ToolSearch)(?:\(([\s\S]*)\))?$/.exec(String(text || "").trim());
+  // ToolSearch, Coder's tool_search: denied, tool search is off, as Claude Code's MCP docs say; coder-toolsearch.mjs. And
+  // NotebookEdit, Coder's notebook_edit since 2026-11-17: the whole tool, as Write's; its path rules never match, as Write's.)
+  const m = /^(Bash|WebFetch|Read|Edit|Write|NotebookEdit|Grep|Glob|LSP|Monitor|WebSearch|TaskStop|KillShell|KillBash|AskUserQuestion|ExitPlanMode|EnterPlanMode|TodoWrite|TaskCreate|TaskGet|TaskList|TaskUpdate|PowerShell|ToolSearch)(?:\(([\s\S]*)\))?$/.exec(String(text || "").trim());
   if (!m) return null;
   // (TaskStop's old names, KillShell and KillBash, name it still: Claude Code 2.1.322 keeps them as its aliases.)
   if (m[1] === "KillShell" || m[1] === "KillBash") m[1] = "TaskStop";
@@ -939,7 +940,7 @@ export function parseRule(text) {
   if (m[1] === "WebSearch" && m[2] !== undefined && m[2] !== "*") { const pr = webSearchParamSpec(spec); return pr ? { tool: "WebSearch", spec, param: pr } : null; }
   // (Coder's other tools by Claude Code's names, WebSearch for Grok's own web search: rules on the whole tool only, but
   // WebSearch's on its query, above.)
-  if (m[1] === "Write" || m[1] === "Grep" || m[1] === "Glob" || m[1] === "LSP" || m[1] === "WebSearch" || m[1] === "TaskStop" || m[1] === "AskUserQuestion" || m[1] === "ExitPlanMode" || m[1] === "EnterPlanMode" || m[1] === "TodoWrite" || m[1] === "TaskCreate" || m[1] === "TaskGet" || m[1] === "TaskList" || m[1] === "TaskUpdate") return spec === null || spec === "*" ? { tool: m[1], spec: null } : null;
+  if (m[1] === "Write" || m[1] === "NotebookEdit" || m[1] === "Grep" || m[1] === "Glob" || m[1] === "LSP" || m[1] === "WebSearch" || m[1] === "TaskStop" || m[1] === "AskUserQuestion" || m[1] === "ExitPlanMode" || m[1] === "EnterPlanMode" || m[1] === "TodoWrite" || m[1] === "TaskCreate" || m[1] === "TaskGet" || m[1] === "TaskList" || m[1] === "TaskUpdate") return spec === null || spec === "*" ? { tool: m[1], spec: null } : null;
   return { tool: m[1], spec: spec === "*" && (m[1] === "Bash" || m[1] === "Monitor" || m[1] === "PowerShell") ? null : spec };
 }
 /**
@@ -1962,7 +1963,9 @@ export function fileToolDecision(tool, path, { rules = {}, root = "/", cwd = "",
   if (edits) {
     const e = hit(rules.deny, "Edit", "deny");
     if (e) return { verdict: "deny", rule: e, why: isWhole(e) ? "Permission to use " + name + " has been denied." : "File is in a directory that is denied by your permission settings." };
-    const r = hit(rules.deny, "Read", "deny");
+    // (Not notebook_edit's: Claude Code's docs, permissions and errors, "NotebookEdit isn't covered by Read deny rules"; an Edit
+    // deny rule blocks it. The owner, 2026-11-17: "Double check that same tool against the claude code docs again pls".)
+    const r = tool === "notebook_edit" ? "" : hit(rules.deny, "Read", "deny");
     if (r) return { verdict: "deny", rule: r, why: "File is covered by a Read deny rule in your permission settings and cannot be " + (tool === "write" ? "written." : "edited.") };
   } else {
     const r = hit(rules.deny, "Read", "deny");

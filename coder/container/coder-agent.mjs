@@ -39,7 +39,7 @@ import { safeCall, groupEnd, earlyRuns, RoundClosing, closedAs, interruptedNote,
 import { searchToolDef, GREP_INLINE_MAX, GLOB_INLINE_MAX, SEARCH_TIMEOUT_MS, splitPattern, checkedAt } from "./coder-search.mjs";
 import { LSP_DESCRIPTION, LSP_PROPERTIES, LSP_REQUIRED, LSP_RESULT_MAX, needsKeeper, noticeText } from "./coder-lsp.mjs";
 // (Claude Code's NotebookEdit, as notebook_edit: the owner, 2026-11-17, "Yes build it".)
-import { NOTEBOOK_DESCRIPTION, NOTEBOOK_PROPERTIES, NOTEBOOK_REQUIRED, notebookLabel } from "./coder-notebook.mjs";
+import { NOTEBOOK_DESCRIPTION, NOTEBOOK_PROPERTIES, NOTEBOOK_REQUIRED, notebookLabel, cardUnshown, CARD_UNREADABLE } from "./coder-notebook.mjs";
 import { WEB_SEARCH_TOOL, WEB_SEARCH_MODE_TOOL, WEB_SEARCH_NAME, SEARCH_UNGRANTED, searchDecision, searchAskText, searchBudget, searchMaxOf, searchRefillsOf, usedUpText, searchText, searchShown, runWebSearch, checkInput as checkSearchInput, searchModeTools, SEARCH_MODE_NOTE, hookParamsFor } from "./coder-websearch.mjs";
 // (Claude Code's task list: its TaskCreate, TaskGet, TaskList and TaskUpdate, in place of Coder's todo; the owner, 2026-11-14.)
 import { TASK_TOOLS, isTaskTool, checkTaskInput, readTasks, emptyTasks, createTask, findTask, deleteTask, updateTask, listTasks, createdText, createdFacts, getText, getFacts, updateText, listText, taskReminderDue, taskReminderNote, pageItems, TODO_WRITE_TOOL, TODO_WRITE_RESULT, checkTodoInput, readTodos, todoItems, todoReminderDue, todoReminderNote } from "./coder-tasks.mjs";
@@ -6434,16 +6434,29 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // A LONG LINE SHOWS IT WAS CUT (the owner, 2026-11-09: "Ok yea fix that"; Claude Code: "Fixed the file edit permission
         // dialog sometimes showing a changed line cut short with no indication"); the owner's values hidden before the cut,
         // so no part of one is left.
+        // A NOTEBOOK CELL'S CARD SHOWS THE CELL AS IT IS NOW (Claude Code's dialog for a replace or a delete: its current text beside
+        // the new one, or why it can't show it, in its words; the owner, 2026-11-17: "Double check that same tool against the
+        // claude code docs again pls"): read by the tools script just before the card (notebook_cell), never for an insert.
+        let cellNow = null;
+        const notebookBefore = async () => {
+          if (!notebook || cellNow || args.edit_mode === "insert") return;
+          let out = "";
+          try { const r = await deps.exec({ command: "node --no-warnings " + TOOLS_SCRIPT + " " + Buffer.from(JSON.stringify({ tool: "notebook_cell", args: { notebook_path: args.notebook_path, cell_id: args.cell_id } })).toString("base64"), timeoutS: 60, tool: true, here: true }); out = String((r && r.output) || ""); } catch { out = ""; }
+          try { const v = JSON.parse(out); cellNow = v && typeof v.source === "string" ? { source: v.source } : { why: v && typeof v.why === "string" ? v.why : CARD_UNREADABLE }; } catch { cellNow = { why: CARD_UNREADABLE }; }
+        };
         const changeShown = () => {
           const rows = (x) => { const l = typeof x === "string" && x !== "" ? x.split(/\r?\n/) : []; if (l.length > 1 && l[l.length - 1] === "") l.pop(); return l; };
-          // (A notebook cell's new lines; a cell to delete shows none: Coder's card, as for an edit, names the notebook and the cell.)
-          const gone = c.name === "edit" ? rows(args.old_string) : [], come = rows(c.name === "edit" ? args.new_string : notebook ? (args.edit_mode === "delete" ? "" : args.new_source) : args.content);
+          // (A notebook cell: its lines now taken out and its new ones put in; a delete's only taken out; one that can't be shown,
+          // Claude Code's line on the card instead.)
+          if (notebook && cellNow && cellNow.why) return { kind: "update", add: 0, del: 0, lines: [], note: cardUnshown(cellNow.why, args.edit_mode) };
+          const gone = c.name === "edit" ? rows(args.old_string) : notebook && cellNow ? rows(cellNow.source) : [], come = rows(c.name === "edit" ? args.new_string : notebook ? (args.edit_mode === "delete" ? "" : args.new_source) : args.content);
           const cut = (l) => { const x = scrub(l); return x.length > 300 ? x.slice(0, 300) + "…" : x; };
           const all = [...gone.map((l) => "-" + cut(l)), ...come.map((l) => "+" + cut(l))];
           return { kind: c.name === "edit" || notebook ? "update" : "create", add: come.length, del: gone.length, lines: all.slice(0, 40), ...(all.length > 40 ? { more: all.length - 40 } : {}) };
         };
         if (why && !ownerAllowed(convo, guarded) && (github || !canAsk()) && !emailNo) {
           const shownPath = scrub(visibleChars(guarded)).slice(0, 300);
+          await notebookBefore();
           if (github) {
             // (Told in Claude Code's words since round 6, the ask itself, as its run with no one to answer returns it: Write's and
             // Edit's check of a protected path, "Coder requested permissions to edit <path> which is a sensitive file." (a .claude
@@ -6583,6 +6596,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           // (Claude Code's own ask for the fetch, as if auto mode had not judged it: after a mode switch while it was checked, its
           // card; at the limit of blocks, what Coder is told where no one can answer, and the card's "don't ask again". Round 6.)
           const ccFetch = fetchLimit || fetchSwitched ? fetchDecision(String(args.url || ""), { mode: "acceptEdits", rules: ownRules }) : null;
+          await notebookBefore();
           const card = fileAsk
             ? { tool: c.name, id: c.id, path: shownPath, change: changeShown(), why: why ? sensitiveWhy(fullFile) : planWriteWhy(targetFor(c.name, args)), ...(hookLine || {}) }
             : ruleAsk

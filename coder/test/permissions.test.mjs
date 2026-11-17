@@ -450,7 +450,8 @@ test("CD325 the Worker keeps the rules per repository (Claude Code's /permission
   const w = await worker();
   assert.equal((await w.go("permissions?repo=bad")).status, 400);
   assert.deepEqual((await w.go("permissions?repo=ana/shop")).data.rules, { allow: [], ask: [], deny: [], dirs: [] });
-  assert.equal((await w.go("permissions", { method: "POST", body: JSON.stringify({ repo: "ana/shop", kind: "allow", add: "NotebookEdit" }) })).status, 400);
+  // (A tool Coder has no copy of: Agent. NotebookEdit is Coder's notebook_edit since 2026-11-17, so its rule is taken.)
+  assert.equal((await w.go("permissions", { method: "POST", body: JSON.stringify({ repo: "ana/shop", kind: "allow", add: "Agent" }) })).status, 400);
   await w.go("permissions", { method: "POST", body: JSON.stringify({ repo: "ana/shop", kind: "allow", add: "Bash(npm test *)" }) });
   await w.go("permissions", { method: "POST", body: JSON.stringify({ repo: "ana/shop", kind: "ask", add: "Bash(git push *)" }) });
   const moved = await w.go("permissions", { method: "POST", body: JSON.stringify({ repo: "ana/shop", kind: "deny", add: "Bash(npm test *)" }) });

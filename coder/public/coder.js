@@ -3924,11 +3924,14 @@
         // (Its own hosts, Claude Code's allowed_domains: approving covers them too.)
         (Array.isArray(e.hosts) && e.hosts.length ? '<p class="cd-perm-desc">Also opens, for this command only: ' + e.hosts.map((h) => '<code>' + esc(h) + '</code>').join(', ') + '</p>' : '');
     } else if (e.tool === 'write' || e.tool === 'edit' || e.tool === 'notebook_edit') {
-      // What the write or edit would do, as under each write's and edit's step (a notebook edit: the cell's new lines).
+      // What the write or edit would do, as under each write's and edit's step (a notebook edit: the cell's lines now taken out
+      // and its new ones put in, as Claude Code's dialog; or, when the cell can't be shown, its line saying why: `note`).
       const lines = e.change && Array.isArray(e.change.lines) ? e.change.lines.filter((l) => typeof l === 'string').slice(0, 40) : [];
       const more = e.change && Number(e.change.more) > 0 ? Number(e.change.more) : 0;
       const upd = !!(e.change && e.change.kind === 'update');
-      body = '<p class="cd-perm-desc">' + esc(e.path || '') + '</p><pre class="cd-perm-pre">' + (!lines.length ? (upd ? '(nothing)' : '(an empty file)') : upd ? lines.map((l) => '<span class="cd-wl' + (l[0] === '+' ? ' cd-dl-add' : l[0] === '-' ? ' cd-dl-del' : '') + '">' + esc(l) + '</span>').join('') : lines.map((l, k) => '<span class="cd-ne-n">' + (k + 1) + '</span>' + esc(l.slice(1))).join('\n')) + (more ? '\n… ' + more + ' more line' + (more === 1 ? '' : 's') : '') + '</pre>';
+      const unshown = e.change && typeof e.change.note === 'string' ? e.change.note : '';
+      if (unshown) body = '<p class="cd-perm-desc">' + esc(e.path || '') + '</p><p class="cd-perm-desc">' + esc(unshown) + '</p>';
+      else body = '<p class="cd-perm-desc">' + esc(e.path || '') + '</p><pre class="cd-perm-pre">' + (!lines.length ? (upd ? '(nothing)' : '(an empty file)') : upd ? lines.map((l) => '<span class="cd-wl' + (l[0] === '+' ? ' cd-dl-add' : l[0] === '-' ? ' cd-dl-del' : '') + '">' + esc(l) + '</span>').join('') : lines.map((l, k) => '<span class="cd-ne-n">' + (k + 1) + '</span>' + esc(l.slice(1))).join('\n')) + (more ? '\n… ' + more + ' more line' + (more === 1 ? '' : 's') : '') + '</pre>';
     } else if (e.tool === 'web_fetch') body = '<pre class="cd-perm-pre">' + esc(e.url || '') + '</pre>';
     // A WebSocket a monitor would open (Claude Code's Monitor `ws`): what it watches, and its address.
     else if (e.tool === 'monitor') body = (e.desc ? '<p class="cd-perm-desc">' + esc(e.desc) + '</p>' : '') + '<pre class="cd-perm-pre">' + esc(e.url || '') + '</pre>';

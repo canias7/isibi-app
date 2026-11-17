@@ -16,7 +16,7 @@ import { spawn } from "node:child_process";
 import { psParseRequest, PS_PARSE_TIMEOUT_MS, PS_PARSE_TRIES } from "./coder-psparse.mjs";
 import { grepTool, globTool } from "./coder-search.mjs";
 import { secretsIn, memorySecretsRefused } from "./coder-secretscan.mjs";
-import { editNotebook, notebookProblem, inputProblem as notebookInputProblem, checkInput as notebookInput, NOTEBOOK_CHANGED, NOTEBOOK_GONE, NOTEBOOK_MAX_BYTES as NOTEBOOK_EDIT_MAX, NOTEBOOK_TOO_BIG, NOTEBOOK_WOULD_BE_TOO_BIG, cellName } from "./coder-notebook.mjs";
+import { editNotebook, notebookProblem, inputProblem as notebookInputProblem, checkInput as notebookInput, NOT_JSON, NOTEBOOK_CHANGED, NOTEBOOK_GONE, NOTEBOOK_MAX_BYTES as NOTEBOOK_EDIT_MAX, NOTEBOOK_TOO_BIG, NOTEBOOK_WOULD_BE_TOO_BIG, cellName, cellBefore, CARD_UNREADABLE, CARD_TOO_BIG } from "./coder-notebook.mjs";
 import { lookup as lookupCb } from "node:dns";
 import http from "node:http";
 import https from "node:https";
@@ -721,7 +721,7 @@ export function fileInputProblem(name, args, when = "before", { memFile = proces
     const schema = notebookInput(given);
     if (schema.error) return schema.error.replace(/^error: /, "");
     const p = typeof a.notebook_path === "string" ? a.notebook_path : "";
-    return (p ? pathProblem("notebook_edit", p) : "") || notebookInputProblem(a);
+    return (p ? pathProblem("notebook_edit", p, "notebook_path") : "") || notebookInputProblem(a);
   }
   if (name !== "read" && name !== "edit") return "";
   if (typeof path !== "string" || !path.trim()) return "give a path";
@@ -781,11 +781,14 @@ export const PATH_MAX = 4096;
  * ends in white space once its "." and ".." are resolved (its trim takes the white space at the ends of what was given, but
  * not of a part a "." or ".." leaves last, such as "notes /."): toolPath taken twice gives another path. → the refusal, or "".
  */
-export function pathProblem(tool, p) {
-  if (p.includes("\0")) return tool + " path cannot contain null bytes (\\0). Remove the null byte and try again.";
-  if (p.length > PATH_MAX) return tool + " path has " + p.length + " characters, and " + tool + " takes at most " + PATH_MAX + ". Resolve any \"./\" and \"../\" parts, drop any white space around the path, and send it again.";
+// (`arg`: the input that holds the path, named after the tool as Claude Code's words name it: notebook_edit's notebook_path,
+// "NotebookEdit notebook_path cannot contain null bytes …" there. 2026-11-17.)
+export function pathProblem(tool, p, arg = "path") {
+  const who = tool + " " + arg;
+  if (p.includes("\0")) return who + " cannot contain null bytes (\\0). Remove the null byte and try again.";
+  if (p.length > PATH_MAX) return who + " has " + p.length + " characters, and " + tool + " takes at most " + PATH_MAX + ". Resolve any \"./\" and \"../\" parts, drop any white space around the path, and send it again.";
   const q = toolPath(p);
-  if (toolPath(q) !== q) return tool + " path ends in white space once its \".\" and \"..\" are resolved, and " + tool + " refuses such a path. If the white space is not meant, send the path without it. " + tool + " cannot open a file whose own name ends in white space.";
+  if (toolPath(q) !== q) return who + " ends in white space once its \".\" and \"..\" are resolved, and " + tool + " refuses such a path. If the white space is not meant, send the path without it. " + tool + " cannot open a file whose own name ends in white space.";
   return "";
 }
 /**
@@ -1438,14 +1441,16 @@ async function notebookFirst(a) {
   const buf = await readFile(abs);
   const notText = notTextOf(buf);
   if (notText) fail(rel + " " + notTextRefused(notText));
-  const v = notebookProblem(editBody(buf).text, { cell_id: typeof a.cell_id === "string" ? a.cell_id : "", edit_mode: a.edit_mode === undefined ? "replace" : a.edit_mode });
+  // (Read past a byte-order mark here, as Claude Code's check before its hooks reads one; its run then refuses the notebook:
+  // toolNotebookEdit.)
+  const v = notebookProblem(editBody(buf).text.replace(/^\ufeff/, ""), { cell_id: typeof a.cell_id === "string" ? a.cell_id : "", edit_mode: a.edit_mode === undefined ? "replace" : a.edit_mode });
   if (v.error) fail(v.error);
   return { buf };
 }
 /**
  * NOTEBOOK_EDIT, AS CLAUDE CODE'S NotebookEdit (coder-notebook.mjs; the owner, 2026-11-17: "Yes build it"): one cell replaced,
- * inserted or deleted, the notebook saved whole in Claude Code's way, in its own encoding (UTF-16LE behind its mark, a UTF-8
- * mark kept) and line endings, as edit saves a file; a read-only one changed all the same (writeOver). Its answer is Claude
+ * inserted or deleted, the notebook saved whole in Claude Code's way, as UTF-8 in its own line endings (one behind a byte-order
+ * mark refused, as there); a read-only one changed all the same (writeOver). Its answer is Claude
  * Code's ("Updated cell … with …"); `show_change`: the cell's change for the chat (its old lines out, its new ones in, as an
  * edit's change shows); `facts`: Claude Code's NotebookEdit output for the PostToolUse hooks (new_source, old_source for a
  * replace or a delete, cell_id, cell_type, language, edit_mode, error, notebook_path, original_file, updated_file; the two
@@ -1468,10 +1473,13 @@ export async function toolNotebookEdit(a0) {
   if (await brokenLinkOnTheWay(abs)) fail("Refusing to write " + rel + ": where it leads on disk could not be determined (a link on the way could not be examined, or the links do not resolve).");
   if (!held) fail(EDIT_NOT_READ);
   const { u, bom, text, eol } = editBody(held.buf);
+  // A NOTEBOOK BEHIND A BYTE-ORDER MARK (UTF-8's, or UTF-16LE's): not JSON to Claude Code's NotebookEdit, which keeps the mark in
+  // the text it parses (tried, 2026-11-17: both refused, "Notebook is not valid JSON.", after its hooks); so too here.
+  if (u || bom) fail(NOT_JSON);
   const r = editNotebook(text, a);
   if (r.error) fail(r.error);
-  const outText = (bom ? "﻿" : "") + (eol === "\r\n" ? r.text.replace(/\n/g, "\r\n") : r.text);
-  const bytes = u === "le" ? Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(outText, "utf16le")]) : Buffer.from(outText, "utf8");
+  // (Saved as UTF-8 in the notebook's own line endings, as Claude Code saves it: tried with Windows line endings, 2026-11-17.)
+  const bytes = Buffer.from(eol === "\r\n" ? r.text.replace(/\n/g, "\r\n") : r.text, "utf8");
   // (A notebook it could not read again afterwards is not saved: Claude Code's own limit and words.)
   if (bytes.length > NOTEBOOK_EDIT_MAX) fail(NOTEBOOK_WOULD_BE_TOO_BIG);
   await writeOver(abs, bytes, rel);
@@ -1485,6 +1493,21 @@ export async function toolNotebookEdit(a0) {
   if (a.facts !== true) return answer;
   const kept = (x) => (x.length <= FACTS_TEXT_MAX ? x : null);
   return { text: answer, facts: { new_source: r.newSource, ...(r.oldSource !== undefined ? { old_source: r.oldSource } : {}), ...(r.cellId ? { cell_id: r.cellId } : {}), cell_type: r.cellType, language: r.language, edit_mode: r.mode, error: "", notebook_path: abs, original_file: kept(text), updated_file: kept(r.text) } };
+}
+
+/**
+ * A NOTEBOOK CELL AS IT IS NOW, FOR THE CARD THAT ASKS ABOUT ITS REPLACE OR DELETE (Claude Code's dialog, coder-notebook.mjs
+ * cellBefore), for Coder's app only (no tool Grok has): JSON, { source } or { why } in Claude Code's words (not a file or not
+ * readable, over 100 MB, not parsed, the cell not there).
+ */
+export async function toolNotebookCell({ notebook_path, cell_id } = {}) {
+  try {
+    const { abs } = await inside(String(notebook_path || ""), { tool: "notebook_edit" });
+    const st = await stat(abs);
+    if (!st.isFile()) return JSON.stringify({ why: CARD_UNREADABLE });
+    if (st.size > NOTEBOOK_EDIT_MAX) return JSON.stringify({ why: CARD_TOO_BIG });
+    return JSON.stringify(cellBefore((await readFile(abs)).toString("utf8"), typeof cell_id === "string" ? cell_id : ""));
+  } catch { return JSON.stringify({ why: CARD_UNREADABLE }); }
 }
 
 /**
@@ -2236,7 +2259,7 @@ export async function toolSendFile({ path }) {
  */
 export const errorLine = (e) => { const m = String((e && e.message) || e); return "error: " + (e && e.whole === true ? m : m.slice(0, e && e.long === true ? 4000 : 600)); };
 
-export const TOOLS = { page_file: toolPageFile, save_file: toolSaveFile, send_file: toolSendFile, ps_parse: toolPsParse, save_picture: toolSavePicture, fit_picture: toolFitPicture, lsp: toolLsp, lsp_file: toolLspFile, lsp_take: toolLspTake, read: toolRead, write: toolWrite, edit: toolEdit, notebook_edit: toolNotebookEdit, file_check: toolFileCheck, grep: toolGrep, glob: toolGlob, web_fetch: toolWebFetch, mtimes: toolMtimes, listing: toolListing, changed: toolChanged, seen: toolSeen, snap: toolSnap, snapdiff: toolSnapDiff, http_hook: toolHttpHook, stamps: toolStamps, ws_watch: toolWsWatch };
+export const TOOLS = { page_file: toolPageFile, save_file: toolSaveFile, send_file: toolSendFile, ps_parse: toolPsParse, save_picture: toolSavePicture, fit_picture: toolFitPicture, lsp: toolLsp, lsp_file: toolLspFile, lsp_take: toolLspTake, read: toolRead, write: toolWrite, edit: toolEdit, notebook_edit: toolNotebookEdit, notebook_cell: toolNotebookCell, file_check: toolFileCheck, grep: toolGrep, glob: toolGlob, web_fetch: toolWebFetch, mtimes: toolMtimes, listing: toolListing, changed: toolChanged, seen: toolSeen, snap: toolSnap, snapdiff: toolSnapDiff, http_hook: toolHttpHook, stamps: toolStamps, ws_watch: toolWsWatch };
 
 // Run as a command: node coder-tools.mjs <base64 of {"tool": ..., "args": {...}}>
 if (process.argv[1] && import.meta.url === "file://" + process.argv[1]) {
