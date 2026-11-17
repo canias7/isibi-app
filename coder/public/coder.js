@@ -136,7 +136,9 @@
     try {
       // A FILE'S OWN BYTES (Gloopy's attachments, 2026-11-09): sent as they are, with the file's name.
       const raw = init && init.raw ? init.raw : null;
-      r = await fetch(API + path, { ...(init || {}), ...(raw ? { body: raw } : {}), headers: { Authorization: 'Bearer ' + token, 'x-coder-proof': window.Auth.proof(), ...(raw ? { 'content-type': raw.type || 'application/octet-stream', 'x-file-name': encodeURIComponent(raw.name || 'file') } : init && init.body ? { 'content-type': 'application/json' } : {}) } });
+      // (`limit`: a look that gets no answer in time ends as an error, so the page asks again: 2026-11-17.)
+      const lim = init && init.limit && typeof AbortSignal !== 'undefined' && AbortSignal.timeout ? { signal: AbortSignal.timeout(init.limit) } : {};
+      r = await fetch(API + path, { ...(init || {}), ...lim, ...(raw ? { body: raw } : {}), headers: { Authorization: 'Bearer ' + token, 'x-coder-proof': window.Auth.proof(), ...(raw ? { 'content-type': raw.type || 'application/octet-stream', 'x-file-name': encodeURIComponent(raw.name || 'file') } : init && init.body ? { 'content-type': 'application/json' } : {}) } });
     } catch (e) { return { status: 0, data: { error: (GLOOPY ? 'Gloopy' : 'Coder') + ' could not be reached. Check your connection.' } }; }
     // A FILE TO SAVE (a read-only chat's patch, owner item 5): handed back whole when it came.
     if (r.ok && typeof (init || {}).file === 'string') return { status: r.status, data: {}, blob: await r.blob(), name: (/filename="([^"]+)"/.exec(r.headers.get('content-disposition') || '') || [])[1] || init.file };
@@ -1692,8 +1694,18 @@
     if (!d) return false;
     return !!(d.ending || S.ending || (Array.isArray(d.events) && d.events.some((e) => e && (e.type === 'text' || e.type === 'done'))));
   }
+  // How long one look at a running chat may wait for its answer (a save in the Worker takes seconds; GitHub at most ~1 minute).
+  const POLL_LIMIT_MS = 90000;
   function stopPoll() { if (S.poll) clearTimeout(S.poll); S.poll = 0; }
+  // THE LOOK THAT NEVER STOPS FOR GOOD (2026-11-17, group 1's "stuck" chat: the job was over in 25 s, but the page showed it
+  // working for 15 minutes, until the next message started a new look): a look that hung (no answer) or threw while drawing
+  // ended the loop. Now each look has a time limit (POLL_LIMIT_MS), and the next one is always set while the chat runs.
   async function tick() {
+    try { await tickOnce(); }
+    catch (e) { try { console.log('coder: look failed: ' + String((e && e.message) || e).slice(0, 200)); } catch (x) {} }
+    finally { if (S.running && S.project && !S.poll) S.poll = setTimeout(tick, POLL_MS); }
+  }
+  async function tickOnce() {
     S.poll = 0;
     if (!S.project || !S.running) return;
     const id = S.project.id;
@@ -1702,7 +1714,7 @@
     // (`early`: the job's answer is shown as soon as its machine has it, before the turn is saved: 2026-11-15.)
     // (2026-11-16: `early` only until the answer is shown; then `turn`, so a save finished in the background is told: its lines,
     // or the queued message it started.)
-    const r = await call('/projects/' + encodeURIComponent(id) + '/state?since=' + S.next + seen + (S.ending ? '&turn=' + (Number(S.project.turn) || 0) : '&early=1'));
+    const r = await call('/projects/' + encodeURIComponent(id) + '/state?since=' + S.next + seen + (S.ending ? '&turn=' + (Number(S.project.turn) || 0) : '&early=1'), { limit: POLL_LIMIT_MS });
     if (!S.project || S.project.id !== id) return;
     // AFTER ERRORS THE PAGE ASKS LESS OFTEN (the audit), and says so after a few.
     if (r.status !== 200) {

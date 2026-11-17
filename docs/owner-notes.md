@@ -4,6 +4,10 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-17: The "stuck" chat was the page, not the server
+
+In group 1, message 2's job finished in about 25 seconds, but the page kept showing it working until the test script gave up at 900 seconds and sent the next message, which the server started at once. The page's check loop could stop for good if one request never answered or drawing the chat threw an error. Now each check has a 90-second limit and the next check is always set while the chat runs. Tests: `coder/test/poll-never-stops.test.mjs`.
+
 ## 2026-11-17: Pull requests like Claude Code (groups 3 and 4 fixes)
 
 Found in the side-by-side test. Not the GitHub app's permissions: Coder's own gateway blocks GitHub's GraphQL (as Claude Code's cloud does), and GitHub can only mark a pull request ready or resolve a thread through GraphQL. Claude Code uses its own GitHub tools for that, so Coder now has one too:
