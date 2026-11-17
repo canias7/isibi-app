@@ -1932,7 +1932,7 @@ export function gitAway(out) {
   const line = String(out || "").split("\n").map((l) => l.trim()).find(Boolean);
   return line ? line.replace(/^(?:fatal|error):\s*/i, "").slice(0, 120) : "no answer";
 }
-async function gitNet(dir, args, o, waits = GIT_NET_WAITS) {
+export async function gitNet(dir, args, o, waits = GIT_NET_WAITS) {
   let r = await gitIn(dir, args, o);
   for (const ms of waits) {
     if (r.code === 0 || !gitBusy(r.output)) return r;
