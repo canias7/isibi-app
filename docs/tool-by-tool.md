@@ -643,4 +643,5 @@ Byte-for-byte check: the 7 edits Claude Code made on `before.ipynb`, and the 2 o
 2. A notebook that isn't valid JSON (or has a UTF-8 byte-order mark): Claude Code's Read refuses it ("Notebook file is not valid
    JSON (it may be truncated, corrupted, or still being written): …"); Coder's read shows it as plain text, which counts as read.
 
-**Live test:** not yet (needs the coder2 copy deployed and your sign-in code).
+**Live test:** not done. coder2.gofarther.dev has it (deploy 223), but a chat there needs GitHub, which the gofarther-coder app
+doesn't allow for coder2 yet (its callback URL list has only the live address). The owner: "dont worry about it then".

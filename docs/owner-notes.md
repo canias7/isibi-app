@@ -31,7 +31,10 @@ This is on this chat's branch only (`claude/sweet-bohr-9xdj4f`), for the coder2.
   1. Claude Code's read shows notebooks in a different layout.
   2. Claude Code's read refuses a broken notebook; Coder's shows it as plain text.
 - **Tests:** NB1 to NB9, plus 9 older tests updated. The full suite: 1328 pass, 4 skipped, 0 fail.
-- **Not tried live yet.** Next: deploy to coder2.gofarther.dev and try it there with Grok on Low.
+- **Deployed to coder2.gofarther.dev (deploy 223), not tried live.**
+  - I signed in there as cristiananias7, but a chat needs GitHub connected, and Coder's GitHub app only allows the live address to connect.
+  - To connect GitHub on coder2 later: add `https://coder2.gofarther.dev/api/coder/github/callback` as a callback URL in the gofarther-coder app's settings on GitHub, then press Connect GitHub on coder2 once.
+  - Your word: "dont worry about it then".
 
 ## 2026-11-17: A third test copy at coder2.gofarther.dev, for the Claude Code docs work (your words: "make a copy of it, and we're gonna add stuff ... so it doesn't mix with main. Don't merge to main")
 
