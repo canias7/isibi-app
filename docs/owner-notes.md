@@ -16,7 +16,7 @@ log (81,000 lines) is in git history.
 
 Still different, for you to decide: Coder's other connector tools still put that "(This came from the connector…)" line before their answers. Claude Code doesn't.
 
-Tests: MR11 and MR12 are new, and MR1 to MR10 cover the changes. PA1, TP1, TS2 and TS29 list the new tool.
+Tests: MR11 and MR12 are new, and MR1 to MR10 cover the changes. PA1, TP1, TS2 and TS29 list the new tool. All 1,345 pass. On this chat's branch, deployed to coder2 (deploy 245). Not tried in a live chat: coder2's GitHub sign-in still doesn't work.
 
 ## 2026-11-17: Coder can list and read a connector's resources, like Claude Code (your words: "yes build it like claude code")
 

@@ -868,4 +868,5 @@ tried):
 to an MCP tool's answer either.
 
 **Tests:** MR1–MR12 (`coder/test/mcp-resources.test.mjs`: the relay end to end through the Worker, the kept lists, the third tool,
-the rules); PA1, TP1, TS2 and TS29 updated for the third tool.
+the rules); PA1, TP1, TS2 and TS29 updated for the third tool. The full suite: 1345 pass, 4 skipped, 0 fail. Deployed to coder2
+(deploy 245); not tried in a live chat (coder2's GitHub sign-in).
