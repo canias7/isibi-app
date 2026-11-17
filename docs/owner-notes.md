@@ -4,6 +4,12 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-17: Retest of groups 1-3: two small fixes
+
+Groups 1, 2 and 3 were re-run live with Grok on the new version and recorded. Two things were found and fixed:
+- The new pull request steps (mark ready, comment, reply, resolve) all worked on GitHub, but the page showed a red ✕: the machine dropped the server's "it worked" flag. Now kept.
+- The Undo button in the changed-files box said "b.txt is back as it was" for a file it deleted. It now says "b.txt removed", like the Undo-the-last-job line.
+
 ## 2026-11-17: Live stream for the chat, like Claude Code's page
 
 The owner: "can we do it this way". The page no longer asks "anything new?" every second. It opens one live connection (`/api/coder/projects/:id/stream`), and the Worker sends each new step down it as soon as the machine has it. The machine's `/state` can now wait up to 25 seconds for news (`wait`), so steps show up straight away. A stream ends when the job is over, or after 5 minutes; the page opens the next one at once, drops one that has been silent for 70 seconds, and goes back to the old checks after 3 failed streams (or when the server has no stream). Same page in the desktop and phone apps, so they get it too. Gloopy still uses the checks. Tests: `coder/test/poll-never-stops.test.mjs`.

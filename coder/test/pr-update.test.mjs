@@ -81,3 +81,21 @@ test("undo: a file the job had made is said as removed", () => {
   const sv = readFileSync(new URL("../container/server.mjs", import.meta.url), "utf8");
   assert.match(sv, /"--name-status", "--no-renames"/);
 });
+
+test("the machine keeps the server's ok, so a pr_update or pr_comments that worked shows ✓, not ✕ (live, 2026-11-17)", async () => {
+  const { envCaller } = await import("../container/coder-envtools.mjs");
+  const fetchFn = async () => new Response(JSON.stringify({ ok: true, text: "Pull request #30 is now ready for review." }), { status: 200 });
+  const call = envCaller({ url: "https://x/api/coder/model", headers: {} }, fetchFn);
+  assert.deepEqual(await call({ action: "pr_update", op: "ready" }), { ok: true, text: "Pull request #30 is now ready for review." });
+  const plain = envCaller({ url: "https://x/api/coder/model", headers: {} }, async () => new Response(JSON.stringify({ text: "x" }), { status: 200 }));
+  assert.deepEqual(await plain({ action: "get" }), { text: "x" });
+});
+
+test("the files box's Undo names a file it deleted as removed (live, 2026-11-17)", () => {
+  const sv = readFileSync(new URL("../container/server.mjs", import.meta.url), "utf8");
+  assert.match(sv, /restored\.push\(rel\); removed\.push\(rel\);/);
+  assert.match(sv, /return \{ ok: true, restored, skipped, \.\.\.\(removed\.length \? \{ removed \} : \{\}\) \};/);
+  const w = readFileSync(new URL("../src/coder-routes.mjs", import.meta.url), "utf8");
+  assert.match(w, /undoLine\("Undid this turn's changes", restored, savedTo, removedFiles\)/);
+  assert.equal(undoLine("Undid this turn's changes", ["undo-test/b.txt"], "saved to the branch b", ["undo-test/b.txt"]), "Undid this turn's changes: undo-test/b.txt removed. Saved to the branch b.");
+});

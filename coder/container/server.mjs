@@ -2389,7 +2389,7 @@ export function restorePathOk(p) {
  * staged; the caller commits them. Returns { ok, restored, skipped } or { ok: false, why }.
  */
 export async function restoreTracked(dir, items, o) {
-  const restored = [], skipped = [];
+  const restored = [], skipped = [], removed = [];
   const parents = new Map();
   const real = async (rel) => {
     // Every folder on the way a real folder (never a link), and the file itself a plain one with one name, or not there.
@@ -2433,7 +2433,7 @@ export async function restoreTracked(dir, items, o) {
       if (!head || head.absent) { skipped.push(rel); continue; }
       const rm = await gitIn(dir, ["--literal-pathspecs", "rm", "-q", "-f", "--ignore-unmatch", "--", rel], o);
       if (rm.code !== 0) { skipped.push(rel); continue; }
-      restored.push(rel);
+      restored.push(rel); removed.push(rel);
       continue;
     }
     const same = await gitIn(dir, ["--literal-pathspecs", "diff", "--quiet", "--no-ext-diff", "--no-textconv", par, "--", rel], o);
@@ -2442,7 +2442,7 @@ export async function restoreTracked(dir, items, o) {
     if (co.code !== 0) { skipped.push(rel); continue; }
     restored.push(rel);
   }
-  return { ok: true, restored, skipped };
+  return { ok: true, restored, skipped, ...(removed.length ? { removed } : {}) };
 }
 
 // ── THE MEMORY FILE, READ AND WRITTEN SAFELY ─────────────────────────────────
@@ -5444,7 +5444,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         const p = await pushRepo({ dir, repo: String(body.repo || ""), branch: String(body.branch || "coder/" + project), message: "", ...gitFrom(body, { via: gitVia, remote }), gitRoot, root, noPush });
         const told = p.left ? { left: p.left } : {};
         if (!p.ok) return send(502, { ok: false, why: p.why, ...told });
-        return send(200, { ok: true, sha: p.sha || "", restored: r.restored, skipped: r.skipped, ...told });
+        return send(200, { ok: true, sha: p.sha || "", restored: r.restored, skipped: r.skipped, ...(r.removed ? { removed: r.removed } : {}), ...told });
         } finally { go(); }
       }
       // A READ-ONLY CHAT'S CHANGES AND ITS PATCH FILE (owner item 5): from this machine's own git, the only place they are.

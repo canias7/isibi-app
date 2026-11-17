@@ -2420,7 +2420,7 @@ export async function handleCoder(request, env, ctx, deps) {
     // LIKE CLAUDE CODE'S CHECKPOINTS (the owner, 2026-11-13): only the files Coder's file tools changed go back (restorePlan);
     // a chat with jobs from before then reverts the later jobs whole, as before.
     const plan = code && later.length ? restorePlan(commits, turn) : null;
-    let restored = null, skippedFiles = [], restoreLeft = "";
+    let restored = null, skippedFiles = [], restoreLeft = "", removedFiles = [];
     if (code && later.length && plan && !plan.items.length) restored = [];
     else if (code && later.length && plan) {
       const t = await userToken(env, bucket, uid, { fetchFn });
@@ -2430,6 +2430,7 @@ export async function handleCoder(request, env, ctx, deps) {
       catch { r = { ok: false, why: "Coder's machine could not be reached" }; }
       if (!r || !r.ok) return json({ error: "Could not restore the code: " + String((r && (r.why || r.error)) || "unknown").slice(0, 300) }, 409);
       restored = Array.isArray(r.restored) ? r.restored.filter((x) => typeof x === "string") : [];
+      removedFiles = Array.isArray(r.removed) ? r.removed.filter((x) => typeof x === "string") : [];
       skippedFiles = Array.isArray(r.skipped) ? r.skipped.filter((x) => typeof x === "string") : [];
       restoreLeft = leftOutNote(r.left);
       commits = commits.filter((c) => !later.includes(c));
@@ -2456,7 +2457,7 @@ export async function handleCoder(request, env, ctx, deps) {
     const savedTo = meta.readOnly ? "kept on Coder's machine" : "saved to the branch " + meta.branch;
     const codeSaid = !code ? "" : restored ? (restored.length ? "the code is back as it was (" + restored.length + " file" + (restored.length === 1 ? "" : "s") + " restored, " + savedTo + "; files only commands changed stay as they are)" : "the code had no changes to restore") : later.length ? "the code is back as it was (" + undone + " job" + (undone === 1 ? "" : "s") + " undone, saved to the branch " + meta.branch + ")" : "the code had no later changes";
     // (The changed-files box's Undo button reads like an undo, not a rewind: live side-by-side, 2026-11-17.)
-    const undoSaid = !asUndo ? "" : restored && restored.length ? undoLine("Undid this turn's changes", restored, savedTo) : restored ? "Nothing to undo: this turn's changes were already gone." : later.length ? undoLine("Undid this turn's changes", later.flatMap((c) => (Array.isArray(c.edited) ? c.edited : [])), "saved to the branch " + meta.branch) : "Nothing to undo: this turn changed no files.";
+    const undoSaid = !asUndo ? "" : restored && restored.length ? undoLine("Undid this turn's changes", restored, savedTo, removedFiles) : restored ? "Nothing to undo: this turn's changes were already gone." : later.length ? undoLine("Undid this turn's changes", later.flatMap((c) => (Array.isArray(c.edited) ? c.edited : [])), "saved to the branch " + meta.branch) : "Nothing to undo: this turn changed no files.";
     const note = undoSaid ? undoSaid + (skippedFiles.length ? " " + restoreSkipped(skippedFiles) : "") + (restoreLeft ? " · " + restoreLeft : "") : "Rewound to before an earlier message: " + [codeSaid, chat ? "the chat after it is gone" : ""].filter(Boolean).join("; ") + "." + (skippedFiles.length ? " " + restoreSkipped(skippedFiles) : "") + (restoreLeft ? " · " + restoreLeft : "");
     const ev = { at: Date.now(), type: "github", text: note };
     events = [...events, ev].slice(-MAX_EVENTS);
