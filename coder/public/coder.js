@@ -3378,7 +3378,7 @@
       (p ? '<button type="button" class="cd-hbtn" id="cdChanges"' + (S.showChanges ? ' aria-pressed="true"' : '') + '>See changes</button>' : '') +
       // PUSH (owner, 2026-11-16, like Claude Code's cloud sessions): each message's work is committed on Coder's machine; this
       // sends what GitHub does not have yet to the chat's branch.
-      (p && !p.readOnly && Number(p.unpushed) > 0 ? '<button type="button" class="cd-hbtn" id="cdPush" title="Coder committed this work on its machine. Push sends it to the branch ' + esc(p.branch) + ' on GitHub."' + (S.running || S.sending || S.pushing ? ' disabled' : '') + '>' + (S.pushing ? 'Pushing…' : 'Push · ' + Number(p.unpushed) + ' unpushed') + '</button>' : '') +
+      (p && !p.readOnly && Number(p.unpushed) > 0 ? '<button type="button" class="cd-hbtn" id="cdPush" title="Coder pushes after each turn that changes files, but this push did not go through, so the work is only on Coder\'s machine. Push sends it to the branch ' + esc(p.branch) + ' on GitHub."' + (S.running || S.sending || S.pushing ? ' disabled' : '') + '>' + (S.pushing ? 'Pushing…' : 'Push · ' + Number(p.unpushed) + ' unpushed') + '</button>' : '') +
       (p && RPANEL ? '<button type="button" class="cd-rp-tog" id="cdRpToggle" aria-label="' + (rpOpen() ? 'Hide' : 'Show') + ' the side panel" title="' + (rpOpen() ? 'Hide' : 'Show') + ' the side panel" aria-pressed="' + rpOpen() + '">' + META_ICON.panel + '</button>' : '') +
     '</div>' +
     (S.showChanges ? changesHTML() : '') + (S.showEnv ? envHTML() : '');

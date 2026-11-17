@@ -302,25 +302,16 @@ test("CD10 the routes: connect GitHub, list repos, a project per repo, a turn, t
     let got;
     for (let i = 0; i < 80; i++) { got = await (await go("projects/" + id + "/state?since=0")).json(); if (got.project.status !== "running") break; await new Promise((r) => setTimeout(r, 50)); }
     assert.equal(got.project.status, "idle");
-    // COMMITTED ON CODER'S MACHINE, NOT PUSHED (owner, 2026-11-16): the turn ends without a push; the chat counts it.
+    // COMMITTED AND PUSHED AT THE TURN'S END (owner, 2026-11-17, like Claude Code on the web), and the chat says so.
     assert.equal(got.project.pr, null);
-    assert.equal(got.project.pushed, false);
-    assert.equal(got.project.unpushed, 1);
-    assert.ok(got.project.unpushedSince > 0);
+    assert.equal(got.project.pushed, true);
+    assert.equal(got.project.unpushed, 0);
     assert.equal(got.project.commits.length, 1);
-    assert.equal(got.project.commits[0].local, true);
-    assert.throws(() => git(bare, "show", "coder/" + id + ":index.html"), "nothing reached GitHub yet");
-    assert.ok(!got.events.some((e) => e.type === "github" && /to the branch coder\//.test(e.text)));
-    // THE PUSH BUTTON sends it, and the chat says "Pushed to the branch".
-    const pu = await (await go("projects/" + id + "/push", { method: "POST", body: "{}" })).json();
-    assert.equal(pu.ok, true);
-    assert.equal(pu.project.unpushed, 0);
-    assert.equal(pu.project.pushed, true);
-    assert.equal(pu.project.commits[0].local, undefined);
+    assert.equal(got.project.commits[0].local, undefined);
     assert.equal(git(bare, "show", "coder/" + id + ":index.html"), "<h1>Hi</h1>\n");
     assert.equal(git(bare, "log", "-1", "--format=%s", "coder/" + id).trim(), "Made index.html.");
     const saved = await (await go("projects/" + id)).json();
-    assert.equal(saved.events.at(-1).text, "Pushed to the branch coder/" + id);
+    assert.ok(saved.events.some((e) => e.text === "Pushed to the branch coder/" + id));
     // (Pushed again with nothing new: nothing changes.)
     const again = await (await go("projects/" + id + "/push", { method: "POST", body: "{}" })).json();
     assert.deepEqual([again.ok, again.pushed, again.project.unpushed], [true, false, 0]);

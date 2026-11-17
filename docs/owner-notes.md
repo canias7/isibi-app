@@ -4,6 +4,10 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-17: Coder pushes after every answer that changed files
+
+Like Claude Code on the web: in your recording, after each answer that changed files Claude commits and pushes to its branch by itself, so a later "push the branch" finds nothing to push. Coder now does the same. When a turn changed files, its work is committed and pushed to the chat's branch, and the chat says "Pushed to the branch …". The push happens in the background after the answer is shown, so answers are not slower and the message box is free at once. A turn that changed nothing does not push. Read-only chats still keep their work on Coder's machine. The Push button now only shows if a push failed and work is waiting. Tests: push-later.test.mjs (PL2, PL3), save-speed.test.mjs (SV3), claude-parity.test.mjs.
+
 ## 2026-11-17: The "environment changed" line says what changed
 
 A hidden check on the live site showed the line was true: the network really changed (a host Coder proposed was approved on its card). It just did not say what. Now it names it, for example "The environment changed: now also allows ipv4.icanhazip.com". The hidden check is removed again. Tests: list-and-env-note.test.mjs (LE4).

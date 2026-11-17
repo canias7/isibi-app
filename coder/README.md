@@ -678,14 +678,22 @@ code in **each user's own GitHub**.
    that can't ask ("Permission to use Bash has been denied. …", `noPromptDenied`; no checker ran), the chat
    "Not run: auto mode is off in your settings, …" (`AUTO_OFF_GITHUB`, CD568). Test CD370 and
    `test/rewind-restore.test.mjs`.
-4. When a job ends, Coder commits its work on its machine (fast, no network),
-   and the turn is done. The branch is **pushed** at a stopping point, as Claude
-   Code's cloud sessions do (owner, 2026-11-16): when Coder calls `push_branch`,
+4. When a job that changed files ends, Coder commits its work and **pushes**
+   it to the chat's branch (owner, 2026-11-17, like Claude Code on the web,
+   whose chat shows "Hook re-prompted Claude, ran a command" and commits and
+   pushes after each answer that changed files; its docs: "when Claude reaches
+   a stopping point, it pushes its branch to GitHub"). `pushWanted` is true
+   unless the machine says the turn changed nothing (`dirty: false`). The push
+   runs in the turn's save, which the page starts in the background once the
+   answer is shown (`early`/`ending`), so it never delays the answer or the
+   message box. A turn that changed nothing does not push. Read-only chats keep
+   their work on the machine; jobs from GitHub push as before. The branch is
+   also pushed mid-turn when Coder calls `push_branch`, before a pull request
+   opens, before a chat is deleted, and, for commits left after a failed push,
    when the owner presses **Push** (shown next to See changes as "Push · N
-   unpushed"), before a pull request opens, at the end of any job from GitHub
-   (auto-fix, `@coder`, a review), before a chat is deleted, and as a safety net
-   in the background after a turn once 5 commits (`PUSH_AFTER_COMMITS`) or 30
-   minutes (`PUSH_AFTER_MS`) are waiting. The chat then says "Pushed to the
+   unpushed", only while something is unpushed) or by the safety net in the
+   background after a turn once 5 commits (`PUSH_AFTER_COMMITS`) or 30 minutes
+   (`PUSH_AFTER_MS`) are waiting. The chat then says "Pushed to the
    branch …". See changes shows unpushed work from the machine. The machine's
    record keeps the count, so Fly.io's monthly reclaim never removes a disk with
    unpushed commits. A **pull request**

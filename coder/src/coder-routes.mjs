@@ -198,15 +198,20 @@ export function checkImages(list) {
 // work goes back to GitHub "only when your GitHub connection has push access"): what the chat says.
 export const keptNote = (repo) => "Kept on Coder's machine (you can read " + repo + " but not push to it, so nothing went to GitHub). See changes shows it, and downloads it as a patch file.";
 export const noPrNote = (repo) => "No pull request: you can read " + repo + " but not push to it, so Coder cannot open one there.";
-// ── PUSHED AT A STOPPING POINT (owner, 2026-11-16, like Claude Code's cloud sessions) ─────────────────────────────────
-/** The safety net: unpushed commits are pushed in the background after a turn once there are this many… */
+// ── PUSHED AT THE END OF EVERY TURN THAT CHANGED FILES (owner, 2026-11-17; was a stopping point, 2026-11-16) ─────────────────────────────────
+/** The safety net (for commits left after a failed push): pushed in the background after a turn once there are this many… */
 export const PUSH_AFTER_COMMITS = 5;
 /** …or once the oldest has waited this long. */
 export const PUSH_AFTER_MS = 30 * 60 * 1000;
-/** Does this turn's end push the branch at once? Coder's push_branch, a pull request or review to post, or a job from GitHub. */
+/**
+ * Does this turn's end push the branch? (owner, 2026-11-17, like Claude Code on the web, whose chat shows "Hook re-prompted
+ * Claude, ran a command" and commits and pushes after each answer that changed files): ANY turn that changed files (the
+ * machine says `dirty: false` only when it is sure nothing changed), Coder's push_branch, a pull request or review to post,
+ * or a job from GitHub. The push runs in the turn's save, which the page starts in the background once the answer is shown.
+ */
 export function pushWanted(result, meta) {
   const r = result && typeof result === "object" ? result : {};
-  return r.push === true || !!r.prRequest || (Array.isArray(r.prExtra) && r.prExtra.length > 0) || !!r.reviewPost || (Array.isArray(r.reviewReplies) && r.reviewReplies.length > 0) || !!r.autofixRequest || !!(meta && meta.jobFromGithub === true);
+  return r.dirty !== false || r.push === true || !!r.prRequest || (Array.isArray(r.prExtra) && r.prExtra.length > 0) || !!r.reviewPost || (Array.isArray(r.reviewReplies) && r.reviewReplies.length > 0) || !!r.autofixRequest || !!(meta && meta.jobFromGithub === true);
 }
 /** Is the safety net's background push due for this chat (never a read-only one)? */
 export function safetyPushDue(meta, now = Date.now()) {

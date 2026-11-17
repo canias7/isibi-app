@@ -85,8 +85,12 @@ test("PL2 the Worker's rules: which turn ends push, the safety net's defaults, w
   // auto-fix asked for, and any job from GitHub.
   for (const r of [{ push: true }, { prRequest: { title: "x" } }, { prExtra: [{ repo: "a/b" }] }, { reviewPost: { body: "x" } }, { reviewReplies: [{ id: 1 }] }, { autofixRequest: { pr: "1" } }]) assert.equal(R.pushWanted(r, {}), true, JSON.stringify(r));
   assert.equal(R.pushWanted({}, { jobFromGithub: true }), true);
-  assert.equal(R.pushWanted({ summary: "done" }, {}), false, "an ordinary turn only commits");
-  assert.equal(R.pushWanted({ prExtra: [] }, {}), false);
+  // (owner, 2026-11-17, like Claude Code on the web) EVERY turn that changed files pushes; only a turn the machine is sure
+  // changed nothing (`dirty: false`) and asked nothing of GitHub does not.
+  assert.equal(R.pushWanted({ summary: "done" }, {}), true, "a turn that changed files (or may have) pushes");
+  assert.equal(R.pushWanted({ summary: "done", dirty: false }, {}), false, "a turn that changed nothing does not");
+  assert.equal(R.pushWanted({ prExtra: [], dirty: false }, {}), false);
+  assert.equal(R.pushWanted({ dirty: false, push: true }, {}), true);
   // The safety net.
   const now = 10_000_000_000;
   assert.equal(R.safetyPushDue({ unpushed: 0 }, now), false);
@@ -192,7 +196,8 @@ test("PL3 the Worker's routes: Push, Create PR and deleting a chat push its unpu
   // Coder's tool and its one line in the system prompt.
   const A = await import("../container/coder-agent.mjs");
   assert.ok(A.CODER_TOOLS.some((t) => t.function.name === "push_branch"));
-  assert.match(A.CODER_SYSTEM, /\n- Pushing: your changes are committed on your machine when each turn ends; call push_branch when the work reaches a stopping point or the owner asks to push \(it pushes at once\)\. pull_request pushes and opens the pull request at once too\.\n/);
+  assert.match(A.CODER_SYSTEM, /\n- Pushing: when a turn that changed files ends, your changes are committed and pushed to the chat's branch for you \(no need to push yourself\)\. Call push_branch only to push in the middle of a turn/);
+  assert.doesNotMatch(A.CODER_SYSTEM, /committed on your machine when each turn ends/);
   const steps = [{ message: { role: "assistant", content: "", tool_calls: [{ id: "p1", type: "function", function: { name: "push_branch", arguments: "{}" } }] }, usage: { in: 1, out: 1 } }, { message: { role: "assistant", content: "Pushed." }, usage: { in: 1, out: 1 } }];
   let i = 0;
   const done = await A.runCoder({ send: async () => steps[Math.min(i++, 1)], exec: async () => ({ code: 0, output: "" }) }, { text: "push it" });
