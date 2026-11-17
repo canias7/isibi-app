@@ -235,7 +235,7 @@ async function loop(dir, seenDir, steps, { mode = "acceptEdits", rules = {}, hoo
       if (!tm) return { code: 0, output: "ok\n" };
       const req = tm[1] === "@REQUEST" ? JSON.parse(x.payload) : JSON.parse(Buffer.from(tm[1], "base64").toString("utf8"));
       toolReqs.push(req);
-      const out = spawnSync(process.execPath, ["--no-warnings", TOOLS, Buffer.from(JSON.stringify(req)).toString("base64")], { cwd: dir, encoding: "utf8", env: { PATH: process.env.PATH, CODER_SEEN_DIR: seenDir } });
+      const out = spawnSync(process.execPath, ["--no-warnings", TOOLS, await asArg(req)], { cwd: dir, encoding: "utf8", env: { PATH: process.env.PATH, CODER_SEEN_DIR: seenDir }, maxBuffer: 64 << 20 });
       return { code: out.status, output: out.stdout };
     },
     emit: (e) => events.push(e), here: () => dir, root: dir, chatId: "nb", where: (p) => (p.startsWith("/") ? p : dir + "/" + p), seen: true,
@@ -243,6 +243,14 @@ async function loop(dir, seenDir, steps, { mode = "acceptEdits", rules = {}, hoo
   }, { text: "change the notebook", mode, messages: [], rules: { allow: [], ask: [], deny: [], ...rules }, ...(hooks ? { hooks: H.hooksFrom({ hooks }, "settings").list } : {}) });
   const told = (id) => ((r.messages.find((m) => m.role === "tool" && m.tool_call_id === id) || {}).content || "");
   return { r, events, hookCalls, toolReqs, told };
+}
+/** A request for the tools script as Coder's machine passes it: in a file when it is big (one argument tops out at 128 KB). */
+async function asArg(req) {
+  const b64 = Buffer.from(JSON.stringify(req)).toString("base64");
+  if (b64.length <= 100_000) return b64;
+  const f = join(await mkdtemp(join(tmpdir(), "coder-req-")), "req.json");
+  await writeFile(f, JSON.stringify(req));
+  return "@" + f;
 }
 const call = (name, args, id) => ({ id, type: "function", function: { name, arguments: JSON.stringify(args) } });
 const say = (content, calls = []) => ({ message: { role: "assistant", content, ...(calls.length ? { tool_calls: calls } : {}) }, usage: { in: 1, out: 1 } });
@@ -344,4 +352,66 @@ test("NB10 the double check against Claude Code's docs (2026-11-17): a Read deny
   assert.ok(race.hookCalls.some((h) => h.hook_event_name === "PostToolUseFailure" && h.tool_name === "NotebookEdit"), "told it failed");
   assert.ok(!race.hookCalls.some((h) => h.hook_event_name === "PostToolUse" && h.tool_name === "NotebookEdit"), "never told it worked");
   assert.equal(JSON.parse(await readFile(join(dir, "c.ipynb"), "utf8")).cells[2].source, "x + 1", "the cell not changed");
+});
+
+test("NB11 the third check against Claude Code (2026-11-17, the owner: \"CHECK AGAIN THE NOTEBOOK THING, AGAINST THE CLAUDE CODE DOCS PLS\"): 8 more cases tried on its real tool give the same files byte for byte (fixtures/notebook/third-check) and the same answers; a cell id is matched exactly; a read-only notebook is changed and stays read-only; a link is refused by the run; an answer past Claude Code's 100,000 characters is saved, in its words; a notebook in a protected folder asks first in any mode", async () => {
+  const third = (f) => readFileSync(new URL("./fixtures/notebook/third-check/" + f, import.meta.url), "utf8");
+  const base = fixture("before.ipynb"), old = fixture("old-before.ipynb");
+  const cases = [
+    ["same", base, { cell_id: "e5f6", new_source: "x + 1" }, "Updated cell e5f6 with x + 1"],
+    ["deltype", base, { cell_id: "rawcell", new_source: "ignored text", cell_type: "markdown", edit_mode: "delete" }, "Deleted cell rawcell"],
+    ["lastins", base, { cell_id: "rawcell", new_source: "after the last cell", cell_type: "markdown", edit_mode: "insert" }, "Inserted cell 3d6c64c0 with after the last cell"],
+    ["oldlast", old, { cell_id: "cell-3", new_source: "after cell-3", cell_type: "code", edit_mode: "insert" }, "Inserted a new cell with after cell-3"],
+    ["rawcell", base, { cell_id: "rawcell", new_source: "raw replaced, no type" }, "Updated cell rawcell with raw replaced, no type"],
+    ["ro", base, { cell_id: "e5f6", new_source: "read-only file" }, "Updated cell e5f6 with read-only file"],
+    ["empty", base, { cell_id: "e5f6", new_source: "" }, "Updated cell e5f6 with "],
+    ["mixed", third("mixed-before.ipynb"), { cell_id: "cell-3", new_source: "mixed: cell-3 has no id" }, "Updated cell cell-3 with mixed: cell-3 has no id"],
+  ];
+  for (const [name, start, args, said] of cases) {
+    const r = N.editNotebook(start, args, { newId: () => "3d6c64c0" });
+    assert.equal(r.said, said, name);
+    assert.equal(r.text, third(name + ".ipynb"), name + ": Claude Code's file, byte for byte");
+  }
+  assert.equal(N.editNotebook(base, { cell_id: " e5f6", new_source: "x" }).error, 'Cell with ID " e5f6" not found in notebook.', "an id matched exactly (tried)");
+  // On the machine: a read-only notebook changed, still read-only (Claude Code's, tried: -r--r--r-- after); a link refused by the run.
+  const { dir, seen } = await mk();
+  const run = tool(dir, seen);
+  const { chmod, stat: fstat } = await import("node:fs/promises");
+  await writeFile(join(dir, "ro.ipynb"), base);
+  await chmod(join(dir, "ro.ipynb"), 0o444);
+  run("read", { path: "ro.ipynb" });
+  assert.equal(run("notebook_edit", { notebook_path: "ro.ipynb", cell_id: "e5f6", new_source: "read-only file" }), "Updated cell e5f6 with read-only file");
+  assert.equal((await fstat(join(dir, "ro.ipynb"))).mode & 0o777, 0o444);
+  assert.equal(await readFile(join(dir, "ro.ipynb"), "utf8"), third("ro.ipynb"));
+  await writeFile(join(dir, "target.ipynb"), base);
+  await symlink(join(dir, "target.ipynb"), join(dir, "link.ipynb"));
+  run("read", { path: "link.ipynb" });
+  assert.equal(run("file_check", { tool: "notebook_edit", args: { notebook_path: "link.ipynb", cell_id: "e5f6" } }), "ok", "past the check before its hooks, as Claude Code's (its refusal came from its run)");
+  assert.match(run("notebook_edit", { notebook_path: "link.ipynb", cell_id: "e5f6", new_source: "x" }), /^error: Refusing to write link\.ipynb: it is a symbolic link\. Write to the link's target path instead: /);
+  // In a chat: a cell longer than Claude Code's inline limit, its answer saved and previewed in Claude Code's words.
+  const big = "x".repeat(N.NOTEBOOK_INLINE_MAX + 10);
+  await writeFile(join(dir, "big.ipynb"), base);
+  const saved = [];
+  const A2 = await import("../container/coder-agent.mjs");
+  let n = 0;
+  const steps = [say("", [call("read", { path: "big.ipynb" }, "r1")]), say("", [call("notebook_edit", { notebook_path: "big.ipynb", cell_id: "e5f6", new_source: big }, "n1")]), say("Done.")];
+  const r = await A2.runCoder({
+    send: async () => steps[Math.min(n++, steps.length - 1)],
+    exec: async (x) => { const tm = /coder-tools\.mjs (\S+)$/.exec(String(x.command)); if (!tm) return { code: 0, output: "ok\n" }; const req = tm[1] === "@REQUEST" ? JSON.parse(x.payload) : JSON.parse(Buffer.from(tm[1], "base64").toString("utf8")); const out = spawnSync(process.execPath, ["--no-warnings", TOOLS, await asArg(req)], { cwd: dir, encoding: "utf8", env: { PATH: process.env.PATH, CODER_SEEN_DIR: seen }, maxBuffer: 64 << 20 }); return { code: out.status, output: out.stdout }; },
+    emit: () => {}, here: () => dir, root: dir, chatId: "nb", where: (p) => (p.startsWith("/") ? p : dir + "/" + p), seen: true, toolSearch: "false",
+    saveText: (t) => { saved.push(t); return "/tmp/coder-out/notebook-answer.txt"; },
+  }, { text: "go", mode: "acceptEdits", messages: [], rules: { allow: [], ask: [], deny: [] } });
+  const told = (r.messages.find((m) => m.role === "tool" && m.tool_call_id === "n1") || {}).content || "";
+  assert.ok(told.startsWith("<persisted-output>\nOutput too large ("), told.slice(0, 80));
+  assert.match(told, /Full output saved to: \/tmp\/coder-out\/notebook-answer\.txt\n\nPreview \(first 2KB\):\nUpdated cell e5f6 with x/);
+  assert.equal(saved[0], "Updated cell e5f6 with " + big, "the whole answer saved");
+  // A notebook in a protected folder (.vscode): asked on a card first, in Accept edits too, as edit's (Claude Code: protected-path writes "Prompted").
+  await (await import("node:fs/promises")).mkdir(join(dir, ".vscode"));
+  await writeFile(join(dir, ".vscode", "nb.ipynb"), base);
+  const cards = [];
+  const t = await loop(dir, seen, [say("", [call("read", { path: ".vscode/nb.ipynb" }, "r1")]), say("", [call("notebook_edit", { notebook_path: ".vscode/nb.ipynb", cell_id: "e5f6", new_source: "x" }, "n1")]), say("Done.")], { mode: "acceptEdits", ask: async (pid) => { cards.push(pid); return { choice: "no" }; } });
+  const card = t.events.find((e) => e.type === "permission");
+  assert.ok(card && card.tool === "notebook_edit", "a card");
+  assert.deepEqual(card.change.lines, ["-x + 1", "+x"]);
+  assert.equal(JSON.parse(await readFile(join(dir, ".vscode", "nb.ipynb"), "utf8")).cells[2].source, "x + 1", "not changed: the owner said no");
 });

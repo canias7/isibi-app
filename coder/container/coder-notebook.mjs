@@ -212,5 +212,8 @@ export const CARD_UNPARSABLE = "the notebook could not be parsed for preview", C
 export const CARD_UNREADABLE = "the notebook could not be read", CARD_TOO_BIG = "the notebook is too large to preview";
 export const cardUnshown = (why, mode) => "Current cell contents cannot be shown (" + why + ") \u2014 the " + (mode === "delete" ? "deletion" : "edit") + " cannot be reviewed, so approval is one-time only (deny unless expected).";
 
+/** Its answer kept inline up to Claude Code's maxResultSizeChars for it (1e5 in its program); past that saved, with a preview. */
+export const NOTEBOOK_INLINE_MAX = 100_000;
+
 /** Its label in the chat (Claude Code's tool row, its own code: the notebook, then "@" and the cell when one is named). */
 export const notebookLabel = (a) => String((a && a.notebook_path) || "") + (a && typeof a.cell_id === "string" && a.cell_id ? "@" + a.cell_id : "");

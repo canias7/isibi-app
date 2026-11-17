@@ -39,7 +39,7 @@ import { safeCall, groupEnd, earlyRuns, RoundClosing, closedAs, interruptedNote,
 import { searchToolDef, GREP_INLINE_MAX, GLOB_INLINE_MAX, SEARCH_TIMEOUT_MS, splitPattern, checkedAt } from "./coder-search.mjs";
 import { LSP_DESCRIPTION, LSP_PROPERTIES, LSP_REQUIRED, LSP_RESULT_MAX, needsKeeper, noticeText } from "./coder-lsp.mjs";
 // (Claude Code's NotebookEdit, as notebook_edit: the owner, 2026-11-17, "Yes build it".)
-import { NOTEBOOK_DESCRIPTION, NOTEBOOK_PROPERTIES, NOTEBOOK_REQUIRED, notebookLabel, cardUnshown, CARD_UNREADABLE } from "./coder-notebook.mjs";
+import { NOTEBOOK_DESCRIPTION, NOTEBOOK_PROPERTIES, NOTEBOOK_REQUIRED, NOTEBOOK_INLINE_MAX, notebookLabel, cardUnshown, CARD_UNREADABLE } from "./coder-notebook.mjs";
 import { WEB_SEARCH_TOOL, WEB_SEARCH_MODE_TOOL, WEB_SEARCH_NAME, SEARCH_UNGRANTED, searchDecision, searchAskText, searchBudget, searchMaxOf, searchRefillsOf, usedUpText, searchText, searchShown, runWebSearch, checkInput as checkSearchInput, searchModeTools, SEARCH_MODE_NOTE, hookParamsFor } from "./coder-websearch.mjs";
 // (Claude Code's task list: its TaskCreate, TaskGet, TaskList and TaskUpdate, in place of Coder's todo; the owner, 2026-11-14.)
 import { TASK_TOOLS, isTaskTool, checkTaskInput, readTasks, emptyTasks, createTask, findTask, deleteTask, updateTask, listTasks, createdText, createdFacts, getText, getFacts, updateText, listText, taskReminderDue, taskReminderNote, pageItems, TODO_WRITE_TOOL, TODO_WRITE_RESULT, checkTodoInput, readTodos, todoItems, todoReminderDue, todoReminderNote } from "./coder-tasks.mjs";
@@ -6682,6 +6682,15 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         let pics = [], thumbs = [], change = null, problems = [], problemsAll = 0;
         if (c.name === "read" && code === 0) ({ text: raw, pics, thumbs } = readAnswer(raw));
         if (writes && code === 0) { let diagnostics = ""; ({ text: raw, change, problems, problemsAll, diagnostics } = writeAnswer(raw)); if (diagnostics) roundNotes.push(diagnostics); }
+        // A NOTEBOOK EDIT'S LONG ANSWER, SAVED (Claude Code's NotebookEdit keeps its answer inline up to its maxResultSizeChars,
+        // 100,000 characters, read in its program; past that it saves it as it saves any tool's but Bash's, in its words: its
+        // "<persisted-output>", as web_fetch's: persistedText). Its answer holds the cell's new text, so only a very long cell
+        // comes to that. 2026-11-17, the third docs check.
+        if (notebook && code === 0 && typeof deps.saveText === "function" && raw.length > NOTEBOOK_INLINE_MAX) {
+          let f = "";
+          try { f = String(deps.saveText(raw) || ""); } catch { f = ""; }
+          if (f) raw = persistedText(raw, f);
+        }
         if (cwdSaid) raw = cwdSaid + raw;
         if (code === 0 && FILE_HOOK_TOOLS.has(c.name)) touch(toolProjectPath(deps, pathArg));
         if (code === 0 && writes) noteEdited(toolProjectPath(deps, pathArg));
@@ -6690,7 +6699,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // A read is never cut here (it gives whole lines up to READ_CHARS itself, like Claude Code's Read), nor a search (its
         // own limits and the saved file above, Claude Code's); other tools' output is, to MAX_OUTPUT_CHARS.
         // (An lsp answer goes whole up to Claude Code's 100,000 characters; past that it is saved and its start shown: coder-lsp.mjs.)
-        let out = capOutput(raw, c.name === "read" ? READ_LARGE_CHARS + 2000 : c.name === "lsp" ? LSP_RESULT_MAX + 2000 : search ? (c.name === "grep" ? GREP_INLINE_MAX : GLOB_INLINE_MAX) + 2000 : undefined);
+        let out = capOutput(raw, c.name === "read" ? READ_LARGE_CHARS + 2000 : c.name === "lsp" ? LSP_RESULT_MAX + 2000 : search ? (c.name === "grep" ? GREP_INLINE_MAX : GLOB_INLINE_MAX) + 2000 : notebook ? NOTEBOOK_INLINE_MAX + 2000 : undefined);
         if (pics.length) roundPics.push({ path: scrub(String(args.path || "")).slice(0, 200), urls: pics.map((x) => "data:" + x.type + ";base64," + x.data), id: c.id });
         // The chat keeps a step's output to MAX_OUTPUT_CHARS (the review, 2026-11-08: whole reads made its record heavy).
         // A picture read opened is shown in the chat, small, under the step (like Claude Code's).

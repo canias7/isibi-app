@@ -665,3 +665,23 @@ name notebooks or NotebookEdit; the cases the docs raise tried again on the real
 
 Tests: NB2, NB6 and NB8 changed, NB10 new; CD365, CD382b and CD325 changed (a NotebookEdit rule is now kept). The full suite: 1329
 pass, 4 skipped, 0 fail.
+
+**Third check** (the owner: "CHECK AGAIN THE NOTEBOOK THING, AGAINST THE CLAUDE CODE DOCS PLS"): the docs' passages on file edits in
+general that cover NotebookEdit without naming it, 10 more cases on the real tool, and its program for the rest.
+
+| | Claude Code | Coder |
+|---|---|---|
+| 8 more edits (the same text again; a delete with a type given; an insert after the last cell, with and without ids; a raw cell replaced with no type; an empty text; a read-only notebook; a notebook where only some cells have ids) | its files (`coder/test/fixtures/notebook/third-check`) | the same, byte for byte, the same answers |
+| A cell id with a space before it | `Cell with ID " e5f6" not found in notebook.` (matched exactly) | the same |
+| A read-only notebook | changed, stays read-only | the same |
+| A link | refused by its run, after its hooks: "Refusing to write …: it is a symbolic link. Write to the link's target path instead: …" | the same (the path as the project names it, as Coder's edit) |
+| A long answer | inline up to 100,000 characters (its maxResultSizeChars), then saved with a preview (`<persisted-output>`) | cut in the middle at 12,000 → **now** the same as Claude Code's |
+| Protected folders (permission modes: "Prompted" in accept edits; `.vscode`, `.git`, …) | asks | asks, as for edit |
+| Accept edits, Auto, Plan; checkpoints and the per-turn change view; the security reminders after NotebookEdit; a folder's instructions after an edit; FileChanged hooks | | the same as for edit |
+
+Tests: NB11 new. The full suite: 1330 pass, 4 skipped, 0 fail (once: GL122, a Gloopy timing test, failed under load and passed alone
+twice and in the next full run).
+
+**Outside the tool, found on the way (for the owner):** Coder's write, on a notebook not read first, adds its own words ("…: a notebook is
+read before it is replaced, so no cell or output is lost."); Claude Code's Write, tried, says only "File has not been read yet. Read it
+first before writing to it."

@@ -4,6 +4,30 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-17: notebook_edit checked a third time against Claude Code (your words: "CHECK AGAIN THE NOTEBOOK THING, AGAINST THE CLAUDE CODE DOCS PLS")
+
+This time I checked what the first two passes didn't:
+- the docs' rules for file edits in general that cover notebooks without naming them: permission modes, protected folders, checkpoints, hooks, security reminders
+- 10 more cases tried on Claude Code's real tool
+- its own program for the rest
+
+- **Same, byte for byte:** 8 more edits, each giving the exact same file and answer as Claude Code's real tool:
+  - the same text again
+  - deleting with a type given
+  - adding after the last cell
+  - a "raw" cell
+  - empty text
+  - a read-only notebook
+  - a notebook where only some cells have ids
+- **Same:**
+  - a cell id with a space before it is refused
+  - a read-only notebook stays read-only
+  - a link is refused
+  - notebooks in protected folders (like `.vscode`) ask first
+- **Fixed (1 thing):** a very long answer, from a huge cell. Coder cut it in the middle at 12,000 characters. Claude Code keeps it whole up to 100,000, then saves it to a file and shows the start. Coder now does the same, in Claude Code's words.
+- **Found outside the tool, for you to decide:** Coder's *write* tool, on a notebook it hasn't read, adds its own explanation to the refusal. Claude Code's says only "File has not been read yet. Read it first before writing to it."
+- **Tests:** 1 new; all 1330 pass.
+
 ## 2026-11-17: notebook_edit double-checked against Claude Code's docs: 5 things fixed (your words: "Double check that same tool against the claude code docs again pls")
 
 I downloaded all 205 pages of Claude Code's docs again (none had changed since the morning). I read every line about notebooks on the 26 pages that have one, plus 19 changelog entries, and tried the doubtful cases on Claude Code's real tool. Five things differed and are now fixed:
