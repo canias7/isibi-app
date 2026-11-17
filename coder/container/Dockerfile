@@ -237,3 +237,6 @@ COPY package.json server.mjs coder-agent.mjs gloopy-agent.mjs gloopy-browser.mjs
 ENV NODE_ENV=production
 EXPOSE 8080
 CMD ["node", "server.mjs"]
+# COMMIT AND PUSH INSIDE THE TURN (owner, 2026-11-17: "do it the claude code way"): on for the real machine; the
+# older machine tests run without it and keep the push after the turn.
+ENV CODER_PUSH_IN_TURN=1
