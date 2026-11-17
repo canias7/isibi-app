@@ -639,9 +639,11 @@ Byte-for-byte check: the 7 edits Claude Code made on `before.ipynb`, and the 2 o
 
 **Outside the tool (for the owner to decide):**
 1. read's notebook layout: Claude Code shows `<cell id="…">…</cell id="…">` with each cell's output after it; Coder shows
-   "--- Cell N (code, run 3, id …) ---". Only the ids were changed, as notebook_edit needs them.
+   "--- Cell N (code, run 3, id …) ---". Only the ids were changed, as notebook_edit needs them. **Changed** (below, "Read of
+   notebooks").
 2. A notebook that isn't valid JSON (or has a UTF-8 byte-order mark): Claude Code's Read refuses it ("Notebook file is not valid
    JSON (it may be truncated, corrupted, or still being written): …"); Coder's read shows it as plain text, which counts as read.
+   **Changed** (below).
 
 **Live test:** not done. coder2.gofarther.dev has it (deploy 223), but a chat there needs GitHub, which the gofarther-coder app
 doesn't allow for coder2 yet (its callback URL list has only the live address). The owner: "dont worry about it then".
@@ -691,3 +693,30 @@ yet. Read it first before writing to it: you read only part of it (a PARTIAL vie
 returns its constant "File has not been read yet. Read it first before writing to it." for a partial view and for an unread file whose
 read-first rule isn't waived). **Changed** (the owner: "YES PLS"): Coder's write now gives those exact words in all three. (This updates
 tool 2's write notes above, where Coder's longer words are quoted.)
+
+**Read of notebooks, matched** (the owner: "make the read match too pls , and show me how claude code shows the notebook thing"):
+Claude Code's program (2.1.326: how its Read turns a notebook's cells and outputs into text and pictures, its limits) and its real
+Read, tried on the test notebooks and on new ones made for each case.
+
+| | Claude Code | Coder before | Coder now |
+|---|---|---|---|
+| A cell | `<cell id="…">` + its text + `</cell id="…">`; a markdown or raw cell's type first (`<cell_type>markdown</cell_type>`); a code cell's language when it isn't Python (`<language>R</language>`) | a heading ("a.ipynb: Jupyter notebook, 4 cells"), then "--- Cell 2 (code, run 3, id …) ---" | the same as Claude Code; on `before.ipynb` and its older copy, character for character |
+| A cell's id | its own, or `cell-N` (from 0) | the same (changed with notebook_edit) | the same |
+| Its outputs | after the cell, each after a line break: printed text, a result's text, an error's name and value then its traceback as saved (terminal colours kept); a PNG or JPEG as a picture | labelled `[stdout]`, `[output]`; colours taken out; every picture | the same as Claude Code; a picture reaches Grok after the results (its tool results take text only), its place marked in the text |
+| Outputs too big | a cell's outputs over 10,000 characters: "Outputs are too large to include. Use Bash with: cat <notebook_path> \| jq '.cells[N].outputs'" | cut | the same ("Use bash with") |
+| A long printed text | over 30,000 characters: cut in the middle, "... [N lines truncated] ..." | | the same |
+| Not JSON (a byte-order mark and UTF-16 too) | "Notebook file is not valid JSON (it may be truncated, corrupted, or still being written): " + its parser's words | read as plain text, which counted as read | refused in the same words; the parser's own after them are Node's ("Unexpected token …"), not Bun's ("JSON Parse error: …") |
+| JSON, not a notebook | "Notebook file is not a valid Jupyter notebook (top-level "cells" must be an array of cell objects, each with a string or string-array "source")." | read | the same |
+| Over 100 MB | "Notebook file exceeds the maximum size this tool can read (100MB). Use Bash with jq to read specific portions: …" (its program: the same words as NotebookEdit's) | refused in Coder's words | the same ("Use bash with jq") |
+| Cells past 256 KB | "Notebook content (293KB) exceeds maximum allowed size (256KB). Use Bash with jq to read specific portions: …" (4 jq lines) | refused in Coder's words | the same ("Use bash with jq") |
+| Past 25,000 tokens | "File content (N tokens) exceeds maximum allowed tokens (25000). …" | | the same words; N is about 4 characters a token, as Coder has no token counter for Grok (one try: Claude Code 75,045, Coder 37,520; both refused) |
+| An output with only HTML | nothing shown | its HTML, up to 2,000 characters | nothing, as Claude Code |
+| Hooks | PostToolUse's `tool_response`: `{ type: "notebook", file: { filePath, cells } }` | the text Grok was given | the same as Claude Code |
+
+Tests: CD195 and CD205 rewritten for Claude Code's format and limits; NB5 checks Claude Code's exact text and the hooks' object;
+NB6 and NB10 view a notebook behind a byte-order mark with a command, as Claude Code's `cat` counts, since read now refuses it; NB12
+new: Claude Code's real Read output, kept with two notebooks (`coder/test/fixtures/notebook/read`), against Coder's. The full suite:
+1331 pass, 4 skipped, 0 fail.
+
+**Outside (for the owner):** Claude Code's row for a notebook read adds "Read **4** cells" under its tool line; Coder's step says
+"Read sales.ipynb" only.

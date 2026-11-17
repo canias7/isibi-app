@@ -28,9 +28,9 @@ test("NB1 the tool as Grok sees it: Claude Code's NotebookEdit prompt and inputs
   const cc = "Replaces, inserts, or deletes a single cell in a Jupyter notebook (.ipynb file).\n\nUsage:\n- You must use the read tool on the notebook in this conversation before editing — this tool will fail otherwise.\n- `notebook_path` must be an absolute path.\n- `cell_id` is the `id` attribute shown in the read tool's `<cell id=\"...\">` output. It is required for `replace` and `delete`.\n- `edit_mode` defaults to `replace`. Use `insert` to add a new cell after the cell with the given `cell_id` (or at the beginning of the notebook if `cell_id` is omitted) — `cell_type` is required when inserting. Use `delete` to remove the cell.";
   const ours = t.function.description.split("\n"), theirs = cc.split("\n");
   assert.equal(ours.length, theirs.length);
-  assert.deepEqual(ours.map((l, i) => (l === theirs[i] ? "same" : i)), ["same", "same", "same", "same", 4, 5, "same"]);
+  // (Since read shows cells as Claude Code's Read does, 2026-11-17, only the path's line is Coder's own.)
+  assert.deepEqual(ours.map((l, i) => (l === theirs[i] ? "same" : i)), ["same", "same", "same", "same", 4, "same", "same"]);
   assert.equal(ours[4], "- `notebook_path` is the notebook's path, as the read tool takes it.");
-  assert.equal(ours[5], "- `cell_id` is the `id` the read tool shows for each cell (`id …` in the cell's `--- Cell N (…) ---` line). It is required for `replace` and `delete`.");
   const p = t.function.parameters;
   assert.deepEqual(Object.keys(p.properties), ["notebook_path", "cell_id", "new_source", "cell_type", "edit_mode"], "its order");
   assert.deepEqual(p.required, ["notebook_path", "new_source"]);
@@ -134,7 +134,7 @@ const tool = (dir, seen) => (name, args) => {
 };
 const mk = async () => ({ dir: await mkdtemp(join(tmpdir(), "coder-nb-")), seen: await mkdtemp(join(tmpdir(), "coder-nb-seen-")) });
 
-test("NB5 on the machine: read first (a notebook never read, or gone, refused in Claude Code's words); read shows every cell's id as notebook_edit takes it (cell-N for one with none); edit refuses a notebook in Claude Code's words; a replace saves the cell, its change shown without diff's no-newline line, its hooks' result object; changed since read refused; another read lets it through", async () => {
+test("NB5 on the machine: read first (a notebook never read, or gone, refused in Claude Code's words); read shows every cell's id as notebook_edit takes it (cell-N for one with none), character for character as Claude Code's real Read shows the notebook, with its hooks' result object; edit refuses a notebook in Claude Code's words; a replace saves the cell, its change shown without diff's no-newline line, its hooks' result object; changed since read refused; another read lets it through", async () => {
   const { dir, seen } = await mk();
   const run = tool(dir, seen);
   await writeFile(join(dir, "a.ipynb"), fixture("before.ipynb"));
@@ -142,10 +142,20 @@ test("NB5 on the machine: read first (a notebook never read, or gone, refused in
   assert.equal(run("notebook_edit", { notebook_path: "a.ipynb", cell_id: "e5f6", new_source: "x + 2" }), "error: File has not been read yet. Read it first before writing to it.");
   assert.equal(run("notebook_edit", { notebook_path: "missing.ipynb", new_source: "x", cell_type: "code", edit_mode: "insert" }), "error: File has not been read yet. Read it first before writing to it.", "a missing notebook was never read");
   assert.equal(run("notebook_edit", { notebook_path: "plain.py", cell_id: "x", new_source: "y" }), "error: " + N.NOT_A_NOTEBOOK);
+  // Claude Code's real Read of these two notebooks (2026-11-17), character for character.
   const shown = run("read", { path: "a.ipynb" });
-  assert.match(shown, /--- Cell 1 \(markdown, id intro-md\) ---/);
-  assert.match(shown, /--- Cell 2 \(code, run 3, id a1b2c3d4\) ---/);
-  assert.match(run("read", { path: "old.ipynb" }), /--- Cell 1 \(markdown, id cell-0\) ---[\s\S]*--- Cell 3 \(code, run 4, id cell-2\) ---/, "Claude Code's cell-N, from 0");
+  assert.equal(shown, '<cell id="intro-md"><cell_type>markdown</cell_type># Title\nSome text</cell id="intro-md">\n<cell id="a1b2c3d4">x = 1\nprint(\'hello\')</cell id="a1b2c3d4">\n\nhello\n\n<cell id="e5f6">x + 1</cell id="e5f6">\n\n2\n<cell id="rawcell"><cell_type>raw</cell_type>raw stuff</cell id="rawcell">');
+  assert.equal(run("read", { path: "old.ipynb" }), '<cell id="cell-0"><cell_type>markdown</cell_type># Title\nSome text</cell id="cell-0">\n<cell id="cell-1">x = 1\nprint(\'hello\')</cell id="cell-1">\n\nhello\n\n<cell id="cell-2">x + 1</cell id="cell-2">\n\n2\n<cell id="cell-3"><cell_type>raw</cell_type>raw stuff</cell id="cell-3">', "Claude Code's cell-N, from 0");
+  // Its hooks' result object, when Coder's loop asks (`facts`): Claude Code's Read output for a notebook (its program, 2.1.326).
+  const rf = run("read", { path: "a.ipynb", facts: true });
+  assert.ok(rf.startsWith(T.FACTS_MARK), rf.slice(0, 80));
+  assert.deepEqual(JSON.parse(rf.slice(T.FACTS_MARK.length, rf.indexOf("\n"))), { type: "notebook", file: { filePath: join(dir, "a.ipynb"), cells: [
+    { cellType: "markdown", source: "# Title\nSome text", cell_id: "intro-md" },
+    { cellType: "code", source: "x = 1\nprint('hello')", execution_count: 3, cell_id: "a1b2c3d4", language: "python", outputs: [{ output_type: "stream", text: "hello\n" }] },
+    { cellType: "code", source: "x + 1", execution_count: 4, cell_id: "e5f6", language: "python", outputs: [{ output_type: "execute_result", text: "2" }] },
+    { cellType: "raw", source: "raw stuff", cell_id: "rawcell" },
+  ] } });
+  assert.equal(rf.slice(rf.indexOf("\n") + 1), shown, "Grok is given the same text");
   assert.equal(run("edit", { path: "a.ipynb", old_string: "x + 1", new_string: "x + 3" }), "error: File is a Jupyter Notebook. Use the notebook_edit to edit this file.");
   assert.equal(run("notebook_edit", { notebook_path: "a.ipynb", cell_id: "e5f6", new_source: "x + 2" }), "Updated cell e5f6 with x + 2");
   const cell = JSON.parse(await readFile(join(dir, "a.ipynb"), "utf8")).cells[2];
@@ -184,10 +194,14 @@ test("NB6 on the machine: Windows line endings kept, as Claude Code keeps them (
   run("read", { path: "crlf.ipynb" });
   assert.equal(run("notebook_edit", { notebook_path: "crlf.ipynb", cell_id: "e5f6", new_source: "crlf edit" }), "Updated cell e5f6 with crlf edit");
   assert.equal(await readFile(join(dir, "crlf.ipynb"), "utf8"), N.editNotebook(base, { cell_id: "e5f6", new_source: "crlf edit" }).text.replace(/\n/g, "\r\n"), "Claude Code's file: every line ending CRLF");
-  // A byte-order mark: past the check before its hooks (it reads one), refused by the run, nothing written.
+  // A byte-order mark: read refuses it, as Claude Code's real Read does (tried 2026-11-17: "Notebook file is not valid JSON (it
+  // may be truncated, corrupted, or still being written): JSON Parse error: Unrecognized token '<the mark>'"), so it is not read by that.
+  // Shown by a command, as Claude Code counts `cat`: past the check before its hooks (it reads one), refused by the run, nothing written.
   const bom = Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(base)]);
   await writeFile(join(dir, "bom.ipynb"), bom);
-  run("read", { path: "bom.ipynb" });
+  assert.match(run("read", { path: "bom.ipynb" }), /^error: Notebook file is not valid JSON \(it may be truncated, corrupted, or still being written\): /);
+  assert.equal(run("file_check", { tool: "notebook_edit", args: { notebook_path: "bom.ipynb", cell_id: "e5f6" } }), "error: " + T.EDIT_NOT_READ);
+  run("seen", { path: "bom.ipynb" });
   assert.equal(run("file_check", { tool: "notebook_edit", args: { notebook_path: "bom.ipynb", cell_id: "e5f6" } }), "ok");
   assert.equal(run("notebook_edit", { notebook_path: "bom.ipynb", cell_id: "e5f6", new_source: "x" }), "error: Notebook is not valid JSON.");
   assert.deepEqual(await readFile(join(dir, "bom.ipynb")), bom);
@@ -196,10 +210,10 @@ test("NB6 on the machine: Windows line endings kept, as Claude Code keeps them (
   run("seen", { path: "u16seen.ipynb" }); // shown by a command, as Claude Code counts `cat` (tried: its NotebookEdit took it as read)
   assert.equal(run("notebook_edit", { notebook_path: "u16seen.ipynb", cell_id: "e5f6", new_source: "x" }), "error: Notebook is not valid JSON.");
   assert.deepEqual(await readFile(join(dir, "u16seen.ipynb")), u16);
-  // A UTF-16 notebook is not read as one (Claude Code's Read, tried: "Notebook file is not valid JSON …"; Coder's read refuses it
-  // as binary), so it is not edited either: "File has not been read yet", as there.
+  // A UTF-16 notebook is not read as one (Claude Code's Read, tried: "Notebook file is not valid JSON …"; Coder's read now says
+  // the same), so it is not edited either: "File has not been read yet", as there.
   await writeFile(join(dir, "utf16.ipynb"), Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(base, "utf16le")]));
-  run("read", { path: "utf16.ipynb" });
+  assert.match(run("read", { path: "utf16.ipynb" }), /^error: Notebook file is not valid JSON \(it may be truncated, corrupted, or still being written\): /);
   assert.equal(run("notebook_edit", { notebook_path: "utf16.ipynb", cell_id: "e5f6", new_source: "x" }), "error: " + T.EDIT_NOT_READ);
   const latin = JSON.stringify(JSON.parse(base)).replace("Some text", "Café");
   await writeFile(join(dir, "latin.ipynb"), Buffer.from(latin, "latin1"));
@@ -223,7 +237,7 @@ test("NB6 on the machine: Windows line endings kept, as Claude Code keeps them (
 });
 
 /** Coder's loop with a scripted Grok and the real tools script in `dir` (following what it reads), as the file-rule tests run it. */
-async function loop(dir, seenDir, steps, { mode = "acceptEdits", rules = {}, hooks = null, ask = null } = {}) {
+async function loop(dir, seenDir, steps, { mode = "acceptEdits", rules = {}, hooks = null, ask = null, afterFile = null } = {}) {
   const events = [], hookCalls = [], toolReqs = [];
   let n = 0;
   const r = await A.runCoder({
@@ -239,7 +253,7 @@ async function loop(dir, seenDir, steps, { mode = "acceptEdits", rules = {}, hoo
       return { code: out.status, output: out.stdout };
     },
     emit: (e) => events.push(e), here: () => dir, root: dir, chatId: "nb", where: (p) => (p.startsWith("/") ? p : dir + "/" + p), seen: true,
-    ask: ask || (async () => ({ choice: "yes" })), toolSearch: "false",
+    ask: ask || (async () => ({ choice: "yes" })), toolSearch: "false", ...(afterFile ? { afterFile } : {}),
   }, { text: "change the notebook", mode, messages: [], rules: { allow: [], ask: [], deny: [], ...rules }, ...(hooks ? { hooks: H.hooksFrom({ hooks }, "settings").list } : {}) });
   const told = (id) => ((r.messages.find((m) => m.role === "tool" && m.tool_call_id === id) || {}).content || "");
   return { r, events, hookCalls, toolReqs, told };
@@ -333,13 +347,15 @@ test("NB10 the double check against Claude Code's docs (2026-11-17): a Read deny
   assert.deepEqual(N.cellBefore(fixture("before.ipynb"), "nope"), { why: "the target cell was not found in the notebook" });
   assert.equal(N.cardUnshown(N.CARD_UNPARSABLE, "replace"), "Current cell contents cannot be shown (the notebook could not be parsed for preview) \u2014 the edit cannot be reviewed, so approval is one-time only (deny unless expected).");
   assert.match(N.cardUnshown(N.CARD_NO_CELL, "delete"), /— the deletion cannot be reviewed/);
-  // In a chat: a notebook behind a byte-order mark passes the check before the card, so the card says why it can't show the cell.
+  // In a chat: a notebook behind a byte-order mark (read refuses it, as Claude Code's real Read does; shown by a command, which
+  // counts as reading it, as there) passes the check before the card, so the card says why it can't show the cell.
   const { dir, seen } = await mk();
   const bom = Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(fixture("before.ipynb"))]);
   await writeFile(join(dir, "b.ipynb"), bom);
-  const t = await loop(dir, seen, [say("", [call("read", { path: "b.ipynb" }, "r1")]), say("", [call("notebook_edit", { notebook_path: "b.ipynb", cell_id: "e5f6", new_source: "x" }, "n1")]), say("Done.")], { mode: "plan", ask: async () => ({ choice: "yes" }) });
-  const card = t.events.find((e) => e.type === "permission");
+  const t = await loop(dir, seen, [say("", [call("read", { path: "b.ipynb" }, "r1")]), say("", [call("bash", { command: "cat b.ipynb" }, "b1")]), say("", [call("notebook_edit", { notebook_path: "b.ipynb", cell_id: "e5f6", new_source: "x" }, "n1")]), say("Done.")], { mode: "plan", ask: async () => ({ choice: "yes" }), afterFile: async () => "" });
+  const card = t.events.find((e) => e.type === "permission" && e.change);
   assert.deepEqual(card.change, { kind: "update", add: 0, del: 0, lines: [], note: N.cardUnshown(N.CARD_UNPARSABLE, "replace") });
+  assert.match(t.told("r1"), /^error: Notebook file is not valid JSON \(it may be truncated, corrupted, or still being written\): /, "read refuses it");
   assert.equal(t.told("n1"), "error: Notebook is not valid JSON.", "approved, then refused by its run, as Claude Code's");
   // Changed while its card was open: its run reads it again and refuses it; its hooks get PostToolUseFailure.
   await writeFile(join(dir, "c.ipynb"), fixture("before.ipynb"));
@@ -414,4 +430,20 @@ test("NB11 the third check against Claude Code (2026-11-17, the owner: \"CHECK A
   assert.ok(card && card.tool === "notebook_edit", "a card");
   assert.deepEqual(card.change.lines, ["-x + 1", "+x"]);
   assert.equal(JSON.parse(await readFile(join(dir, ".vscode", "nb.ipynb"), "utf8")).cells[2].source, "x + 1", "not changed: the owner said no");
+});
+
+test("NB12 read gives what Claude Code's real Read gave for each notebook in fixtures/notebook/read (tried 2026-11-17, the owner: \"make the read match too pls , and show me how claude code shows the notebook thing\"): a markdown cell, printed text, a result, a chart (a picture where Claude Code's picture is), an error with its traceback; an R notebook's language", async () => {
+  const want = JSON.parse(readFileSync(new URL("./fixtures/notebook/read/claude-code-read.json", import.meta.url), "utf8"));
+  const { dir } = await mk();
+  for (const [name, parts] of Object.entries(want)) {
+    if (name.startsWith("_")) continue;
+    await writeFile(join(dir, name), readFileSync(new URL("./fixtures/notebook/read/" + name, import.meta.url)));
+    const out = tool(dir, null)("read", { path: name });
+    let text = out, pictures = [];
+    if (out.startsWith(T.PICS_MARK)) ({ text, pictures } = JSON.parse(out.slice(T.PICS_MARK.length)));
+    // Claude Code's tool result: its text parts and pictures in order; Coder's: one text, each picture's place marked in it.
+    let n = 0;
+    assert.equal(text, parts.map((p) => (typeof p === "string" ? p : "[picture output: shown to you as picture " + ++n + " after these results]")).join("\n"), name);
+    assert.deepEqual(pictures.map((p) => p.type), parts.filter((p) => typeof p !== "string").map((p) => p.picture), name + "'s pictures");
+  }
 });

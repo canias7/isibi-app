@@ -169,9 +169,15 @@ test("CD205 the rest of Claude Code's Read rules: an empty file and an offset pa
   // conversation has.)
   const KC = await import("../container/coder-compact.mjs");
   assert.ok(COMPACT_AT > 0 && sentArgs[1].max_chars > 0 && sentArgs[1].max_chars < KC.compactLimits({ contextWindow: 500_000 }).threshold * KC.CHARS_PER_TOKEN, "Coder sizes an allow_large read to the room left: " + sentArgs[1].max_chars);
-  // A notebook whose cells come to over 256 KB: an error, with how to read some of its cells.
+  // A NOTEBOOK, AS CLAUDE CODE'S READ TAKES ONE (since 2026-11-17, the owner: "make the read match too pls"): a cell whose
+  // outputs come to over 10,000 characters shows a note in their place, so a huge output reads; the cells' JSON over 256 KB is
+  // refused in its words, with how to read part of it; under that, over its 25,000 tokens, its token words.
   await writeFile(join(dir, "nb.ipynb"), JSON.stringify({ cells: [{ cell_type: "code", source: "print(1)", outputs: [{ output_type: "stream", name: "stdout", text: "z".repeat(300 * 1024) }] }], metadata: {}, nbformat: 4, nbformat_minor: 5 }));
-  assert.match(read({ path: "nb.ipynb" }), /^FAILED [\s\S]*nb\.ipynb's cells come to 30\d KB, more than one read takes: read some of its cells with bash, e.g\. jq '\.cells\[0:10\]' nb\.ipynb/);
+  assert.equal(read({ path: "nb.ipynb" }), '<cell id="cell-0">print(1)</cell id="cell-0">\n\nOutputs are too large to include. Use bash with: cat <notebook_path> | jq \'.cells[0].outputs\'');
+  await writeFile(join(dir, "nb2.ipynb"), JSON.stringify({ cells: [{ cell_type: "code", source: "z".repeat(300 * 1024), outputs: [] }], metadata: {}, nbformat: 4, nbformat_minor: 5 }));
+  assert.match(read({ path: "nb2.ipynb" }), /^FAILED [\s\S]*Notebook content \(300\.\dKB\) exceeds maximum allowed size \(256KB\)\. Use bash with jq to read specific portions:\n  cat <notebook_path> \| jq '\.cells\[:20\]' # First 20 cells/);
+  await writeFile(join(dir, "nb3.ipynb"), JSON.stringify({ cells: [{ cell_type: "code", source: "z".repeat(150 * 1024), outputs: [] }], metadata: {}, nbformat: 4, nbformat_minor: 5 }));
+  assert.match(read({ path: "nb3.ipynb" }), /^FAILED [\s\S]*File content \(\d+ tokens\) exceeds maximum allowed tokens \(25000\)\. Use offset and limit parameters to read specific portions of the file, or search for specific content instead of reading the whole file\./);
   // A picture over 20 MB (the old limit) is read now: made smaller, as Claude Code does (when ImageMagick is here).
   let hasConvert = true; try { execFileSync("convert", ["-version"]); } catch { hasConvert = false; }
   if (hasConvert) {

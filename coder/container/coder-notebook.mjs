@@ -27,11 +27,12 @@ import { typeIssue, valueIssue, unknownKeysIssue, inputErrorText } from "./coder
 /** The tool's name in Coder, and Claude Code's. */
 export const NOTEBOOK_TOOL = "notebook_edit", NOTEBOOK_CC = "NotebookEdit";
 
-/** Claude Code's description of NotebookEdit, word for word, with Coder's tool names and paths. */
+/** Claude Code's description of NotebookEdit, word for word, with Coder's tool names and paths (read shows its cells as Claude
+ * Code's Read does since 2026-11-17, so its cell_id line is Claude Code's own). */
 export const NOTEBOOK_DESCRIPTION = "Replaces, inserts, or deletes a single cell in a Jupyter notebook (.ipynb file).\n\nUsage:\n" +
   "- You must use the read tool on the notebook in this conversation before editing — this tool will fail otherwise.\n" +
   "- `notebook_path` is the notebook's path, as the read tool takes it.\n" +
-  "- `cell_id` is the `id` the read tool shows for each cell (`id …` in the cell's `--- Cell N (…) ---` line). It is required for `replace` and `delete`.\n" +
+  "- `cell_id` is the `id` attribute shown in the read tool's `<cell id=\"...\">` output. It is required for `replace` and `delete`.\n" +
   "- `edit_mode` defaults to `replace`. Use `insert` to add a new cell after the cell with the given `cell_id` (or at the beginning of the notebook if `cell_id` is omitted) — `cell_type` is required when inserting. Use `delete` to remove the cell.";
 
 /** Its kinds of cell and of edit, as its schema lists them. */
@@ -187,6 +188,103 @@ export function editNotebook(text, args, { newId = newCellId } = {}) {
   // (Its hooks' cell_type is the type asked for, "code" when none was, as Claude Code's output gives it.)
   return { text: JSON.stringify(nb, null, 1), said, mode, cellId: id || undefined, oldSource, newSource: new_source, cellType: type || "code", language };
 }
+
+// ── HOW READ SHOWS A NOTEBOOK (Claude Code's Read, its own way) ──────────────────
+/**
+ * CLAUDE CODE'S READ OF A NOTEBOOK (the owner, 2026-11-17: "make the read match too pls, and show me how claude code shows the
+ * notebook thing"; its program, 2.1.326, its uno, dno, hEs, gEs, mEs, yEs, _Es and cno, and its real Read tried on notebooks
+ * that day): each cell as `<cell id="…">` its text `</cell id="…">` (a cell's own id, or `cell-N` from 0), a markdown or raw
+ * cell with `<cell_type>…</cell_type>` first, a code cell of a language other than Python with `<language>…</language>`; then
+ * each of its outputs on its own lines: printed text, a result's text/plain, an error's "name: value" and its traceback, and a
+ * PNG or JPEG picture; a cell whose outputs come to more than 10,000 characters (a picture's data counted) shows instead
+ * "Outputs are too large to include. Use bash with: cat <notebook_path> | jq '.cells[N].outputs'". Nothing else: no heading,
+ * no run numbers, an HTML-only output shows nothing.
+ */
+export const OUTPUTS_SHOWN_MAX = 10_000;
+/** One output's text as Claude Code cuts it (its Oto): past 30,000 characters, the rest said as "... [N lines truncated] ...". */
+export const OUTPUT_TEXT_MAX = 30_000;
+const outputText = (t) => {
+  const x = Array.isArray(t) ? t.map((y) => (typeof y === "string" ? y : "")).join("") : typeof t === "string" ? t : "";
+  if (!x || /^data:image\/[a-z0-9.+_-]+;base64,/i.test(x) || x.length <= OUTPUT_TEXT_MAX) return x;
+  const rest = x.slice(OUTPUT_TEXT_MAX).split("\n").length;
+  return x.slice(0, OUTPUT_TEXT_MAX) + "\n\n... [" + rest + " lines truncated] ...";
+};
+/** A picture's kind from its first bytes (PNG, JPEG, GIF, WebP), or "" when it is none (Claude Code's own check of one). */
+export function pictureKind(buf) {
+  if (buf.length >= 8 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) return "png";
+  if (buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return "jpeg";
+  if (buf.length >= 6 && buf.subarray(0, 4).toString("latin1") === "GIF8") return "gif";
+  if (buf.length >= 12 && buf.subarray(0, 4).toString("latin1") === "RIFF" && buf.subarray(8, 12).toString("latin1") === "WEBP") return "webp";
+  return "";
+}
+/** An output's picture (its gEs): image/png, else image/jpeg, its base64 without white space; none when it is not a picture. */
+function outputPicture(data) {
+  for (const type of ["image/png", "image/jpeg"]) {
+    const r = data[type];
+    if (typeof r !== "string") continue;
+    const b64 = r.replace(/\s/g, "");
+    if (!pictureKind(Buffer.from(b64, "base64"))) return undefined;
+    return { image_data: b64, media_type: type };
+  }
+  return undefined;
+}
+/** One output as Claude Code takes it (its hEs), or undefined for a kind it doesn't show. */
+function outputOf(o) {
+  if (!o || typeof o !== "object") return undefined;
+  if (o.output_type === "stream") return { output_type: o.output_type, text: outputText(o.text) };
+  if (o.output_type === "execute_result" || o.output_type === "display_data") {
+    const d = o.data && typeof o.data === "object" ? o.data : null;
+    const image = d ? outputPicture(d) : undefined;
+    return { output_type: o.output_type, text: outputText(d ? d["text/plain"] : undefined), ...(image ? { image } : {}) };
+  }
+  if (o.output_type === "error") return { output_type: o.output_type, text: outputText(String(o.ename) + ": " + String(o.evalue) + "\n" + (Array.isArray(o.traceback) ? o.traceback.join("\n") : "")) };
+  return undefined;
+}
+/** Outputs past what one cell shows (its mEs): their text and pictures' data together over OUTPUTS_SHOWN_MAX. */
+const tooMuch = (outs) => { let n = 0; for (const r of outs) { if (!r) continue; n += (r.text ? r.text.length : 0) + (r.image ? r.image.image_data.length : 0); if (n > OUTPUTS_SHOWN_MAX) return true; } return false; };
+export const outputsTooLarge = (n) => "Outputs are too large to include. Use bash with: cat <notebook_path> | jq '.cells[" + n + "].outputs'";
+/**
+ * THE NOTEBOOK'S CELLS AS CLAUDE CODE'S READ GIVES THEM (its Xje and dno): { cellType, source, execution_count, cell_id,
+ * language, outputs } each, as its PostToolUse hooks get them too (`{ type: "notebook", file: { filePath, cells } }`).
+ */
+export function readCells(nb) {
+  const info = nb.metadata && typeof nb.metadata === "object" ? nb.metadata.language_info : null;
+  const language = info && typeof info === "object" && info.name != null ? info.name : "python";
+  return nb.cells.map((c, i) => {
+    const code = c.cell_type === "code";
+    const y = { cellType: c.cell_type, source: sourceText(c.source), execution_count: code ? c.execution_count || undefined : undefined, cell_id: c.id ?? "cell-" + i };
+    if (code) y.language = language;
+    if (code && Array.isArray(c.outputs) && c.outputs.length) {
+      const outs = c.outputs.map(outputOf);
+      y.outputs = tooMuch(outs) ? [{ output_type: "stream", text: outputsTooLarge(i) }] : outs;
+    }
+    return y;
+  });
+}
+/**
+ * WHAT READ SHOWS (its yEs, _Es and cno): its parts in order, `{ text }` and `{ picture: { data, type } }`, each text part one
+ * cell's line or one output's ("\n" and its text), the text parts that follow each other joined by a line break.
+ */
+export function readParts(cells) {
+  const parts = [];
+  const text = (t) => { const last = parts[parts.length - 1]; if (last && typeof last.text === "string") last.text += "\n" + t; else parts.push({ text: t }); };
+  for (const c of cells) {
+    const tags = (c.cellType !== "code" ? "<cell_type>" + c.cellType + "</cell_type>" : "") + (c.cellType === "code" && c.language !== "python" ? "<language>" + c.language + "</language>" : "");
+    text('<cell id="' + c.cell_id + '">' + tags + c.source + '</cell id="' + c.cell_id + '">');
+    for (const o of Array.isArray(c.outputs) ? c.outputs : []) {
+      if (!o) continue;
+      if (o.text) text("\n" + o.text);
+      if (o.image) parts.push({ picture: { data: o.image.image_data, type: o.image.media_type } });
+    }
+  }
+  return parts;
+}
+/** Its words when the notebook's JSON doesn't parse (the parser's own message after them). */
+export const notJsonRead = (why) => "Notebook file is not valid JSON (it may be truncated, corrupted, or still being written): " + why;
+/** Its limits for what one read gives (256 KB of the cells' JSON; then its token limit, 25,000), and its words past them. */
+export const READ_CELLS_MAX = 256 * 1024, READ_TOKENS_MAX = 25_000;
+export const JQ_HINT = NOTEBOOK_TOO_BIG.slice(NOTEBOOK_TOO_BIG.indexOf("Use bash with jq"));
+export const tooTokens = (n) => "File content (" + n + " tokens) exceeds maximum allowed tokens (" + READ_TOKENS_MAX + "). Use offset and limit parameters to read specific portions of the file, or search for specific content instead of reading the whole file.";
 
 // ── ITS CARD ─────────────────────────────────────────────────────────────────
 /**

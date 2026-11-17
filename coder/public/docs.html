@@ -97,7 +97,9 @@
 
         <h3 id="read-notebooks">Notebooks</h3>
         <ul>
-          <li>Jupyter notebooks (<code>.ipynb</code>) come as their cells, with each cell's output, charts included. The charts show small under the step.</li>
+          <li>Jupyter notebooks (<code>.ipynb</code>) come as their cells, as Claude Code shows them: each cell with its id (the one notebook_edit takes), then what it printed, its result, its error and its charts. The charts show small under the step.</li>
+          <li>A cell whose outputs come to more than 10,000 characters is shown without them, with a note on how to read them with <code>jq</code>.</li>
+          <li>A notebook that isn't valid JSON is refused. So is one over 100 MB, or whose cells come to more than 256 KB; Coder is told how to read parts of it with <code>jq</code>.</li>
         </ul>
 
         <h3 id="read-not">What read won't open</h3>

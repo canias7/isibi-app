@@ -126,7 +126,7 @@ test("CD194 read opens a PDF like Claude Code's Read: each page's text, and ever
   assert.match(read(dir, { path: "fake.pdf" }).text, /^error: fake\.pdf is not a valid PDF; it could not be opened/);
 });
 
-test("CD195 read opens a Jupyter notebook as its cells with their outputs (Claude Code's Read): code and markdown, printed text, results, errors without terminal colours, and its plots shown as pictures; a .ipynb that is not a notebook reads as text", async () => {
+test("CD195 read opens a Jupyter notebook as Claude Code's Read shows one (since 2026-11-17, the owner: \"make the read match too pls\"; its program and its real Read): `<cell id=\"…\">` cells, a markdown cell's type, printed text, a result's text, an error's name, value and traceback as written (terminal colours too), its plot as a picture when the cell's outputs are small; a .ipynb that is not JSON refused in its words", async () => {
   const dir = await mkdtemp(join(tmpdir(), "coder-nb-"));
   const plot = MAGICK ? execFileSync("convert", ["-size", "120x80", "xc:orange", "png:-"]).toString("base64") : "";
   const nb = { nbformat: 4, nbformat_minor: 5, metadata: {}, cells: [
@@ -141,20 +141,23 @@ test("CD195 read opens a Jupyter notebook as its cells with their outputs (Claud
   await writeFile(join(dir, "sales.ipynb"), JSON.stringify(nb));
   const r = read(dir, { path: "sales.ipynb" });
   assert.equal(r.code, 0, r.text);
+  // Claude Code's parts: the cell, then each output's text after a line break, the parts joined by a line break; its picture
+  // where its own picture is, here marked for Grok, who gets pictures after the results.
   assert.equal(r.text, [
-    "sales.ipynb: Jupyter notebook, 2 cells",
-    "--- Cell 1 (markdown, id intro) ---\n# Sales\nNotes here",
-    "--- Cell 2 (code, run 3, id calc) ---\nprint('hi')\n1 + 1",
-    "[stdout]\nhi\n",
-    "[output]\n2",
-    ...(plot ? ["[picture output: shown to you as picture 1 after these results]"] : []),
-    "[error] ValueError: bad value\nValueError: bad value",
-  ].join("\n\n"));
+    '<cell id="intro"><cell_type>markdown</cell_type># Sales\nNotes here</cell id="intro">',
+    '<cell id="calc">print(\'hi\')\n1 + 1</cell id="calc">',
+    "\nhi\n",
+    "\n2",
+    ...(plot ? ["\n<Figure>", "[picture output: shown to you as picture 1 after these results]"] : []),
+    "\nValueError: bad value\n\u001b[31mValueError\u001b[0m: bad value",
+  ].join("\n"));
   assert.equal(r.pictures.length, plot ? 1 : 0);
   if (plot) assert.deepEqual(T.picSize(pngOf(r.pictures[0])), { w: 120, h: 80 });
-  // Not a notebook (no cells): its text, as any file.
+  // Not JSON: refused, in Claude Code's words (the parser's own after them).
   await writeFile(join(dir, "odd.ipynb"), "not json at all\n");
-  assert.match(read(dir, { path: "odd.ipynb" }).text, /^\s+1\tnot json at all/);
+  const odd = read(dir, { path: "odd.ipynb" });
+  assert.notEqual(odd.code, 0);
+  assert.match(odd.text, /^error: Notebook file is not valid JSON \(it may be truncated, corrupted, or still being written\): /);
 });
 
 test("CD196 the agent shows read's pictures to Grok: the read's answer is its text, then a note from Coder's app with the pictures attached (as Grok takes them); the chat shows the text; the saved history keeps the picture as sent (since 2026-11-14; a note in its place before); a job keeps at most 24 pictures attached, the owner's earlier ones counted in Coder's chats; only read's answer can carry them", async () => {

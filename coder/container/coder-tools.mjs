@@ -16,7 +16,7 @@ import { spawn } from "node:child_process";
 import { psParseRequest, PS_PARSE_TIMEOUT_MS, PS_PARSE_TRIES } from "./coder-psparse.mjs";
 import { grepTool, globTool } from "./coder-search.mjs";
 import { secretsIn, memorySecretsRefused } from "./coder-secretscan.mjs";
-import { editNotebook, notebookProblem, inputProblem as notebookInputProblem, checkInput as notebookInput, NOT_JSON, NOTEBOOK_CHANGED, NOTEBOOK_GONE, NOTEBOOK_MAX_BYTES as NOTEBOOK_EDIT_MAX, NOTEBOOK_TOO_BIG, NOTEBOOK_WOULD_BE_TOO_BIG, cellName, cellBefore, CARD_UNREADABLE, CARD_TOO_BIG } from "./coder-notebook.mjs";
+import { editNotebook, notebookProblem, inputProblem as notebookInputProblem, checkInput as notebookInput, NOT_JSON, NOTEBOOK_CHANGED, NOTEBOOK_GONE, NOTEBOOK_MAX_BYTES as NOTEBOOK_EDIT_MAX, NOTEBOOK_TOO_BIG, NOTEBOOK_WOULD_BE_TOO_BIG, cellBefore, CARD_UNREADABLE, CARD_TOO_BIG, isNotebook, NOT_NOTEBOOK_SHAPE, readCells, readParts, notJsonRead, READ_CELLS_MAX, READ_TOKENS_MAX, JQ_HINT, tooTokens } from "./coder-notebook.mjs";
 import { lookup as lookupCb } from "node:dns";
 import http from "node:http";
 import https from "node:https";
@@ -37,8 +37,8 @@ export const READ_LINES_MAX = 100_000;
 export const READ_WHOLE_MAX = 256 * 1024;
 export const READ_LARGE_CHARS = 400_000;
 export const PIC_MAX_BYTES = 128 * 1024 * 1024;
-export const NOTEBOOK_MAX_BYTES = 100 * 1024 * 1024;
-export const NOTEBOOK_CELLS_MAX = 256 * 1024;
+export const NOTEBOOK_MAX_BYTES = NOTEBOOK_EDIT_MAX; // 100 MB, Claude Code's (coder-notebook.mjs holds it)
+export const NOTEBOOK_CELLS_MAX = READ_CELLS_MAX; // 256 KB, Claude Code's (likewise)
 const ROOT = process.cwd();
 /**
  * WHERE GROK'S COMMANDS ARE (the owner, 2026-11-08: "lets do it the claude code way"; tried in Claude Code: its Read takes a
@@ -507,40 +507,50 @@ async function readPdf(abs, rel, pages) {
   } finally { await rm(dir, { recursive: true, force: true }).catch(() => {}); }
 }
 
-/** A JUPYTER NOTEBOOK as its cells with their outputs (pictures in them shown); null when it is not one. */
-async function readNotebook(raw, rel) {
-  let nb = null;
-  try { nb = JSON.parse(raw); } catch { return null; }
-  if (!nb || !Array.isArray(nb.cells)) return null;
-  const str = (x) => (Array.isArray(x) ? x.join("") : x == null ? "" : String(x));
-  const plain = (x) => str(x).replace(/\u001b\[[0-9;]*[A-Za-z]/g, "");
-  const parts = [rel + ": Jupyter notebook, " + nb.cells.length + " cell" + (nb.cells.length === 1 ? "" : "s")];
-  const pictures = []; let budget = PICS_BUDGET;
-  for (const [i, c] of nb.cells.entries()) {
-    if (!c || typeof c !== "object") continue;
-    // (Every cell's id, whole, as notebook_edit takes it: a cell with none of its own is `cell-N`, its place from 0, as Claude
-    // Code's Read names it. The owner, 2026-11-17: "Yes build it", for notebook_edit, Claude Code's NotebookEdit.)
-    parts.push("--- Cell " + (i + 1) + " (" + String(c.cell_type || "code") + (Number.isInteger(c.execution_count) ? ", run " + c.execution_count : "") + ", id " + cellName(c, i).slice(0, 200) + ") ---\n" + str(c.source));
-    for (const o of Array.isArray(c.outputs) ? c.outputs : []) {
-      if (!o || typeof o !== "object") continue;
-      if (o.output_type === "stream") { parts.push("[" + String(o.name || "stdout") + "]\n" + plain(o.text)); continue; }
-      if (o.output_type === "error") { parts.push("[error] " + String(o.ename || "") + ": " + String(o.evalue || "") + "\n" + plain(Array.isArray(o.traceback) ? o.traceback.join("\n") : "")); continue; }
-      const d = o.data && typeof o.data === "object" ? o.data : {};
-      const img = d["image/png"] ? ["png", d["image/png"]] : d["image/jpeg"] ? ["jpeg", d["image/jpeg"]] : null;
-      if (img) {
-        const p = budget > 0 ? await asPicture(Buffer.from(str(img[1]).replace(/\s+/g, ""), "base64"), img[0], Math.min(PIC_ONE_MAX, budget)) : { why: "too many pictures for one read" };
-        if (p.why) parts.push("[picture output, not shown: " + p.why + "]");
-        else { pictures.push(p); budget -= p.data.length; parts.push("[picture output: shown to you as picture " + pictures.length + " after these results]"); }
-        continue;
-      }
-      if (d["text/plain"] != null) parts.push("[output]\n" + plain(d["text/plain"]));
-      else if (d["text/html"] != null) parts.push("[html output]\n" + str(d["text/html"]).slice(0, 2000));
-    }
+/**
+ * A JUPYTER NOTEBOOK, AS CLAUDE CODE'S READ SHOWS ONE (the owner, 2026-11-17: "make the read match too pls"; coder-notebook.mjs
+ * readCells and readParts; its program, 2.1.326, and its real Read tried that day), in its order and words: over 100 MB refused
+ * with how to read part of it ("Notebook file exceeds the maximum size this tool can read (100MB). Use bash with jq …"); JSON
+ * that doesn't parse refused ("Notebook file is not valid JSON (it may be truncated, corrupted, or still being written): …",
+ * the parser's own words after it), so a notebook behind a byte-order mark or in UTF-16 too; no list of cells refused (its
+ * words); its cells' JSON past 256 KB refused ("Notebook content (…) exceeds maximum allowed size (256KB). …"), then past its
+ * 25,000 tokens (about 4 characters each here: Coder has no token counter); then the cells, `<cell id="…">…</cell id="…">`,
+ * and their outputs. A picture in an output reaches Grok after these results, as every picture read opens does (its tool
+ * results take text only), its place marked in the text where Claude Code's has the picture itself; the first ones show
+ * small under the step. Coder's own way before: a heading line, "--- Cell N (code, run 3, id …) ---", outputs labelled
+ * [stdout] and [output], terminal colours taken out, every picture shown, and a notebook it could not parse read as text.
+ * `facts`: Claude Code's Read output for its PostToolUse hooks, { type: "notebook", file: { filePath, cells } }.
+ */
+async function readNotebook(abs, facts) {
+  const st = await stat(abs);
+  if (st.isDirectory()) fail(folderError(abs));
+  if (st.size > NOTEBOOK_MAX_BYTES) fail(NOTEBOOK_TOO_BIG);
+  const buf = await readFile(abs);
+  let nb;
+  try { nb = JSON.parse(buf.toString("utf8")); } catch (e) { fail(notJsonRead(e instanceof Error ? e.message : String(e))); }
+  if (nb === null || !isNotebook(nb)) fail(NOT_NOTEBOOK_SHAPE);
+  const cells = readCells(nb);
+  const json = JSON.stringify(cells), bytes = Buffer.byteLength(json);
+  if (bytes > READ_CELLS_MAX) fail("Notebook content (" + ccSize(bytes) + ") exceeds maximum allowed size (" + ccSize(READ_CELLS_MAX) + "). " + JQ_HINT);
+  const tokens = Math.ceil(json.length / 4);
+  if (tokens > READ_TOKENS_MAX) fail(tooTokens(tokens));
+  // Read whole, so write and notebook_edit may change it now, and a change to it is told.
+  await remember(abs, buf);
+  let text = "";
+  const add = (t) => { text = text === "" ? t : text + "\n" + t; };
+  const pictures = [];
+  let budget = PICS_BUDGET;
+  for (const part of readParts(cells)) {
+    if (typeof part.text === "string") { add(part.text); continue; }
+    const kind = part.picture.type === "image/jpeg" ? "jpeg" : "png";
+    const p = budget > 0 ? await asPicture(Buffer.from(part.picture.data, "base64"), kind, Math.min(PIC_ONE_MAX, budget)) : { why: "too many pictures for one read" };
+    if (p.why) { add("[picture output, not shown: " + p.why + "]"); continue; }
+    pictures.push(p); budget -= p.data.length;
+    add("[picture output: shown to you as picture " + pictures.length + " after these results]");
   }
-  const text = parts.join("\n\n");
-  if (Buffer.byteLength(text) > NOTEBOOK_CELLS_MAX || text.length > READ_CHARS) fail(rel + "'s cells come to " + kb(Buffer.byteLength(text)) + ", more than one read takes: read some of its cells with bash, e.g. jq '.cells[0:10]' " + rel);
   const thumbs = await thumbsOf(pictures);
-  return withPics(text, pictures, thumbs.length ? { thumbs } : {});
+  const shown = withPics(text, pictures, thumbs.length ? { thumbs } : {});
+  return facts && json.length <= FACTS_TEXT_MAX ? { text: shown, facts: { type: "notebook", file: { filePath: abs, cells } } } : shown;
 }
 
 /**
@@ -815,13 +825,7 @@ export async function toolRead({ path, offset, limit, pages = "", allow_large = 
   if (PIC_KINDS[ext]) return readPicture(abs, rel, PIC_KINDS[ext]);
   if (ext === ".pdf") return readPdf(abs, rel, pages);
   if (kind.isFile() && binaryExt(abs)) fail(BINARY_REFUSED(ext));
-  if (ext === ".ipynb") {
-    await plainText(abs, rel, NOTEBOOK_MAX_BYTES, "read some of its cells with bash, e.g. jq '.cells[0:10]' " + rel);
-    const nbBuf = await readFile(abs);
-    const nb = await readNotebook(nbBuf.toString("utf8"), rel);
-    // Read, so write may replace it now (as Claude Code's Write, once a notebook is read), and a change to it is told.
-    if (nb !== null) { await remember(abs, nbBuf); return nb; }
-  }
+  if (ext === ".ipynb") return readNotebook(abs, facts === true);
   // (A file with NUL bytes is read, with Claude Code 2.1.325's note, as any file that is not text: Coder had refused it as
   // binary, in its own words. Round 4.)
   await plainText(abs, rel, READ_MAX_BYTES, undefined, { anyBytes: true });

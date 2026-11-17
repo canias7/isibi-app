@@ -1,0 +1,13 @@
+{
+ "_about": "Claude Code's real Read of each notebook here (2.1.326, a Claude Code cloud session, 2026-11-17): its tool result's content, in order; a picture as its media type.",
+ "sales.ipynb": [
+  "<cell id=\"intro\"><cell_type>markdown</cell_type># Monthly sales\nTotals by month, from sales.csv.</cell id=\"intro\">\n<cell id=\"load\">import pandas as pd\ndf = pd.read_csv('sales.csv')\nprint(len(df), 'rows')\ndf.groupby('month').total.sum()</cell id=\"load\">\n\n1200 rows\n\n\nmonth\nJan    4100\nFeb    6300\nMar    7900\nApr    5200\nName: total, dtype: int64\n<cell id=\"chart\">df.groupby('month').total.sum().plot.bar()</cell id=\"chart\">\n\n<Axes: xlabel='month'>\n\n<Figure size 640x480 with 1 Axes>",
+  {
+   "picture": "image/png"
+  },
+  "<cell id=\"price\">df['price'].mean()</cell id=\"price\">\n\nKeyError: 'price'\n---------------------------------------------------------------------------\nKeyError                                  Traceback (most recent call last)\nCell In[3], line 1\n----> 1 df['price'].mean()\nKeyError: 'price'"
+ ],
+ "r-lang.ipynb": [
+  "<cell id=\"r1\"><language>R</language>1+1</cell id=\"r1\">\n\n[1] 2\n"
+ ]
+}

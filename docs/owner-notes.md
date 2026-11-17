@@ -4,6 +4,24 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-17: Coder's read shows notebooks exactly as Claude Code's Read does (your words: "make the read match too pls")
+
+When Coder reads a Jupyter notebook (.ipynb), it now gets the same text Claude Code's Read gives. I tried Claude Code's real Read on the same notebooks, and the text matches character for character.
+
+- **Each cell** is wrapped in `<cell id="…">` and `</cell id="…">`. A markdown or raw cell says its type first. A code cell names its language only when it isn't Python.
+- **What a cell printed, its result and its error** come right after the cell, each on its own line. An error's traceback stays as saved, terminal colours included, as Claude Code keeps it.
+- **Charts** still reach Coder as pictures and still show small under the step.
+- **Outputs over 10,000 characters** are left out, with a note on how to read them with `jq`.
+- **A notebook that isn't valid JSON** is now refused in Claude Code's words. Before, Coder read it as plain text. That includes one with a hidden byte-order mark at the start, or one saved as UTF-16.
+- **Big notebooks** are refused in Claude Code's words, with its `jq` hints: over 100 MB, cells over 256 KB, or over 25,000 tokens.
+- **Hooks** get Claude Code's result object for a notebook read.
+
+One small difference is left. Claude Code counts tokens exactly; Coder estimates about 4 characters a token, as it has no token counter for Grok. In one try the counts were 75,045 and 37,520; both refused.
+
+Before, Coder used its own layout: a heading line, "--- Cell 2 (code, run 3, id …) ---", and outputs labelled [stdout] and [output].
+
+Tests: CD195 and CD205 rewritten; NB5 now checks Claude Code's exact text and the hooks' object; NB6 and NB10 updated. A new test, NB12, checks Coder's read against Claude Code's real output on two notebooks kept with the tests (one with a table, a chart and an error; one in R). All 1,331 pass. On this chat's branch, deployed to coder2.
+
 ## 2026-11-17: Coder's write: the other two "not read" refusals in Claude Code's exact words too (your words: "YES PLS")
 
 Two more cases now say exactly what Claude Code's Write says: "File has not been read yet. Read it first before writing to it."
