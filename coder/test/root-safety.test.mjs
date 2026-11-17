@@ -288,8 +288,8 @@ test("CD90c what a save leaves out is said in the chat: the Worker adds it to it
     for (let n = 0; n < 100; n++) { got = await (await go("projects/" + id + "/state?since=0")).json(); if (got.project.status !== "running") break; await sleep(50); }
     assert.equal(got.project.status, "idle");
     const note = got.events.filter((e) => e.type === "github").map((e) => e.text).join("\n");
-    // (Committed on Coder's machine, owner 2026-11-16: the note says only what was left out; the Push button sends the rest.)
-    assert.match(note, /^Not saved: vendor\/lib \(a folder with its own git repository\)\. Coder's app never runs git inside these; to save a folder's files, remove its \.git\.$/m);
+    // (Pushed at the turn's end, owner 2026-11-17: the note says so, then what was left out.)
+    assert.match(note, /^Pushed to the branch coder\/[a-z0-9-]+ · Not saved: vendor\/lib \(a folder with its own git repository\)\. Coder's app never runs git inside these; to save a folder's files, remove its \.git\.$/m);
     assert.equal((await (await go("projects/" + id + "/push", { method: "POST", body: "{}" })).json()).ok, true);
     const files = tree(bare, "coder/" + id);
     assert.match(files, /\tb\.txt$/m);

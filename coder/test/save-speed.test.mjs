@@ -138,14 +138,15 @@ test("SV3 a cheaper save: the claim's steps are used (no second look); a turn th
   assert.deepEqual([meta.unpushed, meta.saved], [2, 1], "the unpushed count kept");
 
   // Changed files (no `dirty: false`), a new memory: the commit step and the memory, as before.
-  const w2 = await world((p) => (p === "/state" ? Response.json({ running: false, result: done({ memory: "new" }), events: [], next: 2 }) : p === "/claim" ? Response.json({ ok: true, events: ANSWER, result: done({ memory: "new" }) }) : Response.json({ ok: true, pushed: false, local: true, changed: true, sha: "abc1234", unpushed: 1 })));
+  const w2 = await world((p) => (p === "/state" ? Response.json({ running: false, result: done({ memory: "new" }), events: [], next: 2 }) : p === "/claim" ? Response.json({ ok: true, events: ANSWER, result: done({ memory: "new" }) }) : Response.json({ ok: true, pushed: true, changed: true, sha: "abc1234", unpushed: 0 })));
   await w2.put("shop-c2", { turn: 1, saved: 0, status: "running", at: Date.now() });
   await w2.go("shop-c2", "/state?since=2", undefined, {});
   assert.deepEqual(w2.calls.map((c) => c.path), ["/state", "/claim", "/push"]);
-  assert.equal(w2.calls[2].body.commitOnly, true);
+  assert.equal(w2.calls[2].body.commitOnly, undefined, "a turn that changed files is pushed (owner, 2026-11-17)");
   assert.equal(w2.bucket.m.get("coder/" + UID + "/memory/ana__shop.md"), "new");
   const m2 = w2.read("shop-c2", "meta.json");
-  assert.deepEqual([m2.unpushed, m2.commits.length, m2.commits[0].local], [1, 1, true], "Undo's commit kept");
+  assert.deepEqual([m2.unpushed, m2.commits.length, m2.commits[0].local], [0, 1, undefined], "Undo's commit kept, pushed");
+  assert.ok(w2.read("shop-c2", "events.json").some((e) => /^Pushed to the branch /.test(String(e.text || ""))), "the chat says it was pushed");
 
   // Nothing changed but a pull request asked for: the commit step and GitHub still run.
   const w3 = await world((p) => (p === "/state" ? Response.json({ running: false, result: done({ dirty: false, prRequest: { title: "x" } }), events: [], next: 2 }) : p === "/claim" ? Response.json({ ok: true, events: ANSWER, result: done({ dirty: false, prRequest: { title: "x" } }) }) : Response.json({ ok: true, pushed: false, changed: false })));

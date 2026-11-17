@@ -15,6 +15,38 @@ This chat's branch (`claude/sweet-bohr-9xdj4f`) is for adding what Claude Code's
 - **Not deployed yet.** GitHub isn't connected there yet either (as with jessica).
 - **Tests:** TC2 and TC3 updated for the third copy. The full suite: 1302 pass, 4 skipped, 0 fail.
 
+## 2026-11-17: Live stream for the chat, like Claude Code's page
+
+The owner: "can we do it this way". The page no longer asks "anything new?" every second. It opens one live connection (`/api/coder/projects/:id/stream`), and the Worker sends each new step down it as soon as the machine has it. The machine's `/state` can now wait up to 25 seconds for news (`wait`), so steps show up straight away. A stream ends when the job is over, or after 5 minutes; the page opens the next one at once, drops one that has been silent for 70 seconds, and goes back to the old checks after 3 failed streams (or when the server has no stream). Same page in the desktop and phone apps, so they get it too. Gloopy still uses the checks. Tests: `coder/test/poll-never-stops.test.mjs`.
+
+## 2026-11-17: The "stuck" chat was the page, not the server
+
+In group 1, message 2's job finished in about 25 seconds, but the page kept showing it working until the test script gave up at 900 seconds and sent the next message, which the server started at once. The page's check loop could stop for good if one request never answered or drawing the chat threw an error. Now each check has a 90-second limit and the next check is always set while the chat runs. Tests: `coder/test/poll-never-stops.test.mjs`.
+
+## 2026-11-17: Pull requests like Claude Code (groups 3 and 4 fixes)
+
+Found in the side-by-side test. Not the GitHub app's permissions: Coder's own gateway blocks GitHub's GraphQL (as Claude Code's cloud does), and GitHub can only mark a pull request ready or resolve a thread through GraphQL. Claude Code uses its own GitHub tools for that, so Coder now has one too:
+- New `pr_update` tool: mark ready, back to draft, resolve a thread, reply to a comment, comment. Coder's server does it with your GitHub login, one fixed request each.
+- Review comments (`pr_comments`) are posted on GitHub at once, not when the answer ends.
+- After opening a pull request, Coder offers to watch it (auto-fix).
+- Coder is told it already gets each command's exit code, so it stops adding `echo "exit:$?"` (which needed your OK, as it does in Claude Code).
+- Undo says "removed" for a file the job had made.
+- Tests: `coder/test/pr-update.test.mjs`.
+
+## 2026-11-17: Suggested next message in Coder's box
+
+After Coder answers, a suggested next message now shows in grey in the empty message box (like Claude Code's prompt suggestions, e.g. "now run the tests"). Tab, or the right arrow, puts it in the box; Enter sends it; typing anything hides it. None while Coder works, while a card waits, in plan mode or in Gloopy's tab. Settings has a "Prompt suggestions" switch to turn it off. It costs no extra Grok call: Coder's last answer adds one hidden line with the suggestion, which the page never shows. Tests: prompt-suggest.test.mjs.
+## 2026-11-17: Undo lines say what was undone; test results come in a code block
+
+From the side-by-side with Claude Code on the web:
+- When Coder undoes its last job, the chat line no longer quotes the job's whole answer back. It names the files, like "Undid the last job: undo-test/a.txt is back as it was. Saved to the branch coder/…" (up to 5 names, else "6 files").
+- The Undo button in the changed-files box now reads like an undo: "Undid this turn's changes: b.txt is back as it was. Saved to the branch …". Rewind keeps its own "Rewound to before an earlier message" wording.
+- Coder's instructions now say: when reporting a test or build run, show the short relevant output (the summary lines) in a code block, as Claude Code does. The page already draws code blocks.
+Tests: rewind-restore.test.mjs, coder.test.mjs (CD43), files-box.test.mjs.
+## 2026-11-17: Coder pushes after every answer that changed files
+
+Like Claude Code on the web: in your recording, after each answer that changed files Claude commits and pushes to its branch by itself, so a later "push the branch" finds nothing to push. Coder now does the same. When a turn changed files, its work is committed and pushed to the chat's branch, and the chat says "Pushed to the branch …". The push happens in the background after the answer is shown, so answers are not slower and the message box is free at once. A turn that changed nothing does not push. Read-only chats still keep their work on Coder's machine. The Push button now only shows if a push failed and work is waiting. Tests: push-later.test.mjs (PL2, PL3), save-speed.test.mjs (SV3), claude-parity.test.mjs.
+
 ## 2026-11-17: The "environment changed" line says what changed
 
 A hidden check on the live site showed the line was true: the network really changed (a host Coder proposed was approved on its card). It just did not say what. Now it names it, for example "The environment changed: now also allows ipv4.icanhazip.com". The hidden check is removed again. Tests: list-and-env-note.test.mjs (LE4).

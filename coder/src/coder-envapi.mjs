@@ -12,7 +12,7 @@
  * Values of variables and network secrets never leave here for the machine.
  */
 import { modelPass } from "./coder-model-gate.mjs";
-import { userToken, readPullRequestComments, openPullRequest } from "./coder-github.mjs";
+import { userToken, readPullRequestComments, openPullRequest, postReview, updatePullRequest } from "./coder-github.mjs";
 import { chatLinkFor, madeWith, prStillOpen, noPrNote } from "./coder-routes.mjs";
 import { listEnvs, saveEnvList, readEnvData, writeEnvData, envIdFor, envIdOf, markUsed, envListOut } from "./coder-environments.mjs";
 import { egressPass, machineKeyRules, EGRESS_PATH } from "./coder-egress.mjs";
@@ -70,6 +70,9 @@ export async function handleEnvApi(request, env, { now = Date.now() } = {}) {
   // CODER'S pull_request, NOW (2026-11-16, like Claude Code's cloud session): the machine pushed first; the pull request opens
   // here with the owner's token, and its number goes back to Coder (pr_read can then read it in the same turn).
   if (body.action === "pull_request") return answer(await prOpenNow(env, bucket, uid, id, meta, body));
+  // CODER'S pr_update and pr_comments, NOW (2026-11-17, like Claude Code: ready, draft, resolve, reply and comments posted at once).
+  if (body.action === "pr_update") return answer(await prUpdateNow(env, bucket, uid, meta, body));
+  if (body.action === "pr_review") return answer(await prReviewNow(env, bucket, uid, meta, body));
   // (Never in a job started from GitHub, whose text strangers can write: the tools are not offered there either.)
   if (meta.jobFromGithub === true || meta.kind === "gloopy") return answer({ error: "error: the environment cannot be looked up or changed in a job started from GitHub" }, 403);
   const also = [body.action === "get" ? body.environment_id : body.args && typeof body.args === "object" ? body.args.environment_id : null];
@@ -187,6 +190,37 @@ export async function prRead(env, bucket, uid, meta, body, { fetchFn = fetch } =
   const t = await userToken(env, bucket, uid, { fetchFn });
   if (!t) return { error: "error: the owner's GitHub connection has ended; they sign in to GitHub again on gofarther.dev" };
   try { return await readPullRequestComments(t.token, known, n, { fetchFn }); } catch { return { error: "error: GitHub could not be reached" }; }
+}
+
+/** The pull request a pr_* call means, for writing: one of the chat's repositories it may write to, and a number. */
+async function prTarget(env, bucket, uid, meta, body, fetchFn) {
+  if (meta.jobFromGithub === true || meta.kind === "gloopy") return { error: "error: nothing is posted on GitHub as the owner in a job started from GitHub" };
+  const repos = chatRepos(meta);
+  let repo = typeof body.repo === "string" ? body.repo.trim() : "", n = Number(body.pr);
+  const url = /^https:\/\/github\.com\/([A-Za-z0-9-]{1,39}\/[A-Za-z0-9._-]{1,100})\/pull\/(\d{1,9})/.exec(String(body.pr || ""));
+  if (url) { repo = url[1]; n = Number(url[2]); }
+  if (!repo) repo = meta.repo || "";
+  const known = repos.find((r) => r.toLowerCase() === repo.toLowerCase());
+  if (!known) return { error: "error: " + (repo || "that repository") + " is not one of this chat's repositories (" + (repos.join(", ") || "none") + ")" };
+  const x = (Array.isArray(meta.repos) ? meta.repos : []).find((r) => r && String(r.repo).toLowerCase() === known.toLowerCase());
+  if (x ? x.readOnly : known === meta.repo && meta.readOnly) return { error: "error: " + noPrNote(known) };
+  if (!(Number.isInteger(n) && n > 0)) { const own = known === meta.repo ? meta.pr : meta.prs && meta.prs[known]; n = own ? Number(own.number) : 0; }
+  if (!(Number.isInteger(n) && n > 0)) return { error: "error: this chat has no pull request yet; give its number" };
+  const t = await userToken(env, bucket, uid, { fetchFn });
+  if (!t) return { error: "error: the owner's GitHub connection has ended; they sign in to GitHub again on gofarther.dev" };
+  return { repo: known, n, token: t.token };
+}
+export async function prUpdateNow(env, bucket, uid, meta, body, { fetchFn = fetch } = {}) {
+  const g = await prTarget(env, bucket, uid, meta, body, fetchFn);
+  if (g.error) return g;
+  try { return await updatePullRequest(g.token, g.repo, g.n, { op: String(body.op || ""), commentId: body.comment_id, body: body.body }, { fetchFn }); } catch { return { error: "error: GitHub could not be reached" }; }
+}
+export async function prReviewNow(env, bucket, uid, meta, body, { fetchFn = fetch } = {}) {
+  const g = await prTarget(env, bucket, uid, meta, body, fetchFn);
+  if (g.error) return g;
+  const comments = (Array.isArray(body.comments) ? body.comments : []).slice(0, 30);
+  const x = await postReview(g.token, g.repo, g.n, { summary: String(body.summary || "").slice(0, 4000), comments }, fetchFn).catch(() => null);
+  return x && x.ok ? { ok: true, text: "Review posted on pull request #" + g.n + (x.inline ? "" : " (as one comment: GitHub took no line comments)") + ": " + String(x.url || "") } : { error: "error: GitHub did not post the review on pull request #" + g.n };
 }
 
 /**

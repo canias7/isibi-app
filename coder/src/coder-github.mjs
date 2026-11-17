@@ -216,6 +216,52 @@ export async function postReview(token, repo, number, { summary = "", comments =
   return r2.ok ? { ok: true, url: r2.data && r2.data.html_url, inline: false } : { ok: false };
 }
 
+/**
+ * CODER'S pr_update (2026-11-17, the owner's group 3 test: Claude Code marked a pull request ready and resolved a thread; Coder's
+ * gh can't, as GitHub does both only through GraphQL, which the chat's gh is refused). Done here, with the owner's token, as
+ * one fixed request each (never a GraphQL query the AI writes): op "ready" | "draft" | "resolve" (the thread of review comment
+ * `commentId`) | "reply" (to review comment `commentId`) | "comment" (on the conversation). → { ok, text } or { error }.
+ */
+export async function updatePullRequest(token, repo, number, { op, commentId = 0, body = "" }, { fetchFn = fetch } = {}) {
+  const base = "/repos/" + repo, n = Number(number), cid = Number(commentId);
+  if (!["ready", "draft", "resolve", "reply", "comment"].includes(op)) return { error: "error: op is ready, draft, resolve, reply or comment" };
+  const gql = async (query, variables) => { const r = await gh(token, "/graphql", { method: "POST", body: { query, variables }, fetchFn }); return r.ok && r.data && !r.data.errors ? r.data.data : null; };
+  if (op === "ready" || op === "draft") {
+    const pr = await gh(token, base + "/pulls/" + n, { fetchFn });
+    if (!pr.ok || !pr.data) return { error: "error: GitHub shows no pull request #" + n + " in " + repo };
+    if (pr.data.state !== "open") return { error: "error: pull request #" + n + " is " + (pr.data.merged ? "merged" : pr.data.state) };
+    if ((op === "ready") === (pr.data.draft !== true)) return { ok: true, text: "Pull request #" + n + " is already " + (op === "ready" ? "ready for review" : "a draft") + "." };
+    const d = op === "ready"
+      ? await gql("mutation($id:ID!){markPullRequestReadyForReview(input:{pullRequestId:$id}){pullRequest{isDraft}}}", { id: pr.data.node_id })
+      : await gql("mutation($id:ID!){convertPullRequestToDraft(input:{pullRequestId:$id}){pullRequest{isDraft}}}", { id: pr.data.node_id });
+    if (!d) return { error: "error: GitHub did not change pull request #" + n };
+    return { ok: true, text: op === "ready" ? "Pull request #" + n + " is now ready for review." : "Pull request #" + n + " is now a draft." };
+  }
+  if (op === "resolve") {
+    if (!(Number.isInteger(cid) && cid > 0)) return { error: "error: give comment_id, the [number] pr_read shows before a review comment" };
+    const [owner, name] = repo.split("/");
+    const q = await gql("query($owner:String!,$name:String!,$n:Int!){repository(owner:$owner,name:$name){pullRequest(number:$n){reviewThreads(first:100){nodes{id isResolved comments(first:100){nodes{databaseId}}}}}}}", { owner, name, n });
+    const nodes = (((((q || {}).repository || {}).pullRequest || {}).reviewThreads || {}).nodes) || [];
+    const t = nodes.find((x) => x && x.comments && (x.comments.nodes || []).some((c) => Number(c.databaseId) === cid));
+    if (!t) return { error: "error: no review thread on pull request #" + n + " has comment " + cid };
+    if (t.isResolved) return { ok: true, text: "That thread is already resolved." };
+    const d = await gql("mutation($id:ID!){resolveReviewThread(input:{threadId:$id}){thread{isResolved}}}", { id: t.id });
+    return d ? { ok: true, text: "Resolved the thread of comment " + cid + " on pull request #" + n + "." } : { error: "error: GitHub did not resolve that thread" };
+  }
+  const text = String(body || "").trim().slice(0, 8000);
+  if (!text) return { error: "error: give the comment's body" };
+  if (op === "reply") {
+    if (!(Number.isInteger(cid) && cid > 0)) return { error: "error: give comment_id, the [number] pr_read shows before a review comment" };
+    const r = await gh(token, base + "/pulls/" + n + "/comments/" + cid + "/replies", { method: "POST", body: { body: text }, fetchFn });
+    return r.ok ? { ok: true, text: "Replied on pull request #" + n + ": " + String((r.data && r.data.html_url) || "") } : { error: "error: GitHub did not post the reply (" + r.status + ")" };
+  }
+  if (op === "comment") {
+    const r = await gh(token, base + "/issues/" + n + "/comments", { method: "POST", body: { body: text }, fetchFn });
+    return r.ok ? { ok: true, text: "Commented on pull request #" + n + ": " + String((r.data && r.data.html_url) || "") } : { error: "error: GitHub did not post the comment (" + r.status + ")" };
+  }
+  return { error: "error: op is ready, draft, resolve, reply or comment" };
+}
+
 /** A repository's name, as GitHub writes it: owner/name. */
 export const REPO = /^[A-Za-z0-9-]{1,39}\/[A-Za-z0-9._-]{1,100}$/;
 /** A branch name we may use. */
@@ -240,7 +286,7 @@ export async function readPullRequestComments(token, repo, number, { fetchFn = f
   const list = (r) => (r.ok && Array.isArray(r.data) ? r.data.slice(0, 50) : []);
   const who = (x) => "@" + String((x && x.user && x.user.login) || "someone");
   const body = (s) => String(s || "").replace(/\r/g, "").trim().slice(0, 1500) || "(no text)";
-  const out = ["Pull request #" + n + " in " + repo + ": " + String(pr.data.title || "").slice(0, 200) + " (" + (pr.data.merged ? "merged" : String(pr.data.state || "")) + ", by " + who(pr.data) + ")"];
+  const out = ["Pull request #" + n + " in " + repo + ": " + String(pr.data.title || "").slice(0, 200) + " (" + (pr.data.merged ? "merged" : String(pr.data.state || "") + (pr.data.draft === true ? ", draft" : "")) + ", by " + who(pr.data) + ")"];
   const rv = list(reviews).filter((r) => r.state !== "PENDING");
   out.push("", "Reviews (" + rv.length + "):");
   for (const r of rv) out.push("- " + who(r) + " " + String(r.state || "") + (r.body ? ": " + body(r.body) : ""));

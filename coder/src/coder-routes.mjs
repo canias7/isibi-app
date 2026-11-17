@@ -84,6 +84,8 @@ export function prefsOf(saved) {
     autoMode: typeof s.autoMode === "string" && autoModeSetting(s.autoMode).ok ? s.autoMode : "",
     denyInstead: s.denyInstead === true,
     autoOff: s.autoOff === true,
+    // (Prompt suggestions, Claude Code's promptSuggestionEnabled: on unless turned off.)
+    suggestOff: s.suggestOff === true,
   };
 }
 /** A mode under the owner's Settings: Auto, with Auto mode turned off, is Accept edits. */
@@ -100,10 +102,11 @@ export function prefsChange(saved, body) {
   if ("autoMode" in b) { if (typeof b.autoMode !== "string") return { error: "The auto mode rules are JSON text." }; const a = autoModeSetting(b.autoMode); if (!a.ok) return { error: a.error }; warnings = a.warnings; }
   if ("denyInstead" in b && typeof b.denyInstead !== "boolean") return { error: "Refusing instead of asking is on or off." };
   if ("autoOff" in b && typeof b.autoOff !== "boolean") return { error: "Turning Auto mode off is on or off." };
-  return { prefs: { bgHours: "bgHours" in b ? Number(b.bgHours) : now.bgHours, endDetached: "endDetached" in b ? b.endDetached : now.endDetached, diskWarnGib: "diskWarnGib" in b ? Number(b.diskWarnGib) : now.diskWarnGib, memWarnGib: "memWarnGib" in b ? Number(b.memWarnGib) : now.memWarnGib, hooks: "hooks" in b ? String(b.hooks).trim() : now.hooks, autoMode: "autoMode" in b ? String(b.autoMode).trim() : now.autoMode, denyInstead: "denyInstead" in b ? b.denyInstead : now.denyInstead, autoOff: "autoOff" in b ? b.autoOff : now.autoOff }, ...(warnings.length ? { warnings } : {}) };
+  if ("suggestOff" in b && typeof b.suggestOff !== "boolean") return { error: "Prompt suggestions are on or off." };
+  return { prefs: { bgHours: "bgHours" in b ? Number(b.bgHours) : now.bgHours, endDetached: "endDetached" in b ? b.endDetached : now.endDetached, diskWarnGib: "diskWarnGib" in b ? Number(b.diskWarnGib) : now.diskWarnGib, memWarnGib: "memWarnGib" in b ? Number(b.memWarnGib) : now.memWarnGib, hooks: "hooks" in b ? String(b.hooks).trim() : now.hooks, autoMode: "autoMode" in b ? String(b.autoMode).trim() : now.autoMode, denyInstead: "denyInstead" in b ? b.denyInstead : now.denyInstead, autoOff: "autoOff" in b ? b.autoOff : now.autoOff, suggestOff: "suggestOff" in b ? b.suggestOff : now.suggestOff }, ...(warnings.length ? { warnings } : {}) };
 }
 /** What Coder's machine is given of them with each message. */
-export const machinePrefs = (saved) => { const p = prefsOf(saved); return { bgMaxMs: p.bgHours * 3_600_000, endDetached: p.endDetached, diskWarnGib: p.diskWarnGib, memWarnGib: p.memWarnGib, ...(p.denyInstead ? { denyInstead: true } : {}), ...(p.autoOff ? { autoOff: true } : {}) }; };
+export const machinePrefs = (saved) => { const p = prefsOf(saved); return { bgMaxMs: p.bgHours * 3_600_000, endDetached: p.endDetached, diskWarnGib: p.diskWarnGib, memWarnGib: p.memWarnGib, ...(p.denyInstead ? { denyInstead: true } : {}), ...(p.autoOff ? { autoOff: true } : {}), ...(p.suggestOff ? { suggestOff: true } : {}) }; };
 /** The owner's auto mode rules as Coder's machine takes them (Claude Code's autoMode block), or null. */
 export const machineAutoMode = (saved) => { const a = autoModeSetting(prefsOf(saved).autoMode); return a.ok && a.value ? a.value : null; };
 /** The owner's hooks as Coder's machine takes them (`{ hooks, disableAllHooks }`), or null. */
@@ -198,15 +201,20 @@ export function checkImages(list) {
 // work goes back to GitHub "only when your GitHub connection has push access"): what the chat says.
 export const keptNote = (repo) => "Kept on Coder's machine (you can read " + repo + " but not push to it, so nothing went to GitHub). See changes shows it, and downloads it as a patch file.";
 export const noPrNote = (repo) => "No pull request: you can read " + repo + " but not push to it, so Coder cannot open one there.";
-// ── PUSHED AT A STOPPING POINT (owner, 2026-11-16, like Claude Code's cloud sessions) ─────────────────────────────────
-/** The safety net: unpushed commits are pushed in the background after a turn once there are this many… */
+// ── PUSHED AT THE END OF EVERY TURN THAT CHANGED FILES (owner, 2026-11-17; was a stopping point, 2026-11-16) ─────────────────────────────────
+/** The safety net (for commits left after a failed push): pushed in the background after a turn once there are this many… */
 export const PUSH_AFTER_COMMITS = 5;
 /** …or once the oldest has waited this long. */
 export const PUSH_AFTER_MS = 30 * 60 * 1000;
-/** Does this turn's end push the branch at once? Coder's push_branch, a pull request or review to post, or a job from GitHub. */
+/**
+ * Does this turn's end push the branch? (owner, 2026-11-17, like Claude Code on the web, whose chat shows "Hook re-prompted
+ * Claude, ran a command" and commits and pushes after each answer that changed files): ANY turn that changed files (the
+ * machine says `dirty: false` only when it is sure nothing changed), Coder's push_branch, a pull request or review to post,
+ * or a job from GitHub. The push runs in the turn's save, which the page starts in the background once the answer is shown.
+ */
 export function pushWanted(result, meta) {
   const r = result && typeof result === "object" ? result : {};
-  return r.push === true || !!r.prRequest || (Array.isArray(r.prExtra) && r.prExtra.length > 0) || !!r.reviewPost || (Array.isArray(r.reviewReplies) && r.reviewReplies.length > 0) || !!r.autofixRequest || !!(meta && meta.jobFromGithub === true);
+  return r.dirty !== false || r.push === true || !!r.prRequest || (Array.isArray(r.prExtra) && r.prExtra.length > 0) || !!r.reviewPost || (Array.isArray(r.reviewReplies) && r.reviewReplies.length > 0) || !!r.autofixRequest || !!(meta && meta.jobFromGithub === true);
 }
 /** Is the safety net's background push due for this chat (never a read-only one)? */
 export function safetyPushDue(meta, now = Date.now()) {
@@ -715,6 +723,9 @@ export async function autofixFor(env, bucket, uid, meta, want, token, fetchFn = 
   };
 }
 
+/** One live stream's longest life (the page opens the next one), and how long each of its looks waits on the machine for news. */
+export const STREAM_MS = 5 * 60 * 1000;
+export const STREAM_WAIT_MS = 20_000;
 /** How long a chat may say "working" with no machine answering before it is freed. */
 export const STALE_MS = 15 * 60 * 1000;
 /**
@@ -858,6 +869,22 @@ const editedOf = (r) => (r && Array.isArray(r.edited) ? r.edited.filter((x) => t
  * edited, whatever made them", so the page offers "Restore code" for it). Nothing for a job the machine gave no list for
  * (Rewind then reverts the later jobs whole, as before).
  */
+/**
+ * THE CHAT'S LINE AFTER AN UNDO (live side-by-side with Claude Code, 2026-11-17): a short line naming what was undone,
+ * not the job's whole answer quoted back. `lead` "Undid the last job" or "Undid this turn's changes"; `files` the paths put
+ * back (up to 5 named, else counted); `where` "saved to the branch …" or "kept on Coder's machine".
+ */
+export function undoLine(lead, files, where, removed = []) {
+  const all = (Array.isArray(files) ? files : []).filter((x) => typeof x === "string" && x);
+  const gone = new Set((Array.isArray(removed) ? removed : []).filter((x) => typeof x === "string" && all.includes(x)));
+  const f = all.filter((x) => !gone.has(x)), g = all.filter((x) => gone.has(x));
+  const back = !f.length ? "" : f.length <= 5 ? f.join(", ") + (f.length === 1 ? " is back as it was" : " are back as they were") : f.length + " files are back as they were";
+  // (A file the job had made is removed by the undo: "new.txt removed", the owner's group 2 test, 2026-11-17.)
+  const rem = !g.length ? "" : g.length <= 5 ? g.join(", ") + " removed" : g.length + " files removed";
+  const what = back && rem ? back + "; " + rem : back || rem || "the files are back as they were";
+  const w = String(where || "");
+  return lead + ": " + what + (all.length > 1 && all.length <= 5 ? " (" + all.length + " files)" : "") + "." + (w ? " " + w.charAt(0).toUpperCase() + w.slice(1) + "." : "");
+}
 export function commitTracking(commits, result, pushed) {
   const edited = editedOf(result);
   if (!edited || (result && result.editedCut === true) || edited.length > EDITED_KEEP) return {};
@@ -1839,6 +1866,39 @@ export async function handleCoder(request, env, ctx, deps) {
     return json({ ok: true });
   }
 
+  // THE LIVE STREAM (2026-11-17, the owner: "can we do it this way", like Claude Code's page): one open connection that sends
+  // each new state of the chat as it happens (server-sent events), from this Worker's own /state looks that wait on the
+  // machine for news (`wait`). It ends when the job is over (the last state says running: false) or after STREAM_MS; the page
+  // then opens a new one while the chat runs, and falls back to its looks if streams fail.
+  if (action === "stream" && request.method === "GET") {
+    const enc = new TextEncoder();
+    let since = Math.max(0, Number(url.searchParams.get("since")) || 0), turn = Number(url.searchParams.get("turn")) || 0;
+    const seenQ = url.searchParams.get("seen") === "1" ? "&seen=1" : "";
+    const { readable, writable } = new TransformStream();
+    const w = writable.getWriter();
+    const run = async () => {
+      const end = Date.now() + STREAM_MS;
+      let quiet = 0;
+      try {
+        await w.write(enc.encode(": open\n\n"));
+        while (Date.now() < end) {
+          const r = await self("/state?since=" + since + seenQ + (turn ? "&turn=" + turn : "&early=1") + "&wait=" + STREAM_WAIT_MS).catch(() => null);
+          const d = r ? await r.json().catch(() => null) : null;
+          if (!r || r.status !== 200 || !d) { await w.write(enc.encode("event: fail\ndata: " + JSON.stringify({ status: r ? r.status : 0 }) + "\n\n")); break; }
+          const news = (Array.isArray(d.events) && d.events.length) || d.ending || !d.running || d.reload || d.progress || d.phase;
+          if (news || ++quiet >= 2) { quiet = 0; await w.write(enc.encode("data: " + JSON.stringify(d) + "\n\n")); }
+          since = d.next || since;
+          if (d.ending && !turn) turn = Number(d.project && d.project.turn) || 0;
+          if (!d.running || d.reload) break;
+          if (!(Array.isArray(d.events) && d.events.length) && !d.ending) continue;
+        }
+      } catch { /* the page went away */ }
+      try { await w.close(); } catch { /* closed */ }
+    };
+    if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(run()); else run();
+    return new Response(readable, { headers: { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-store", "x-accel-buffering": "no" } });
+  }
+
   if (action === "state" && request.method === "GET") {
     // THE OWNER IS LOOKING AT THIS CHAT (its page visible and focused): no push about it for a while (item 8).
     if (url.searchParams.get("seen") === "1") {
@@ -1869,7 +1929,8 @@ export async function handleCoder(request, env, ctx, deps) {
     // answered within START_LOOK_MS is still starting: the look ends there (the grace path below says "container").
     const young = meta.status === "running" && since === 0 && Number(meta.turn) <= 1 && Date.now() - Number(meta.at || 0) < 60_000;
     try {
-      const look = call("/state?project=" + id + "&since=" + since, { method: "GET" }).then((r) => (r.ok ? r.json() : null));
+      const waitQ = Math.min(25_000, Math.max(0, Number(url.searchParams.get("wait")) || 0));
+      const look = call("/state?project=" + id + "&since=" + since + (waitQ && !young ? "&wait=" + waitQ : ""), { method: "GET" }).then((r) => (r.ok ? r.json() : null));
       s = young ? await Promise.race([look, new Promise((res) => setTimeout(() => res(null), START_LOOK_MS))]) : await look;
       look.catch(() => {});
     } catch { s = null; }
@@ -2038,7 +2099,7 @@ export async function handleCoder(request, env, ctx, deps) {
           const last = commits[commits.length - 1];
           const u = await post("/undo", { project: id, repo: meta.repo, base: meta.base, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn), chatUrl: chatLink, sha: last.sha, ...(meta.readOnly ? { noPush: true } : {}) }).then((x) => x.json()).catch(() => ({ ok: false, why: "Coder's machine could not be reached" }));
           if (u.ok && !meta.readOnly) { unpushed = 0; unpushedSince = 0; pushed = true; commits = commits.map((c) => (c.local ? { ...c, local: undefined } : c)); }
-          if (u.ok) { commits = commits.slice(0, -1); pushNote = "Undid the last job (" + last.title + "). The files are back as they were; " + (meta.readOnly ? "kept on Coder's machine" : "saved to the branch " + meta.branch + (pr ? " · pull request #" + pr.number + " updated" : "")) + "."; }
+          if (u.ok) { commits = commits.slice(0, -1); pushNote = undoLine("Undid the last job", Array.isArray(u.files) && u.files.length ? u.files : last.edited, meta.readOnly ? "kept on Coder's machine" : "saved to the branch " + meta.branch + (pr ? " · pull request #" + pr.number + " updated" : ""), u.removed); }
           else pushNote = (pushNote ? pushNote + " · " : "") + "Could not undo: " + String(u.why || u.error || "unknown").slice(0, 200);
           const lo = leftOutNote(u.left);
           if (lo && !pushNote.includes(lo)) pushNote += " · " + lo;
@@ -2303,7 +2364,7 @@ export async function handleCoder(request, env, ctx, deps) {
     catch { r = { ok: false, why: "Coder's machine could not be reached" }; }
     if (!r.ok) return json({ error: "Could not undo: " + String(r.why || r.error || "unknown").slice(0, 300) }, 409);
     const lo = leftOutNote(r.left);
-    const note = "Undid the last job (" + last.title + "). The files are back as they were; " + (meta.readOnly ? "kept on Coder's machine" : "saved to the branch " + meta.branch) + "." + (lo ? " · " + lo : "");
+    const note = undoLine("Undid the last job", Array.isArray(r.files) && r.files.length ? r.files : last.edited, meta.readOnly ? "kept on Coder's machine" : "saved to the branch " + meta.branch, r.removed) + (lo ? " · " + lo : "");
     const old = await getJson(bucket, keyOf(uid, id, "events.json"), []);
     const ev = { at: Date.now(), type: "github", text: note };
     await putJson(bucket, keyOf(uid, id, "events.json"), [...old, ev].slice(-MAX_EVENTS));
@@ -2327,7 +2388,7 @@ export async function handleCoder(request, env, ctx, deps) {
     // (A card its paused job waits on is closed first, as a Stop closes it: coder-park.mjs.)
     if (parkedOf(meta)) meta = await closeParkedCard(bucket, uid, meta);
     let body = {}; try { body = await request.json(); } catch { body = {}; }
-    const turn = Number(body.turn), code = body.code === true, chat = body.chat === true;
+    const turn = Number(body.turn), code = body.code === true, chat = body.chat === true, asUndo = body.undo === true && code && !chat;
     const mark = (Array.isArray(meta.marks) ? meta.marks : []).find((m) => m.turn === turn);
     if (!mark) return json({ error: "That message is too old to rewind to here." }, 400);
     // SUMMARIZE FROM HERE / UP TO HERE (owner item 9, like Claude Code's Rewind: "compress the conversation
@@ -2394,7 +2455,9 @@ export async function handleCoder(request, env, ctx, deps) {
     if (chat) { events = events.slice(0, mark.ev); msgs = msgs.slice(0, mark.msg); }
     const savedTo = meta.readOnly ? "kept on Coder's machine" : "saved to the branch " + meta.branch;
     const codeSaid = !code ? "" : restored ? (restored.length ? "the code is back as it was (" + restored.length + " file" + (restored.length === 1 ? "" : "s") + " restored, " + savedTo + "; files only commands changed stay as they are)" : "the code had no changes to restore") : later.length ? "the code is back as it was (" + undone + " job" + (undone === 1 ? "" : "s") + " undone, saved to the branch " + meta.branch + ")" : "the code had no later changes";
-    const note = "Rewound to before an earlier message: " + [codeSaid, chat ? "the chat after it is gone" : ""].filter(Boolean).join("; ") + "." + (skippedFiles.length ? " " + restoreSkipped(skippedFiles) : "") + (restoreLeft ? " · " + restoreLeft : "");
+    // (The changed-files box's Undo button reads like an undo, not a rewind: live side-by-side, 2026-11-17.)
+    const undoSaid = !asUndo ? "" : restored && restored.length ? undoLine("Undid this turn's changes", restored, savedTo) : restored ? "Nothing to undo: this turn's changes were already gone." : later.length ? undoLine("Undid this turn's changes", later.flatMap((c) => (Array.isArray(c.edited) ? c.edited : [])), "saved to the branch " + meta.branch) : "Nothing to undo: this turn changed no files.";
+    const note = undoSaid ? undoSaid + (skippedFiles.length ? " " + restoreSkipped(skippedFiles) : "") + (restoreLeft ? " · " + restoreLeft : "") : "Rewound to before an earlier message: " + [codeSaid, chat ? "the chat after it is gone" : ""].filter(Boolean).join("; ") + "." + (skippedFiles.length ? " " + restoreSkipped(skippedFiles) : "") + (restoreLeft ? " · " + restoreLeft : "");
     const ev = { at: Date.now(), type: "github", text: note };
     events = [...events, ev].slice(-MAX_EVENTS);
     // Code only: Coder is told, so it knows those changes are gone.

@@ -1272,10 +1272,13 @@ export const CODER_TOOLS = Object.freeze([
   fn("review", "Review the changes on this chat's branch (against the base branch, plus anything not saved yet): returns the diff and the checklist to follow. kind code: bugs, edge cases, missing tests. kind security: injection, secrets, auth, XSS, SSRF... Use it when the owner asks for a review or a security review; then answer with findings only and change nothing.", { kind: { type: "string", enum: ["code", "security"] } }, ["kind"]),
   // REVIEW ON THE PULL REQUEST, like Claude Code's /code-review --comment (its docs,
   // read 2026-11-06; owner: "Finish all this"): the findings as line comments.
-  fn("pr_comments", "Post review findings as comments on the lines of this chat's pull request, like a reviewer on GitHub. Use it ONLY when the owner asks for the review (or comments) on the pull request. Give every finding at once: path (from the repo's root), line (in the new version of the file, a line the pull request changed), body (the problem and a one-line fix). They are posted when your turn ends.", { summary: { type: "string" }, comments: { type: "array", items: { type: "object", properties: { path: { type: "string" }, line: { type: "integer" }, body: { type: "string" } }, required: ["path", "line", "body"] } } }, ["summary", "comments"]),
+  fn("pr_comments", "Post review findings as comments on the lines of this chat's pull request, like a reviewer on GitHub. Use it ONLY when the owner asks for the review (or comments) on the pull request. Give every finding at once: path (from the repo's root), line (in the new version of the file, a line the pull request changed), body (the problem and a one-line fix). They are posted on GitHub at once (pr and repo left out: this chat's pull request).", { pr: { type: "string" }, repo: { type: "string" }, summary: { type: "string" }, comments: { type: "array", items: { type: "object", properties: { path: { type: "string" }, line: { type: "integer" }, body: { type: "string" } }, required: ["path", "line", "body"] } } }, ["summary", "comments"]),
   // READING A PULL REQUEST'S COMMENTS (2026-11-16; Claude Code reads them with its GitHub tool, pull_request_read): read on
   // Coder's server with the owner's GitHub login, which never comes to this machine.
   fn("pr_read", "Read a pull request's reviews (state, text), review comments on lines (file:line, author, text) and conversation comments. Use it when the owner asks what the comments or reviews on a pull request say, instead of gh or curl. pr: its number or address (left out: this chat's pull request); repo: one of this chat's repositories (left out: the chat's own). Read-only.", { pr: { type: "string", description: "the pull request's number or address" }, repo: { type: "string" } }, []),
+  // CHANGING A PULL REQUEST (2026-11-17, the owner's group 3 test: Claude Code marked one ready and resolved a thread; GitHub
+  // does both only through GraphQL, refused to the chat's gh): done by Coder's server with the owner's login, one fixed request each.
+  fn("pr_update", "Change a pull request on GitHub, at once: op \"ready\" (mark a draft ready for review), \"draft\" (back to draft), \"resolve\" (resolve the review thread of comment_id), \"reply\" (answer review comment comment_id with body) or \"comment\" (a comment on its conversation, body). comment_id: the [number] pr_read shows before a review comment. Use it only for what the owner asked, instead of gh or curl (gh pr ready and GraphQL are refused here). pr: its number or address (left out: this chat's pull request); repo: one of this chat's repositories.", { op: { type: "string", enum: ["ready", "draft", "resolve", "reply", "comment"] }, pr: { type: "string" }, repo: { type: "string" }, comment_id: { type: "integer" }, body: { type: "string" } }, ["op"]),
   // CLAUDE CODE'S SUGGESTED CONNECTORS (2026-11-16; claude.com/docs/connectors/directory: "Suggested Connectors, which are
   // in-chat recommendations shown when relevant to the user's task"): its own tool, so the card shows whenever the owner
   // asks about connectors, not only when a tool search happens to name them.
@@ -1524,6 +1527,7 @@ export const PLAN_ASKS = Object.freeze({
   pull_request: (a) => "Open a pull request: " + String((a && a.title) || "").slice(0, 200),
   pr_read: (a) => "Read the comments on pull request " + String((a && a.pr) || "of this chat").slice(0, 200),
   suggest_connectors: () => "Show suggested connectors",
+  pr_update: (a) => "Change pull request " + String((a && a.pr) || "") + " (" + String((a && a.op) || "") + ")",
   pr_comments: (a) => "Post " + (Array.isArray(a && a.comments) ? a.comments.length : 0) + " review comment(s) on the pull request",
   auto_fix: (a) => "Turn auto-fix " + (a && a.on === false ? "off" : "on") + " for " + String((a && a.pr) || "a pull request").slice(0, 200),
   undo_last_job: () => "Undo the last job that changed files",
@@ -1563,7 +1567,7 @@ export function modeChangeNote(from, to, { planExited = PLAN_EXITED, autoExit = 
 // mode, which offers only the tools it allows. Each of these still refuses in such a job if called anyway.
 // (Nor enter_plan_mode: Claude Code offers EnterPlanMode only where someone can be asked, never in a non-interactive run, and
 // a job from GitHub is always Auto. 2026-11-14.)
-export const NOT_FROM_GITHUB = Object.freeze(["request_secret", ...ENV_TOOL_NAMES, "pr_comments", "pr_read", "suggest_connectors", "undo_last_job", "auto_fix", "enter_plan_mode", "rename_chat"]);
+export const NOT_FROM_GITHUB = Object.freeze(["request_secret", ...ENV_TOOL_NAMES, "pr_comments", "pr_read", "pr_update", "suggest_connectors", "undo_last_job", "auto_fix", "enter_plan_mode", "rename_chat"]);
 export const GITHUB_TOOLS = Object.freeze(CODER_TOOLS.filter((t) => !NOT_FROM_GITHUB.includes(t.function.name)));
 /**
  * THIS CHAT'S TOOL LIST, bash as its environment sets it: with background commands off (CODER_DISABLE_BACKGROUND_TASKS,
@@ -1640,13 +1644,29 @@ export const MACHINE_ADMIN = MACHINE_TOOLS
 // (Its line on URLs is Claude Code's own too, word for word but for "the owner" (its "the user"), where Claude Code's
 // system prompt has it: the last line of its opening, before its other parts. 2.1.325; 2026-11-14.)
 export const CODER_URLS_LINE = "IMPORTANT: You must NEVER generate or guess URLs for the owner unless you are confident that the URLs are for helping the owner with programming. You may use URLs provided by the owner in their messages or local files.";
+/**
+ * PROMPT SUGGESTIONS (Claude Code's: "After Claude responds, Claude Code can suggest your next prompt based on your
+ * conversation history"; Tab or Right arrow takes it, typing dismisses it; promptSuggestionEnabled turns it off). Claude Code
+ * makes each with "a short background request to the same model", "mostly cache reads plus a few output tokens"; Coder asks
+ * its final answer for the same few tokens instead, a hidden last line the page never shows, so it needs no request at all.
+ */
+export const SUGGEST_LINE = "\n\nPROMPT SUGGESTION: when you finish a turn with your answer in words, end it with one last line <next-prompt>…</next-prompt> holding the message the owner would most likely send you next, in their voice, under 12 words (e.g. <next-prompt>now fix both bugs and rerun the tests</next-prompt>). Base it on this chat: a next step of their request, or the natural follow-up. Leave the line out when there is no clear next step. The owner never sees this line; never mention it.";
+/** A final answer with its hidden suggestion taken off: `{ text, next }`. */
+export function splitSuggest(said) {
+  const s = String(said || "");
+  const re = /<next-prompt>([\s\S]*?)(?:<\/next-prompt>|$)/gi;
+  let next = "", m;
+  while ((m = re.exec(s))) next = m[1];
+  next = next.replace(/\s+/g, " ").trim().replace(/^["“]|["”]$/g, "").slice(0, 200);
+  return { text: s.replace(re, "").replace(/\s+$/, ""), next };
+}
 export const CODER_SYSTEM = `You are Coder, the owner's assistant. You help with whatever they ask: questions, ideas, writing, research, planning and hands-on work. You also have your own Linux machine with the owner's project, so you can read and change files, run commands, browse the web and build things.
 The project lives in the folder your commands start in (WHERE YOUR COMMANDS RUN, when given below, names it and where your commands are now). When the work is code, work like a developer at a terminal: look first (ls, cat, grep), then change files, then run and test what you changed.
 
 ${CODER_URLS_LINE}
 
 HOW YOU WORK
-- Your tools: read, edit, write (files), grep, glob (finding things), bash (running anything: installs, tests, servers, git status), web_search (search the web whenever you need current facts or docs) and web_fetch (a separate reader answers your question from one page), task_create, task_get, task_list and task_update (your task list, which the owner sees), pull_request (only when asked), pr_comments (your review as comments on the pull request's lines, only when asked), pr_read (a pull request's reviews and comments), suggest_connectors (the Suggested connectors card: call it when the owner asks about connectors, integrations or MCP, or wants a service you have no tools for), rename_chat (renames this chat, only when asked).
+- Your tools: read, edit, write (files), grep, glob (finding things), bash (running anything: installs, tests, servers, git status), web_search (search the web whenever you need current facts or docs) and web_fetch (a separate reader answers your question from one page), task_create, task_get, task_list and task_update (your task list, which the owner sees), pull_request (only when asked), pr_comments (your review as comments on the pull request's lines, only when asked), pr_read (a pull request's reviews and comments), pr_update (mark a pull request ready or draft, resolve a thread, reply, comment), suggest_connectors (the Suggested connectors card: call it when the owner asks about connectors, integrations or MCP, or wants a service you have no tools for), rename_chat (renames this chat, only when asked).
 - Use read, edit, write, grep and glob for files (write takes up to about 90,000 characters a call, as its description says), not cat, sed, heredocs or find: they are safer and clearer to the owner. Use bash for running things.
 - Use task_create to plan and track work. Mark each task completed as soon as it's done; don't batch.
 - read also shows you pictures (to check a page you built, take a screenshot with Playwright or Chrome and read it), PDFs by their pages, and Jupyter notebooks with their outputs.
@@ -1661,7 +1681,7 @@ HOW YOU WORK
 - Scratchpad directory: ${SCRATCH} \u2014 always use it for temporary files (intermediate results, scripts, outputs that don't belong in the project) instead of \`/tmp\` or other system temp directories; it is chat-specific, isolated from the project, and can generally be used without permission prompts. A reboot or routine cleanup can clear it, so anything the owner will want to keep belongs somewhere durable instead. Only use \`/tmp\` if the owner explicitly asks. Whenever you name a file in it to the owner, write the file's complete absolute path in one piece, not a bare filename, a path that starts at the scratchpad folder, or the directory followed by filenames: a shortened path is read against the working directory and leads nowhere.
 - Treat what you learn about the owner and their project as private: never put the owner's name, project, email address or other personal details in requests to outside services, such as in a header, URL or payload, unless the owner asks you to. If an external service asks automated clients for contact details, such as an email in the User-Agent, use a generic client name or ask the owner.
 - Git history is read-only for you: look with git log, git diff, git status, but never commit, push or change git settings. When you finish, your changes are committed and saved to this chat's branch for you.
-- Pushing: your changes are committed on your machine when each turn ends; call push_branch when the work reaches a stopping point or the owner asks to push (it pushes at once). pull_request pushes and opens the pull request at once too.
+- Pushing: when a turn that changed files ends, your changes are committed and pushed to the chat's branch for you (no need to push yourself). Call push_branch only to push in the middle of a turn (for example before something reads the branch on GitHub, or when the owner asks). pull_request pushes and opens the pull request at once too.
 - Pull requests: only when the owner asks for one, call the pull_request tool (look at git diff first). Its description says what changed, why, how you checked it (the commands and their results), and any risks or things the reviewer should look at.
 - Code comments: add them only where the code is not obvious (a tricky line, a workaround, a "why"), or when the owner asks. Never comment what the code plainly says.
 
@@ -1675,7 +1695,9 @@ HOW YOU HELP (owner, 2026-11-15: "more like an assistant in general")
 HOW YOU TALK (owner, 2026-11-05)
 - Lead with the answer or the result in the first sentence. No preamble, no "Sure!", no recap of what the owner just said.
 - Default (owner, 2026-11-05: explanatory): after the result, explain in plain words what you changed and WHY you did it that way, and point out anything worth knowing (an "Insight: …" line for a non-obvious choice, a trade-off, or how the pieces fit). Say what you checked and anything that did not work. Name files and commands exactly. Explain, but don't pad: no repeating yourself, no filler.
-- Show evidence, not just claims: "npm test: 12 passing", "curl / answered 200", the error line. Never say "all tests pass" without the command and its result. Never claim something you did not run. If something failed, say so first.
+- Show evidence, not just claims: "npm test: 12 passing", "curl / answered 200", the error line. Never say "all tests pass" without the command and its result. When you report a test or build run, include its short relevant output (the summary lines, or the failing ones) in a fenced code block. Never claim something you did not run. If something failed, say so first.
+- Each command's exit code is already told to you: never add \`echo "exit:\$?"\` or the like to a command.
+- After you open a pull request, end your answer by offering to watch it (auto-fix its failing checks and review comments), in one line; turn it on with auto_fix only when the owner says yes.
 - Each line of a list the user sent is a request: do every item, in order. Never skip one as "not asked". If an item can't be done (for example, nothing to undo), say why in its row.
 - When the message was a list of several separate tasks or checks, end with a compact table, one row per item: | Check | Result |.
 - Match the owner's style requests, in their own words:
@@ -1893,7 +1915,7 @@ export const savedFor = (list, site) => {
   return (Array.isArray(list) ? list : []).map((x) => (typeof x === "string" ? { id: "", site: x, username: "" } : x)).filter((x) => x && typeof x.site === "string" && k(x.site) === k(site));
 };
 
-export async function runCoder(deps, { notices = [], lost = [], stalls = [], promptNotify = true, timeouts = null, outLimits = null, noBg = false, respondToBash = true, shell = "", cmdShell = "", compactVars = null, messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, mode = "auto", rules = null, editDiff = false, readBlock = false, writeBlock = false, checker = false, checkerInPlan = true, checkWhere = null, emailMark = "", diskWarnGib = 0, memWarnGib = 0, hooks = null, autoMode = null, denyInstead = false, autoOff = false, planExit = "auto", hostLists = null, powershell = null, connectors = [], connectorNotes = [], connectorsWaiting = [], connectorsFailed = [], connectorsGone = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS , rmChecksOff = null, fileEdits = true, startMode = "", resumed = false, lastAt = 0, sessionRules = null, compact = null, system = CODER_SYSTEM, tools = null, nudges = true, who = "Coder", browserRules: rulesIn = [], granted: grantedIn = [], schedules = [], opening = "user", permissions: permsIn = null, sites: sitesIn = [], monitor = false, ownerSaid: ownerSaidList = null, asHelper = false, helper = null, pages = [], savedLogins = [], savedCards = [], contacts = [], webhooks = [], hookBase = "/api/coder/gloopy-hook/", attached = [], workNote = "", marked = null, taught = null, files: keptFiles = [], background = false, checkWrites = false, denied: deniedIn = [], zone = "", searchLimits = null, takeUp = null, tasksOff = false, holdBack = null } = {}) {
+export async function runCoder(deps, { notices = [], lost = [], stalls = [], promptNotify = true, timeouts = null, outLimits = null, noBg = false, respondToBash = true, shell = "", cmdShell = "", compactVars = null, messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, mode = "auto", rules = null, editDiff = false, readBlock = false, writeBlock = false, checker = false, checkerInPlan = true, checkWhere = null, emailMark = "", diskWarnGib = 0, memWarnGib = 0, hooks = null, autoMode = null, denyInstead = false, autoOff = false, planExit = "auto", hostLists = null, powershell = null, connectors = [], connectorNotes = [], connectorsWaiting = [], connectorsFailed = [], connectorsGone = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS , rmChecksOff = null, fileEdits = true, startMode = "", resumed = false, lastAt = 0, sessionRules = null, compact = null, system = CODER_SYSTEM, tools = null, nudges = true, who = "Coder", browserRules: rulesIn = [], granted: grantedIn = [], schedules = [], opening = "user", permissions: permsIn = null, sites: sitesIn = [], monitor = false, ownerSaid: ownerSaidList = null, asHelper = false, helper = null, pages = [], savedLogins = [], savedCards = [], contacts = [], webhooks = [], hookBase = "/api/coder/gloopy-hook/", attached = [], workNote = "", marked = null, taught = null, files: keptFiles = [], background = false, checkWrites = false, denied: deniedIn = [], zone = "", searchLimits = null, takeUp = null, tasksOff = false, holdBack = null, suggest = false } = {}) {
   // ANOTHER AGENT ON THE SAME ENGINE (owner, 2026-11-09: Gloopy, container/gloopy-agent.mjs): its own instructions
   // (`system`), the tools it is offered (`tools`; a call to any other is refused), no reminders about Coder's setup script
   // (`nudges`), and its name in the chat's own lines (`who`). Coder's defaults are unchanged.
@@ -1914,6 +1936,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   // system prompt line names it: "Use TodoWrite to plan and track work". Coder's own run only. 2026-11-14.)
   const todosOn = tasksOff === true && !offered;
   if (todosOn) system = todoSystem(system);
+  // (Prompt suggestions: the line asking for one rides on Coder's own system prompt, so no extra model call.)
+  if (suggest && who === "Coder") system += SUGGEST_LINE;
   // The owner's own rules for Gloopy's browser checks ("ask first" / "allow"), as the Worker keeps them.
   const browserRules = cleanRules(rulesIn);
   // A step the owner allowed that could not be done then: it goes ahead once, without asking again.
@@ -4320,7 +4344,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         continue;
       }
     }
-    if (!calls.length) { emit({ type: "done", text: scrub(said), ...(turnShots.length ? { shots: turnShots.slice(-2).map((x) => x.thumb) } : {}) }); return end("done", { summary: scrub(said).slice(0, 4000) }); }
+    if (!calls.length) { const sg = suggest ? splitSuggest(said) : { text: said, next: "" }; emit({ type: "done", text: scrub(sg.text), ...(sg.next && mode !== "plan" ? { suggest: scrub(sg.next) } : {}), ...(turnShots.length ? { shots: turnShots.slice(-2).map((x) => x.thumb) } : {}) }); return end("done", { summary: scrub(sg.text).slice(0, 4000) }); }
     // GLOOPY'S LINES AS IT WORKS (2026-11-12, live test: one on almost every click; Grok Bot posts two or three a task): one
     // in the chat at most every SAY_EVERY_MS; the others only in the status line under the chat (`quiet`).
     if (said) { const quiet = who === "Gloopy" && lastShown > 0 && now() - lastShown < SAY_EVERY_MS; emit({ type: "text", text: scrub(said), ...(quiet ? { quiet: true } : {}) }); if (!quiet) lastShown = now(); lastSaid = scrub(said).slice(0, 4000); }
@@ -6805,9 +6829,16 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         const list = (Array.isArray(c.args.comments) ? c.args.comments : []).slice(0, 30).map((x) => ({ path: String((x && x.path) || "").replace(/^\/+/, "").trim().slice(0, 300), line: Number(x && x.line), body: scrub(String((x && x.body) || "").trim()).slice(0, 2000) }))
           .filter((x) => x.path && !x.path.split("/").includes("..") && Number.isInteger(x.line) && x.line > 0 && x.body);
         if (!list.length) { reply("error: give at least one comment with a path, a line and a body"); continue; }
-        reviewPost = { summary: scrub(String(c.args.summary || "").trim()).slice(0, 4000), comments: list };
-        emit({ type: "pr", text: "Review for the pull request: " + list.length + " comment" + (list.length > 1 ? "s" : "") });
-        reply("ok: the " + list.length + " comment" + (list.length > 1 ? "s are" : " is") + " posted on the pull request when your turn ends (if the chat has one). Finish by telling the owner what you found.");
+        const summary = scrub(String(c.args.summary || "").trim()).slice(0, 4000);
+        // POSTED NOW (2026-11-17, the owner's group 3 test: Claude Code's comments are on GitHub before its answer ends).
+        if (typeof deps.envApi !== "function") { reply("error: Coder's server could not be reached"); continue; }
+        const pr = String((c.args && c.args.pr) ?? "").trim().slice(0, 300), repo = String((c.args && c.args.repo) || "").trim().slice(0, 200);
+        emit({ type: "bash", id: c.id, tool: "pr_comments", verb: "Post", command: list.length + " review comment" + (list.length > 1 ? "s" : "") + " on pull request " + (pr || "") });
+        let r;
+        try { r = (await deps.envApi({ action: "pr_review", summary, comments: list, ...(pr ? { pr } : {}), ...(repo ? { repo } : {}) })) || {}; } catch { r = { error: "error: Coder's server could not be reached" }; }
+        const text = typeof r.text === "string" ? r.text : typeof r.error === "string" ? r.error : "error: Coder's server did not answer";
+        emit({ type: "result", id: c.id, code: r.ok ? 0 : 1, output: text.slice(0, 2000) });
+        reply(r.ok ? "ok: " + text + ". Finish by telling the owner what you found." : text);
       } else if (c.name === "pr_read") {
         if (github) { reply("error: pull requests are read from a chat on gofarther.dev, not in a job started from GitHub"); continue; }
         if (typeof deps.envApi !== "function") { reply("error: Coder's server could not be reached"); continue; }
@@ -6817,6 +6848,20 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         try { r = (await deps.envApi({ action: "pr_read", ...(pr ? { pr } : {}), ...(repo ? { repo } : {}) })) || {}; } catch { r = { error: "error: Coder's server could not be reached" }; }
         const text = typeof r.text === "string" ? scrub(r.text) : typeof r.error === "string" ? r.error : "error: Coder's server did not answer";
         emit({ type: "result", id: c.id, code: typeof r.text === "string" ? 0 : 1, output: text.slice(0, 2000) });
+        reply(text);
+      } else if (c.name === "pr_update") {
+        if (github) { reply("error: nothing is changed on GitHub as the owner in a job started from GitHub"); continue; }
+        if (typeof deps.envApi !== "function") { reply("error: Coder's server could not be reached"); continue; }
+        const op = String((c.args && c.args.op) || "");
+        if (!["ready", "draft", "resolve", "reply", "comment"].includes(op)) { reply("error: op is ready, draft, resolve, reply or comment"); continue; }
+        const pr = String((c.args && c.args.pr) ?? "").trim().slice(0, 300), repo = String((c.args && c.args.repo) || "").trim().slice(0, 200);
+        const cid = Number(c.args && c.args.comment_id), body = scrub(String((c.args && c.args.body) || "").trim()).slice(0, 8000);
+        const what = { ready: "Mark ready for review", draft: "Convert to draft", resolve: "Resolve thread", reply: "Reply on", comment: "Comment on" }[op];
+        emit({ type: "bash", id: c.id, tool: "pr_update", verb: what, command: "pull request " + (pr || "") + (cid > 0 ? " · comment " + cid : "") });
+        let r;
+        try { r = (await deps.envApi({ action: "pr_update", op, ...(pr ? { pr } : {}), ...(repo ? { repo } : {}), ...(cid > 0 ? { comment_id: cid } : {}), ...(body ? { body } : {}) })) || {}; } catch { r = { error: "error: Coder's server could not be reached" }; }
+        const text = typeof r.text === "string" ? r.text : typeof r.error === "string" ? r.error : "error: Coder's server did not answer";
+        emit({ type: "result", id: c.id, code: r.ok ? 0 : 1, output: text.slice(0, 2000) });
         reply(text);
       } else if (c.name === "rename_chat") {
         if (github) { reply("error: the chat is renamed from gofarther.dev, not from GitHub"); continue; }
@@ -7028,7 +7073,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // as Claude Code's get an MCP tool's: c.keepHead.)
         c.keepHead = CONNECTOR_DATA;
         reply(CONNECTOR_DATA + told);
-      } else reply("error: no such tool: " + c.name.slice(0, 40) + " (the tools are bash, read, edit, write, grep, glob, lsp, web_fetch, web_search, monitor, stop_job, ask_user, enter_plan_mode, request_secret, get_environment, update_environment, create_environment, switch_environment, list_environments, review, pr_comments, pr_read, suggest_connectors, undo_last_job, task_create, task_get, task_list, task_update, notify, rename_chat, push_branch and pull_request; to finish, answer in words)");
+      } else reply("error: no such tool: " + c.name.slice(0, 40) + " (the tools are bash, read, edit, write, grep, glob, lsp, web_fetch, web_search, monitor, stop_job, ask_user, enter_plan_mode, request_secret, get_environment, update_environment, create_environment, switch_environment, list_environments, review, pr_comments, pr_read, pr_update, suggest_connectors, undo_last_job, task_create, task_get, task_list, task_update, notify, rename_chat, push_branch and pull_request; to finish, answer in words)");
       } catch (e) {
         // (ROUND 5: a round that ends early in Coder's own runs. The call whose turn ended it has its answer (one its turn could
         // not give, a card it may no longer show, gets Claude Code's rejection), no PostToolUse hook of its own, and the loop

@@ -41,6 +41,8 @@
       if (r.data.pick) S.pick = r.data.pick;
       // (Auto mode turned off in Settings, Claude Code's disableAutoMode: Auto is not offered.)
       S.autoOff = !!(r.data.prefs && r.data.prefs.autoOff === true);
+      // (Prompt suggestions turned off in Settings, Claude Code's promptSuggestionEnabled: false.)
+      S.suggestOff = !!(r.data.prefs && r.data.prefs.suggestOff === true);
     }
   }
   // (pickV 2: a pick made on this page counts as chosen; one saved before Low became the default does not. The owner,
@@ -134,8 +136,12 @@
     try {
       // A FILE'S OWN BYTES (Gloopy's attachments, 2026-11-09): sent as they are, with the file's name.
       const raw = init && init.raw ? init.raw : null;
-      r = await fetch(API + path, { ...(init || {}), ...(raw ? { body: raw } : {}), headers: { Authorization: 'Bearer ' + token, 'x-coder-proof': window.Auth.proof(), ...(raw ? { 'content-type': raw.type || 'application/octet-stream', 'x-file-name': encodeURIComponent(raw.name || 'file') } : init && init.body ? { 'content-type': 'application/json' } : {}) } });
+      // (`limit`: a look that gets no answer in time ends as an error, so the page asks again: 2026-11-17.)
+      const lim = init && init.limit && typeof AbortSignal !== 'undefined' && AbortSignal.timeout ? { signal: AbortSignal.timeout(init.limit) } : {};
+      r = await fetch(API + path, { ...(init || {}), ...lim, ...(raw ? { body: raw } : {}), headers: { Authorization: 'Bearer ' + token, 'x-coder-proof': window.Auth.proof(), ...(raw ? { 'content-type': raw.type || 'application/octet-stream', 'x-file-name': encodeURIComponent(raw.name || 'file') } : init && init.body ? { 'content-type': 'application/json' } : {}) } });
     } catch (e) { return { status: 0, data: { error: (GLOOPY ? 'Gloopy' : 'Coder') + ' could not be reached. Check your connection.' } }; }
+    // THE LIVE STREAM (2026-11-17): the open response itself, read by streamOnce.
+    if (init && init.stream && r.ok) return { status: r.status, data: {}, res: r };
     // A FILE TO SAVE (a read-only chat's patch, owner item 5): handed back whole when it came.
     if (r.ok && typeof (init || {}).file === 'string') return { status: r.status, data: {}, blob: await r.blob(), name: (/filename="([^"]+)"/.exec(r.headers.get('content-disposition') || '') || [])[1] || init.file };
     // A STREAM (Gloopy's live view, 2026-11-10): handed back as it is, to be read as it comes.
@@ -332,7 +338,7 @@
     let autoDraft = typeof prefs.autoMode === 'string' ? prefs.autoMode : '', warns = [];
     const save = async (field, value) => {
       const x = await call('/settings', { method: 'POST', body: JSON.stringify({ prefs: { [field]: value } }) });
-      if (x.status === 200 && x.data && x.data.prefs) { Object.assign(prefs, x.data.prefs); note = 'Saved. New messages use it.'; err = ''; warns = Array.isArray(x.data.warnings) ? x.data.warnings : []; S.autoOff = prefs.autoOff === true; if (S.autoOff && S.pick && S.pick.mode === 'auto') S.pick.mode = 'acceptEdits'; }
+      if (x.status === 200 && x.data && x.data.prefs) { Object.assign(prefs, x.data.prefs); note = 'Saved. New messages use it.'; err = ''; warns = Array.isArray(x.data.warnings) ? x.data.warnings : []; S.autoOff = prefs.autoOff === true; S.suggestOff = prefs.suggestOff === true; if (S.autoOff && S.pick && S.pick.mode === 'auto') S.pick.mode = 'acceptEdits'; }
       else { err = (x.data && x.data.error) || 'Not saved. Try again.'; note = ''; }
       paint();
     };
@@ -353,6 +359,7 @@
         // PERMISSIONS (the owner, 2026-11-10: "yea do all of them"): Claude Code's denyInsteadOfPrompting.
         '<div class="cd-set-head">Permissions</div>' +
         '<label class="cd-notify-sw"><input type="checkbox" id="cdSetDeny"' + (prefs.denyInstead ? ' checked' : '') + '><span><b>Refuse instead of asking</b><br>Anything that would ask you is refused, and Coder carries on without it.</span></label>' +
+        '<label class="cd-notify-sw"><input type="checkbox" id="cdSetSuggest"' + (prefs.suggestOff ? '' : ' checked') + '><span><b>Prompt suggestions</b><br>After Coder answers, a suggested next message shows in grey in the message box. Tab or → takes it; typing hides it.</span></label>' +
         '<label class="cd-notify-sw"><input type="checkbox" id="cdSetAutoOff"' + (prefs.autoOff ? ' checked' : '') + '><span><b>Turn off Auto mode</b><br>Chats start in Accept edits, and Auto isn’t offered.</span></label>' +
         // ADVANCED, FOLDED (the owner, 2026-11-15, Settings "ewwwww"): hooks and Auto mode rules are written as code, so they
         // sit closed under Advanced; the rest is plain.
@@ -382,6 +389,7 @@
       $('cdSetHooksSave').onclick = () => save('hooks', hooksDraft);
       $('cdSetDeny').onchange = (e) => save('denyInstead', e.currentTarget.checked);
       $('cdSetAutoOff').onchange = (e) => save('autoOff', e.currentTarget.checked);
+      $('cdSetSuggest').onchange = (e) => save('suggestOff', !e.currentTarget.checked);
       $('cdSetAuto').oninput = (e) => { autoDraft = e.currentTarget.value; };
       $('cdSetAutoSave').onclick = () => save('autoMode', autoDraft);
     };
@@ -1179,7 +1187,7 @@
     const pick = await askPick('Rewind', 'Restore the session to an earlier message.', list.reverse());
     if (pick) rewind(Number(pick));
   }
-  async function rewind(turn, given) {
+  async function rewind(turn, given, o = {}) {
     if (!S.project) return;
     // LIKE CLAUDE CODE'S REWIND (its docs, read 2026-11-07; owner item 9): the code choices only when a
     // later job changed files; Summarize from here / up to here; the message back in the box after the chat goes back.
@@ -1201,7 +1209,7 @@
       const focus = await askText('Summarize ' + (pick === 'sumfrom' ? 'from here' : 'up to here'), 'Anything the summary should keep? (Optional: leave it empty for a general summary.)', 'Summarize', '', { optional: true, max: 300 });
       if (focus === null || !S.project) return;
       body = { turn, summarize: pick === 'sumfrom' ? 'from' : 'upto', focus };
-    } else body = { turn, code: pick !== 'chat', chat: pick !== 'code' };
+    } else body = { turn, code: pick !== 'chat', chat: pick !== 'code', ...(o.undo && pick === 'code' ? { undo: true } : {}) };
     S.error = ''; S.rewinding = true; draw();
     const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/rewind', { method: 'POST', body: JSON.stringify(body) });
     S.rewinding = false;
@@ -1688,8 +1696,68 @@
     if (!d) return false;
     return !!(d.ending || S.ending || (Array.isArray(d.events) && d.events.some((e) => e && (e.type === 'text' || e.type === 'done'))));
   }
-  function stopPoll() { if (S.poll) clearTimeout(S.poll); S.poll = 0; }
+  // How long one look at a running chat may wait for its answer (a save in the Worker takes seconds; GitHub at most ~1 minute).
+  const POLL_LIMIT_MS = 90000;
+  function stopPoll() { if (S.poll) clearTimeout(S.poll); S.poll = 0; if (S.streamAbort) { try { S.streamAbort.abort(); } catch (e) {} S.streamAbort = null; } }
+  // A live stream with nothing on it for this long is dropped and opened again (its server sends a state at least every ~40 s).
+  const STREAM_SILENT_MS = 70000;
+  // THE LOOK THAT NEVER STOPS FOR GOOD (2026-11-17, group 1's "stuck" chat: the job was over in 25 s, but the page showed it
+  // working for 15 minutes, until the next message started a new look): a look that hung (no answer) or threw while drawing
+  // ended the loop. Now each look has a time limit (POLL_LIMIT_MS), and the next one is always set while the chat runs.
   async function tick() {
+    try { if (!GLOOPY && (S.streamFails || 0) < 3 && typeof ReadableStream !== 'undefined' && typeof AbortController !== 'undefined') await streamOnce(); else await tickOnce(); }
+    catch (e) { try { console.log('coder: look failed: ' + String((e && e.message) || e).slice(0, 200)); } catch (x) {} }
+    finally { if (S.running && S.project && !S.poll) S.poll = setTimeout(tick, POLL_MS); }
+  }
+  // THE LIVE STREAM (2026-11-17, the owner: "can we do it this way", like Claude Code's page): one open connection, and each new
+  // state of the chat comes down it as it happens. When it ends (the job is over, or after a few minutes) the next look opens a
+  // new one at once; a stream silent for STREAM_SILENT_MS is dropped and opened again; after 3 failures in a row, the page
+  // goes back to its looks (tickOnce).
+  async function streamOnce() {
+    S.poll = 0;
+    if (!S.project || !S.running) return;
+    const id = S.project.id;
+    const seen = document.visibilityState === 'visible' && document.hasFocus() ? '&seen=1' : '';
+    const ac = new AbortController();
+    S.streamAbort = ac;
+    let silent = 0, got = 0;
+    const dog = setInterval(() => { if (Date.now() - silent > STREAM_SILENT_MS) ac.abort(); }, 5000);
+    try {
+      silent = Date.now();
+      const c = await call('/projects/' + encodeURIComponent(id) + '/stream?since=' + S.next + seen + (S.ending ? '&turn=' + (Number(S.project.turn) || 0) : ''), { stream: true, signal: ac.signal });
+      // (No stream here at all, an older server: the looks at once.)
+      if (!c.res || !c.res.body || !/event-stream/.test(c.res.headers.get('content-type') || '')) { S.streamFails = c.status === 404 || c.res ? 3 : (S.streamFails || 0) + 1; return; }
+      const reader = c.res.body.getReader(), dec = new TextDecoder();
+      let buf = '';
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        silent = Date.now();
+        buf += dec.decode(value, { stream: true });
+        let k;
+        while ((k = buf.indexOf('\n\n')) >= 0) {
+          const block = buf.slice(0, k); buf = buf.slice(k + 2);
+          if (/^event: fail/m.test(block)) { S.streamFails = (S.streamFails || 0) + 1; ac.abort(); break; }
+          const line = /^data: (.*)$/m.exec(block);
+          if (!line) continue;
+          let d = null;
+          try { d = JSON.parse(line[1]); } catch (e) { d = null; }
+          if (!d || !S.project || S.project.id !== id || S.streamAbort !== ac) { ac.abort(); break; }
+          got++;
+          if (!applyState({ status: 200, data: d }, id) || !S.running) { ac.abort(); break; }
+        }
+      }
+      S.streamFails = got ? 0 : (S.streamFails || 0) + 1;
+    } catch (e) {
+      if (!got && S.streamAbort === ac) S.streamFails = (S.streamFails || 0) + 1;
+    } finally {
+      clearInterval(dog);
+      if (S.streamAbort === ac) S.streamAbort = null;
+    }
+    if (S.running && S.project && S.project.id === id && !S.poll) S.poll = setTimeout(tick, 150);
+    else if (!S.running) { S.background = undefined; startBgWatch(); }
+  }
+  async function tickOnce() {
     S.poll = 0;
     if (!S.project || !S.running) return;
     const id = S.project.id;
@@ -1698,18 +1766,25 @@
     // (`early`: the job's answer is shown as soon as its machine has it, before the turn is saved: 2026-11-15.)
     // (2026-11-16: `early` only until the answer is shown; then `turn`, so a save finished in the background is told: its lines,
     // or the queued message it started.)
-    const r = await call('/projects/' + encodeURIComponent(id) + '/state?since=' + S.next + seen + (S.ending ? '&turn=' + (Number(S.project.turn) || 0) : '&early=1'));
+    const r = await call('/projects/' + encodeURIComponent(id) + '/state?since=' + S.next + seen + (S.ending ? '&turn=' + (Number(S.project.turn) || 0) : '&early=1'), { limit: POLL_LIMIT_MS });
     if (!S.project || S.project.id !== id) return;
+    if (!applyState(r, id)) return;
+    if (S.running) S.poll = setTimeout(tick, quickLook(r) ? QUICK_POLL_MS : POLL_MS);
+    else { S.background = undefined; startBgWatch(); }
+  }
+
+  // ONE STATE OF THE CHAT, from a look or from the live stream, drawn. false: nothing more to do now (an error, a reload).
+  function applyState(r, id) {
     // AFTER ERRORS THE PAGE ASKS LESS OFTEN (the audit), and says so after a few.
     if (r.status !== 200) {
       S.fails = (S.fails || 0) + 1;
       if (S.fails === 5) { S.events = S.events.concat([{ at: Date.now(), type: 'error', text: GLOOPY ? "Gloopy's computer is not answering. Still trying…" : "Coder's machine is not answering. Still trying…" }]); draw(true); }
       if (S.running) S.poll = setTimeout(tick, Math.min(POLL_MS * Math.pow(2, S.fails), 30000));
-      return;
+      return false;
     }
     S.fails = 0;
     if (r.status === 200 && r.data) {
-      if (r.data.reload) { if (r.data.project) S.project = r.data.project; S.running = false; syncEntry(); draw(); return reloadChat(id); }
+      if (r.data.reload) { if (r.data.project) S.project = r.data.project; S.running = false; syncEntry(); draw(); reloadChat(id); return false; }
       // The message shown when it was sent is not drawn twice.
       const fresh = (r.data.events || []).filter((e) => {
         if (e.type !== 'user') return true;
@@ -1749,8 +1824,7 @@
     }
     // (The answer shown, the turn now being saved: looked at again at once. 2026-11-15.)
     // (And while the answer is still coming in: new text from Coder, looked at again 300 ms later. 2026-11-16.)
-    if (S.running) S.poll = setTimeout(tick, quickLook(r) ? QUICK_POLL_MS : POLL_MS);
-    else { S.background = undefined; startBgWatch(); }
+    return true;
   }
 
   // SAVED ELSEWHERE (another tab, or Coder's every-minute run while no tab was
@@ -1906,6 +1980,7 @@
     return out.map((x) => (typeof x === 'object' ? '<ol' + (x.start === 1 ? '' : ' start="' + x.start + '"') + '>' + x.items.map((i) => '<li>' + i + '</li>').join('') + '</ol>' : x)).join('');
   }
   function prose(t) {
+    t = String(t == null ? '' : t).replace(/\n?<next-prompt>[\s\S]*?(?:<\/next-prompt>|$)/gi, ''); // (a suggestion never shows in an answer)
     const parts = noColor(t).split(/```[a-zA-Z0-9_-]*\n?/);
     return parts.map((p, i) => i % 2 ? '<pre class="cd-pre">' + esc(p.replace(/\n$/, '')) + '</pre>' : (p.trim() ? blocks(p) : '')).join('');
   }
@@ -3378,7 +3453,7 @@
       (p ? '<button type="button" class="cd-hbtn" id="cdChanges"' + (S.showChanges ? ' aria-pressed="true"' : '') + '>See changes</button>' : '') +
       // PUSH (owner, 2026-11-16, like Claude Code's cloud sessions): each message's work is committed on Coder's machine; this
       // sends what GitHub does not have yet to the chat's branch.
-      (p && !p.readOnly && Number(p.unpushed) > 0 ? '<button type="button" class="cd-hbtn" id="cdPush" title="Coder committed this work on its machine. Push sends it to the branch ' + esc(p.branch) + ' on GitHub."' + (S.running || S.sending || S.pushing ? ' disabled' : '') + '>' + (S.pushing ? 'Pushing…' : 'Push · ' + Number(p.unpushed) + ' unpushed') + '</button>' : '') +
+      (p && !p.readOnly && Number(p.unpushed) > 0 ? '<button type="button" class="cd-hbtn" id="cdPush" title="Coder pushes after each turn that changes files, but this push did not go through, so the work is only on Coder\'s machine. Push sends it to the branch ' + esc(p.branch) + ' on GitHub."' + (S.running || S.sending || S.pushing ? ' disabled' : '') + '>' + (S.pushing ? 'Pushing…' : 'Push · ' + Number(p.unpushed) + ' unpushed') + '</button>' : '') +
       (p && RPANEL ? '<button type="button" class="cd-rp-tog" id="cdRpToggle" aria-label="' + (rpOpen() ? 'Hide' : 'Show') + ' the side panel" title="' + (rpOpen() ? 'Hide' : 'Show') + ' the side panel" aria-pressed="' + rpOpen() + '">' + META_ICON.panel + '</button>' : '') +
     '</div>' +
     (S.showChanges ? changesHTML() : '') + (S.showEnv ? envHTML() : '');
@@ -4150,12 +4225,23 @@
     const first = box.querySelector('.cd-rules-add input'); if (first) first.focus();
   }
 
+  /**
+   * PROMPT SUGGESTIONS (Claude Code's: "After Claude responds, Claude Code can suggest your next prompt"; "Press Tab or Right
+   * arrow to place the suggestion in the prompt input"; "Start typing to dismiss it"): the `suggest` of Coder's last answer,
+   * grey in the empty message box. None while Coder works, while a card waits, in Gloopy's tab, or when turned off.
+   */
+  function suggestNow() {
+    if (GLOOPY || S.suggestOff || S.running || S.sending || S.ending || (S.draft || '') || !S.project || S.project.waiting || S.project.pending) return '';
+    const last = (S.events || []).filter((e) => e && e.type !== 'mark' && e.type !== 'usage').at(-1);
+    const t = last && last.type === 'done' && typeof last.suggest === 'string' ? last.suggest.trim() : '';
+    return t && S.suggestGone !== (S.project.id + '|' + t) ? t : '';
+  }
   function composerHTML() {
     const busy = (S.running && !S.ending) || S.sending;
     const m = MODELS.find((x) => x.id === S.pick.model) || MODELS[0];
     return '<div class="cd-composewrap">' + bgHTML() + slashHTML() + bangHTML() + mentionHTML() + commentsHTML() + picsHTML() + attachHTML() +
       '<form class="cd-compose' + (/^!/.test(S.draft || '') ? ' is-shell' : '') + '" id="cdForm">' +
-        '<textarea id="cdIn" rows="1" placeholder="' + (S.ending && !S.sending && !GLOOPY ? 'Saving to the branch… a message now goes out right after' : busy ? (GLOOPY ? 'Gloopy is working… you can close this tab' : 'Enter to send, Ctrl+Enter to queue for later') : GLOOPY ? 'Ask Gloopy anything' : 'Ask Coder to build, fix or explain something · @ for a file') + '">' + esc(S.draft) + '</textarea>' +
+        '<textarea id="cdIn" rows="1"' + (suggestNow() ? ' class="has-suggest" data-suggest="' + esc(suggestNow()) + '"' : '') + ' placeholder="' + (suggestNow() ? esc(suggestNow()) : S.ending && !S.sending && !GLOOPY ? 'Saving to the branch… a message now goes out right after' : busy ? (GLOOPY ? 'Gloopy is working… you can close this tab' : 'Enter to send, Ctrl+Enter to queue for later') : GLOOPY ? 'Ask Gloopy anything' : 'Ask Coder to build, fix or explain something · @ for a file') + '">' + esc(S.draft) + '</textarea>' +
         '<button type="button" class="cd-attach" id="cdAttach" aria-label="' + (GLOOPY ? 'Attach a file' : 'Attach a picture') + '" title="' + (GLOOPY ? 'Attach a file or a picture' : 'Attach a picture (or paste one)') + '">' + ICON.clip + '</button><input type="file" id="cdFile" accept="' + (GLOOPY ? 'image/png,image/jpeg,image/webp,image/gif,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.odt,.ods,.odp,.rtf,.txt,.md,.csv,.tsv,.json,.xml,.yaml,.yml,.html,.htm,.ics,.vcf,.eml,.ipynb,.log,.zip,.mp3,.m4a,.wav,.mp4,.mov,.webm,.heic,.svg' : 'image/png,image/jpeg,image/webp,image/gif') + '" multiple hidden>' +
         // (And while a card Coder's paused job left open waits, as while its job ran: Stop closes the card. coder-park.mjs.)
         ((S.running && !S.ending) || (!GLOOPY && S.project && S.project.parked)
@@ -4996,7 +5082,7 @@
     on('#cdRpConn', 'click', () => { showChatConnectors(); });
     on('[data-copy-ev]', 'click', (e) => { const ev = S.events[Number(e.currentTarget.dataset.copyEv)]; const b = e.currentTarget; if (!ev) return; try { navigator.clipboard.writeText(String(ev.text || '')).then(() => { b.classList.add('is-done'); setTimeout(() => b.classList.remove('is-done'), 1200); }, () => {}); } catch (er) { /* not allowed */ } });
     on('[data-rate]', 'click', (e) => { const k = e.currentTarget.dataset.rateK, v = e.currentTarget.dataset.rate; S.rated = S.rated || {}; S.rated[k] = S.rated[k] === v ? '' : v; draw(); });
-    on('[data-files-undo]', 'click', (e) => { rewind(Number(e.currentTarget.dataset.filesUndo), 'code'); });
+    on('[data-files-undo]', 'click', (e) => { rewind(Number(e.currentTarget.dataset.filesUndo), 'code', { undo: true }); });
     on('[data-files-all]', 'click', () => { S.showChanges = true; loadChanges(); draw(); });
     on('[data-rewind-to]', 'click', (e) => { rewind(Number(e.currentTarget.dataset.rewindTo)); });
     // THE MODE MENU, AND THE CARDS A STEP WAITS ON (the permission modes): a click, or the card's number keys.
@@ -5036,6 +5122,7 @@
       grow(input);
       input.addEventListener('input', async () => {
         S.draft = input.value; grow(input);
+        if (input.dataset.suggest && input.value) { S.suggestGone = S.project.id + '|' + input.dataset.suggest; delete input.dataset.suggest; input.classList.remove('has-suggest'); input.placeholder = 'Ask Coder to build, fix or explain something · @ for a file'; }
         if (form) form.classList.toggle('is-shell', /^!/.test(input.value));
         const before = input.value.slice(0, input.selectionStart);
         const m = GLOOPY ? null : /(^|\s)@([\w./-]*)$/.exec(before);
@@ -5049,6 +5136,10 @@
       });
       input.addEventListener('paste', (e) => { const files = [...(e.clipboardData && e.clipboardData.files || [])]; if (files.some((f) => /^image\//.test(f.type)) || (GLOOPY && files.length)) { e.preventDefault(); addPics(files); } });
       input.addEventListener('keydown', (e) => {
+        // (A suggestion is taken with Tab, or → in the empty box; Enter then sends it, as in Claude Code.)
+        if (input.dataset.suggest && !input.value && !e.isComposing && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey && (e.key === 'Tab' || e.key === 'ArrowRight')) {
+          e.preventDefault(); const t = input.dataset.suggest; S.suggestGone = S.project.id + '|' + t; input.value = t; S.draft = t; delete input.dataset.suggest; input.classList.remove('has-suggest'); grow(input); input.setSelectionRange(t.length, t.length); return;
+        }
         const sl = slashMatches();
         if (sl.length && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) { e.preventDefault(); S.slashSel = ((S.slashSel || 0) + (e.key === 'ArrowDown' ? 1 : sl.length - 1)) % sl.length; return draw(); }
         if (sl.length && (e.key === 'Enter' || e.key === 'Tab') && !e.shiftKey && !e.isComposing) { e.preventDefault(); return pickSlash(sl[Math.min(S.slashSel || 0, sl.length - 1)][0]); }
