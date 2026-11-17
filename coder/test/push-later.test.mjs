@@ -196,7 +196,7 @@ test("PL3 the Worker's routes: Push, Create PR and deleting a chat push its unpu
   // Coder's tool and its one line in the system prompt.
   const A = await import("../container/coder-agent.mjs");
   assert.ok(A.CODER_TOOLS.some((t) => t.function.name === "push_branch"));
-  assert.match(A.CODER_SYSTEM, /\n- Pushing: when a turn that changed files ends, your changes are committed and pushed to the chat's branch for you \(no need to push yourself\)\. Call push_branch only to push in the middle of a turn/);
+  assert.match(A.CODER_SYSTEM, /\n- Pushing: when you finish a turn that changed files, your changes are committed and pushed to the chat's branch for you, as a step before your answer is saved \(no need to push yourself\)\. Call push_branch only to push in the middle of a turn/);
   assert.doesNotMatch(A.CODER_SYSTEM, /committed on your machine when each turn ends/);
   const steps = [{ message: { role: "assistant", content: "", tool_calls: [{ id: "p1", type: "function", function: { name: "push_branch", arguments: "{}" } }] }, usage: { in: 1, out: 1 } }, { message: { role: "assistant", content: "Pushed." }, usage: { in: 1, out: 1 } }];
   let i = 0;
