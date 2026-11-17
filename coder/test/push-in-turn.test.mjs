@@ -21,6 +21,14 @@ test("PT1 a turn that changed files pushes before its answer is done: a Push ste
   assert.ok(events.some((e) => e.type === "result" && e.code === 0 && /pushed to GitHub now \(commit abcdef1\)/.test(e.output)));
 });
 
+test("PT4 the machine's usual read-only note (nothing read-only, as it always sends) still pushes in the turn", async () => {
+  const s = script([say("Done.")]);
+  let n = 0;
+  const r = await runCoder({ send: s.send, exec: async () => ({ code: 0, output: "" }), dirtyNow: async () => true, pushNow: async () => { n++; return { ok: true, pushed: true, changed: true, sha: "abcdef1234567" }; } }, { text: "hi", readOnly: { main: false, extra: [] } });
+  assert.equal(n, 1);
+  assert.equal(r.midPushes.length, 1);
+});
+
 test("PT2 nothing changed: no push step; a failed push is shown and left for the turn's end; never from GitHub or a read-only chat", async () => {
   let events = [], n = 0;
   await runCoder({ send: script([say("Nothing to do.")]).send, exec: async () => ({ code: 0, output: "" }), emit: (e) => events.push(e), dirtyNow: async () => false, pushNow: async () => { n++; return { ok: true }; } }, { text: "hi" });

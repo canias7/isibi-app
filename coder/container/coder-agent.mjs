@@ -4381,7 +4381,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       // sentence, "The `test` check failed because..."): when this turn changed files, one short request asks for a git
       // commit title in the imperative ("Fix sum to add instead of subtract"), as Claude Code writes its own commits.
       let commitTitle = "";
-      const changedNow = who === "Coder" && !github && !readOnly && typeof deps.pushNow === "function" && (typeof deps.dirtyNow === "function" ? await deps.dirtyNow().catch(() => edited.size > 0) : edited.size > 0);
+      const changedNow = who === "Coder" && !github && !(readOnly && readOnly.main === true) && typeof deps.pushNow === "function" && (typeof deps.dirtyNow === "function" ? await deps.dirtyNow().catch(() => edited.size > 0) : edited.size > 0);
       if ((edited.size || changedNow) && typeof deps.send === "function" && who === "Coder") commitTitle = await commitTitleFor(() => deps.send({ model, ...(effort ? { effort } : {}), webSearch: false, messages: [{ role: "system", content: systemText() }, ...wordsAfterResults(convo), { role: "user", appNote: true, content: COMMIT_ASK }], tools: lastTools || roundTools(modeNow(), null).sending.tools, tool_choice: "none" }), usage);
       // COMMIT AND PUSH INSIDE THE TURN, CLAUDE CODE'S WAY (the owner, 2026-11-17: "do it the claude code way"; the page sat
       // on "Saving to the branch…" for 8 minutes while the Worker pushed after the turn): Claude Code commits and pushes

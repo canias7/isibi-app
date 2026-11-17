@@ -14,6 +14,8 @@ The push result now names every repository. Before, it named only the first, so 
 
 Tests: `coder/test/push-in-turn.test.mjs`.
 
+Later the same day: the first live try showed no Push step. Coder's machine always describes which repos are read-only, even when none are, and the new check took that description to mean "read-only", so it skipped the push. Fixed, with a test for that case.
+
 ## 2026-11-17: A Grok answer cut off mid-way is retried
 
 Group 5's first run: "The AI could not be reached: terminated". The connection to Grok dropped after its answer had started arriving, and Coder only retried connections that failed before any answer. Now a cut-off answer is asked for again too, like Claude Code's retried connection errors (the owner's Stop and the call's own time limit still end it). Test: `coder/test/model-cutoff.test.mjs`. Also: the account had reached Coder's 50-chat limit, so 44 old test chats on canias7/testingforclaude were deleted with the owner's OK.
