@@ -135,3 +135,9 @@ test("Claude Code's switch, as Coder's: CODER_ENABLE_PROMPT_SUGGESTION=false tur
 });
 function await_import_fs() { return globalThis.__fs || (globalThis.__fs = require_fs()); }
 function require_fs() { return process.getBuiltinModule("node:fs"); }
+
+test("PS9 the answer shown ends the wait (Claude Code: the suggestion is \"a short background request\"): the machine says the job has answered as soon as Coder's answer is out, for Coder, not Gloopy", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const src = await readFile(new URL("../container/server.mjs", import.meta.url), "utf8");
+  assert.match(src, /emit: \(e\) => \{ t\.events\.push\(e\); if \(e && e\.type === "done" && !gloopy\) t\.answerDone = true; \}/);
+});

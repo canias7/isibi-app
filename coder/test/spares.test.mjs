@@ -140,7 +140,8 @@ test("SP3 one spare, one chat: two chats at once never get the same spare (R2's 
   await F.flyBox(env2, "gloopy-chat", deps(w2), { gloopy: true }).fetch(new Request("http://coder/turn", { method: "POST", body: "{}" }));
   assert.equal(spares(b2)[0].id, sp.id, "still there");
   const src = readFileSync(new URL("../src/coder-fly.mjs", import.meta.url), "utf8");
-  assert.match(src, /const spare = !from && !gloopy \? await claimSpare\(/);
+  assert.match(src, /const spare = !gloopy \? await claimSpare\(env, bucket, names, deps, from \? String\(from\.snapshot\) : null\)/, "a chat from a saved copy takes only a spare made from that copy (CD151b)");
+  assert.ok(!F.spareUsable(env, { ...JSON.parse(JSON.stringify({ ready: true })), snap: "vs_Other1" }, Date.now()), "a copy's spare is never a plain chat's");
 });
 
 test("SP4 nothing leaks: a spare from an older image or size, older than 7 days, never ready in 15 minutes, or gone from Fly is removed with its disk and made again; spare disks no machine uses are cleared once an hour; a spare left half-claimed stays its chat's", async () => {

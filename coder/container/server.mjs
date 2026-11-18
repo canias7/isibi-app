@@ -4892,7 +4892,10 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
           const rel = projectRel(dir, args && args.path), text = editedText(tool, args);
           return [laterNotes(later, dir, args && args.path, shownNotes), rel && text !== null ? checkEdit(rel, text, secRules, shownSec) : ""].filter(Boolean).join("\n\n");
         },
-        emit: (e) => { t.events.push(e); },
+        // THE ANSWER SHOWN ENDS THE WAIT (the owner, 2026-11-18: "do it claude code way"; a one-line answer kept the chat busy
+        // ~12 s more while the next-message suggestion was asked for; Claude Code makes it "a short background request"):
+        // once Coder's answer is out, the page is told the job has answered, and the suggestion comes after it.
+        emit: (e) => { t.events.push(e); if (e && e.type === "done" && !gloopy) t.answerDone = true; },
         // Gloopy's browser, through this service (its own user); the sign-in's filling is never the AI's.
         ...(files ? { files } : {}),
         ...(gloopy ? { writes: t.writes } : {}),

@@ -713,3 +713,46 @@ test("CD126b a machine slow to wake (live, 2026-11-18: \"did not answer. Try aga
   assert.match((await r3.json()).error, /did not answer\. Try again in a minute/);
   assert.ok(t >= F.FLY_RETRY_MS, "it waited the minute first");
 });
+
+test("CD151b a spare from the environment's saved copy (the owner, 2026-11-18: \"do it claude code way\"; a new chat waited ~80 s for its disk and a new server's image; Claude Code: \"New sessions start with your dependencies ... already on disk\"): made from the copy, its machine once the copy is restored, ready once it answers; a new chat in that environment takes it (no new disk, its record says where it came from); one per copy, at most 3", async () => {
+  const b = fakeBucket(), w = fakeFly(), env = envWith(b, { CODER_TOKEN_KEY: TKEY, CODER_FLY_SPARES: "1" });
+  const turn = (box, more = {}) => box.fetch(signed(new Request("http://coder/turn", { method: "POST", headers: { "content-type": "application/json", ...more }, body: JSON.stringify({ project: "p", text: "hi" }) })));
+  assert.equal((await turn(F.flyBox(env, "user-1-shop-a1", deps(w)))).status, 200);
+  [...w.volumes.values()][0].size_gb = 20;
+  w.snapWait = 0; w.snapRun = 0; w.snapLag = 0;
+  const snap = await F.snapshotChat(env, "user-1-shop-a1", deps(w));
+  const sid = snap.snapshot;
+  // MADE FROM THE COPY: its disk is being restored, so no machine yet.
+  w.restoreFor = 2;
+  const sp = await F.ensureCopySpare(env, { snapshot: sid, size: 20 }, deps(w));
+  assert.equal(sp.restoring, true); assert.equal(sp.snap, sid); assert.equal(sp.size, 20);
+  const vol = w.volumes.get(sp.volume);
+  assert.deepEqual([vol.snapshot_id, vol.size_gb], [sid, 20]);
+  assert.equal(await F.ensureCopySpare(env, { snapshot: sid, size: 20 }, deps(w)), null, "one per copy");
+  // EVERY MINUTE: the machine once the copy is restored, then ready (stopped) once it answers.
+  let ready = null;
+  for (let i = 0; i < 6 && !ready; i++) {
+    await F.tendSpares(env, b, deps(w), Date.now(), [...w.machines.values()]);
+    const r = JSON.parse(b.m.get(F.SPARES + sp.h + ".json") || "null");
+    if (r && r.ready) ready = r;
+  }
+  assert.ok(ready, "made ready");
+  assert.deepEqual([ready.snap, ready.size, ready.volume], [sid, 20, sp.volume]);
+  assert.ok(!F.spareUsable(env, ready, Date.now()), "never for a chat without that copy");
+  assert.ok(F.spareUsable(env, ready, Date.now(), sid));
+  // A NEW CHAT IN THAT ENVIRONMENT TAKES IT: no disk made, no restore waited for.
+  w.api.length = 0;
+  assert.equal((await turn(F.flyBox(env, "user-1-shop-c1", deps(w)), { [F.FROM_COPY]: sid, [F.FROM_COPY_GB]: "20" })).status, 200);
+  const recC = JSON.parse(b.m.get((await F.flyNames("user-1-shop-c1")).key));
+  assert.deepEqual([recC.id, recC.volume, recC.from, recC.spare], [ready.id, sp.volume, sid, sp.h]);
+  assert.ok(!w.api.includes("POST /volumes") || w.api.indexOf("POST /volumes") > w.api.indexOf("POST /machines/" + ready.id), "its disk was not made for it");
+  // AT MOST 3: a fourth copy's spare puts out the oldest.
+  w.restoreFor = 0;
+  for (const n of ["b2", "b3", "b4", "b5"]) {
+    assert.equal((await turn(F.flyBox(env, "user-1-shop-" + n, deps(w)))).status, 200);
+    const s2 = await F.snapshotChat(env, "user-1-shop-" + n, deps(w));
+    await F.ensureCopySpare(env, { snapshot: s2.snapshot, size: 10 }, deps(w));
+  }
+  const copies = [...b.m.keys()].filter((k) => k.startsWith(F.SPARES) && !k.includes("claimed/")).map((k) => JSON.parse(b.m.get(k))).filter((r) => r.snap);
+  assert.ok(copies.length <= F.COPY_SPARES_MAX, "at most " + F.COPY_SPARES_MAX + " (" + copies.length + ")");
+});

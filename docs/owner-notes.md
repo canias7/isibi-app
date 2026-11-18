@@ -4,6 +4,16 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-18: New chats in an environment with a setup script start fast, the Claude Code way
+
+A new chat in env-test took 108 seconds to answer "Hi.". The timings showed where: about 80 seconds went to making the chat's machine. Its disk was being restored from the environment's saved copy, on a server that first had to download Coder's 6.9 GB image. Claude Code's docs: "New sessions start with your dependencies, tools, and Docker images already on disk, and skip the setup script step."
+
+Coder already keeps the saved copy. Now it also keeps a spare machine ready for each environment's copy: its disk already restored from the copy, its image already on its server, and stopped (a stopped machine costs only its disk). A new chat in that environment takes the spare and starts in seconds; the next spare is then made in the background. The first chat after a new copy still waits; the ones after it don't. At most 3 such spares are kept (one per environment copy, the oldest goes first), each recycled after 7 days.
+
+Also: the chat used to stay busy about 12 seconds after Coder's answer, while it asked Grok for the suggested next message. Claude Code makes that "a short background request". Now the page is told Coder has answered as soon as the answer is out.
+
+Tests: CD151b in `coder/test/fly.test.mjs`, SP3 in `coder/test/spares.test.mjs`, PS9 in `coder/test/prompt-suggest.test.mjs`.
+
 ## 2026-11-18: Coder waits for a machine that is slow to wake
 
 Rerunning group 3, a new chat failed with "Coder's machine on Fly.io did not answer. Try again in a minute." The retry worked, but its first answer took 107 seconds: the machine was slow to start. Claude Code keeps waiting while its machine starts. Coder now does the same. When the machine hasn't answered yet, the message never reached Coder, so the Worker waits until the machine answers and sends it again, for up to a minute. Only after a full minute of silence does the chat show the error.
