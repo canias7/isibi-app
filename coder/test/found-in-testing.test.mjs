@@ -1492,9 +1492,10 @@ test("CD248 Coder's docs page (the owner, 2026-11-08: \"start making a section f
   // Only the tools tested so far: read, then write (live, deploys 70 and 71; the owner, 2026-11-09: "Yes"), then edit
   // (live, deploy 73; the owner, 2026-11-09: "Yes fix").
   // Then bash and connectors (both live-tested; the owner, 2026-11-13: "do the docs live now for the tools we have done in
-  // the coder"). Then tool search (live since 2026-11-14; the owner, "yes pls all of that": the recheck's TS-9).
+  // the coder"). Then tool search (live since 2026-11-14; the owner, "yes pls all of that": the recheck's TS-9). Then sending
+  // files (send_user_file, with its build: 2026-11-18, "Ok you can start").
   const sections = [...page.matchAll(/<section id="([a-z-]+)"/g)].map((m) => m[1]);
-  assert.deepEqual(sections, ["read", "write", "edit", "bash", "connectors", "tool-search"]);
+  assert.deepEqual(sections, ["read", "write", "edit", "bash", "connectors", "tool-search", "send-files"]);
   for (const other of ["Grep", "Glob", "Web fetch", "Testing", "Next"]) assert.ok(!new RegExp("<h[1-3][^>]*>" + other + "\\b").test(page) && !page.includes(">" + other + "</a>") && !page.includes(">" + other + "</span>"), other + " is not on the page yet");
   // Plain HTML and CSS, its links all go somewhere.
   assert.doesNotMatch(page, /<script|\son[a-z]+=|javascript:/i, "no script of any kind (script-src 'self' would refuse an inline one)");
@@ -1503,8 +1504,8 @@ test("CD248 Coder's docs page (the owner, 2026-11-08: \"start making a section f
   assert.match(page, /<a class="dc-open" href="\/">Open Coder<\/a>/);
   const ids = new Set([...page.matchAll(/ id="([a-z-]+)"/g)].map((m) => m[1]));
   const links = [...page.matchAll(/href="#([a-z-]+)"/g)].map((m) => m[1]);
-  // (43 since 2026-11-17: Connectors' Resource tools.)
-  assert.equal(links.length, 43);
+  // (43 since 2026-11-17: Connectors' Resource tools; 47 since 2026-11-18: Sending you files and its three parts.)
+  assert.equal(links.length, 47);
   for (const id of links) assert.ok(ids.has(id), "#" + id + " goes to a part that is there");
   assert.match(css, /@media \(max-width: 760px\)/, "a phone layout");
   // The numbers, from the code itself.

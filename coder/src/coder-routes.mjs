@@ -139,6 +139,8 @@ import { FROM_COPY, FROM_COPY_GB, CACHE_PENDING_MS, STREAM_HEADER, flyOn, flyAwa
 import { makeRouteTicket, readRouteTicket, ROUTE_TICKET_MS } from "./coder-auth.mjs";
 import { readSchedules, writeSchedules, schedulesForTurn, addSchedule, addFromTurn, runsLeft, queueEvent, setPaused, pauseAll, editSchedule, logRun, endRun, testText, LATE_MS } from "./gloopy-schedules.mjs";
 import { FILE_IN_MAX, FILE_OUT_MAX, ATTACH_MAX, readFiles, keepFile, removeFile, fileOf, filesForTurn, fileDownload, fileViewAddress, serveFileView, PREVIEW_TYPES, extOf, canPreview } from "./gloopy-files.mjs";
+// (The files Coder sends the owner in a chat, Claude Code's SendUserFile: kept with the chat. 2026-11-18.)
+import { handleSentPut, serveSentView, readSent, sentOf, sentDownload, sentViewAddress, viewTypeOf, dropSent } from "./coder-sent.mjs";
 import { HOOK_PREFIX, HOOK_BODY_MAX, readWebhooks, addWebhook, removeWebhook, writeWebhooks, hookAddress, hookKey, callHasKey, webhooksForTurn, callData, eventText } from "./gloopy-webhooks.mjs";
 // (Gloopy's own modes for what it may do, Ask, Always allow or Deny, named apart from Coder's permission modes: merged 2026-11-13.)
 import { PERMISSIONS, PERMISSION_KEYS, MODES as GLOOPY_MODES, DEFAULT_MODE, DEFAULTS, TESTING, cleanPermissions } from "../container/gloopy-permissions.mjs";
@@ -971,6 +973,10 @@ export async function handleCoder(request, env, ctx, deps) {
   if (parts[0] === "gloopy-page" && parts.length === 3 && request.method === "GET") return servePageFile(env, bucket, decodeURIComponent(parts[1]), parts[2], url);
   // ── ONE OF GLOOPY'S FILES, SHOWN (the audit, 2026-11-10; src/gloopy-files.mjs): a PDF or a picture, the same way. ──
   if (parts[0] === "gloopy-view" && parts.length === 3 && request.method === "GET") return serveFileView(env, bucket, decodeURIComponent(parts[1]), parts[2], url);
+  // ── A FILE CODER SENDS THE OWNER (send_user_file, Claude Code's SendUserFile; 2026-11-18; src/coder-sent.mjs): from its machine
+  // with the running job's own pass; and one shown in its chat, a plain visit with its signed address. ──
+  if (parts[0] === "sent-put" && parts.length === 1 && request.method === "POST") return handleSentPut(request, env);
+  if (parts[0] === "sent-view" && parts.length === 4 && request.method === "GET") return serveSentView(env, bucket, decodeURIComponent(parts[1]), decodeURIComponent(parts[2]), parts[3], url);
   // ── A SAVED LOGIN, FOR GLOOPY'S MACHINE (2026-11-09; src/gloopy-vault.mjs): asked by its service with the running
   // job's own pass (as the Worker's egress is), for the one site its browser is on; never by the page or the AI. ──
   if (parts[0] === "gloopy-vault" && parts.length === 1 && request.method === "POST") return gloopyVaultAsk(request, env, bucket);
@@ -2776,6 +2782,22 @@ export async function handleCoder(request, env, ctx, deps) {
     return json({ ok: true, secrets: secretList(cur.secrets), reached: await reachRunning(cur) });
   }
 
+  // THE FILES CODER SENT IN THIS CHAT (send_user_file, Claude Code's SendUserFile; 2026-11-18; src/coder-sent.mjs): GET the list;
+  // GET sent/<id> to download one (always saved, never opened here); GET sent/<id>/view for the signed address that shows it in
+  // place.
+  if (action === "sent" && request.method === "GET") {
+    const fid = parts[3] || "";
+    if (!fid) return json({ ok: true, files: await readSent(bucket, uid, id) });
+    if (parts[4] === "view") {
+      const item = (await readSent(bucket, uid, id)).find((x) => x.id === fid);
+      if (!item) return json({ error: "That file is gone." }, 404);
+      const address = await sentViewAddress(env, uid, id, item);
+      return address ? json({ ok: true, url: address, type: viewTypeOf(item.name) }) : json({ error: "That kind of file can't be shown here: download it." }, 400);
+    }
+    const f = await sentOf(bucket, uid, id, fid);
+    return f ? sentDownload(f.item, f.body) : json({ error: "That file is gone." }, 404);
+  }
+
   // THE REPO'S FILE NAMES, for @ in the chat box (owner, 2026-11-05, "16").
   if (action === "files" && request.method === "GET") {
     const t = await userToken(env, bucket, uid, { fetchFn });
@@ -2842,6 +2864,8 @@ export async function handleCoder(request, env, ctx, deps) {
     await dropLive(bucket, uid, id).catch(() => {});
     // (And its pictures, kept apart from the saved chat: coder-live.mjs.)
     await dropPics(bucket, uid, id).catch(() => {});
+    // (And the files Coder sent in it: coder-sent.mjs.)
+    await dropSent(bucket, uid, id).catch(() => {});
     // ITS BRANCH RECORDS GO TOO, only those that are this chat's (round 6 of the live test, 2026-11-12: a deleted chat's record
     // still sent `@coder` on its pull request to it, "Coder could not start: no such project", and would have kept another
     // chat from turning on auto-fix for that pull request, "belongs to another chat").

@@ -457,6 +457,17 @@
 .cd-filecard-icon svg { width: 22px; height: 22px; }
 .cd-filecard-icon b { position: absolute; bottom: -6px; left: 50%; transform: translateX(-50%); font-size: 9px; letter-spacing: .03em; background: #1f1e1d; color: #fff; border-radius: 4px; padding: 1px 4px; }
 .cd-filecard-t { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+/* FILES CODER SENT (send_user_file, Claude Code's SendUserFile; 2026-11-18): each card, with what renders shown above it in place, and
+   the caption under them all. */
+.cd-sent { margin: 8px 0; max-width: 640px; }
+.cd-sent-one + .cd-sent-one { margin-top: 10px; }
+.cd-sent-live { border: 1px solid #e5e2dc; border-radius: 16px; background: #fff; overflow: hidden; margin-top: 8px; }
+.cd-sent-live:empty { min-height: 120px; background: #f6f5f2; }
+.cd-sent-live img { display: block; max-width: 100%; max-height: 480px; margin: 0 auto; }
+.cd-sent-live iframe { display: block; width: 100%; height: 420px; border: 0; background: #fff; }
+.cd-sent-live.is-gone { min-height: 0; padding: 12px 14px; color: #8a857d; font-size: 13px; }
+.cd-sent-one .cd-filecard { margin-top: 6px; max-width: none; }
+.cd-sent-cap { margin: 6px 2px 0; color: #5f5a52; font-size: 14px; }
 .cd-filecard-t b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
 .cd-filecard-t small { color: #6b7280; font-size: 12.5px; }
 .cd-filecard-get { flex: none; font: inherit; font-size: 14px; font-weight: 600; border-radius: 999px; padding: 8px 16px; cursor: pointer; }

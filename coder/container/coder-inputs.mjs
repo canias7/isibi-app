@@ -24,6 +24,19 @@ import { checkToolSearchInput } from "./coder-toolsearch.mjs";
 // (And list_mcp_resources and read_mcp_resource, Claude Code's ListMcpResourcesTool and ReadMcpResourceTool: their schemas'
 // refusals. 2026-11-17; coder-mcpres.mjs.)
 import { checkListInput as checkMcpListInput, checkReadInput as checkMcpReadInput, checkDirInput as checkMcpDirInput, LIST_TOOL as MCP_LIST_TOOL, READ_TOOL as MCP_READ_TOOL, DIR_TOOL as MCP_DIR_TOOL } from "./coder-mcpres.mjs";
+// (And send_user_file, Claude Code's SendUserFile: its schema, then its checks of each file, as the machine makes them. 2026-11-18;
+// coder-sendfile.mjs.)
+import { checkSendInput, SEND_TOOL } from "./coder-sendfile.mjs";
+/**
+ * SEND_USER_FILE'S CHECKS (Claude Code's validateInput, before any hook): its input, then each file as the AI's user would read
+ * it, where the chat's files are (Coder's loop gives `ctx.sendFiles`, the tools script's user_file_check): the first refusal,
+ * in Claude Code's words; a Promise then.
+ */
+export function checkSend(args, ctx = {}) {
+  const v = checkSendInput(args);
+  if (v.error || !ctx || typeof ctx.sendFiles !== "function") return v;
+  return Promise.resolve().then(() => ctx.sendFiles(v.args.files)).then((e) => (typeof e === "string" && e ? { error: e } : v), () => v);
+}
 // (Not Claude Code's environment tools: they are its MCP server's, whose input Claude Code takes as any object and its server
 // checks when called, after the PreToolUse hooks, as request_secret's. Coder's loop checks theirs then: coder-envtools.mjs.)
 
@@ -39,7 +52,7 @@ export function checkLsp(args, ctx = {}) {
   return Promise.resolve().then(() => ctx.lspFile(v.args)).then((e) => (typeof e === "string" && e ? { error: e } : v), () => v);
 }
 
-export const INPUT_CHECKS = { grep: checkGrepInput, glob: checkGlobInput, lsp: checkLsp, web_fetch: checkWebFetchInput, web_search: checkWebSearchInput, ask_user: checkAskUserInput, tool_search: checkToolSearchInput, notebook_edit: checkNotebookInput , [MCP_LIST_TOOL]: checkMcpListInput, [MCP_READ_TOOL]: checkMcpReadInput, [MCP_DIR_TOOL]: checkMcpDirInput };
+export const INPUT_CHECKS = { grep: checkGrepInput, glob: checkGlobInput, lsp: checkLsp, web_fetch: checkWebFetchInput, web_search: checkWebSearchInput, ask_user: checkAskUserInput, tool_search: checkToolSearchInput, notebook_edit: checkNotebookInput , [MCP_LIST_TOOL]: checkMcpListInput, [MCP_READ_TOOL]: checkMcpReadInput, [MCP_DIR_TOOL]: checkMcpDirInput, [SEND_TOOL]: checkSend };
 
 /** A tool's input check, when it has one (these seven tools). */
 export const inputCheckFor = (name) => (Object.prototype.hasOwnProperty.call(INPUT_CHECKS, name) && typeof INPUT_CHECKS[name] === "function" ? INPUT_CHECKS[name] : null);

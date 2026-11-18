@@ -18,6 +18,7 @@ import { planApproved, ENTERED_PLAN, ENTERED_PLAN_TEXT } from "./coder-plan.mjs"
 import { WRITE_FRESH, EDIT_OTHER_CHANGES, EMPTY_FILE_NOTE, shorterNote, numberedLine } from "./coder-tools.mjs";
 import { readParts } from "./coder-notebook.mjs";
 import { listText as resourceListText, readText as resourceReadText, dirText as resourceDirText } from "./coder-mcpres.mjs";
+import { sentText } from "./coder-sendfile.mjs";
 
 // ── A REWRITE'S TEXT ─────────────────────────────────────────────────────────
 /** A Read result object's lines as Coder's read shows them: each line's number, a tab, the line. */
@@ -99,6 +100,8 @@ export function outputTextOf(ctx = {}) {
       case "ListMcpResourcesTool": return resourceListText(v);
       case "ReadMcpResourceTool": return resourceReadText(v);
       case "ReadMcpResourceDirTool": return resourceDirText(v);
+      // (send_user_file's, its SendUserFile's: the files delivered and those not. 2026-11-18.)
+      case "SendUserFile": return sentText(v);
       default: return plainOutputText(tool, v);
     }
   };

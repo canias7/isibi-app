@@ -872,3 +872,45 @@ its line. Tests MC6, MC14, MC15 and HR4.
 **Tests:** MR1–MR12 (`coder/test/mcp-resources.test.mjs`: the relay end to end through the Worker, the kept lists, the third tool,
 the rules); PA1, TP1, TS2 and TS29 updated for the third tool. The full suite: 1345 pass, 4 skipped, 0 fail. Deployed to coder2
 (deploy 245); not tried in a live chat (coder2's GitHub sign-in).
+
+---
+
+## 7. send_user_file (Claude Code: SendUserFile)
+
+The owner (2026-11-18): "Is that part of a certain tool ? Or is it a tool ?", then "Ok you can start".
+
+**Before:** Coder had no way to hand the owner a file. Gloopy has its own `send_file` (unchanged: "Dont touch gloopy for now").
+
+**Claude Code's real tool**, 2.1.327, read in its program on this machine and tried in this Claude Code cloud session:
+
+| Case | Claude Code | Coder now |
+|---|---|---|
+| When offered | from the start in a cloud session (its shouldDefer is off there) | from the start in Coder's own chats; not in a job from GitHub (no one sees it), not in Gloopy's |
+| Description | its text for when no notification is sent ("Neither one sends a notification: the file waits in this session until the user opens it."), then "If this run is meant to notify the user, call PushNotification as well." | the same, word for word, without that last sentence (Coder has no PushNotification tool: the owner, 2026-11-14, "Do all the talk to you tools execpt for the notify one"); Coder's name in its example |
+| Inputs | `files` (one path or a list of at least one), `caption`, `status` ("normal" or "proactive", required), `display` ("render" or "attach"); nothing else | the same; refused input in its raw words (tried: `status` left out; an empty list with a wrong status) |
+| Its checks of each file, before any hook | a URL; a UNC path; under /net and the like; a device, or a /proc or /dev link; a name with a line break, another control character or a direction mark (`Cannot send "<path as JSON>": …`); outside the working folders when reads there are blocked; a folder; a missing file, with "Did you mean"; one it can't open | the same order and words (tried: a URL, a folder, three missing files and their guesses, a bad name, the escaping of `<`, `>` and a zero-width space) |
+| Permission | each file is a Read of its path: a Read deny on one refuses the call in that rule's words; a deny on all of Read: "SendUserFile reads file contents; that action is disabled."; an ask asks; a rule on SendUserFile itself or one input (`SendUserFile(status:proactive)`) | the same |
+| Where a file goes | uploaded to its service, given a `file_uuid` | kept by Coder's server with the chat, given an id like `s1a2b3c4d5e6f` |
+| Limit | its service's own, "never under 30 MiB"; past it: "40.0 MiB exceeds the 30 MiB upload limit — send a smaller or compressed copy" | 30 MiB; the same words |
+| Failed uploads | "upload failed: server returned 503", "upload failed: network error (timeout of 35000ms exceeded)", "…the connection closed before the server answered", "…unexpected server response"; tried once more after a timeout or a 502, 503, 504, 507 or 520 to 524; 35 seconds a try | the same |
+| What the AI is told | "2 files delivered to user." and each `path → file_uuid: id`; "1 file could NOT be delivered to the user:", each with its size and why, "Tell the user the file was not delivered and why.", and "ask you to send it again in a few minutes" when it may pass | the same (checked against what this session's own sends answered) |
+| Its row in the chat | none (its name and row text are empty): the file's card is what shows | the same: the card; a refused call shows "Send a.csv ✕ not run" with why |
+| The card | `render` opens a file in the app's side panel; `attach` a card to download; left out, by its kind | each file a card with Download; pictures, SVG, PDFs, web pages (sealed off) and text shown in place under it, unless `attach`; the caption under them |
+| Pictures | also makes smaller copies for the chat to show (and turns HEIC, TIFF and the like into JPEG or PNG) | sends the original only |
+| Hooks | `SendUserFile`; its result object `{caption?, display?, attachments: [{path, size, isImage, file_uuid?, media_type?, upload_error?}]}` | the same |
+| Read-only | yes, run beside other read-only calls | the same |
+
+**Tests:** SF1–SF8 (`coder/test/send-file.test.mjs`, with Claude Code's own description and refusal as fixtures); CD248 (the docs
+page's new section and links); PA1 and TP1 (the lists of Coder's tools); CD541 (a deleted chat's sent files go with it); the
+machine's file list (CD78, CD163) has the new modules. The full suite: 1353 pass, 4 skipped, 0 fail.
+
+**For the owner to decide:**
+1. **The notification sentence** is left out, as Coder has no PushNotification tool.
+2. **30 MiB per file.** Claude Code's limit is set by its service and is at least that.
+3. **No smaller copies of pictures.** Claude Code makes them for its apps; Coder's chat shows the original.
+4. **Only files in the project and its working folders.** Claude Code can send a file from elsewhere on its machine (asking
+   first, as its Read does), unless a setting blocks reads outside its working folders; Coder's file tools never open files
+   outside them.
+5. **No notification** for "proactive": the file waits in the chat, as in Claude Code's text for that case.
+6. **Shown in the chat, not a side panel:** a picture or page shows right under its card. Coder's chat has no side panel.
+7. **Files kept with the chat:** up to 500 files and 2 GB a chat, the oldest going first; gone when the chat is deleted.

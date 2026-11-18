@@ -20,7 +20,9 @@ import { FILE_RULE_TOOLS, TOOL_RULE_NAMES, fileRuleHit, folderReadAllowed, readR
 import { docSite, pickDomainRule, webFetchRuleProblem } from "./coder-webfetch-sites.mjs";
 import { REMOTE_TOOL_NAMES, remoteAliases } from "./coder-envtools.mjs";
 // (The MCP resource tools' inputs a rule may name, and Claude Code's match of a server's name: 2026-11-17.)
-import { RULE_PARAMS, serverRuleMatches } from "./coder-mcpres.mjs";
+import { RULE_PARAMS as RESOURCE_RULE_PARAMS, serverRuleMatches } from "./coder-mcpres.mjs";
+// (And SendUserFile's scalar inputs, Coder's send_user_file since 2026-11-18: its files are a list, which no rule can name.)
+const RULE_PARAMS = Object.freeze({ ...RESOURCE_RULE_PARAMS, SendUserFile: ["caption", "status", "display"] });
 export { fileRuleHit, readRuleFor } from "./coder-filerules.mjs";
 // (No node: modules here: Coder's Worker loads this file too, for the modes and the rules.)
 
@@ -926,7 +928,7 @@ export function parseRule(text) {
   // NotebookEdit, Coder's notebook_edit since 2026-11-17: the whole tool, as Write's; its path rules never match, as Write's.
   // And ListMcpResourcesTool and ReadMcpResourceTool, Coder's list_mcp_resources and read_mcp_resource since 2026-11-17: the
   // whole tool.)
-  const m = /^(Bash|WebFetch|Read|Edit|Write|NotebookEdit|Grep|Glob|LSP|Monitor|WebSearch|TaskStop|KillShell|KillBash|AskUserQuestion|ExitPlanMode|EnterPlanMode|TodoWrite|TaskCreate|TaskGet|TaskList|TaskUpdate|PowerShell|ToolSearch|ListMcpResourcesTool|ReadMcpResourceTool|ReadMcpResourceDirTool|ListMcpResources|ReadMcpResource|ReadMcpResourceDir)(?:\(([\s\S]*)\))?$/.exec(String(text || "").trim());
+  const m = /^(Bash|WebFetch|Read|Edit|Write|NotebookEdit|Grep|Glob|LSP|Monitor|WebSearch|TaskStop|KillShell|KillBash|AskUserQuestion|ExitPlanMode|EnterPlanMode|TodoWrite|TaskCreate|TaskGet|TaskList|TaskUpdate|PowerShell|ToolSearch|ListMcpResourcesTool|ReadMcpResourceTool|ReadMcpResourceDirTool|ListMcpResources|ReadMcpResource|ReadMcpResourceDir|SendUserFile)(?:\(([\s\S]*)\))?$/.exec(String(text || "").trim());
   if (!m) return null;
   // (TaskStop's old names, KillShell and KillBash, name it still: Claude Code 2.1.322 keeps them as its aliases.)
   if (m[1] === "KillShell" || m[1] === "KillBash") m[1] = "TaskStop";

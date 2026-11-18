@@ -17,6 +17,8 @@ import { psParseRequest, PS_PARSE_TIMEOUT_MS, PS_PARSE_TRIES } from "./coder-psp
 import { grepTool, globTool } from "./coder-search.mjs";
 import { secretsIn, memorySecretsRefused } from "./coder-secretscan.mjs";
 import { editNotebook, notebookProblem, inputProblem as notebookInputProblem, checkInput as notebookInput, NOT_JSON, NOTEBOOK_CHANGED, NOTEBOOK_GONE, NOTEBOOK_MAX_BYTES as NOTEBOOK_EDIT_MAX, NOTEBOOK_TOO_BIG, NOTEBOOK_WOULD_BE_TOO_BIG, cellBefore, CARD_UNREADABLE, CARD_TOO_BIG, isNotebook, NOT_NOTEBOOK_SHAPE, readCells, readParts, notJsonRead, READ_CELLS_MAX, READ_TOKENS_MAX, JQ_HINT, tooTokens } from "./coder-notebook.mjs";
+// (Claude Code's SendUserFile as send_user_file: its checks of a file to send, in its words. 2026-11-18.)
+import * as SF from "./coder-sendfile.mjs";
 import { lookup as lookupCb } from "node:dns";
 import http from "node:http";
 import https from "node:https";
@@ -621,23 +623,32 @@ const editMissing = () => "File does not exist. Note: your current working direc
  * (or none), by its name. → " Did you mean …?", or "".
  */
 const SIMILAR_EXT = /^(\.[\p{L}\p{N}_+~#-]{1,32})?$/u;
-async function didYouMean(abs) {
+/** The same path under the commands' folder, when the one given is under its parent but not under it, if it is there (in full). */
+async function besideGuess(abs) {
   const cwd = BASE, parent = dirname(cwd);
   let c = abs;
   try { c = join(await realpath(dirname(abs)), basename(abs)); } catch { /* as given */ }
   const under = parent === "/" ? "/" : parent + "/";
   if (c.startsWith(under) && !c.startsWith(cwd + "/") && c !== cwd) {
     const b = join(cwd, relative(parent, c));
-    try { await stat(b); return " Did you mean " + b + "?"; } catch { /* not there */ }
+    try { await stat(b); return b; } catch { /* not there */ }
   }
+  return "";
+}
+/** A file beside it with the same name and another ending (or none), by its name (Claude Code's findSimilarFile). */
+async function similarGuess(abs) {
   try {
     const dir = dirname(abs), stem = basename(abs, extname(abs));
     for (const d of await readdir(dir, { withFileTypes: true })) {
       const ext = extname(d.name);
-      if (SIMILAR_EXT.test(ext.normalize("NFC")) && basename(d.name, ext) === stem && join(dir, d.name) !== abs) return " Did you mean " + d.name + "?";
+      if (SIMILAR_EXT.test(ext.normalize("NFC")) && basename(d.name, ext) === stem && join(dir, d.name) !== abs) return d.name;
     }
   } catch { /* no folder */ }
   return "";
+}
+async function didYouMean(abs) {
+  const g = (await besideGuess(abs)) || (await similarGuess(abs));
+  return g ? " Did you mean " + g + "?" : "";
 }
 /** Write's and edit's words for a pipe, a device or a socket (Claude Code 2.1.325's, each tool's sentence after them). */
 export const NOT_REGULAR = "exists but is not a regular file (a device, FIFO or socket).";
@@ -2286,13 +2297,74 @@ export async function toolSendFile({ path }) {
 }
 
 /**
+ * CODER'S send_user_file (Claude Code's SendUserFile; the owner, 2026-11-18; coder-sendfile.mjs), run as `dev`, so a file Grok
+ * can't read can't be sent: `user_file_check` makes Claude Code's checks of each file before any hook (its validateInput, in
+ * its order and words) and answers "ok" or its first refusal; `user_file_read` reads one file to send, checked again as it is
+ * read (Claude Code checks it again as it sends it): its full path, size, kind and bytes, or its size alone when it is over
+ * SEND_FILE_MAX. A file is one Coder's read may open: inside the project, its working folders and the chat's output folders.
+ */
+export const OUTSIDE_WHY = "Coder's file tools open files only inside the project and its working folders";
+const PROC_LINK = /^\/(?:proc\/[^/]+\/(?:fd|cwd|root|exe|map_files)|dev\/fd)(?:\/|$)/;
+async function userFileProblem(p) {
+  if (SF.URL_LIKE.test(p)) return SF.looksUrl(p);
+  if (SF.UNC_LIKE.test(p)) return SF.uncPath(p);
+  const abs = toolPath(p);
+  if (SF.NETWORK_MOUNT.test(abs)) return SF.networkMount(p);
+  if (PROC_LINK.test(abs)) return SF.procLink(p);
+  let real = "";
+  try { real = await realpath(abs); } catch { real = ""; }
+  if (/^\/(?:proc|dev|sys)(?:\/|$)/.test(abs) || (real && /^\/(?:proc|dev|sys)(?:\/|$)/.test(real))) return SF.deviceFile(p);
+  if (SF.BAD_NAME.test(basename(abs))) return SF.badName(abs);
+  try { await inside(p, { output: true, tool: SF.SEND_TOOL }); }
+  catch (e) { if (e instanceof ToolError) return /outside the project|leads outside|off limits/.test(e.message) ? SF.outsideBlocked(p, OUTSIDE_WHY) : e.message; throw e; }
+  let st;
+  try { st = await stat(abs); }
+  catch (e) {
+    if (e && e.code === "ENOENT") return SF.missingFile(p, BASE, await sendGuess(p, abs));
+    if (e && typeof e.code === "string") return SF.notAccessible(p, e.code);
+    throw e;
+  }
+  return st.isFile() ? "" : SF.notRegular(p);
+}
+/** Claude Code's "Did you mean" for a file to send: the path beside the commands' folder; one given from that folder's own name; a file with another ending. */
+async function sendGuess(p, abs) {
+  const b = await besideGuess(abs);
+  if (b) return b;
+  if (!isAbsolute(p)) {
+    const [first, ...rest] = p.split(/[\\/]+/);
+    if (first === basename(BASE) && rest.length) { try { if ((await stat(join(BASE, ...rest))).isFile()) return rest.join("/"); } catch { /* not there */ } }
+  }
+  return similarGuess(abs);
+}
+const refuse = (why) => { throw Object.assign(new ToolError(why), { whole: true }); };
+export async function toolUserFileCheck({ files }) {
+  for (const p of Array.isArray(files) ? files : []) { const why = await userFileProblem(String(p)); if (why) refuse(why); }
+  return "ok";
+}
+export async function toolUserFileRead({ path }) {
+  const p = String(path ?? "");
+  const why = await userFileProblem(p);
+  if (why) refuse(why);
+  const abs = toolPath(p);
+  const fh = await openFile(abs, "r");
+  try {
+    const st = await fh.stat();
+    if (!st.isFile()) refuse(SF.notRegular(p));
+    const type = SF.sendTypeOf(abs);
+    const base = { path: abs, size: st.size, isImage: SF.isImageName(abs), ...(type ? { media_type: type } : {}) };
+    if (st.size > SF.SEND_FILE_MAX) return JSON.stringify({ ...base, tooBig: true });
+    return JSON.stringify({ ...base, data: (await fh.readFile()).toString("base64") });
+  } finally { await fh.close(); }
+}
+
+/**
  * A TOOL'S FAILURE AS CODER IS TOLD IT: "error: " and its words, the first 600 characters; a search's (coder-search.mjs's
  * SearchError, `long`) the first 4,000; a page fetch's own (coder-webfetch.mjs's requestError, `whole`: Claude Code's texts,
  * such as its words for a host that does not resolve or one the network list blocks, which name the host) all of it.
  */
 export const errorLine = (e) => { const m = String((e && e.message) || e); return "error: " + (e && e.whole === true ? m : m.slice(0, e && e.long === true ? 4000 : 600)); };
 
-export const TOOLS = { page_file: toolPageFile, save_file: toolSaveFile, send_file: toolSendFile, ps_parse: toolPsParse, save_picture: toolSavePicture, fit_picture: toolFitPicture, lsp: toolLsp, lsp_file: toolLspFile, lsp_take: toolLspTake, read: toolRead, write: toolWrite, edit: toolEdit, notebook_edit: toolNotebookEdit, notebook_cell: toolNotebookCell, file_check: toolFileCheck, grep: toolGrep, glob: toolGlob, web_fetch: toolWebFetch, mtimes: toolMtimes, listing: toolListing, changed: toolChanged, seen: toolSeen, snap: toolSnap, snapdiff: toolSnapDiff, http_hook: toolHttpHook, stamps: toolStamps, ws_watch: toolWsWatch };
+export const TOOLS = { page_file: toolPageFile, save_file: toolSaveFile, send_file: toolSendFile, user_file_check: toolUserFileCheck, user_file_read: toolUserFileRead, ps_parse: toolPsParse, save_picture: toolSavePicture, fit_picture: toolFitPicture, lsp: toolLsp, lsp_file: toolLspFile, lsp_take: toolLspTake, read: toolRead, write: toolWrite, edit: toolEdit, notebook_edit: toolNotebookEdit, notebook_cell: toolNotebookCell, file_check: toolFileCheck, grep: toolGrep, glob: toolGlob, web_fetch: toolWebFetch, mtimes: toolMtimes, listing: toolListing, changed: toolChanged, seen: toolSeen, snap: toolSnap, snapdiff: toolSnapDiff, http_hook: toolHttpHook, stamps: toolStamps, ws_watch: toolWsWatch };
 
 // Run as a command: node coder-tools.mjs <base64 of {"tool": ..., "args": {...}}>
 if (process.argv[1] && import.meta.url === "file://" + process.argv[1]) {

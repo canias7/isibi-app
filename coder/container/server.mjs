@@ -26,7 +26,7 @@ import { constants } from "node:fs";
 import { createWriteStream, realpathSync, openSync, closeSync, readSync, fstatSync, fchownSync, lstatSync, lchownSync, existsSync, readdirSync, mkdirSync, chownSync, chmodSync, writeFileSync, readFileSync, statfsSync, truncateSync, rmdirSync, unlinkSync } from "node:fs";
 import { join, dirname, relative, resolve, basename, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
-import { runCoder, connectorTools, connectorCaller, connectorHookCaller, connectorResourceCaller, MACHINE_TOOLS, MACHINE_ADMIN, CWD_MARK, CWD_WORDS, monitorMs, TOOLS_SCRIPT, hookModeName, boxDownTold, boxDownShown } from "./coder-agent.mjs";
+import { runCoder, connectorTools, connectorCaller, connectorHookCaller, connectorResourceCaller, sentFileCaller, MACHINE_TOOLS, MACHINE_ADMIN, CWD_MARK, CWD_WORDS, monitorMs, TOOLS_SCRIPT, hookModeName, boxDownTold, boxDownShown } from "./coder-agent.mjs";
 // (Each chat's plan file, kept here beside its memory: Claude Code's plan mode with a disk; the owner, 2026-11-14.)
 import { planStore, plansDirectoryFor, plansDirWarning } from "./coder-plan-file.mjs";
 import { envCaller } from "./coder-envtools.mjs";
@@ -4552,6 +4552,9 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         // (And the chat's mcp_tool hooks call its connectors' tools the same way: connectorHookCaller. Fix round 4, CL4.)
         ...(mcpCall ? { mcp: mcpCall, mcpHook: connectorHookCaller(via) } : {}),
         ...(resourceServers.length ? { mcpResources: connectorResourceCaller(via), resourceServers } : {}),
+        // CLAUDE CODE'S SendUserFile (2026-11-18, the owner: "Ok you can start"): send_user_file's files go to the Worker with this
+        // job's pass, kept there with the chat for the owner (src/coder-sent.mjs). Coder's own chats: Gloopy has its own files tool.
+        ...(via && !gloopy ? { sendFile: sentFileCaller(via) } : {}),
         // CLAUDE CODE'S ENVIRONMENT TOOLS (2026-11-14, the owner: "Do all the talk to you tools execpt for the notify one"):
         // get_environment and the cards' checks ask the Worker, with this job's pass (coder-envtools.mjs, src/coder-envapi.mjs).
         ...(via ? { envApi: envCaller(via) } : {}),

@@ -269,6 +269,8 @@ export const OUTPUT_SHAPES = Object.freeze({
   ListMcpResourcesTool: z.array(o({ uri: S, name: S, mimeType: opt(S), description: opt(S), server: S })),
   ReadMcpResourceTool: o({ contents: z.array(o({ uri: S, mimeType: opt(S), text: opt(S), blobSavedTo: opt(S) })), error: opt(S) }),
   ReadMcpResourceDirTool: o({ resources: z.array(o({ uri: S, name: S, mimeType: opt(S) })), error: opt(S) }),
+  // (Coder's send_user_file, its SendUserFile, as 2.1.327 has it: 2026-11-18, coder-sendfile.mjs.)
+  SendUserFile: o({ caption: opt(S), display: opt(z.enum(["render", "attach"])), attachments: z.array(o({ path: S, size: N, isImage: B, file_uuid: opt(S), media_type: opt(S), upload_error: opt(S), project_path: opt(S), partial_error: opt(S) })), rendered_locally: opt(B) }),
 });
 
 // ── A POSTTOOLUSE HOOK'S updatedToolOutput ───────────────────────────────────

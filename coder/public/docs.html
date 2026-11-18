@@ -64,6 +64,10 @@
       <a class="dc-sub" href="#ts-which">Which tools wait</a>
       <a class="dc-sub" href="#ts-how">How it works</a>
       <a class="dc-sub" href="#ts-settings">Settings</a>
+      <a href="#send-files">Sending you files</a>
+      <a class="dc-sub" href="#send-see">What you see</a>
+      <a class="dc-sub" href="#send-what">What it sends</a>
+      <a class="dc-sub" href="#send-rules">Permission rules</a>
     </nav>
     <main class="dc-main">
       <h1>Coder docs</h1>
@@ -353,6 +357,33 @@
           <li><code>ENABLE_TOOL_SEARCH</code>, in the chat's environment or the repository's <code>.claude/settings.json</code>: unset or <code>true</code> keeps it on; <code>false</code> gives Coder every tool at the start; <code>auto</code> turns it on once the waiting tools would take up 10% of what Grok can read at once (<code>auto:5</code> for 5%).</li>
           <li>A deny rule on <code>ToolSearch</code>, or <code>ToolSearch(*)</code>, turns it off too. With it off, a request carries at most 350 tools, Grok's limit.</li>
           <li><code>CODER_MAX_MCP_DESCRIPTION_LENGTH</code> (Claude Code's <code>CLAUDE_CODE_MAX_MCP_DESCRIPTION_LENGTH</code> in a repository's settings) sets how much of a connector tool's description Coder gets. Without it: 4,096 characters at the start, 16,384 once loaded.</li>
+        </ul>
+      </section>
+
+      <section id="send-files">
+        <h2>Sending you files</h2>
+        <p class="dc-lead">Like Claude Code's SendUserFile, Coder's <code>send_user_file</code> tool sends you files from the chat's computer: a screenshot, a report, a chart, a page it built. Coder sends one when it's ready, such as a finished draft or a new version of what you asked for, not every save.</p>
+
+        <h3 id="send-see">What you see</h3>
+        <ul>
+          <li>Each file is a card in the chat with its name, its size and <b>Download</b>. Coder's caption, if it adds one, shows under the files.</li>
+          <li>Pictures (PNG, JPG, GIF, WebP and SVG), PDFs, web pages and text files (such as Markdown, CSV and JSON) also show right in the chat, unless Coder sends one only to download. Other files are a card to download.</li>
+          <li>A web page shown in the chat runs sealed off: it can't see your sign-in or send anything anywhere.</li>
+          <li>Nothing is pushed to your phone: the file waits in the chat until you open it.</li>
+        </ul>
+
+        <h3 id="send-what">What it sends</h3>
+        <ul>
+          <li>Files inside the project and its working folders, up to <b>30 MiB</b> each. Not folders, web addresses, or links that lead out of the project.</li>
+          <li>A file that couldn't be sent, such as one over 30 MiB, isn't: Coder is told why, in Claude Code's words, and tells you.</li>
+          <li>The files stay with the chat, up to <b>500 files</b> and <b>2 GB</b>; past that, the oldest go. Deleting the chat deletes them.</li>
+          <li>A job started from GitHub doesn't get the tool.</li>
+        </ul>
+
+        <h3 id="send-rules">Permission rules</h3>
+        <ul>
+          <li>Sending a file reads it, so your Read rules apply to each file: one Coder may not read can't be sent, and one that asks first asks before it's sent.</li>
+          <li>A rule can also turn the tool off or make it ask, for the whole tool (<code>SendUserFile</code>) or one input (<code>SendUserFile(status:proactive)</code>).</li>
         </ul>
       </section>
     </main>

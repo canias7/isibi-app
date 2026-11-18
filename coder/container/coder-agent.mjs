@@ -46,6 +46,8 @@ import { TASK_TOOLS, isTaskTool, checkTaskInput, readTasks, emptyTasks, createTa
 import { ASK_USER_DESCRIPTION, ASK_USER_PROPERTIES, shownInput, answerKeys, cardAnswers, allUnanswered, checkHookRewrite, previewOf, previewKind, PREVIEW_WITHHELD, hasPreviews } from "./coder-askuser.mjs";
 import { sharedChat, sharedChatText, NOT_FETCHED, webFetchDescription, WEBFETCH_PARAMS, WEBFETCH_DEADLINE_MS, WEBFETCH_CACHE_TTL_MS, WEBFETCH_READ_CHARS, WEBFETCH_RESULT_MAX, NO_ANSWER, pageCache, docSite, readerMessage, redirectText, httpErrorText, pastEndText, leadText, readOnNote, binaryNote, fromOffset, firstChars, statusText, persistedText } from "./coder-webfetch.mjs";
 import { ENV_TOOLS, ENV_TOOL_NAMES, ENV_INPUT_CHECKS, envTable } from "./coder-envtools.mjs";
+// (Claude Code's SendUserFile as send_user_file: the owner, 2026-11-18, "Ok you can start".)
+import { SEND_TOOL, SEND_TOOL_DEF, CC_SEND, sentText, tooBigToSend, serverReturned, networkError, CONNECTION_CLOSED, UNEXPECTED_ANSWER, renders as sendRenders } from "./coder-sendfile.mjs";
 // (Claude Code's MCP resource tools, ListMcpResourcesTool and ReadMcpResourceTool: the owner, 2026-11-17, "yes build it like
 // claude code".)
 import { LIST_TOOL as MCP_LIST_TOOL, READ_TOOL as MCP_READ_TOOL, DIR_TOOL as MCP_DIR_TOOL, LIST_TOOL_DEF as MCP_LIST_DEF, READ_TOOL_DEF as MCP_READ_DEF, DIR_TOOL_DEF as MCP_DIR_DEF, listText as mcpListText, readText as mcpReadText, dirText as mcpDirText, extOf as mcpExtOf, blobSavedText, blobNotSaved, blobTooBig, BLOB_SAVE_MAX, RESOURCE_INLINE_MAX, RELAY_TYPE, RELAY_MAX, relayedAnswer, readErrorAnswer, contentsOf } from "./coder-mcpres.mjs";
@@ -264,6 +266,8 @@ export const RUN_TOOLS = {
   edit: { verb: "Edited", label: (a) => a.path },
   // (Claude Code's NotebookEdit row: the notebook, then "@" and the cell when one is named.)
   notebook_edit: { verb: "Edited", label: notebookLabel },
+  // (send_user_file's, refused before it sent anything: the files it was given. 2026-11-18.)
+  send_user_file: { verb: "Send", label: (a) => (Array.isArray(a.files) ? a.files : typeof a.files === "string" ? [a.files] : []).map(String).join(", ") },
   grep: { verb: "Searched", label: (a) => JSON.stringify(a.pattern || "") + (a.path && a.path !== "." ? " in " + a.path : "") },
   glob: { verb: "Found", label: (a) => String(a.pattern || "") },
   // (Claude Code's LSP inputs since 2026-11-14: operation, filePath, line, character.)
@@ -1546,6 +1550,40 @@ export async function bodyBytes(r, max) {
   return Buffer.concat(parts.map((x) => Buffer.from(x.buffer, x.byteOffset, x.byteLength)), n);
 }
 /**
+ * SEND_USER_FILE'S FILES TO CODER'S SERVER (2026-11-18; src/coder-sent.mjs): one file's bytes with the job's AI pass, kept with the
+ * chat. Claude Code's: "an upload that fails on a timeout, a network error or a 502, 503 or 504 is now retried once" (and a 507,
+ * and the proxies' 520 to 524), each try waiting up to SENT_PUT_MS ("it now waits 35 seconds"). → { id, name, size, type }, or
+ * { error } in Claude Code's words for a failed upload (coder-sendfile.mjs).
+ */
+export const SENT_PUT_MS = 35_000;
+export function sentFileCaller(via, fetchFn = fetch) {
+  const url = String(via.url).replace(/\/api\/coder\/model$/, "/api/coder/sent-put");
+  // (Its words for the network's failures: a timeout as its HTTP client words one; a connection reset or broken, "the connection
+  // closed before the server answered"; any other, the error's own words.)
+  const failed = (e) => {
+    if (e && e.name === "TimeoutError") return networkError("timeout of " + SENT_PUT_MS + "ms exceeded");
+    const code = String((e && e.cause && e.cause.code) || (e && e.code) || "");
+    if (["ECONNRESET", "EPIPE", "ERR_STREAM_PREMATURE_CLOSE", "UND_ERR_SOCKET"].includes(code)) return CONNECTION_CLOSED;
+    return networkError(String((e && e.cause && e.cause.message) || (e && e.message) || e || "fetch failed").slice(0, 300));
+  };
+  return async ({ name, bytes }) => {
+    let r = null, why = "";
+    for (let k = 0; k < 2; k++) {
+      try { r = await fetchFn(url, { method: "POST", headers: { ...via.headers, "content-type": "application/octet-stream", "x-file-name": encodeURIComponent(String(name || "file")) }, body: bytes, signal: AbortSignal.timeout(SENT_PUT_MS) }); why = ""; }
+      catch (e) { r = null; why = failed(e); continue; }
+      if (k === 0 && [502, 503, 504, 507, 520, 521, 522, 523, 524].includes(r.status)) continue;
+      break;
+    }
+    if (!r) return { error: why };
+    // (Over the limit: its words for its server's refusal of a file too big, naming its size and the limit.)
+    if (r.status === 413) return { error: tooBigToSend(bytes ? bytes.length : 0) };
+    if (!r.ok) return { error: serverReturned(r.status) };
+    const j = await r.json().catch(() => null);
+    if (!j || j.ok !== true || typeof j.id !== "string") return { error: UNEXPECTED_ANSWER };
+    return { id: String(j.id), name: String(j.name || name), size: Number(j.size) || 0, type: typeof j.type === "string" ? j.type : "" };
+  };
+}
+/**
  * TOOL SEARCH, LIKE CLAUDE CODE'S (its MCP docs: only the tools' names load at the start, and Claude searches for the ones
  * it needs; with ENABLE_TOOL_SEARCH=auto, tools load upfront while their definitions stay under 10% of the context). Here:
  * when the connectors' tools are more than CONNECTOR_UPFRONT_MAX, or their definitions more than CONNECTOR_UPFRONT_CHARS,
@@ -1975,7 +2013,7 @@ async function exitFromLog(deps, log) {
  * lockTools): what a name in the chat's record of the tools sent (`toolLocks`) stands for, byte for byte. web_search as Coder's
  * chats send it (searchModeTools), and the tools only tool search or a setting brings in.
  */
-export const STOCK_TOOLS = new Map([...CODER_TOOLS, WEB_SEARCH_MODE_TOOL, TOOL_SEARCH_TOOL, TODO_WRITE_TOOL, EXIT_PLAN_TOOL, MCP_LIST_DEF, MCP_READ_DEF, MCP_DIR_DEF].map((t) => [t.function.name, t]));
+export const STOCK_TOOLS = new Map([...CODER_TOOLS, WEB_SEARCH_MODE_TOOL, TOOL_SEARCH_TOOL, TODO_WRITE_TOOL, EXIT_PLAN_TOOL, MCP_LIST_DEF, MCP_READ_DEF, MCP_DIR_DEF, SEND_TOOL_DEF].map((t) => [t.function.name, t]));
 /**
  * THE VERSION OF CODER'S TOOL CODE (Claude Code's tool schema cache lasts for its session, and an update starts a new one): a
  * hash of the stock definitions and of the code that makes the others from them (the settings' changes to bash, the
@@ -2285,7 +2323,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     const remote = ENV_TOOL_NAMES.includes(name) || name === "request_secret";
     const def = mcpByName.has(name) || remote ? null : (offered ? tools : chatTools).find((f) => f && f.function && f.function.name === name);
     const own0 = inputCheckFor(name);
-    const check = own0 ? (a) => own0(a, { github: !!github, who, webFetchOff: webFetch.off, lspFile, searchModes: !offered })
+    const check = own0 ? (a) => own0(a, { github: !!github, who, webFetchOff: webFetch.off, lspFile, sendFiles, searchModes: !offered })
       : isTaskTool(name) ? (a) => checkTaskInput(name, a)
       : name === "bash" || name === "powershell" || name === "monitor" ? (a) => {
         if (name === "monitor" && a.ws !== undefined) return { args: a };
@@ -2888,6 +2926,19 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     return r && r.code === 1 && out.startsWith("error: ") ? out.replace(/\s+$/, "") : "";
   };
   /**
+   * SEND_USER_FILE'S FILE CHECKS, BEFORE ANY HOOK (coder-inputs.mjs checkSend; Claude Code's SendUserFile validateInput, 2026-11-18):
+   * by the tools script where the chat's files are, as the AI's user, from the folder Grok's commands are in. Its first refusal,
+   * in Claude Code's words ("error: Attachment … does not exist. …"), or "" (the files are there, or the check could not be made:
+   * the tool then answers for itself).
+   */
+  const sendFiles = async (files) => {
+    const req = { tool: "user_file_check", args: { files } }, b64 = Buffer.from(JSON.stringify(req)).toString("base64");
+    let r;
+    try { r = await deps.exec({ command: "node --no-warnings " + TOOLS_SCRIPT + " " + (b64.length > 100_000 ? "@REQUEST" : b64), timeoutS: 60, tool: true, here: true, ...(b64.length > 100_000 ? { payload: JSON.stringify(req) } : {}) }); } catch { return ""; }
+    const out = String((r && r.output) || "");
+    return r && r.code === 1 && out.startsWith("error: ") ? out.replace(/\s+$/, "") : "";
+  };
+  /**
    * WHAT THE CHAT'S LANGUAGE SERVERS REPORTED, TAKEN ONCE PER STEP AND WITH THE OWNER'S NEXT MESSAGE (coder-lsp.mjs takeNews;
    * Claude Code 2.1.325 gathers its LSP diagnostics attachment at every step, after whatever tool ran, and with the next prompt,
    * never waiting for a report): only while the chat's keeper runs (deps.lsp), and told only to an agent with a shell, as
@@ -3267,8 +3318,11 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   // connectors declares resources (deps.resourceServers), as Claude Code adds its two once a connected server declares them;
   // held back for tool_search as its are. Not in a job from GitHub (no connectors there), nor Gloopy's.
   const resourceTools = !offered && !github && typeof deps.mcpResources === "function" && Array.isArray(deps.resourceServers) && deps.resourceServers.length ? [MCP_LIST_DEF, MCP_READ_DEF, MCP_DIR_DEF] : [];
+  // CLAUDE CODE'S SendUserFile (2026-11-18, coder-sendfile.mjs): in Coder's own chats, from the start (its cloud sessions don't hold
+  // it back); not in a job from GitHub (no one there to see a file), nor Gloopy's (its own files tool).
+  const sendTools = !offered && !github && typeof deps.sendFile === "function" ? [SEND_TOOL_DEF] : [];
   const ownOffered = (t) => { if (t && t.function) tsCatalog.set(t.function.name, t); return !(t && t.function && (toolDenied(t.function.name) || (denyInstead === true && PROMPT_TOOLS.includes(t.function.name)))); };
-  const chatTools = [...withPs(toolsFor(github ? GITHUB_TOOLS : CODER_TOOLS, { noBg: noBg === true, inlineMax: Math.min(lim.inlineMax, lim.readBack), bgMaxMs: timeouts && timeouts.bgMaxMs, defaultMs: timeouts && timeouts.defaultMs, maxMs: timeouts && timeouts.maxMs, bgDefaultMs: timeouts && timeouts.bgDefaultMs, shell: cmdShell })).map(withHosts).filter(ownOffered), ...resourceTools.filter(ownOffered), ...(mcpDeferred ? [searchTool(mcpTools)] : []), ...mcpUpfront.map((t) => asFn(t))];
+  const chatTools = [...withPs(toolsFor(github ? GITHUB_TOOLS : CODER_TOOLS, { noBg: noBg === true, inlineMax: Math.min(lim.inlineMax, lim.readBack), bgMaxMs: timeouts && timeouts.bgMaxMs, defaultMs: timeouts && timeouts.defaultMs, maxMs: timeouts && timeouts.maxMs, bgDefaultMs: timeouts && timeouts.bgDefaultMs, shell: cmdShell })).map(withHosts).filter(ownOffered), ...sendTools.filter(ownOffered), ...resourceTools.filter(ownOffered), ...(mcpDeferred ? [searchTool(mcpTools)] : []), ...mcpUpfront.map((t) => asFn(t))];
   // (WebFetch turned off, or its cache's own time: webFetchTools. 2026-11-14.)
   chatTools.splice(0, chatTools.length, ...webFetchTools(chatTools, webFetch));
   // (web_search with Claude Code's `mode`, and its note as its own part of the system prompt while the tool is offered,
@@ -4677,7 +4731,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       const f = EARLY_CHECKS.has(x.name) ? inputCheckFor(x.name) : null;
       if (f) {
         let v;
-        try { v = await f({ ...x.args }, { github: !!github, who, webFetchOff: webFetch.off, lspFile, searchModes: !offered }); } catch { return; }
+        try { v = await f({ ...x.args }, { github: !!github, who, webFetchOff: webFetch.off, lspFile, sendFiles, searchModes: !offered }); } catch { return; }
         preChecked.set(x.id, { was: JSON.stringify(x.args), v });
         // (Refused by its own input check: its turn refuses it, before any hook. Round 5: answered then, early.refused.)
         if (v && typeof v.error === "string") early.refused(x.id);
@@ -4880,7 +4934,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // (Made at its group's start already for this same input: taken, coder-parallel.mjs.)
         const pre0 = preChecked.get(c.id);
         preChecked.delete(c.id);
-        try { v = pre0 && pre0.was === JSON.stringify(c.args) ? pre0.v : await inputCheck(c.args, { github: !!github, who, webFetchOff: webFetch.off, lspFile, searchModes: !offered }); } catch (e) { v = { error: "error: " + String((e && e.message) || e).slice(0, 300) }; }
+        try { v = pre0 && pre0.was === JSON.stringify(c.args) ? pre0.v : await inputCheck(c.args, { github: !!github, who, webFetchOff: webFetch.off, lspFile, sendFiles, searchModes: !offered }); } catch (e) { v = { error: "error: " + String((e && e.message) || e).slice(0, 300) }; }
         if (v && typeof v.error === "string") {
           const what = RUN_TOOLS[c.name];
           // (A refusal marked quiet shows no step: ask_user's, as Claude Code shows no line for that tool's call. A tool with no
@@ -4993,7 +5047,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         if (toolDenied(c.name)) { const m = "Permission to use " + cc + " has been denied."; emit({ type: "note", text: m, warn: true }); reply(m); continue; }
         // (A rule on one of tool_search's inputs, ToolSearch(query:…): Claude Code's rule check for any built-in tool's. 2026-11-14.)
         // (And one on an MCP resource tool's input, ReadMcpResourceTool(server:github): the same check. 2026-11-17.)
-        const tsRule = (kind) => (c.name === TOOL_SEARCH ? toolSearchParamRule(ownRules, kind, c.literal || c.args) : c.name === MCP_LIST_TOOL || c.name === MCP_READ_TOOL || c.name === MCP_DIR_TOOL ? resourceParamRule(ownRules, kind, cc, c.args) : "");
+        const tsRule = (kind) => (c.name === TOOL_SEARCH ? toolSearchParamRule(ownRules, kind, c.literal || c.args) : c.name === MCP_LIST_TOOL || c.name === MCP_READ_TOOL || c.name === MCP_DIR_TOOL || c.name === SEND_TOOL ? resourceParamRule(ownRules, kind, cc, c.args) : "");
         if (tsRule("deny")) { const m = c.name === TOOL_SEARCH ? toolSearchParamDenied(tsRule("deny")) : paramDenied(cc, tsRule("deny")); emit({ type: "note", text: m, warn: true }); reply(m); continue; }
         // (A connector call that holds the account's email as a client's identity: refused, as Claude Code's privacy check refuses
         // such an MCP call, after the deny rules and before any card; coder-privacy.mjs.)
@@ -5623,6 +5677,61 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         convo.push({ role: "assistant", content: "Undoing the last job." });
         emit({ type: "text", text: "Undoing the last job." });
         return end("done", { summary: "undo the last job" });
+      } else if (c.name === SEND_TOOL) {
+        // CLAUDE CODE'S SendUserFile (the owner, 2026-11-18: "Ok you can start"; coder-sendfile.mjs): the files reach the owner as a
+        // card in the chat, kept with it by Coder's server (src/coder-sent.mjs). Its call shows no step of its own, as Claude Code's
+        // shows none (its userFacingName and renderToolUseMessage are empty): the card is what the owner sees.
+        const a = c.args && typeof c.args === "object" && !Array.isArray(c.args) ? c.args : {};
+        const files = Array.isArray(a.files) ? a.files.map(String) : typeof a.files === "string" ? [a.files] : [];
+        // ITS PERMISSION, CLAUDE CODE'S (its checkPermissions): each file is a read of its path. A rule on the whole of Read refuses
+        // the call ("SendUserFile reads file contents; that action is disabled.") or asks ("Send 2 files to the user? SendUserFile
+        // reads file contents."); a Read rule on one of the files refuses it in that rule's words, or asks.
+        const readDec = (p) => (github ? null : fileToolDecision("read", targetFor("read", { path: p }), { rules: ownRules, root: deps.root || "/", cwd: ruleCwd(), home: deps.home || "", real: (x) => realPath(x), input: { path: p }, mode: modeNow(), roots: workdirs.slice(1) }));
+        const decs = files.map(readDec);
+        const oneDenied = decs.find((d) => d && d.verdict === "deny");
+        const deniedWhy = !github && wholeRule(ownRules, "deny", "Read") ? CC_SEND + " reads file contents; that action is disabled." : oneDenied ? oneDenied.why : "";
+        if (deniedWhy) { emit({ type: "note", text: deniedWhy, warn: true }); reply(deniedWhy); continue; }
+        const byRule = decs.find((d) => d && d.verdict === "ask" && d.byRule);
+        const asks = byRule || (!github && wholeRule(ownRules, "ask", "Read") ? { why: "Send " + files.length + " " + (files.length === 1 ? "file" : "files") + " to the user? " + CC_SEND + " reads file contents." } : decs.find((d) => d && d.verdict === "ask"));
+        if (asks && !askedByRule && !c.rerun) {
+          const card = { tool: c.name, id: c.id, what: scrub("Send " + files.join(", ") + " to you").slice(0, 300), why: String(asks.why || ""), told: String(asks.why || askedWhy(CC_SEND)) };
+          const ok = canAsk() ? await askOwner(card) : await noOneHooks(card);
+          if (!ok) { reply(card.told); continue; }
+          const o = answerOutcome(ok);
+          if (o === "stop") { return stopNow(reply); }
+          if (o === "time") { reply("not run: Coder ran out of time waiting for the owner's answer"); emit({ type: "error", text: "Coder ran out of time waiting for your answer." }); return end("time"); }
+          if (o === "said") { reply(saidReply(ok)); continue; }
+          if (o === "no") { reply(REJECTED); return noEnd(i, "stopped: the owner said no"); }
+        }
+        // ITS FILES, ONE AT A TIME: read as the AI's user (user_file_read, checked again as it is read, as Claude Code checks a file
+        // again as it sends it), then kept by Coder's server with the chat (deps.sendFile). One over the limit, or that the server or
+        // the network refused, is named with why, as Claude Code names a file it could not deliver.
+        ranAt.set(c.id, now());
+        const attachments = [];
+        for (const f of files) {
+          const req = { tool: "user_file_read", args: { path: f } }, b64 = Buffer.from(JSON.stringify(req)).toString("base64");
+          let r = null;
+          try { r = await deps.exec({ command: "node --no-warnings " + TOOLS_SCRIPT + " " + (b64.length > 100_000 ? "@REQUEST" : b64), timeoutS: 120, tool: true, here: true, ...(b64.length > 100_000 ? { payload: JSON.stringify(req) } : {}) }); } catch { r = null; }
+          const out = String((r && r.output) || "");
+          let got = null;
+          if (r && r.code === 0) { try { got = JSON.parse(out); } catch { got = null; } }
+          if (!got || typeof got !== "object") { attachments.push({ path: toolFullPath(deps, f), size: 0, isImage: false, upload_error: "not sent: " + (out.startsWith("error: ") ? out.slice(7).trim() : "it could not be read") }); continue; }
+          const head = { path: String(got.path), size: Number(got.size) || 0, isImage: got.isImage === true, ...(typeof got.media_type === "string" ? { media_type: got.media_type } : {}) };
+          if (got.tooBig) { attachments.push({ ...head, upload_error: tooBigToSend(head.size) }); continue; }
+          let sent = null;
+          try { sent = typeof deps.sendFile === "function" ? await deps.sendFile({ name: head.path.split("/").pop(), bytes: Buffer.from(String(got.data || ""), "base64") }) : null; } catch (e) { sent = { error: networkError(String((e && e.message) || e).slice(0, 300)) }; }
+          attachments.push(sent && sent.id ? { ...head, file_uuid: String(sent.id) } : { ...head, upload_error: String((sent && sent.error) || UNEXPECTED_ANSWER) });
+        }
+        doneAt.set(c.id, now());
+        const facts = { ...(typeof a.caption === "string" ? { caption: a.caption } : {}), ...(a.display === "render" || a.display === "attach" ? { display: a.display } : {}), attachments };
+        toolFacts.set(c.id, facts);
+        // THE CARD: each file delivered, with the caption; shown in place or to download (Claude Code's `display`, else by its kind).
+        const delivered = attachments.filter((x) => x.upload_error === undefined);
+        if (delivered.length) emit({ type: "sent", id: c.id, ...(facts.caption ? { caption: scrub(facts.caption).slice(0, 2000) } : {}), files: delivered.map((x) => { const name = x.path.split("/").pop(); return { id: x.file_uuid, name: scrub(name).slice(0, 200), size: x.size, ...(x.media_type ? { type: x.media_type } : {}), ...(sendRenders(name, facts.display) ? { render: true } : {}) }; }) });
+        const text = sentText(facts);
+        // (A file not delivered is no failure of the call, as Claude Code's: its answer says so.)
+        emit({ type: "result", id: c.id, code: 0, output: scrub(text).slice(0, 4000) });
+        reply(text);
       } else if (c.name === MCP_LIST_TOOL || c.name === MCP_READ_TOOL || c.name === MCP_DIR_TOOL) {
         // CLAUDE CODE'S MCP RESOURCE TOOLS (the owner, 2026-11-17: "yes build it like claude code", then "yes match all pls";
         // coder-mcpres.mjs): its ListMcpResourcesTool, ReadMcpResourceTool and ReadMcpResourceDirTool, offered when one of the

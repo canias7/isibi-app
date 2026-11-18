@@ -1,0 +1,23 @@
+[
+  {
+    "origin": "array",
+    "code": "too_small",
+    "minimum": 1,
+    "inclusive": true,
+    "path": [
+      "files"
+    ],
+    "message": "Too small: expected array to have >=1 items"
+  },
+  {
+    "code": "invalid_value",
+    "values": [
+      "normal",
+      "proactive"
+    ],
+    "path": [
+      "status"
+    ],
+    "message": "Invalid option: expected one of \"normal\"|\"proactive\""
+  }
+]

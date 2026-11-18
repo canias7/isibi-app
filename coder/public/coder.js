@@ -2000,6 +2000,8 @@
     // (Claude Code's MCP resource tools, list_mcp_resources, read_mcp_resource and read_mcp_resource_dir: a connector's, 2026-11-17.)
     list_mcp_resources: 'M9 2v6M15 2v6M6 8h12v4a6 6 0 0 1-12 0zM12 18v4', read_mcp_resource: 'M9 2v6M15 2v6M6 8h12v4a6 6 0 0 1-12 0zM12 18v4',
     read_mcp_resource_dir: 'M9 2v6M15 2v6M6 8h12v4a6 6 0 0 1-12 0zM12 18v4',
+    // (send_user_file, Claude Code's SendUserFile: a step only when it was refused before sending; its files are cards. 2026-11-18.)
+    send_user_file: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M12 18v-6M9 15l3-3 3 3',
     browser: 'M3 5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM3 9h18M7 6h.01M10 6h.01', sign_in: 'M5 11h14v10H5zM8 11V7a4 4 0 0 1 8 0v4', vault: 'M7.5 20a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9zM10.7 12.3L21 2M16 7l3 3M14 9l2 2', pay: 'M2.5 7.5a2.5 2.5 0 0 1 2.5-2.5h14a2.5 2.5 0 0 1 2.5 2.5v9a2.5 2.5 0 0 1-2.5 2.5H5a2.5 2.5 0 0 1-2.5-2.5zM2.5 10h19M6.5 15h4', webhook: 'M13 2L4 14h8l-1 8 9-12h-8l1-8z', files: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M12 18v-6M9 15l3 3 3-3', handoff: 'M3 5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM3 9h18M9 14l2 2 4-4', schedule: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 6v6l4 2', helpers: 'M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM2 21v-1a6 6 0 0 1 12 0v1M16 3.1a4 4 0 0 1 0 7.8M22 21v-1a6 6 0 0 0-4-5.7', page: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M8 13h8M8 17h5',
     setup: 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1',
   };
@@ -2357,7 +2359,7 @@
    * (its `readFilePaths`, a set), not the steps; a step with no `file` counts as one.
    */
   function groupWords(steps) {
-    const W = { bash: ['ran', 'command', 'commands', 'command'], read: ['read', 'file', 'files', 'read'], list_mcp_resources: ['listed MCP resources', '', '', 'listing'], read_mcp_resource: ['read', 'MCP resource', 'MCP resources', 'resource read'], read_mcp_resource_dir: ['listed', 'directory resource', 'directory resources', 'listing'], list_dir: ['listed', 'directory', 'directories', 'listing'], mention_ref: ['referenced', 'file', 'files', 'reference'], write: ['wrote', 'file', 'files', 'write'], edit: ['edited', 'file', 'files', 'edit'], notebook_edit: ['edited', 'file', 'files', 'edit'], grep: ['searched for', 'pattern', 'patterns', 'search'], glob: ['searched for', 'pattern', 'patterns', 'search'], lsp: ['made', 'code lookup', 'code lookups', 'lookup'], web_fetch: ['fetched', 'page', 'pages', 'fetch'], browser: ['took', 'browser step', 'browser steps', 'browser step'], sign_in: ['asked you to sign in', '', '', 'sign-in'], sign_in_saved: ['signed in with a saved login', '', '', 'sign-in'], pay: ['asked you for a card', '', '', 'card request'], pay_saved: ['filled in your saved card', '', '', 'card fill'], pay_result: ['said how the order went', '', '', 'order note'], vault: ['updated your Vault', '', '', 'Vault change'], webhook: ['worked with', 'webhook', 'webhooks', 'webhook step'], files: ['worked with', 'file', 'files', 'file step'], handoff: ['asked you to take over', '', '', 'handoff'], schedule: ['worked with', 'schedule', 'schedules', 'schedule step'], helpers: ['started', 'helper team', 'helper teams', 'helper team'], page: ['published', 'page', 'pages', 'page'], web_search: ['searched the web', '', '', 'web search'], monitor: ['checked', 'background job', 'background jobs', 'check'], monitor_start: ['started', 'monitor', 'monitors', 'monitor'], stop_job: ['stopped', 'background job', 'background jobs', 'stop'], review: ['reviewed the changes', '', '', 'review'], undo: ['undid the last job', '', '', 'undo'], setup: ['ran the setup script', '', '', 'setup'] };
+    const W = { bash: ['ran', 'command', 'commands', 'command'], read: ['read', 'file', 'files', 'read'], list_mcp_resources: ['listed MCP resources', '', '', 'listing'], read_mcp_resource: ['read', 'MCP resource', 'MCP resources', 'resource read'], read_mcp_resource_dir: ['listed', 'directory resource', 'directory resources', 'listing'], send_user_file: ['sent', 'file', 'files', 'send'], list_dir: ['listed', 'directory', 'directories', 'listing'], mention_ref: ['referenced', 'file', 'files', 'reference'], write: ['wrote', 'file', 'files', 'write'], edit: ['edited', 'file', 'files', 'edit'], notebook_edit: ['edited', 'file', 'files', 'edit'], grep: ['searched for', 'pattern', 'patterns', 'search'], glob: ['searched for', 'pattern', 'patterns', 'search'], lsp: ['made', 'code lookup', 'code lookups', 'lookup'], web_fetch: ['fetched', 'page', 'pages', 'fetch'], browser: ['took', 'browser step', 'browser steps', 'browser step'], sign_in: ['asked you to sign in', '', '', 'sign-in'], sign_in_saved: ['signed in with a saved login', '', '', 'sign-in'], pay: ['asked you for a card', '', '', 'card request'], pay_saved: ['filled in your saved card', '', '', 'card fill'], pay_result: ['said how the order went', '', '', 'order note'], vault: ['updated your Vault', '', '', 'Vault change'], webhook: ['worked with', 'webhook', 'webhooks', 'webhook step'], files: ['worked with', 'file', 'files', 'file step'], handoff: ['asked you to take over', '', '', 'handoff'], schedule: ['worked with', 'schedule', 'schedules', 'schedule step'], helpers: ['started', 'helper team', 'helper teams', 'helper team'], page: ['published', 'page', 'pages', 'page'], web_search: ['searched the web', '', '', 'web search'], monitor: ['checked', 'background job', 'background jobs', 'check'], monitor_start: ['started', 'monitor', 'monitors', 'monitor'], stop_job: ['stopped', 'background job', 'background jobs', 'stop'], review: ['reviewed the changes', '', '', 'review'], undo: ['undid the last job', '', '', 'undo'], setup: ['ran the setup script', '', '', 'setup'] };
     const said = new Map(), bad = new Map();
     for (const s of steps) {
       const w = Object.prototype.hasOwnProperty.call(W, s.tool || 'bash') ? W[s.tool || 'bash'] : ['did', 'step', 'steps', 'step'];
@@ -2732,6 +2734,7 @@
         const viewable = /^(pdf|png|jpe?g|gif|webp)$/i.test(ext);
         out.push('<div class="cd-filecard"><span class="cd-filecard-icon">' + ICON.doc + (ext ? '<b>' + esc(ext.toUpperCase()) + '</b>' : '') + '</span><span class="cd-filecard-t"><b>' + esc(e.name || 'File') + '</b><small>' + esc(sizeWords(Number(e.size) || 0)) + '</small></span>' + (viewable ? '<button type="button" class="cd-card-no cd-filecard-view" data-file-view="' + esc(e.id) + '" data-file-name="' + esc(e.name || 'file') + '">Preview</button>' : '') + '<button type="button" class="cd-card-yes cd-filecard-get" data-file-get="' + esc(e.id) + '" data-file-name="' + esc(e.name || 'file') + '">Download</button></div>');
       }
+      else if (e.type === 'sent') out.push(sentHTML(e));
       else if (e.type === 'hook') {
         // A WEBHOOK GLOOPY SET UP (2026-11-09: "2"; Grok Bot's routine webhook fields): its address, and its key when the
         // owner asks for it, to paste into the service that should call it.
@@ -3045,6 +3048,45 @@
     '</div>' + (S.web && !S.web.card ? webHTML() : '') + (S.view ? viewHTML() : '');
   }
   // A PREVIEW OF A FILE (the audit, 2026-11-10): a PDF or a picture Gloopy made, shown over the chat at its signed address
+  // FILES CODER SENT YOU (send_user_file, Claude Code's SendUserFile; the owner, 2026-11-18: "Ok you can start"): a card for each,
+  // its caption under them. One that renders (Claude Code's display "render", or left out, by its kind) is shown in place: a
+  // picture or a drawing as itself, a PDF, a web page (sealed off from the app) or plain text in a frame, from its signed address
+  // (src/coder-sent.mjs), kept through the page's redraws (sentLive); any other, and every one, can be downloaded.
+  const SENT_PIC = /\.(png|jpe?g|gif|webp|svg)$/i, SENT_FRAME = /\.(pdf|html?|txt|log|md|csv|json|xml)$/i;
+  function sentHTML(e) {
+    const files = Array.isArray(e.files) ? e.files.filter((f) => f && typeof f.id === 'string') : [];
+    return '<div class="cd-sent">' + files.map((f) => {
+      const name = String(f.name || 'file'), ext = (/\.([A-Za-z0-9]{1,6})$/.exec(name) || [])[1] || '';
+      const kind = f.render ? (SENT_PIC.test(name) ? 'pic' : SENT_FRAME.test(name) ? 'frame' : '') : '';
+      return '<div class="cd-sent-one">' + (kind ? '<div class="cd-sent-live is-' + kind + '" data-sent-live="' + esc(f.id) + '" data-sent-kind="' + kind + '" data-sent-name="' + esc(name) + '"></div>' : '') +
+        '<div class="cd-filecard"><span class="cd-filecard-icon">' + ICON.doc + (ext ? '<b>' + esc(ext.toUpperCase()) + '</b>' : '') + '</span><span class="cd-filecard-t"><b>' + esc(name) + '</b><small>' + esc(sizeWords(Number(f.size) || 0)) + '</small></span>' +
+        '<button type="button" class="cd-card-no cd-filecard-get" data-sent-get="' + esc(f.id) + '" data-file-name="' + esc(name) + '">Download</button></div></div>';
+    }).join('') + (e.caption ? '<p class="cd-sent-cap">' + esc(e.caption) + '</p>' : '') + '</div>';
+  }
+  /** Each file shown in place, once: its signed address asked for with the owner's sign-in, then the picture or frame put in. */
+  async function sentLive(root) {
+    if (!S.project) return;
+    S.sentAsked = S.sentAsked || {};
+    for (const box of root.querySelectorAll('.cd-sent-live[data-sent-live]')) {
+      const id = box.dataset.sentLive;
+      if (box.firstChild || S.sentAsked[id]) continue;
+      S.sentAsked[id] = true;
+      const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/sent/' + encodeURIComponent(id) + '/view');
+      const now = S.root && S.root.querySelector('.cd-sent-live[data-sent-live="' + CSS.escape(id) + '"]');
+      if (!now || now.firstChild) continue;
+      if (r.status !== 200 || !r.data || !r.data.url) { now.classList.add('is-gone'); now.textContent = (r.data && r.data.error) || 'This file can’t be shown here: download it.'; continue; }
+      const name = now.dataset.sentName || 'file';
+      if (now.dataset.sentKind === 'pic') { const img = document.createElement('img'); img.src = r.data.url; img.alt = name; now.appendChild(img); }
+      else {
+        const fr = document.createElement('iframe');
+        fr.title = name; fr.setAttribute('referrerpolicy', 'no-referrer');
+        // (A web page runs sealed off from the app: no sign-in, nothing kept for the site, nothing sent anywhere.)
+        if (/^text\/html/.test(String(r.data.type || ''))) fr.setAttribute('sandbox', 'allow-scripts allow-popups allow-popups-to-escape-sandbox');
+        fr.src = r.data.url; now.appendChild(fr);
+      }
+    }
+  }
+
   // (10 minutes), with Download; Escape or × closes it.
   function viewHTML() {
     const v = S.view;
@@ -3841,7 +3883,7 @@
   const ruleShown = (r) => String(r).replace(/^Bash\(([\s\S]*)\)$/, '$1').replace(/^WebFetch\(domain:(.*)\)$/, '$1').replace(/^Read\(\/(\/[\s\S]*)\/\*\*\)$/, (m, d) => 'reading ' + d.replace(/\\(.)/g, '$1') + '/');
   // (web_search's card since it became Coder's own tool, 2026-11-14: its title here; its text is the card's `what`, Claude Code's
   // "Coder wants to search the web for: …", shown as any other tool's.)
-  const PERM_TITLE = { bash: 'Bash command', powershell: 'PowerShell command', monitor: 'WebSocket watch', write: 'Write file', edit: 'Edit file', notebook_edit: 'Edit notebook', read: 'Read file', grep: 'Search files', glob: 'Find files', lsp: 'Code lookup', web_fetch: 'Fetch', web_search: 'Web search', pull_request: 'Pull request', pr_comments: 'Review comments', auto_fix: 'Auto-fix', undo_last_job: 'Undo', connector: 'Connector', list_mcp_resources: 'MCP resources', read_mcp_resource: 'MCP resource', read_mcp_resource_dir: 'MCP directory' };
+  const PERM_TITLE = { bash: 'Bash command', powershell: 'PowerShell command', monitor: 'WebSocket watch', write: 'Write file', edit: 'Edit file', notebook_edit: 'Edit notebook', read: 'Read file', grep: 'Search files', glob: 'Find files', lsp: 'Code lookup', web_fetch: 'Fetch', web_search: 'Web search', pull_request: 'Pull request', pr_comments: 'Review comments', auto_fix: 'Auto-fix', undo_last_job: 'Undo', connector: 'Connector', list_mcp_resources: 'MCP resources', read_mcp_resource: 'MCP resource', read_mcp_resource_dir: 'MCP directory', send_user_file: 'Send file' };
   function permOptions(e) {
     // (A plan too long to show withholds approval: only "No, keep planning", as Claude Code's prompt. The owner, 2026-11-14.)
     if (e.tool === 'plan' && e.withheld) return [['no', 'No, keep planning']];
@@ -4398,6 +4440,8 @@
     const askAt = askEl && askEl.closest('.cd-ask') && askEl.closest('.cd-ask-one') ? { at: askEl.closest('.cd-ask').dataset.ask, q: askEl.closest('.cd-ask-one').dataset.q, cls: askEl.classList.contains('cd-ask-note') ? 'cd-ask-note' : 'cd-ask-in', a: askEl.selectionStart, b: askEl.selectionEnd } : null;
     // (A plan being edited on its card keeps its cursor and scroll through the redraws too. 2026-11-14.)
     const planAt = document.activeElement && document.activeElement.dataset && document.activeElement.dataset.planText ? { pid: document.activeElement.dataset.planText, a: document.activeElement.selectionStart, b: document.activeElement.selectionEnd, d: document.activeElement.selectionDirection, top: document.activeElement.scrollTop } : null;
+    // (A sent file shown in place keeps its picture or frame through the redraws: sentLive.)
+    const sentKept = [...root.querySelectorAll('.cd-sent-live[data-sent-live]')].filter((x) => x.firstChild);
     const rp = RPANEL && S.phase === 'chat' && !GLOOPY && S.project && rpOpen() ? rpanelHTML() : '';
     root.innerHTML = '<div class="cd' + (rp ? ' rp-open' : '') + '">' + (S.phase === 'chat' ? '' : '<div class="cd-head cd-head-min"><button type="button" class="cd-menu" id="cdMenu" aria-label="Chats">☰</button></div>') + bodyHTML() + rp + '</div>';
     if (!GLOOPY && !S.metaTimer) S.metaTimer = setInterval(metaTick, 1000);
@@ -4411,6 +4455,11 @@
       const f = keyAt && keyAt.id ? keyKept.querySelector('#' + keyAt.id) : null;
       if (f) { f.focus(); try { if (keyAt.a != null) f.setSelectionRange(keyAt.a, keyAt.b); } catch { /* a select has no cursor */ } }
     }
+    for (const old of sentKept) {
+      const now = root.querySelector('.cd-sent-live[data-sent-live="' + CSS.escape(String(old.dataset.sentLive || '')) + '"]');
+      if (now && !now.firstChild) now.replaceWith(old);
+    }
+    if (!GLOOPY) sentLive(root).catch(() => {});
     for (const old of elKept) {
       const now = root.querySelector('.cd-elicit[data-elicit-pid="' + CSS.escape(String(old.dataset.elicitPid || '')) + '"]');
       if (!now) continue;
@@ -5083,6 +5132,18 @@
       if (!S.project) return;
       b.disabled = true;
       const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/files/' + encodeURIComponent(id), { file: name });
+      b.disabled = false;
+      if (!r.blob) { note((r.data && r.data.error) || 'That file could not be downloaded.'); return; }
+      const href = await new Promise((ok) => { const fr = new FileReader(); fr.onload = () => ok(String(fr.result || '')); fr.onerror = () => ok(''); fr.readAsDataURL(r.blob); });
+      if (!href) { note('That file could not be saved.'); return; }
+      const a = document.createElement('a'); a.href = href; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+    });
+    // A FILE CODER SENT, TO SAVE: fetched signed in, saved as a data: address (the page's rules block blob: ones), as Gloopy's are.
+    on('[data-sent-get]', 'click', async (e) => {
+      const b = e.currentTarget, id = b.dataset.sentGet, name = b.dataset.fileName || 'file';
+      if (!S.project) return;
+      b.disabled = true;
+      const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/sent/' + encodeURIComponent(id), { file: name });
       b.disabled = false;
       if (!r.blob) { note((r.data && r.data.error) || 'That file could not be downloaded.'); return; }
       const href = await new Promise((ok) => { const fr = new FileReader(); fr.onload = () => ok(String(fr.result || '')); fr.onerror = () => ok(''); fr.readAsDataURL(r.blob); });
