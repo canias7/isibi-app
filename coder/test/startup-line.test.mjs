@@ -220,6 +220,41 @@ test("in Chromium: with the environment's saved copy, Claude Code's own start-up
   } finally { await browser.close(); }
 });
 
+test("in Chromium: a chat that starts from the environment's saved copy takes its repository from it and fetches it, in Claude Code's words (2026-11-18, the owner: \"finish this\"; its start-up log: \"Fetching repository\" from its saved setup): \"Fetching repository\" while it happens, \"Restored saved setup\" and \"Fetched repository\" once ready", { skip: !chromium && "Playwright is not installed" }, async () => {
+  const browser = await chromium.launch();
+  try {
+    const { page, st, errors } = await openPage(browser);
+    st.events.length = 0;
+    await page.fill("#cdIn", "Run the tests");
+    await page.press("#cdIn", "Enter");
+    await page.waitForSelector("#gfApp .cd-wait");
+    st.state = { phase: "fetch", phaseAt: Date.now() - 1000, cold: true };
+    await page.waitForSelector("#gfApp .cd-boot-w:has-text('Fetching repository')");
+    await shot(page, "st-10-fetching.png");
+    const t0 = Date.now();
+    st.state = {};
+    st.fresh = [{ type: "startup", at: t0, got: t0 - 4000, ms: 4000, steps: [{ k: "container", ms: 1000 }, { k: "restored", built: t0 - 3600e3 }, { k: "fetch", ms: 2000 }] }];
+    await page.waitForSelector("#gfApp .cd-init-head");
+    st.fresh = [{ type: "done", text: "All 12 tests pass.", at: Date.now() }];
+    st.running = false;
+    await page.waitForFunction(() => document.querySelector("#gfApp").textContent.includes("All 12 tests pass.") && !document.querySelector("#gfApp .cd-wait"));
+    await page.click("#gfApp .cd-init-head");
+    await page.waitForSelector("#gfApp .cd-init-list");
+    const items = await page.$$eval("#gfApp .cd-init-list li", (ls) => ls.map((l) => [l.querySelector("span").textContent, l.querySelector("b") ? l.querySelector("b").textContent : null]));
+    assert.deepEqual(items, [["Set up a cloud container", "1s"], ["Restored saved setup", null], ["Fetched repository", "2s"]]);
+    await shot(page, "st-11-fetched.png");
+    assert.deepEqual(errors, []);
+  } finally { await browser.close(); }
+});
+
+test("code: the Worker passes the fetch step on; the machine names it only for a checkout that came with the copy", () => {
+  const m = read("container/server.mjs"), w = read("src/coder-routes.mjs");
+  assert.match(w, /\/\^\(container\|clone\|fetch\|setup\)\$\/\.test\(s\.phase\)/);
+  assert.match(m, /if \(!existsSync\(join\(dir, "\.git"\)\)\) setPhase\(t, "clone"\);\n\s*else if \(copied && copied\.repo\) setPhase\(t, "fetch"\);/);
+  const r = startupEvent({ got: 1000, cloneStart: 1500, cloneEnd: 3500, ready: 4000, fetched: true }, { restored: { at: 99 } });
+  assert.deepEqual(r.steps, [{ k: "container", ms: 500 }, { k: "restored", built: 99 }, { k: "fetch", ms: 2000 }]);
+});
+
 test("machine: the start-up's record with the saved copy (Claude Code's steps): restored or saving after the machine, before the clone; why kept", () => {
   const r = startupEvent({ got: 1000, cloneStart: 1500, cloneEnd: 3500, ready: 4000 }, { restored: { at: 99 } });
   assert.deepEqual(r.steps, [{ k: "container", ms: 500 }, { k: "restored", built: 99 }, { k: "clone", ms: 2000 }]);

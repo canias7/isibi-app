@@ -238,7 +238,7 @@ test("CD153 the machine: after a setup that ran on a fresh disk and worked, the 
     const note = JSON.parse(await readFile(join(m.data, m.S.COPY_NOTE), "utf8"));
     const { normNetwork } = await import("../container/coder-secrets.mjs");
     const sha = m.S.setupSha(script, normNetwork(undefined));
-    assert.deepEqual({ ...note, at: 0 }, { from: "shop-aaa1", sha, image: "registry.fly.io/app:coder-1", at: 0 }, "the copy's own note, on the disk being saved");
+    assert.deepEqual({ ...note, at: 0 }, { from: "shop-aaa1", sha, image: "registry.fly.io/app:coder-1", repo: "ana/shop", at: 0 }, "the copy's own note, on the disk being saved");
     assert.ok(note.at >= s.result.timing.answered, "written once the turn was over");
     // The turn's step times, for the Worker (where a message's seconds go).
     for (const k of ["got", "cloneStart", "cloneEnd", "setupStart", "ready", "began", "firstAsk", "firstAnswer", "answered", "ended"]) assert.ok(Number(s.result.timing[k]) > 0, k);
@@ -537,7 +537,7 @@ test("CD153c a copy made by one Coder version is used by the next on the same to
     assert.deepEqual(await a.turn("shop-aaa1", { setup: { script }, cache: { make: true } }), { ok: true });
     assert.equal((await a.done("shop-aaa1")).result.copy, true);
     const note = JSON.parse(await readFile(join(a.data, a.S.COPY_NOTE), "utf8"));
-    assert.deepEqual({ ...note, at: 0 }, { from: "shop-aaa1", sha, image: A, tools: T1, at: 0 });
+    assert.deepEqual({ ...note, at: 0 }, { from: "shop-aaa1", sha, image: A, tools: T1, repo: "ana/shop", at: 0 });
   } finally { await a.close(); }
   // (Tools that are not a tools image's name are never written down.)
   const plain = await diskMachine({ holdMs: 60_000, tools: "core" });
@@ -577,4 +577,126 @@ test("CD153c a copy made by one Coder version is used by the next on the same to
     assert.deepEqual(await take({ image: A, tools: T1 }, ""), [{ why: "it was made by an older version of Coder" }, false], "this version's tools not said");
     assert.deepEqual((await take({ image: B, tools: T1 }, T1))[1], true, "the same tools: kept");
   } finally { await odd.close(); }
+});
+
+test("CD153d a new chat takes the repository from the environment's saved copy and fetches it, as Claude Code's start-up does (\"Fetching repository\" from its saved setup; the owner, 2026-11-18: \"finish this\"): what the setup made in the checkout and beside it stays; everything of the chat the copy was made in goes (its changes, files, commits, branches, stash, memory); the main branch is brought up to date from GitHub; the start-up says \"Fetched repository\"; Coder is told what the setup made is there; a copy of another repository, or from before the setup's own note, is cloned fresh as before", async () => {
+  // (Chat names of its own: the machine's module remembers which chats it has seen, across the tests in this file.)
+  const { remote } = await fakeRemote();
+  const bare = join(remote.slice(0, -1), "ana/shop.git");
+  const script = "mkdir -p shop/node_modules beside-made && echo lib > shop/node_modules/lib.js && echo made > shop/setup-made.txt && echo v > beside-made/v.txt";
+  const gitA = (data, ...args) => execFileSync("git", ["--git-dir=" + join(data, "git", "shop-ddd1"), "--work-tree=" + join(data, "work", "shop-ddd1"), "-c", "user.name=a", "-c", "user.email=a@b", ...args], { encoding: "utf8" });
+  // CHAT A, ON A FRESH DISK: the setup runs, then its own work (a change, a new file, a commit on its branch, a stash).
+  const a = await diskMachine({ holdMs: 60_000, remote });
+  let aCommit = "";
+  try {
+    assert.deepEqual(await a.turn("shop-ddd1", { setup: { script }, cache: { make: true } }), { ok: true });
+    const sa = await a.done("shop-ddd1");
+    assert.equal(sa.result.copy, true);
+    assert.equal(JSON.parse(await readFile(join(a.data, a.S.COPY_NOTE), "utf8")).repo, "ana/shop", "the copy's note says which repository");
+    const made = JSON.parse(await readFile(join(a.data, "git", "shop-ddd1", a.S.SETUP_MADE), "utf8"));
+    assert.deepEqual([made.repo.sort(), made.root], [["node_modules/", "setup-made.txt"], ["beside-made"]], "what the setup made, noted (root's own file)");
+    await writeFile(join(a.data, "work", "shop-ddd1", "a-work.txt"), "A's own file\n");
+    gitA(a.data, "add", "a-work.txt"); gitA(a.data, "commit", "-q", "-m", "A's work");
+    aCommit = gitA(a.data, "rev-parse", "HEAD").trim();
+    gitA(a.data, "update-ref", "refs/remotes/origin/coder/shop-ddd1", aCommit);
+    await writeFile(join(a.data, "work", "shop-ddd1", "README.md"), "# shop, changed by A\n");
+    gitA(a.data, "stash", "-q");
+    await writeFile(join(a.data, "work", "shop-ddd1", "README.md"), "# shop, changed by A again\n");
+    await mkdir(join(a.data, "work", "shop-ddd1", "dist"), { recursive: true });
+    await writeFile(join(a.data, "work", "shop-ddd1", "dist", "out.js"), "A's build\n");
+    await mkdir(join(a.data, "memory", "shop-ddd1"), { recursive: true });
+    // GITHUB MOVES ON after the copy was saved.
+    const seed = await mkdtemp(join(tmpdir(), "coder-seed2-"));
+    execFileSync("git", ["clone", "-q", bare, seed]);
+    await writeFile(join(seed, "NEW.md"), "new on main\n");
+    execFileSync("git", ["-C", seed, "-c", "user.name=a", "-c", "user.email=a@b", "add", "-A"]);
+    execFileSync("git", ["-C", seed, "-c", "user.name=a", "-c", "user.email=a@b", "commit", "-q", "-m", "newer"]);
+    execFileSync("git", ["-C", seed, "push", "-q", "origin", "main"]);
+  } finally { await a.close(); }
+
+  // CHAT B, ON A DISK MADE FROM THE COPY (Fly.io's copy of A's disk: the same files).
+  const b = await diskMachine({ holdMs: 60_000, remote });
+  try {
+    execFileSync("cp", ["-a", a.data + "/.", b.data + "/"]);
+    assert.deepEqual(await b.turn("shop-kkk1", { setup: { script }, cache: { make: true } }, "used"), { ok: true });
+    const s = await b.done("shop-kkk1");
+    assert.equal(s.result.status, "done", JSON.stringify(s.events.filter((e) => e.type === "error")));
+    assert.ok(!s.events.some((e) => e.tool === "setup"), "the setup did not run");
+    const up = s.events.find((e) => e.type === "startup");
+    assert.deepEqual(up.steps.map((x) => x.k), ["container", "restored", "fetch"], "Claude Code's steps: \"Restored saved setup\", \"Fetched repository\"");
+    assert.ok(up.steps.find((x) => x.k === "fetch").ms >= 0);
+    const wt = join(b.dirs.root, "shop-kkk1");
+    // What the setup made stays; the repository is as GitHub has it now; nothing of A's is left.
+    assert.equal(await readFile(join(wt, "node_modules", "lib.js"), "utf8"), "lib\n");
+    assert.equal(await readFile(join(wt, "setup-made.txt"), "utf8"), "made\n");
+    assert.equal(await readFile(join(b.dirs.root, "beside-made", "v.txt"), "utf8"), "v\n", "and beside the checkouts");
+    assert.equal(await readFile(join(wt, "NEW.md"), "utf8"), "new on main\n", "fetched: GitHub's newer main");
+    assert.equal(await readFile(join(wt, "README.md"), "utf8"), "# shop\n", "A's change is gone");
+    for (const gone of ["a-work.txt", "dist"]) assert.equal(existsSync(join(wt, gone)), false, gone);
+    assert.equal(await readFile(join(wt, ".git"), "utf8"), "gitdir: " + join(b.dirs.gitRoot, "shop-kkk1") + "\n");
+    assert.deepEqual((await readdir(b.dirs.root)).sort(), ["beside-made", "shop", "shop-kkk1"]);
+    assert.equal(await readlink(join(b.dirs.root, "shop")), "shop-kkk1");
+    assert.ok(!(await readdir(b.dirs.gitRoot)).some((n) => n.startsWith("shop-ddd1")), "A's git folder name is gone");
+    assert.ok(!(await readdir(b.dirs.memRoot)).includes("shop-ddd1"), "A's memory too");
+    const gitB = (...args) => execFileSync("git", ["--git-dir=" + join(b.dirs.gitRoot, "shop-kkk1"), "--work-tree=" + wt, ...args], { encoding: "utf8" });
+    assert.equal(gitB("rev-parse", "--abbrev-ref", "HEAD").trim(), "coder/shop-kkk1", "on this chat's own branch");
+    assert.deepEqual(gitB("for-each-ref", "--format=%(refname)").trim().split("\n").sort(), ["refs/heads/coder/shop-kkk1", "refs/heads/main", "refs/remotes/origin/main"], "A's branches, its remote one and its stash are gone");
+    assert.throws(() => gitB("cat-file", "-e", aCommit), "A's commit is gone");
+    assert.equal(gitB("status", "--porcelain").trim(), "", "nothing changed in it");
+    assert.equal(existsSync(join(b.dirs.gitRoot, "shop-kkk1", b.S.COPY_REPO_MARK)), false);
+    // Coder is told: what the setup made in the project folder is here.
+    assert.match(JSON.stringify(b.seen[0]), /what it made inside the project folder \(node_modules, say\) is here too/);
+    // The next message: the same words (the chat's instructions stay the same), and no new fetch of the copy.
+    assert.deepEqual(await b.turn("shop-kkk1", { setup: { script }, cache: { make: true }, fetch: false }), { ok: true });
+    await b.done("shop-kkk1");
+    assert.match(JSON.stringify(b.seen[1]), /what it made inside the project folder \(node_modules, say\) is here too/);
+  } finally { await b.close(); }
+
+  // ANOTHER REPOSITORY, OR A COPY FROM BEFORE THE SETUP'S OWN NOTE: cloned fresh, as before.
+  for (const [odd, why] of [[{ repo: "ana/other" }, "another repository"], [{ noMade: true }, "no note of what the setup made"]]) {
+    const c = await diskMachine({ holdMs: 60_000, remote });
+    try {
+      execFileSync("cp", ["-a", a.data + "/.", c.data + "/"]);
+      const note = JSON.parse(await readFile(join(c.data, c.S.COPY_NOTE), "utf8"));
+      if (odd.repo) await writeFile(join(c.data, c.S.COPY_NOTE), JSON.stringify({ ...note, repo: odd.repo }));
+      if (odd.noMade) execFileSync("rm", ["-f", join(c.data, "git", "shop-ddd1", c.S.SETUP_MADE)]);
+      assert.deepEqual(await c.turn("shop-mmm1", { setup: { script }, cache: { make: true } }, "used"), { ok: true }, why);
+      const s = await c.done("shop-mmm1");
+      assert.equal(s.result.status, "done", why);
+      assert.deepEqual(s.events.find((e) => e.type === "startup").steps.map((x) => x.k), ["container", "restored", "clone"], why + ": cloned");
+      assert.equal(existsSync(join(c.dirs.root, "shop-mmm1", "node_modules")), false, why);
+      assert.equal(existsSync(join(c.dirs.root, "shop-mmm1", "a-work.txt")), false, why);
+      assert.match(JSON.stringify(c.seen[0]), /is not, as the repository is cloned fresh/, why);
+    } finally { await c.close(); }
+  }
+});
+
+test("CD153e GitHub away when a checkout from the saved copy is to be fetched: the message ends as a clone's would, and the checkout (with what the setup made) waits, still marked, for the next message; any other trouble with it: cloned fresh", async () => {
+  const S = await import("../container/server.mjs");
+  const { remote } = await fakeRemote();
+  const data = await mkdtemp(join(tmpdir(), "coder-away-"));
+  const root = join(data, "work"), gitRoot = join(data, "git");
+  await mkdir(root, { recursive: true }); await mkdir(gitRoot, { recursive: true });
+  const dir = join(root, "shop-nnn1"), gd = join(gitRoot, "shop-nnn1");
+  const prep = (o) => S.prepareRepo({ dir, repo: "ana/shop", base: "main", branch: "coder/shop-nnn1", token: "", remote, gitRoot, root, netWaits: [], ...o });
+  assert.equal((await prep({})).ok, true, "a first clone");
+  await mkdir(join(dir, "node_modules"), { recursive: true });
+  await writeFile(join(dir, "node_modules", "lib.js"), "lib\n");
+  await writeFile(join(gd, S.SETUP_MADE), JSON.stringify({ repo: ["node_modules/"], root: [] }));
+  await writeFile(join(gd, S.COPY_REPO_MARK), "1");
+  // GitHub away (nobody answers there): the message ends; nothing is removed.
+  const away = await prep({ remote: "http://127.0.0.1:9/" });
+  assert.equal(away.ok, false);
+  assert.match(away.why, /could not reach ana\/shop on GitHub/);
+  assert.ok(existsSync(join(dir, "node_modules", "lib.js")) && existsSync(join(gd, S.COPY_REPO_MARK)), "kept, marked, for the next message");
+  // The next message, GitHub back: fetched, and what the setup made is still there.
+  const back = await prep({});
+  assert.deepEqual([back.ok, back.fetched], [true, true]);
+  assert.equal(await readFile(join(dir, "node_modules", "lib.js"), "utf8"), "lib\n");
+  assert.equal(existsSync(join(gd, S.COPY_REPO_MARK)), false);
+  // Other trouble (here, GitHub has no such main branch): cloned fresh instead.
+  await writeFile(join(gd, S.COPY_REPO_MARK), "1");
+  const other = await S.prepareRepo({ dir, repo: "ana/shop", base: "trunk", branch: "coder/shop-nnn1", token: "", remote, gitRoot, root, netWaits: [] });
+  assert.equal(other.ok, false, "a fresh clone of a repository with no trunk fails as it always did");
+  assert.equal(existsSync(join(dir, "node_modules")), false, "the copy's checkout was given up");
 });

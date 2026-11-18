@@ -4,6 +4,29 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-18: The saved copy lasts across deploys, and a new chat fetches its repository from it, like Claude Code
+
+You said "first, finish this", about the two last differences from Claude Code's saved setup.
+
+**1. A deploy no longer throws away the environment's saved copy.** Before, every deploy made a new Coder version, and a copy made by an older version wasn't used: the next new chat ran the setup script again and saved a new copy. Claude Code's docs say its saved setup is rebuilt only when the setup script or the allowed hosts change, or after about 7 days. Now:
+
+- Each deploy's version name also says which tools image it is built on (the big image with every tool, which is built again only when the tools change, or once a month).
+- A copy lasts while the tools stay the same. A deploy that only changes Coder's own files keeps it. New tools (a tools change, or the monthly rebuild) still start it fresh.
+- The same goes for what the admin sandbox installed on a chat's own disk: it now lasts across deploys too, as long as the tools are the same.
+- The ready spare machines, including the one made from a copy, are moved to the new version in place after a deploy. Their disks stay, so the first new chat after a deploy is still fast.
+
+The first deploy of this change still starts every copy fresh once, because the old copies don't say which tools made them.
+
+**2. A new chat takes the repository from the copy and fetches it, instead of cloning it.** Claude Code's start-up log says "Fetching repository" when a session starts from its saved setup, and "Cloning repository" when it has none. Before, Coder deleted the repository on the copy and cloned it fresh, so what the setup made inside it (node_modules, say) was gone and Coder had to install it again. Now:
+
+- Right after the setup runs, Coder writes down what it made, in the repository and beside it.
+- A new chat on the same repository keeps the copy's checkout. Coder fetches the main branch from GitHub, puts the files back to the main branch as GitHub has it, and removes everything of the first chat's own: its changes, new files, commits, branches, stash and memory. Only the repository's own files and what the setup made stay.
+- The start-up list says "Fetching repository" while it happens, then "Restored saved setup" and "Fetched repository".
+- Coder is told that what the setup made in the project folder is there.
+- A copy of another repository, an older copy without the setup's list, or one that can't be fetched is cloned fresh, as before.
+
+Tests: CD151e (`coder/test/fly.test.mjs`), SP6 (`coder/test/spares.test.mjs`), CD147b (`coder/test/sandbox.test.mjs`, the real sandbox), CD153c and CD153d (`coder/test/setup-copy.test.mjs`, with real git: the first chat's work is really gone, and GitHub's newer main branch is there), and two in `coder/test/startup-line.test.mjs` (the page, screenshots).
+
 ## 2026-11-18: The saved copy shows as Claude Code's start-up steps, not as notes in the chat
 
 You said "match claude code pls". I read Claude Code's own start-up log from your earlier Claude Code sessions in env-test and "isibi-app tools test". It shows the saved setup as two steps:

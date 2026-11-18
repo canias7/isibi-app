@@ -2170,10 +2170,29 @@ so two chats never get the same one), gives it the chat's own lock key
 that no chat has) with Fly's update, which starts it in seconds, and from then
 on it is that chat's machine and disk (`rec.spare`, and an index under
 `coder/fly-spares/claimed/` so the every-minute run finds the chat). The pool is
-filled again at once in the background and every minute. A spare from an older
-image or size, older than 7 days, not ready in 15 minutes or gone from Fly is
-removed with its disk. Not for Gloopy (its own size) nor a chat whose disk comes
-from the environment's saved copy (that disk must be made from the copy).
+filled again at once in the background and every minute. A spare from older
+tools or another size, older than 7 days (counted from its first making,
+`spareBorn`), not ready in 15 minutes or gone from Fly is removed with its disk.
+One from an older Coder version on the same tools (2026-11-18) is updated to the
+new version in place (Fly's update with the new image; its disk and its own key
+stay), then stopped and marked ready again once it answers. Not for Gloopy (its
+own size). A chat whose disk comes from the environment's saved copy takes a
+spare made from that copy (`ensureCopySpare`, at most `COPY_SPARES_MAX`).
+
+**A version's tools, by name** (2026-11-18, the owner: "finish this"; Claude
+Code's saved setup is rebuilt when the setup script or the allowed hosts change,
+or after about 7 days, not when Claude Code itself is updated). The deploy names
+each version after Coder's own folder and the tools image it is built on
+(`coder-<12 letters>-<the tools' 12>`) and gives the Worker the tools image's
+name (`CODER_FLY_TOOLS`, trusted only when the version's name ends with its 12
+letters: `flyTools`). The Worker gives it to each machine (`CODER_TOOLS_REF`).
+What belongs to the tools, not to Coder's own files, lasts while they do: the
+environment's saved copy (`sameTools`, `cacheUsable`, the machine's `takeCopy`),
+its spare, and the admin sandbox's own layer on a chat's kept disk (`makeUpper`,
+one per tools image; a layer kept from another version loses only `/app`,
+Coder's own folder, the one thing a version adds to its tools). A copy or
+record from before the tools were named lasts only while the version does, as
+before.
 
 **A message's start reads together** (2026-11-15): the message route asks
 Coder's storage for everything a start needs at once (the GitHub sign-in, the
@@ -2247,17 +2266,21 @@ within its five minutes, the copy is taken when that first turn ENDS (since
 new chat's first message slow and once left a job stuck): the job starts at
 once, and at the turn's end, the machine idle, it writes the copy's note
 (`.coder-copy.json`: the chat, the setup's fingerprint `setupSha` of the script
-and the network setting, the Coder version) and flushes the disk (`copyAtEnd`,
+and the network setting, the Coder version and its tools, the repository) and
+flushes the disk (`copyAtEnd`,
 20 seconds at most), and its result says `copy: true`. The Worker (which noted
 `copyWant` on the chat when the turn started) then has Fly save the disk in the
 background (`snapshotChat`: kept 8 days, `CACHE_KEEP_DAYS`; nothing waits for
 it), records it on the environment
 (`coder/<uid>/environments/<id>.cache.json`: Fly's name for the copy and its
-disk, its size, region and Coder version, the setup's key `setupKeyOf`, and
-`ready` once Fly has finished it), and says so in the chat. What the turn left
-in the project is no part of what a new chat gets: `takeCopy` clears the
-project's folders. (`/go` and `HOLD_MS` are left from the old wait: an older
-machine still holds, and goes on by itself after 2 minutes.)
+disk, its size, region, Coder version and tools, the setup's key `setupKeyOf`,
+and `ready` once Fly has finished it), and says so in the chat. What the turn
+did in the project is no part of what a new chat gets (`takeCopy`,
+`repoFromCopy`, below). Right after the setup ran, the machine notes what it
+made (`noteSetupMade`: what in the checkout is not the repository's own, and the
+new names beside the checkouts) in the git folder, root's own file
+(`coder-setup-made.json`). (`/go` and `HOLD_MS` are left from the old wait: an
+older machine still holds, and goes on by itself after 2 minutes.)
 
 Fly saves a disk when it gets to it, not when asked (live test #25,
 2026-11-07; its docs: "Scheduled to snapshot volume", and a copy goes "from
@@ -2272,8 +2295,9 @@ copy only once Fly has finished it (`copyState`, asked at the chat's first
 message until the record says `ready`; Fly refuses an unfinished one). While
 it is being finished (up to `CACHE_PENDING_MS`, 30 minutes), a new chat runs
 the setup itself, says so in the chat, and makes no second copy. The copy must
-be for the same setup script and network setting, Coder version and region,
-under 7 days old, and recorded with its disk (`cacheUsable`; one recorded
+be for the same setup script and network setting, tools (a deploy of Coder's
+own files keeps it) and region, under 7 days old, and recorded with its disk
+(`cacheUsable`; one recorded
 before this fix is not, so it is made again). The new disk (`x-coder-from-copy`,
 only when its machine is made, never sent to a machine; at least as big) is
 used once Fly has restored the copy into it (`restoring`, then `created`; 5
@@ -2282,12 +2306,22 @@ a machine on it, what was made is removed and an empty disk is made as before;
 the machine's record keeps why (`copyMiss`), and the machine is told
 (`x-coder-copy`: `used`, or `missed: why`, set only by flyBox) and says it in
 the chat. On a disk made from the copy, the machine's first job (`takeCopy`)
-first removes the other chat's own files (its repositories, git folders and
-memory), so every chat clones its repository fresh; a copy of this same setup
-skips the setup (said in the chat, and to Coder, which runs a project's own
-install itself, since what the setup made inside the project folder is not
-there); any other copy, or one with no note, is cleared down to a fresh disk,
-the setup runs, and the chat says why. The variables and keys never reach the
+first removes the other chat's own memory, its other repositories and git
+folders, and a copy of this same setup skips the setup ("Restored saved setup"
+in the start-up's steps). Its checkout of this same repository becomes this
+chat's (2026-11-18, the owner: "finish this"; Claude Code's start-up "Fetching
+repository" from its saved setup, "Cloning repository" without one): renamed,
+with what the setup made beside it, and marked (`coder-from-copy`); then
+`prepareRepo` fetches the main branch (and the chat's own, when GitHub has it),
+puts the files back to the main branch as GitHub has it, removes that chat's
+branches, remote branches, stash and their history, and every file but the
+repository's own and what the setup made (`git clean` keeping only those:
+node_modules, say), then goes on to this chat's branch ("Fetched repository").
+Coder is told what the setup made is there. A copy of another repository, one
+without the setup's note (from before), or one that cannot be fetched or
+cleared is cloned fresh, as before (Coder is then told to run the project's own
+install itself); any other copy, or one with no note, is cleared down to a
+fresh disk, the setup runs, and the chat says why. The variables and keys never reach the
 setup, so they are not part of the copy. Cloudflare's containers have no
 saved copies. The read-only button `.github/workflows/check-coder-copies.yml`
 lists the newest chat disks, their copies and these records (no account or

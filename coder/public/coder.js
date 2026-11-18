@@ -2922,10 +2922,12 @@
   // 2s ›", "Running setup script ›"; then "Initialized session ›" (the `startup` step) with dots and the seconds under it
   // while Coder thinks. A message on a machine already awake: only the dots and the seconds. A step running before Coder's
   // first words: that step, live, with its seconds. (Gloopy's chat keeps its own status line.)
-  const BOOT_WORDS = { container: 'Setting up a cloud container', clone: 'Cloning repository', setup: 'Running setup script' };
+  // ('fetch': the repository came with the environment's saved setup, and is fetched, not cloned: Claude Code's
+  // "Fetching repository", 2026-11-18.)
+  const BOOT_WORDS = { container: 'Setting up a cloud container', clone: 'Cloning repository', fetch: 'Fetching repository', setup: 'Running setup script' };
   // (With the environment's saved copy, Claude Code's own steps for it, in its words: its start-up log says "Restored saved
   // setup" when a session starts from it and "Saving setup for next time" when a session makes it. 2026-11-18.)
-  const BOOT_DONE = { container: 'Set up a cloud container', restored: 'Restored saved setup', saving: 'Saving setup for next time', clone: 'Cloned repository', setup: 'Ran setup script' };
+  const BOOT_DONE = { container: 'Set up a cloud container', restored: 'Restored saved setup', saving: 'Saving setup for next time', clone: 'Cloned repository', fetch: 'Fetched repository', setup: 'Ran setup script' };
   // The start-up's step, as a look at the chat (/state) said it: kept per message, with when this page first saw it.
   function bootSeen(d) {
     if (GLOOPY || !d) return;

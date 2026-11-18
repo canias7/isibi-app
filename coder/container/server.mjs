@@ -1970,11 +1970,28 @@ export async function prepareRepo({ dir, repo, base, branch, token, headers = []
     // The work tree's pointer to the git folder, put back when it is gone (never over anything there).
     else if (!(await lstat(join(dir, ".git")).then(() => true, () => false))) await writeNew(join(dir, ".git"), "gitdir: " + gitDir + "\n");
   }
-  // (The chat's copy was here before this turn: GitHub away for a moment, the turn goes on with it.)
-  const hadCopy = has;
   // (A new clone: what GitHub said of the two branches, whether the chat's branch came with the first fetch, and the
-  // branches cloned one commit deep, deepened in the background.)
-  let firstLook = null, fetchedFirst = false, shallowNew = null;
+  // branches cloned one commit deep, deepened in the background. `fetched`: the checkout came with the environment's saved
+  // copy and was fetched, not cloned.)
+  let firstLook = null, fetchedFirst = false, shallowNew = null, fetched = false;
+  // A CHECKOUT THAT CAME WITH THE ENVIRONMENT'S SAVED COPY (2026-11-18, the owner: "finish this"; Claude Code's start-up says
+  // "Fetching repository" when a session starts from its saved setup, "Cloning repository" when it has none): takeCopy made
+  // the other chat's checkout this chat's and marked it. It is brought up to date from GitHub and cleared of that chat's own
+  // work (repoFromCopy). If that cannot be done, it is cloned fresh, as before.
+  if (has && await lstat(join(gitDir, COPY_REPO_MARK)).then((x) => x.isFile(), () => false)) {
+    const c = await repoFromCopy({ dir, url, repo, base, branch, gitDir, o, token, headers, netWaits, checkout });
+    if (c.ok) { firstLook = c.look; fetchedFirst = c.both; fetched = true; }
+    // (GitHub away: the turn ends, as a clone's would, and the checkout waits, marked, for the next message.)
+    else if (c.away) return { ok: false, why: c.why };
+    else {
+      console.log("coder: the repository from the saved copy could not be used (" + c.why + "); it is cloned fresh");
+      await rm(gitDir, { recursive: true, force: true });
+      await rm(dir, { recursive: true, force: true });
+      has = false;
+    }
+  }
+  // (The chat's copy was here before this turn: GitHub away for a moment, the turn goes on with it. Never another chat's.)
+  const hadCopy = has && !fetched;
   if (!has) {
     // A NEW CLONE goes in a folder this service makes itself (the audit, 2026-11-06).
     const pd = await makeProjectDir(dir, { root });
@@ -2070,7 +2087,44 @@ export async function prepareRepo({ dir, repo, base, branch, token, headers = []
   // THE REST OF THE HISTORY, AFTER (2026-11-16): the branches cloned one commit deep get their 50 commits in the background,
   // as the first clone had before; localChanges (See changes, the diff against the main branch) waits for it.
   if (done.ok && shallowNew) deepenLater(dir, () => gitNet(dir, ["fetch", "--depth", "50", "--no-tags", url, ...shallowNew.map((b) => "+refs/heads/" + b + ":refs/remotes/origin/" + b)], { ...o, token, headers }, netWaits));
-  return done;
+  return done.ok && fetched ? { ...done, fetched: true } : done;
+}
+/**
+ * THE OTHER CHAT'S CHECKOUT, MADE THIS CHAT'S (prepareRepo, for a checkout from the environment's saved copy): the main
+ * branch, and this chat's when GitHub has it, fetched; the files put back to the main branch as GitHub has it; that chat's
+ * branches, its remote ones, its stash and their history gone; and its files gone, all but the repository's own and what the
+ * setup made (SETUP_MADE: node_modules, say). Answers { ok, look, both } (what GitHub said of the two branches, and whether
+ * this chat's came with the fetch), or { ok: false, why }.
+ */
+async function repoFromCopy({ dir, url, repo, base, branch, gitDir, o, token, headers, netWaits, checkout }) {
+  const no = (why, away = false) => ({ ok: false, why: String(why).replace(/\s+/g, " ").slice(0, 300), ...(away ? { away: true } : {}) });
+  const one = await gitNet(dir, ["ls-remote", "--heads", url, "refs/heads/" + base, ...(branch && branch !== base ? ["refs/heads/" + branch] : [])], { ...o, token, headers }, netWaits);
+  if (one.code !== 0) return no("could not reach " + repo + " on GitHub: " + one.output, gitBusy(one.output));
+  const look = String(one.stdout ?? one.output);
+  if (!headListed(look, base)) return no(repo + " has no branch named " + base);
+  const both = !!branch && branch !== base && headListed(look, branch);
+  const f = await gitNet(dir, ["fetch", "--depth", "50", "--no-tags", url, "+refs/heads/" + base + ":refs/remotes/origin/" + base, ...(both ? ["+refs/heads/" + branch + ":refs/remotes/origin/" + branch] : [])], { ...o, token, headers }, netWaits);
+  if (f.code !== 0) return no("could not fetch " + repo + ": " + f.output, gitBusy(f.output));
+  const co = await checkout(["-q", "-f", "-B", base, "refs/remotes/origin/" + base]);
+  if (co.code !== 0) return no("could not open " + base + ": " + co.output);
+  const keep = new Set(["refs/heads/" + base, "refs/remotes/origin/" + base, ...(both ? ["refs/remotes/origin/" + branch] : [])]);
+  const refs = await gitIn(dir, ["for-each-ref", "--format=%(refname)"], o);
+  if (refs.code !== 0) return no("could not list its branches: " + refs.output);
+  for (const ref of String(refs.stdout).split("\n").map((x) => x.trim()).filter((x) => x && !keep.has(x))) {
+    const d = await gitIn(dir, ["update-ref", "--no-deref", "-d", ref], o);
+    if (d.code !== 0) return no("could not remove " + ref + ": " + d.output);
+    if (ref.startsWith("refs/heads/")) await gitIn(dir, ["config", "--remove-section", "branch." + ref.slice(11)], o);
+  }
+  await gitIn(dir, ["reflog", "expire", "--expire=now", "--all"], o);
+  await gitIn(dir, ["prune", "--expire=now"], o);
+  let made = null;
+  try { made = JSON.parse(await readFile(join(gitDir, SETUP_MADE), "utf8")); } catch { made = null; }
+  const kept = (made && Array.isArray(made.repo) ? made.repo : []).map(keepPattern).filter(Boolean).slice(0, SETUP_MADE_MAX);
+  const cl = await gitIn(dir, ["clean", "-ffdxq", ...kept.flatMap((x) => ["-e", x])], o);
+  if (cl.code !== 0) return no("could not clear the other chat's files: " + cl.output);
+  await rm(join(gitDir, FETCHED_MARK), { force: true });
+  await rm(join(gitDir, COPY_REPO_MARK), { force: true });
+  return { ok: true, look, both };
 }
 /** The history being fetched in the background for a new clone, by its folder (deepenLater). */
 const DEEPENING = new Map();
@@ -2107,6 +2161,42 @@ async function finishPrepare({ dir, repo, gitDir, o, root, note, asIs = false })
 }
 /** The file in a chat's git folder naming the branch its copy was last brought up to date for (prepareRepo's `refresh`). */
 export const FETCHED_MARK = "coder-fetched";
+/** In a chat's git folder, root's: what the setup made (noteSetupMade), at most SETUP_MADE_MAX paths in the checkout. */
+export const SETUP_MADE = "coder-setup-made.json";
+export const SETUP_MADE_MAX = 500;
+/** In a chat's git folder: its checkout came with the environment's saved copy and is still to be made this chat's (takeCopy). */
+export const COPY_REPO_MARK = "coder-from-copy";
+/** A path in a checkout as a pattern that git's clean keeps exactly (anchored, its special letters escaped); "" if odd. */
+export function keepPattern(p) {
+  if (typeof p !== "string" || !p || p.length > 512 || /[\x00-\x1f\x7f]/.test(p) || p.startsWith("/")) return "";
+  const parts = p.replace(/\/$/, "").split("/");
+  if (parts.some((x) => x === "" || x === "." || x === "..") || parts[0] === ".git") return "";
+  return "/" + p.replace(/[\\*?[\]]/g, "\\$&").replace(/ +$/, (m) => "\\ ".repeat(m.length));
+}
+/** A plain name of something beside the checkouts (no folder in it, nothing hidden in it). */
+const plainName = (n) => typeof n === "string" && !!n && n.length <= 255 && n !== "." && n !== ".." && !/[\/\x00-\x1f\x7f]/.test(n);
+/**
+ * WHAT THE SETUP MADE (2026-11-18, the owner: "finish this"), noted beside the repository's git folder once it ran on a fresh
+ * disk: what in the checkout is not the repository's own (untracked or ignored files: node_modules, say), and the new names
+ * beside the checkouts (`rootBefore`: what was there before it ran). A chat that starts from this disk's saved copy keeps
+ * these and nothing else of this chat's (takeCopy, repoFromCopy). Root's own file, where the AI cannot change it.
+ */
+export async function noteSetupMade(dir, rootBefore, { gitRoot = GIT_ROOT, remote = DEFAULT_REMOTE, root = PROJECT_ROOT } = {}) {
+  const gitDir = gitDirFor(dir, gitRoot);
+  const o = { gitDir, remote, root };
+  const k = await keepOut(dir, o);
+  if (!k.ok) return null;
+  const st = await nestedAway(dir, gitDir, () => gitIn(dir, ["status", "--porcelain=v1", "-z", "--ignored", "--untracked-files=normal", "--ignore-submodules=all", ...k.pathspec], o), () => ({ code: -1, output: "", stdout: "" }));
+  if (st.code !== 0) return null;
+  const listed = String(st.stdout ?? "").split("\0").filter((e) => e.startsWith("?? ") || e.startsWith("!! ")).map((e) => e.slice(3));
+  // (Repositories of their own the setup put inside the checkout are kept out of git's look, keepOut: kept as they are.)
+  const nested = (Array.isArray(k.nested) ? k.nested : []).filter((x) => typeof x === "string").map((x) => x.replace(/\/?$/, "/"));
+  const repo = [...new Set([...listed, ...nested])].filter((x) => keepPattern(x)).slice(0, SETUP_MADE_MAX);
+  const before = new Set(Array.isArray(rootBefore) ? rootBefore : []);
+  const top = (await readdir(root).catch(() => [])).filter((n) => !before.has(n) && plainName(n)).slice(0, 200);
+  await writeFile(join(gitDir, SETUP_MADE), JSON.stringify({ repo, root: top }));
+  return { repo, root: top };
+}
 /**
  * WHAT THE CHAT IS TOLD OF ONE OF ITS OTHER REPOSITORIES once prepareRepo answered `p`: its note when it opened with one,
  * nothing when it simply opened, and why when it could not be opened. (Round 6 of the live test, 2026-11-12: round 5's note
@@ -3143,7 +3233,7 @@ export function startupEvent(m, copy = {}) {
   const steps = [{ k: "container", ms: Math.max(0, (cs || ss || ready) - got) }];
   if (copy.restored) steps.push({ k: "restored", ...(Number(copy.restored.at) > 0 ? { built: Number(copy.restored.at) } : {}) });
   else if (copy.saving) steps.push({ k: "saving" });
-  if (cs && ce >= cs) steps.push({ k: "clone", ms: ce - cs });
+  if (cs && ce >= cs) steps.push({ k: m.fetched ? "fetch" : "clone", ms: ce - cs });
   if (ss && se >= ss) steps.push({ k: "setup", ms: se - ss });
   return { at, type: "startup", got, ms: Math.max(0, ready - got), steps, ...(copy.why ? { copyWhy: String(copy.why).slice(0, 400) } : {}) };
 }
@@ -3156,9 +3246,10 @@ export function timedSend(timing, send) {
     return r;
   };
 }
-export async function copyAtEnd({ data, project, sha, image, tools = "", now = Date.now(), syncMs = 20_000 }) {
+export async function copyAtEnd({ data, project, sha, image, tools = "", repo = "", now = Date.now(), syncMs = 20_000 }) {
   if (typeof data !== "string" || !data.startsWith("/") || !sha) return false;
-  await writeFile(join(data, COPY_NOTE), JSON.stringify({ from: project, sha, image, ...(TOOLS_REF.test(String(tools || "")) ? { tools: String(tools) } : {}), at: now }), { mode: 0o600 });
+  const repoOk = typeof repo === "string" && /^[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}$/.test(repo);
+  await writeFile(join(data, COPY_NOTE), JSON.stringify({ from: project, sha, image, ...(TOOLS_REF.test(String(tools || "")) ? { tools: String(tools) } : {}), ...(repoOk ? { repo } : {}), at: now }), { mode: 0o600 });
   await new Promise((ok) => {
     let p = null;
     const done = () => { clearTimeout(timer); ok(); };
@@ -3176,7 +3267,9 @@ export function setupSha(script, net) {
 /**
  * A DISK MADE FROM THE ENVIRONMENT'S SAVED COPY (a new chat's first job, before
  * anything else). What was the other chat's own (its repositories, git folders,
- * memory) goes: every chat clones its repository fresh. A copy of this same setup
+ * memory) goes; its checkout of this same repository (`repo`) and what the setup made
+ * stay, renamed for this chat, when the setup's own note says what it made (repoInCopy;
+ * prepareRepo fetches it and clears that chat's work out). A copy of this same setup
  * (`sha`), made with these tools (`tools`, 2026-11-18: a deploy of Coder's own files
  * keeps it, as Claude Code's own updates keep its saved setup; a copy from before
  * the tools were named: this Coder version, `image`), under seven days old, answers
@@ -3189,11 +3282,11 @@ export function setupSha(script, net) {
  * it holds is not known, so it too is cleared down to a fresh disk ({ why }). No
  * note otherwise: null, nothing touched. Only folders on the kept disk are cleared.
  */
-export async function takeCopy({ data, project, sha, image, tools = "", dirs = {}, now = Date.now(), fromCopy = false }) {
+export async function takeCopy({ data, project, sha, image, tools = "", repo = "", dirs = {}, now = Date.now(), fromCopy = false }) {
   if (typeof data !== "string" || !data.startsWith("/")) return null;
   const f = join(data, COPY_NOTE);
   const onDisk = (d) => typeof d === "string" && d.startsWith(data + "/") && resolve(d) === d;
-  const clear = async (d) => { if (!onDisk(d)) return; try { for (const n of await readdir(d)) await rm(join(d, n), { recursive: true, force: true }); } catch { /* none */ } };
+  const clear = async (d, keep = null) => { if (!onDisk(d)) return; try { for (const n of await readdir(d)) if (!keep || !keep.has(n)) await rm(join(d, n), { recursive: true, force: true }); } catch { /* none */ } };
   const setupGoes = async () => { await clear(dirs.home); await rm(join(data, ".coder-admin"), { recursive: true, force: true }); };
   if (!existsSync(f)) {
     if (!fromCopy) return null;
@@ -3205,7 +3298,6 @@ export async function takeCopy({ data, project, sha, image, tools = "", dirs = {
   let note = null;
   try { note = JSON.parse(await readFile(f, "utf8")); } catch { note = null; }
   if (note && note.from === project && !fromCopy) return null;
-  for (const d of [dirs.root, dirs.gitRoot, dirs.memRoot]) await clear(d);
   const toolsNow = TOOLS_REF.test(String(tools || "")) ? String(tools) : "";
   const byTools = !!(note && toolsNow && note.tools);
   const why = !note ? "its note could not be read"
@@ -3213,10 +3305,43 @@ export async function takeCopy({ data, project, sha, image, tools = "", dirs = {
     : byTools && note.tools !== toolsNow ? "it was made with other tools (a new tools image for Coder's machine since)"
     : !byTools && note.image !== image ? "it was made by an older version of Coder"
     : !(Number(note.at) > now - SETUP_CACHE_MS && Number(note.at) <= now + 60000) ? "it is over seven days old" : "";
+  const took = why ? null : await repoInCopy(note, { project, repo, dirs, onDisk });
+  for (const [d, keep] of [[dirs.root, took && took.root], [dirs.gitRoot, took && took.git], [dirs.memRoot, null]]) await clear(d, keep);
+  let repoTaken = false;
+  if (took) {
+    try { await moveRepo(took, { project, dirs, now }); repoTaken = true; }
+    catch { await clear(dirs.root, took.made); await clear(dirs.gitRoot); }
+  }
   if (why) await setupGoes();
   await rm(join(data, USED_NOTE), { force: true });
   await rm(f, { force: true });
-  return why ? { why } : { at: Number(note.at) };
+  return why ? { why } : { at: Number(note.at), ...(repoTaken ? { repo: true } : {}) };
+}
+/**
+ * THE COPY'S CHECKOUT, IF THIS CHAT CAN HAVE IT (takeCopy): made for this same repository, on the disk as real folders (never
+ * links), with the setup's own note of what it made (SETUP_MADE; a copy from before it has none: cloned fresh, as before).
+ * Answers what stays: the checkout, its git folder, and the setup's names beside the checkouts; else null.
+ */
+async function repoInCopy(note, { project, repo, dirs, onDisk }) {
+  const from = note && typeof note.from === "string" && PROJECT_ID.test(note.from) ? note.from : "";
+  if (!from || !PROJECT_ID.test(String(project || "")) || typeof repo !== "string" || !repo || note.repo !== repo || !onDisk(dirs.root) || !onDisk(dirs.gitRoot)) return null;
+  const wt = join(dirs.root, from), gd = join(dirs.gitRoot, from);
+  const real = async (x) => { try { const st = await lstat(x); return st.isDirectory() && !st.isSymbolicLink(); } catch { return false; } };
+  if (!(await real(wt)) || !(await real(gd))) return null;
+  let made = null;
+  try { made = JSON.parse(await readFile(join(gd, SETUP_MADE), "utf8")); } catch { made = null; }
+  if (!made || typeof made !== "object") return null;
+  const names = (Array.isArray(made.root) ? made.root : []).filter(plainName).filter((n) => n !== from && n !== project);
+  return { from, wt, gd, made: new Set(names), root: new Set([from, ...names]), git: new Set([from]) };
+}
+/** The copy's checkout and git folder renamed for this chat, its pointer to the git folder made again, and marked (prepareRepo). */
+async function moveRepo(t, { project, dirs, now }) {
+  const wt = join(dirs.root, project), gd = join(dirs.gitRoot, project);
+  if (wt !== t.wt) await rename(t.wt, wt);
+  if (gd !== t.gd) await rename(t.gd, gd);
+  await rm(join(wt, ".git"), { recursive: true, force: true });
+  await writeNew(join(wt, ".git"), "gitdir: " + gd + "\n");
+  await writeFile(join(gd, COPY_REPO_MARK), String(now));
 }
 
 // ── THE CHAT SAVED AS IT GOES (like Claude Code, 2026-11-06; the owner: "Do this") ──
@@ -3869,10 +3994,11 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     const script0 = body.setup && typeof body.setup.script === "string" ? body.setup.script.trim().slice(0, SETUP_SCRIPT_MAX) : "";
     let copied = null;
     const copyInfo = String(copy || "");
-    try { copied = await takeCopy({ data, project, sha: script0 ? setupSha(script0, normNetwork(body.setup && body.setup.network)) : "", image, tools, dirs: { root, gitRoot, memRoot, home }, fromCopy: copyInfo === "used" }); } catch { copied = null; }
+    try { copied = await takeCopy({ data, project, sha: script0 ? setupSha(script0, normNetwork(body.setup && body.setup.network)) : "", image, tools, repo: String(body.repo || ""), dirs: { root, gitRoot, memRoot, home }, fromCopy: copyInfo === "used" }); } catch { copied = null; }
     // FRESH: no job has worked on this disk yet (only then is a copy of it saved): never marked so, and
-    // no project on it before this job's clone (a disk from before the mark has its chat's project).
-    const fresh = !!data && !existsSync(join(data, USED_NOTE)) && (await readdir(root).catch(() => [""])).length === 0;
+    // no project on it before this job's clone (a disk from before the mark has its chat's project), or only the
+    // checkout that came with the environment's saved copy (takeCopy: it is this chat's now).
+    const fresh = !!data && !existsSync(join(data, USED_NOTE)) && (!!(copied && copied.repo) || (await readdir(root).catch(() => [""])).length === 0);
     // WHY THIS NEW CHAT DID NOT START FROM THE ENVIRONMENT'S SAVED COPY, in the chat (live test #25,
     // 2026-11-07: it once fell back to an empty disk unseen): Fly.io would not make the disk from it
     // (Coder's Worker says), the copy was not of this setup, or Fly is still finishing it.
@@ -3898,11 +4024,14 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       // THE USER'S REPOSITORY (GitHub): cloned when this machine does not have it, on Coder's branch.
       if (body.repo) {
         t.timing.cloneStart = Date.now();
-        // (Only a real clone: a machine that has the project already only fetches, and says no "Cloning repository".)
+        // (Only a real clone: a machine that has the project already only fetches, and says no "Cloning repository". The
+        // checkout from the environment's saved copy is fetched: "Fetching repository", as Claude Code's start-up says it.)
         if (!existsSync(join(dir, ".git"))) setPhase(t, "clone");
+        else if (copied && copied.repo) setPhase(t, "fetch");
         const prep = await prepareRepo({ dir, repo: String(body.repo), base: String(body.base || "main"), branch: String(body.branch || "coder/" + project), ...gitFrom(body, { via: gitVia, remote }), gitRoot, root, noPush: body.readOnly === true, refresh: body.fetch !== false });
         t.timing.cloneEnd = Date.now();
         if (!prep.ok) return fail(502, prep.why);
+        if (prep.fetched === true) t.timing.fetched = true;
         if (prep.note) t.events.push({ at: Date.now(), type: "note", text: prep.note });
       } else {
         // A CHAT WITHOUT A REPOSITORY (the audit, 2026-11-06): its folder is made
@@ -4276,6 +4405,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         // with only the checked package names; the rest runs as `dev`, so the
         // script never gets near the GitHub token or the owner's keys.
         const { packages, script: userPart } = t.box ? { packages: [], script } : splitSetup(script);
+        // (What is beside the checkouts before it runs: what is new after it, the setup made. noteSetupMade.)
+        const rootBefore = fresh && body.repo ? await readdir(root).catch(() => null) : null;
         const t0 = Date.now();
         let r = { code: 0, output: "" };
         // IN THE ADMIN SANDBOX (like Claude Code, where the whole script runs as admin): all of it, as
@@ -4300,6 +4431,9 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         // in the git folder's own ignore list (root's folder, not the repo). (Each of the chat's repositories': the script starts
         // above them all now, E7.)
         for (const d of [dir, ...extras.map((x) => x.dir)]) await ignoreNew(d, gitRoot, remote, root);
+        // WHAT IT MADE, NOTED FOR THE ENVIRONMENT'S SAVED COPY (2026-11-18): a chat that starts from this disk's copy keeps it,
+        // and nothing of this chat's own (takeCopy, repoFromCopy).
+        if (rootBefore) await noteSetupMade(dir, rootBefore, { gitRoot, remote, root }).catch(() => null);
       }
       // A CHAT MOVED TO THIS ENVIRONMENT (2026-11-14, the owner: "Do all the talk to you tools execpt for the notify one";
       // Claude Code's switch_environment: "Its setup script does NOT run now or at a restart: it runs only if the machine is
@@ -4314,6 +4448,9 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     }
     // HOW THE SCRIPT STANDS ON THIS MACHINE, for the context below: ran here (worked or failed), from the saved copy, or not.
     const setupHere = !script ? "" : setupCopied || (!setupRan && ranHere && doneHow === "copied") ? "copied" : setupRan || ranHere ? (setupRan ? (setupFailed ? "failed" : "ok") : doneHow === "failed" ? "failed" : "ok") : due && t.boxDown ? "pending" : setupMoved ? "moved" : "not";
+    // (The checkout came with the copy: its git folder holds the setup's own note of what it made, which only the copy's chat
+    // wrote; one cloned fresh has none. The same at every message, so the chat's instructions stay the same.)
+    const repoWithCopy = setupHere === "copied" && !!body.repo && existsSync(join(gitDirFor(dir, gitRoot), SETUP_MADE));
     let envNote = "";
     // (A move to another environment is said as one: the owner approved it on Coder's card, and its setup did not run here.)
     if (body.envMoved === true && lastEnv && typeof lastEnv === "object") {
@@ -4381,7 +4518,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         piece("s:THIS CHAT'S ENVIRONMENT", envNameNote(body)),
         piece("s:UNDO", undoNote(lastJobOf(body))),
         ...workNote(),
-        piece("s:THE ENVIRONMENT'S SETUP SCRIPT", (script ? (setupHere === "moved" ? "\n\nTHE ENVIRONMENT'S SETUP SCRIPT (the owner's; it has NOT run on this machine: this chat moved to this environment while its machine was running, and it runs only on a fresh machine, so what it installs is not here unless you install it):\n" : setupHere === "not" ? "\n\nTHE ENVIRONMENT'S SETUP SCRIPT (the owner's; it has NOT run on this machine: the owner set or changed it after this chat's machine had its setup, and like Claude Code, a change to the setup script reaches a chat only on a fresh machine (new chats run it), so what it installs is not here unless you install it):\n" : setupHere === "pending" ? "\n\nTHE ENVIRONMENT'S SETUP SCRIPT (the owner's; it has NOT run on this machine yet: Coder's admin sandbox could not start here, and it runs before a later message whose sandbox starts):\n" : setupHere === "copied" ? "\n\nTHE ENVIRONMENT'S SETUP SCRIPT (the owner's; this chat's machine started from the environment's saved copy of its result, made right after it ran in another chat, so it did not run again here. What it installed on the system and in your home is here; what it made inside the project folder (node_modules, say) is not, as the repository is cloned fresh: run the project's own install yourself when the work needs it):\n" : "\n\nTHE ENVIRONMENT'S SETUP SCRIPT (the owner's, already run on this machine: " + (t.box ? "as your own user with admin for anything, like your commands" : "its plain apt-get install lines by Coder's app as admin, every other line as your own user") + "; " + (setupHere === "failed" && !setupRan ? "it FAILED there, so what it failed to set up is not here, and it does not run again on this machine (new chats run it); its output is in the chat" : "its output is in the chat") + "):\n") + script.slice(0, 2000) + setupWhere() : "")),
+        piece("s:THE ENVIRONMENT'S SETUP SCRIPT", (script ? (setupHere === "moved" ? "\n\nTHE ENVIRONMENT'S SETUP SCRIPT (the owner's; it has NOT run on this machine: this chat moved to this environment while its machine was running, and it runs only on a fresh machine, so what it installs is not here unless you install it):\n" : setupHere === "not" ? "\n\nTHE ENVIRONMENT'S SETUP SCRIPT (the owner's; it has NOT run on this machine: the owner set or changed it after this chat's machine had its setup, and like Claude Code, a change to the setup script reaches a chat only on a fresh machine (new chats run it), so what it installs is not here unless you install it):\n" : setupHere === "pending" ? "\n\nTHE ENVIRONMENT'S SETUP SCRIPT (the owner's; it has NOT run on this machine yet: Coder's admin sandbox could not start here, and it runs before a later message whose sandbox starts):\n" : setupHere === "copied" ? "\n\nTHE ENVIRONMENT'S SETUP SCRIPT (the owner's; this chat's machine started from the environment's saved copy of its result, made right after it ran in another chat, so it did not run again here. What it installed on the system and in your home is here; " + (repoWithCopy ? "what it made inside the project folder (node_modules, say) is here too: the repository came with the copy and was fetched from GitHub, with nothing of the other chat's own work left in it" : "what it made inside the project folder (node_modules, say) is not, as the repository is cloned fresh: run the project's own install yourself when the work needs it") + "):\n" : "\n\nTHE ENVIRONMENT'S SETUP SCRIPT (the owner's, already run on this machine: " + (t.box ? "as your own user with admin for anything, like your commands" : "its plain apt-get install lines by Coder's app as admin, every other line as your own user") + "; " + (setupHere === "failed" && !setupRan ? "it FAILED there, so what it failed to set up is not here, and it does not run again on this machine (new chats run it); its output is in the chat" : "its output is in the chat") + "):\n") + script.slice(0, 2000) + setupWhere() : "")),
         piece("s:ENVIRONMENT VARIABLES", varsNote(ownerVars)),
         piece("s:NETWORK", netNote),
         piece("e:THE SETUP SCRIPT FAILED", (setupFailed ? "\n\nTHE SETUP SCRIPT FAILED this time (" + (setupFailed.timedOut ? "it ran past the 5-minute limit" : "exit code " + setupFailed.code) + "). Its last output:\n" + setupFailed.output + "\nLike Claude Code: tell the owner in a few lines which command failed and its exit code, and that they can fix it in Environment → Setup script (new chats run the fixed script). If you have a fix you ran yourself and saw work, propose it with update_environment (setup_script) at the end of your work. Carry on with whatever does not depend on it, and never stand in for the missing part with made-up results unless the owner asks." : "")),
@@ -4566,7 +4703,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     // (Nor when the setup took longer than about five minutes, as Claude Code's: COPY_SETUP_MAX_MS.)
     const setupTook = Number(t.timing.setupEnd) - Number(t.timing.setupStart);
     const copyWanted = !!(data && body.cache && body.cache.make === true && fresh && setupRan && !setupFailed && (t.box || !copyNeedsBox) && copyInfo !== "late" && setupTook >= 0 && setupTook <= copySetupMaxMs);
-    if (copyWanted) t.copyWanted = { sha: setupSha(script, net) };
+    if (copyWanted) t.copyWanted = { sha: setupSha(script, net), repo: String(body.repo || "") };
     t.timing.ready = Date.now();
     setPhase(t, "ready");
     if (t.cold) t.events.push(startupEvent(t.timing, { restored: t.restored || null, saving: copyWanted, why: t.copyWhy || "" }));
@@ -4969,7 +5106,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
             t.timing.answered = t.timing.answered || Date.now();
             // THE SETUP COPY, TAKEN NOW THE TURN IS OVER (2026-11-15): the machine is idle, so its disk is as the setup and the
             // turn left it; takeCopy clears the project's folders when a new chat starts from it. At most 20 seconds.
-            const copy = t.copyWanted ? await copyAtEnd({ data, project, sha: t.copyWanted.sha, image, tools }).catch(() => false) : false;
+            const copy = t.copyWanted ? await copyAtEnd({ data, project, sha: t.copyWanted.sha, image, tools, repo: t.copyWanted.repo }).catch(() => false) : false;
             t.copyWanted = null;
             t.timing.ended = Date.now();
             t.result = { ...result, ...(dirty === false ? { dirty: false } : {}), background: jobsOf(project), hooksRunning: rewakeHooksOf(project), readQueued: t.queue.filter((q) => q.read).map((q) => q.qid), timing: { ...t.timing }, ...(copy ? { copy: true } : {}) };
