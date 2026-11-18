@@ -124,7 +124,8 @@ export function parkAnswer(kind, a) {
   const choice = String(a.choice || "");
   const comment = typeof a.comment === "string" ? a.comment.slice(0, 2000) : "";
   if (kind === "permission") {
-    if (!["yes", "always", "auto", "acceptEdits", "no"].includes(choice)) return null;
+    // (And Auto's one-time question's four answers, before a read outside the working folders: 2026-11-18.)
+    if (!["yes", "always", "auto", "acceptEdits", "no", "allow", "block", "ask_again", "allow_once"].includes(choice)) return null;
     return { choice, comment, ...(typeof a.plan === "string" && (choice === "auto" || choice === "acceptEdits") ? { plan: a.plan.slice(0, 200_000) } : {}) };
   }
   if (kind === "question") {

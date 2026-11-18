@@ -450,7 +450,7 @@ test("RS13 the card's buttons and the page's redraws: Save keeps the key, then t
   assert.match(css, /\.cd-secret-field\{margin:0 0 10px\}/);
   assert.match(css, /\.cd-secret-row\{display:flex;gap:8px\}/);
   // The machine and the Worker take "saved".
-  assert.match(readFileSync(HERE("container/server.mjs"), "utf8"), /\["yes", "always", "auto", "acceptEdits", "no", "saved", "answers", "skip", "approved", "refused"\]\.includes\(choice\)/);
+  assert.match(readFileSync(HERE("container/server.mjs"), "utf8"), /\["yes", "always", "auto", "acceptEdits", "no", "saved", "answers", "skip", "approved", "refused", "allow", "block", "ask_again", "allow_once"\]\.includes\(choice\)/);
 });
 
 test("RS14 a PreToolUse hook's rewrite of request_secret's input gets request_secret's own refusal, as the model's input does (Claude Code's request_credential is its MCP server's tool: Claude Code takes its input as any object and the tool checks it when it runs, after the hooks); a good rewrite is used", async () => {

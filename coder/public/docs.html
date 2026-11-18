@@ -28,6 +28,7 @@
       <a class="dc-sub" href="#read-pdfs">PDFs</a>
       <a class="dc-sub" href="#read-notebooks">Notebooks</a>
       <a class="dc-sub" href="#read-not">What read won't open</a>
+      <a class="dc-sub" href="#read-outside">Files outside the project</a>
       <a class="dc-sub" href="#read-mentions">Files you mention with @</a>
       <a class="dc-sub" href="#read-told">What Coder is told on its own</a>
       <a href="#write">Write</a>
@@ -111,7 +112,14 @@
         <ul>
           <li>A folder: read says it's a folder, and Coder lists what's in it instead.</li>
           <li>Binary files such as <code>.zip</code> or <code>.xlsx</code>: Coder is told a way to read each kind.</li>
-          <li>Pipes and devices, and anything outside your project, including a link that points out of it.</li>
+          <li>Pipes and devices.</li>
+        </ul>
+
+        <h3 id="read-outside">Files outside the project</h3>
+        <ul>
+          <li>A file outside the project and its working folders, or a link that points out of them, asks you first in Accept edits and Plan, as in Claude Code. You can allow it once, or for its whole folder from then on. Search and file lists work the same way.</li>
+          <li>In Auto, Coder reads them without asking. The first time, it asks once, with Claude Code's four answers: keep allowing, block from now on, or answer just this once either way.</li>
+          <li><b>Block reads outside the working folders</b> in Settings refuses them in every chat. Answering "block" turns it on.</li>
         </ul>
 
         <h3 id="read-mentions">Files you mention with @</h3>

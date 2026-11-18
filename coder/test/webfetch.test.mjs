@@ -585,7 +585,7 @@ test("WF20 asking first, as Claude Code's WebFetch asks: its words on the card, 
   assert.equal(t.execs.length, 0);
   // (Claude Code: "WebFetch and browser prompts don't offer the field".)
   const page = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
-  assert.match(page, /\(e\.tool === 'web_fetch' \? '' : '<input type="text" class="cd-perm-note"/);
+  assert.match(page, /\(e\.tool === 'web_fetch' \|\| e\.outsideReads \? '' : '<input type="text" class="cd-perm-note"/);
   assert.equal(C.actionShown("web_fetch", { url: "https://a.example/x", prompt: "the price" }), "web_fetch: https://a.example/x: the price");
   assert.equal(C.actionShown("web_fetch", { url: "https://a.example/x" }), "web_fetch: https://a.example/x");
 });

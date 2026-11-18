@@ -97,6 +97,19 @@ export function toolPath(p) {
   if (n.startsWith("~/")) return join(home, n.slice(2));
   return isAbsolute(n) ? normalize(n) : resolve(BASE, n);
 }
+/**
+ * A READ OUTSIDE THE WORKING FOLDERS, ALLOWED (Claude Code 2.1.327's Read, Grep and Glob, "still prompt for paths outside the
+ * working directory and additional directories", and read there once allowed; the owner, 2026-11-18: "Yes pls"): set for one
+ * call of read, grep, glob or lsp when Coder's loop has asked the owner, or a rule or Auto allows it (its `ctx.outside`). Never
+ * for a tool that writes.
+ */
+let OUTSIDE_OK = false;
+/** One outside, allowed: named in full; one that isn't there in the words a missing file in the project gets (Claude Code's Read). */
+async function outsideAllowed(abs, mustExist) {
+  if (mustExist) { try { await stat(abs); } catch (e) { if (e && (e.code === "ENOENT" || e.code === "ENOTDIR")) fail(missingFile(abs)); } }
+  return { abs, rel: abs };
+}
+export const OUTSIDE_TOOLS = new Set(["read", "grep", "glob", "lsp", "lsp_file"]);
 async function inside(p, { mustExist = false, tool = "", output = false } = {}) {
   if (typeof p !== "string" || !p.trim()) fail("give a path");
   // Named by its tool and argument, as Claude Code's are ("Read file_path cannot contain null bytes …"): write's so far
@@ -155,7 +168,7 @@ async function inside(p, { mustExist = false, tool = "", output = false } = {}) 
   const work = workDirs().filter(holds).sort((x, y) => y.length - x.length);
   const home = roots.find(holds) || work[0] || ROOT;
   const rel = relative(home, abs);
-  if (rel.startsWith("..") || isAbsolute(rel)) fail("that path is outside the project");
+  if (rel.startsWith("..") || isAbsolute(rel)) { if (OUTSIDE_OK) return outsideAllowed(abs, mustExist); fail("that path is outside the project"); }
   if (rel.split(sep)[0] === ".git") fail("the .git folder is off limits");
   // (Never the .git folder of any of them that holds it: a working folder around the project, or inside another one.)
   if ([...roots, ...work].some((r) => holds(r) && relative(r, abs).split(sep)[0] === ".git")) fail("the .git folder is off limits");
@@ -169,7 +182,7 @@ async function inside(p, { mustExist = false, tool = "", output = false } = {}) 
       const real = await realpath(probe);
       const rootReal = await realpath(home);
       const r2 = relative(rootReal, real);
-      if (r2.startsWith("..") || isAbsolute(r2)) fail("that path leads outside the project");
+      if (r2.startsWith("..") || isAbsolute(r2)) { if (OUTSIDE_OK) return { abs, rel: abs }; fail("that path leads outside the project"); }
       break;
     } catch (e) {
       if (e instanceof ToolError) throw e;
@@ -2557,6 +2570,7 @@ if (process.argv[1] && import.meta.url === "file://" + process.argv[1]) {
     // (A tool with a result object for the hooks returns { text, facts }: printedAnswer.)
     // (`ctx`: what Coder's loop adds for a tool, Grep's and Glob's settings and the owner's Read deny rules. A search's
     // failure is told whole, in Claude Code's words, ripgrep's own message in it: coder-search.mjs's SearchError.)
+    OUTSIDE_OK = !!(req.ctx && req.ctx.outside === true) && OUTSIDE_TOOLS.has(req.tool);
     try { text = printedAnswer(await fn(req.args || {}, req.ctx || {})); }
     catch (e) { return say(errorLine(e), 1); }
     say(text, 0);

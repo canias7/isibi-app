@@ -946,3 +946,38 @@ notebook_edit's and the resource tools' entries and pages: no change since the d
 the day's allowance), SF12 (the picture copies, its checks ported) new; SF1–SF8 for the rest. The full suite: 1357 pass, 4 skipped,
 0 fail. Deployed to coder2 (deploy 253): its parts upload refuses a call without a job's pass (403), a bad download signature is
 "not found" (404), the page has the panel. Not tried in a live chat (coder2's GitHub sign-in).
+
+---
+
+## Reads outside the working folders: read, grep, glob and lsp (Claude Code: Read, Grep, Glob, LSP)
+
+The owner (2026-11-18): "Yes pls", to matching the docs' note found while checking send_user_file.
+
+**Claude Code's docs:** the tools reference's note: "File-access tools marked No, including `Read`, `Grep`, and `Glob`, still
+prompt for paths outside the working directory and additional directories, apart from files Claude Code itself needs"; the
+permission modes page: "While `permissions.blockReadsOutsideWorkingDirectories` is off, file reads other than reads from network
+paths run without a prompt in auto mode, including reads outside the working directories. The first time Claude uses the Read,
+Grep, or Glob tool on a path outside them, Claude Code asks whether to allow that read", not in "non-interactive `-p` runs or
+background sessions", with four answers: keep allowing ("records your answer so the prompt doesn't appear again"), block from now
+on (sets the setting "in your user settings"), ask again next time, allow this once. Its program (2.1.327): the Read permission's
+order (deny rules, the read block, ask rules, inside the working folders, its own files, Read allow rules, then ask, "Claude
+requested permissions to read from <path>, but you haven't granted it yet.", a link out of them named "… resolves through a
+symlink to …, which is outside the allowed working directories.", a session rule for the folder offered); the question's title
+"Read outside the working directories", "Allow this read outside the working directories?", its answers in its order and its
+explanation; "keep allowing" kept as hasSeenAutoModeOutsideReadPrompt; the question only for Read, Grep and Glob, not with
+denyInsteadOfPrompting (refused then).
+
+| | Claude Code | Coder before | Coder now |
+|---|---|---|---|
+| Manual modes | asks, its words, a rule for the folder | refused ("that path is outside the project"), different on purpose since 2026-11-08 | asks in Accept edits and Plan, its words ("Coder"), "Yes, and don't ask again" for the folder |
+| Auto | reads, the first time after the one-time question | refused | the same; the question only where someone can answer, never in a job from GitHub |
+| The four answers | keep allowing (kept), block (the read block in the user's settings), ask again, allow once | none | the same, kept in the owner's Settings by Coder's server; "Block reads outside the working folders" a Settings switch to undo it |
+| The read block | refuses them in every mode | the same | the same, from the environment, the repository's settings or Settings |
+| A missing file outside | its missing-file words | refused | the same words a missing file in the project gets |
+
+Not changed: Coder's file tools still refuse a project's `.git` folder (Claude Code reads it); the agent hooks' file reads stay
+inside the project; Gloopy is as it was ("Dont touch gloopy for now").
+
+**Tests:** OR1–OR6 (`coder/test/outside-reads.test.mjs`); R6R5 (a `~` path outside the project, read in Auto), CD392 and RS13
+(the machine's code), CD380 (Settings), CD248 (the docs page's new part) updated. WF20 (the card's note box, now left off this question too). The full suite: 1363 pass, 4 skipped,
+0 fail.

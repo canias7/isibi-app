@@ -359,6 +359,8 @@
         // PERMISSIONS (the owner, 2026-11-10: "yea do all of them"): Claude Code's denyInsteadOfPrompting.
         '<div class="cd-set-head">Permissions</div>' +
         '<label class="cd-notify-sw"><input type="checkbox" id="cdSetDeny"' + (prefs.denyInstead ? ' checked' : '') + '><span><b>Refuse instead of asking</b><br>Anything that would ask you is refused, and Coder carries on without it.</span></label>' +
+        // (Claude Code's permissions.blockReadsOutsideWorkingDirectories, in its user settings: also set by Auto's one-time question.)
+        '<label class="cd-notify-sw"><input type="checkbox" id="cdSetBlockReads"' + (prefs.blockOutsideReads ? ' checked' : '') + '><span><b>Block reads outside the working folders</b><br>Coder\'s read, grep and glob refuse files outside the project and its working folders, in every chat.</span></label>' +
         '<label class="cd-notify-sw"><input type="checkbox" id="cdSetSuggest"' + (prefs.suggestOff ? '' : ' checked') + '><span><b>Prompt suggestions</b><br>After Coder answers, a suggested next message shows in grey in the message box. Tab or → takes it; typing hides it.</span></label>' +
         '<label class="cd-notify-sw"><input type="checkbox" id="cdSetAutoOff"' + (prefs.autoOff ? ' checked' : '') + '><span><b>Turn off Auto mode</b><br>Chats start in Accept edits, and Auto isn’t offered.</span></label>' +
         // ADVANCED, FOLDED (the owner, 2026-11-15, Settings "ewwwww"): hooks and Auto mode rules are written as code, so they
@@ -388,6 +390,7 @@
       $('cdSetHooks').oninput = (e) => { hooksDraft = e.currentTarget.value; };
       $('cdSetHooksSave').onclick = () => save('hooks', hooksDraft);
       $('cdSetDeny').onchange = (e) => save('denyInstead', e.currentTarget.checked);
+      $('cdSetBlockReads').onchange = (e) => save('blockOutsideReads', e.currentTarget.checked);
       $('cdSetAutoOff').onchange = (e) => save('autoOff', e.currentTarget.checked);
       $('cdSetSuggest').onchange = (e) => save('suggestOff', !e.currentTarget.checked);
       $('cdSetAuto').oninput = (e) => { autoDraft = e.currentTarget.value; };
@@ -3933,6 +3936,8 @@
   // "Coder wants to search the web for: …", shown as any other tool's.)
   const PERM_TITLE = { bash: 'Bash command', powershell: 'PowerShell command', monitor: 'WebSocket watch', write: 'Write file', edit: 'Edit file', notebook_edit: 'Edit notebook', read: 'Read file', grep: 'Search files', glob: 'Find files', lsp: 'Code lookup', web_fetch: 'Fetch', web_search: 'Web search', pull_request: 'Pull request', pr_comments: 'Review comments', auto_fix: 'Auto-fix', undo_last_job: 'Undo', connector: 'Connector', list_mcp_resources: 'MCP resources', read_mcp_resource: 'MCP resource', read_mcp_resource_dir: 'MCP directory', send_user_file: 'Send file' };
   function permOptions(e) {
+    // (AUTO'S ONE-TIME QUESTION BEFORE A READ OUTSIDE THE WORKING FOLDERS: Claude Code's four answers, in its order. 2026-11-18.)
+    if (e.outsideReads && Array.isArray(e.options)) return e.options.filter((x) => x && typeof x.value === 'string').map((x) => [x.value, esc(String(x.label || x.value))]);
     // (A plan too long to show withholds approval: only "No, keep planning", as Claude Code's prompt. The owner, 2026-11-14.)
     if (e.tool === 'plan' && e.withheld) return [['no', 'No, keep planning']];
     if (e.tool === 'plan') return [['auto', 'Yes, and use auto mode'], ['acceptEdits', 'Yes, and accept edits'], ['no', 'No, keep planning']].filter(([c]) => !(S.autoOff && c === 'auto'));
@@ -3953,6 +3958,12 @@
     if (ans.hook === true) return (c === 'yes' ? '<span class="cd-perm-ok">✓ ' + (e.tool === 'plan' ? 'Approved' : 'Allowed') + '</span>' : '<span class="cd-perm-no">' + (c === 'stop' ? 'Stopped' : '✕ ' + (e.tool === 'plan' ? 'Not approved' : 'Not allowed')) + '</span>') + ' · by your PermissionRequest hook';
     if (e.tool === 'plan') return c === 'auto' || c === 'acceptEdits' ? '<span class="cd-perm-ok">✓ Approved · ' + (c === 'auto' ? 'Auto' : 'Accept edits') + '</span>' + note : c === 'no' ? '<span class="cd-perm-no">Kept planning</span>' + note : '<span class="cd-perm-no">' + (c === 'stop' ? 'Stopped' : 'No answer') + '</span>';
     if (c === 'yes') return '<span class="cd-perm-ok">✓ Allowed</span>' + note;
+    if (e.outsideReads) {
+      if (c === 'allow') return '<span class="cd-perm-ok">✓ Allowed</span> · reads outside the working folders won\'t ask again';
+      if (c === 'allow_once') return '<span class="cd-perm-ok">✓ Allowed</span> · asks again next time';
+      if (c === 'block') return '<span class="cd-perm-no">✕ Not allowed</span> · reads outside the working folders are blocked from now on (Settings)';
+      if (c === 'ask_again') return '<span class="cd-perm-no">✕ Not allowed</span> · asks again next time';
+    }
     if (c === 'always') return '<span class="cd-perm-ok">✓ Allowed</span> · won\'t ask again for ' + (e.rules || []).map((r) => '<code>' + esc(ruleShown(r)) + '</code>').join(' and ');
     if (c === 'auto') return '<span class="cd-perm-ok">✓ Allowed</span> · switched to Auto';
     if (c === 'no') return '<span class="cd-perm-no">✕ Not allowed</span>' + note;
@@ -4039,6 +4050,8 @@
     } else if (e.tool === 'web_fetch') body = '<pre class="cd-perm-pre">' + esc(e.url || '') + '</pre>';
     // A WebSocket a monitor would open (Claude Code's Monitor `ws`): what it watches, and its address.
     else if (e.tool === 'monitor') body = (e.desc ? '<p class="cd-perm-desc">' + esc(e.desc) + '</p>' : '') + '<pre class="cd-perm-pre">' + esc(e.url || '') + '</pre>';
+    // Auto's one-time question before a read outside the working folders: its path, Claude Code's explanation.
+    else if (e.outsideReads) body = '<pre class="cd-perm-pre">' + esc(e.path || '') + '</pre>' + (e.explainer ? '<p class="cd-perm-desc">' + esc(e.explainer) + '</p>' : '');
     // A file a rule of the owner's asks about (Read(…) on a read or a search): its path.
     else if (/^(read|grep|glob|lsp)$/.test(e.tool || '')) body = '<pre class="cd-perm-pre">' + esc(e.path || '') + '</pre>';
     else body = '<p class="cd-perm-desc">' + esc(e.what || '') + '</p>';
@@ -4049,16 +4062,17 @@
     // in neither its docs nor its program, so a small label here, as on a connector question's card.)
     const dn = !plan && typeof e.displayName === 'string' ? e.displayName.trim() : '';
     return '<div class="cd-perm' + (plan ? ' cd-plan' : '') + (live ? ' is-live' : '') + '" data-perm="' + esc(e.pid) + '" tabindex="-1">' +
-      '<div class="cd-perm-head"><span class="cd-perm-ic">' + (plan ? ICON.plan : ICON.term) + '</span><b>' + (plan ? 'Coder\'s plan' : esc(PERM_TITLE[e.tool] || 'Coder asks')) + '</b>' + (dn ? '<span class="cd-perm-dn" title="' + esc(dn) + '">' + esc(dn) + '</span>' : '') + '</div>' +
+      '<div class="cd-perm-head"><span class="cd-perm-ic">' + (plan ? ICON.plan : ICON.term) + '</span><b>' + (plan ? 'Coder\'s plan' : e.outsideReads && e.title ? esc(e.title) : esc(PERM_TITLE[e.tool] || 'Coder asks')) + '</b>' + (dn ? '<span class="cd-perm-dn" title="' + esc(dn) + '">' + esc(dn) + '</span>' : '') + '</div>' +
       body +
-      (!plan && e.why ? '<p class="cd-perm-why">' + esc(e.why) + '</p>' : '') +
+      (!plan && e.why && !e.outsideReads ? '<p class="cd-perm-why">' + esc(e.why) + '</p>' : '') +
       // (Auto's question for a dangerous removal blocks it by itself after 2 minutes: Claude Code's line, counting down.)
       (live && Number(e.blockAt) > 0 ? '<p class="cd-perm-timer" data-block-at="' + Number(e.blockAt) + '">' + esc(blockLeft(Number(e.blockAt))) + '</p>' : '') +
       (live
-        ? '<p class="cd-perm-q">' + (plan ? 'Would you like to proceed?' : 'Do you want to proceed?') + '</p>' +
+        ? '<p class="cd-perm-q">' + (plan ? 'Would you like to proceed?' : e.outsideReads && e.question ? esc(e.question) : 'Do you want to proceed?') + '</p>' +
           '<div class="cd-perm-opts">' + opts.map(([c, label], k) => '<button type="button" class="cd-perm-opt' + (c === 'no' ? ' is-no' : '') + (sent === c ? ' is-sent' : '') + '" data-perm-pid="' + esc(e.pid) + '" data-perm-choice="' + c + '"' + (sent ? ' disabled' : '') + '><kbd>' + (k + 1) + '</kbd><span>' + label + '</span></button>').join('') + '</div>' +
           // (No note on a page fetch's card, as Claude Code's: "WebFetch and browser prompts don't offer the field"; 2026-11-14.)
-          (e.tool === 'web_fetch' ? '' : '<input type="text" class="cd-perm-note" data-perm-note="' + esc(e.pid) + '" value="' + esc(note) + '" maxlength="2000" autocomplete="off" placeholder="' + (plan ? 'Tell Coder what to change' : 'Add a note for Coder (optional)') + '"' + (sent ? ' disabled' : '') + '>') +
+          // (Nor on Auto's one-time question before a read outside the working folders: its answers carry none in Claude Code.)
+          (e.tool === 'web_fetch' || e.outsideReads ? '' : '<input type="text" class="cd-perm-note" data-perm-note="' + esc(e.pid) + '" value="' + esc(note) + '" maxlength="2000" autocomplete="off" placeholder="' + (plan ? 'Tell Coder what to change' : 'Add a note for Coder (optional)') + '"' + (sent ? ' disabled' : '') + '>') +
           (S.permErr && S.permErr.pid === e.pid ? '<p class="cd-secret-err">' + esc(S.permErr.text) + '</p>' : '')
         : ans ? '<div class="cd-perm-done">' + permDone(e, ans) + '</div>' : '') +
     '</div>' + (live ? '<div class="cd-ask-wait">' + (plan ? 'Waiting for your approval of the plan' : 'Waiting for your approval') + '</div>' : '');

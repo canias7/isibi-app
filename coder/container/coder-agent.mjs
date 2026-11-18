@@ -65,7 +65,7 @@ import { psDescription, psCommand, psSleepWhat } from "./coder-ps.mjs";
 import { psParseResult, psParseFail, psExitOf, PS_PARSE_RETRYABLE, psCommands, psFileRedirections, psCmdlet, psWriteTargets } from "./coder-psparse.mjs";
 import { posix as pathPosix } from "node:path";
 import { checkAction, actionShown, autoDenied, checkUnavailable, blockedShown, limitWhy, checkerState, countBlock, countAllowed, resume, droppedInAuto, NO_VERDICT, NO_VERDICT_STOP, NOT_RUN_ROW, STOPPED_NO_VERDICT, noVerdictTold, noVerdictStopTold, NO_VERDICT_STOP_SHOWN, noVerdictWait, rmUnanswered, rmAnswered, noPromptDenied } from "./coder-checker.mjs";
-import { psDecision, psPlanFile, toolGlob, MODES, MODE_NAMES, normMode, bashDecision, MONITOR_SETTINGS, namedForMonitor, fetchDecision, fileToolDecision, fileRuleHit, readCommand, fileCommandTargets, parseRule, allowRuleCovers, readBlockWhy, sensitiveWhy, linkOutWhy, ruleAskWhy, askedWhy, hookAskWhy, hookAskTold, planWriteWhy, planCallWhy, ccPath, RULE_MAX, REJECTED, REJECTED_SAID, NOT_NOW, PLAN_NOTE, PLAN_EXITED, AUTO_NOTE, AUTO_EXITED, planApproved, wholeReadOnly, movesWorkTree, monitorRules, partsAllowedByRules, discardsWork, wsDecision, wsProblem, wsAskText, wholeRule, MONITOR_BASH_DENIED, toolSearchParamRule, toolSearchParamDenied, resourceParamRule, paramDenied, outsideReadWhy, outsideReadRule } from "./coder-perms.mjs";
+import { psDecision, psPlanFile, toolGlob, MODES, MODE_NAMES, normMode, bashDecision, MONITOR_SETTINGS, namedForMonitor, fetchDecision, fileToolDecision, fileRuleHit, readCommand, fileCommandTargets, parseRule, allowRuleCovers, readBlockWhy, sensitiveWhy, linkOutWhy, ruleAskWhy, askedWhy, hookAskWhy, hookAskTold, planWriteWhy, planCallWhy, ccPath, RULE_MAX, REJECTED, REJECTED_SAID, NOT_NOW, PLAN_NOTE, PLAN_EXITED, AUTO_NOTE, AUTO_EXITED, planApproved, wholeReadOnly, movesWorkTree, monitorRules, partsAllowedByRules, discardsWork, wsDecision, wsProblem, wsAskText, wholeRule, MONITOR_BASH_DENIED, toolSearchParamRule, toolSearchParamDenied, resourceParamRule, paramDenied, outsideReadWhy, outsideReadRule, OUTSIDE_READS_TITLE, OUTSIDE_READS_QUESTION, OUTSIDE_READS_ANSWERS, OUTSIDE_READS_EXPLAINER } from "./coder-perms.mjs";
 // (Claude Code's plan mode and ExitPlanMode, with its plan file: the owner, 2026-11-14, "Do all the talk to you tools execpt
 // for the notify one".)
 import { EXIT_PLAN_TOOL, EXIT_PLAN_TOOL_NO_FILE, planModeNote, planModeSparse, planKind, planReminderDue, planExitOwed, autoNoteOwed, autoExitOwed, planExitedNote, planReentryNote, planInput, checkPlanInput, NOT_IN_PLAN_MODE, PLAN_SHOW_MAX, PLAN_WITHHELD, ENTER_PLAN_TOOL, ENTERED_PLAN, ENTERED_PLAN_TEXT, ENTERED_PLAN_SHOWN, checkEnterPlanInput, planFileReference } from "./coder-plan.mjs";
@@ -2077,7 +2077,7 @@ export const savedFor = (list, site) => {
   return (Array.isArray(list) ? list : []).map((x) => (typeof x === "string" ? { id: "", site: x, username: "" } : x)).filter((x) => x && typeof x.site === "string" && k(x.site) === k(site));
 };
 
-export async function runCoder(deps, { notices = [], lost = [], stalls = [], promptNotify = true, timeouts = null, outLimits = null, noBg = false, respondToBash = true, shell = "", cmdShell = "", compactVars = null, messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, mode = "auto", rules = null, editDiff = false, readBlock = false, writeBlock = false, checker = false, checkerInPlan = true, checkWhere = null, emailMark = "", diskWarnGib = 0, memWarnGib = 0, hooks = null, autoMode = null, denyInstead = false, autoOff = false, planExit = "auto", hostLists = null, powershell = null, connectors = [], connectorNotes = [], connectorsWaiting = [], connectorsFailed = [], connectorsGone = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS , rmChecksOff = null, fileEdits = true, startMode = "", resumed = false, lastAt = 0, sessionRules = null, compact = null, system = CODER_SYSTEM, tools = null, nudges = true, who = "Coder", browserRules: rulesIn = [], granted: grantedIn = [], schedules = [], opening = "user", permissions: permsIn = null, sites: sitesIn = [], monitor = false, ownerSaid: ownerSaidList = null, asHelper = false, helper = null, pages = [], savedLogins = [], savedCards = [], contacts = [], webhooks = [], hookBase = "/api/coder/gloopy-hook/", attached = [], workNote = "", marked = null, taught = null, files: keptFiles = [], background = false, checkWrites = false, denied: deniedIn = [], zone = "", searchLimits = null, takeUp = null, tasksOff = false, holdBack = null, suggest = false } = {}) {
+export async function runCoder(deps, { notices = [], lost = [], stalls = [], promptNotify = true, timeouts = null, outLimits = null, noBg = false, respondToBash = true, shell = "", cmdShell = "", compactVars = null, messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, mode = "auto", rules = null, editDiff = false, readBlock = false, outsideSeen = false, writeBlock = false, checker = false, checkerInPlan = true, checkWhere = null, emailMark = "", diskWarnGib = 0, memWarnGib = 0, hooks = null, autoMode = null, denyInstead = false, autoOff = false, planExit = "auto", hostLists = null, powershell = null, connectors = [], connectorNotes = [], connectorsWaiting = [], connectorsFailed = [], connectorsGone = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS , rmChecksOff = null, fileEdits = true, startMode = "", resumed = false, lastAt = 0, sessionRules = null, compact = null, system = CODER_SYSTEM, tools = null, nudges = true, who = "Coder", browserRules: rulesIn = [], granted: grantedIn = [], schedules = [], opening = "user", permissions: permsIn = null, sites: sitesIn = [], monitor = false, ownerSaid: ownerSaidList = null, asHelper = false, helper = null, pages = [], savedLogins = [], savedCards = [], contacts = [], webhooks = [], hookBase = "/api/coder/gloopy-hook/", attached = [], workNote = "", marked = null, taught = null, files: keptFiles = [], background = false, checkWrites = false, denied: deniedIn = [], zone = "", searchLimits = null, takeUp = null, tasksOff = false, holdBack = null, suggest = false } = {}) {
   // ANOTHER AGENT ON THE SAME ENGINE (owner, 2026-11-09: Gloopy, container/gloopy-agent.mjs): its own instructions
   // (`system`), the tools it is offered (`tools`; a call to any other is refused), no reminders about Coder's setup script
   // (`nudges`), and its name in the chat's own lines (`who`). Coder's defaults are unchanged.
@@ -2542,7 +2542,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     if (first.hook) { if (first.hook.take) first.hook.take(); hookEnding(pid, first.hook.answer); return first.hook.answer; }
     const a = first.owner;
     if (a && a.choice === "park") parkNow(pid, "permission", siteOfCard(card), shownMode);
-    const choice = a && ["yes", "always", "auto", "acceptEdits", "no", "stop"].includes(a.choice) ? a.choice : "none";
+    // (And Auto's one-time question's four answers, for a read outside the working folders: card.outsideReads.)
+    const choice = a && (["yes", "always", "auto", "acceptEdits", "no", "stop"].includes(a.choice) || (card && card.outsideReads === true && ["allow", "block", "ask_again", "allow_once"].includes(a.choice))) ? a.choice : "none";
     const comment = a && typeof a.comment === "string" ? scrub(a.comment).trim().slice(0, 2000) : "";
     // THE PLAN AS THE OWNER EDITED IT ON ITS CARD, with a Yes (Claude Code: on its web card, or with Ctrl+G, "Press Ctrl+G to
     // open the proposed plan in your default text editor and edit it directly before Claude proceeds"; its result then says
@@ -2970,6 +2971,20 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
    * in Claude Code's words ("error: Attachment … does not exist. …"), or "" (the files are there, or the check could not be made:
    * the tool then answers for itself).
    */
+  /**
+   * A PATH OUTSIDE THE WORKING FOLDERS (Claude Code 2.1.327's Read permission: the working directories and its own files count
+   * as inside, "apart from files Claude Code itself needs"): the chat's working folders, and Coder's own (its output, scratch,
+   * plan and memory files); a link out of them counts as outside, with where it leads (`landing`). null when inside.
+   */
+  const ownFolders = () => [...workdirs, ...(Array.isArray(deps.ownDirs) ? deps.ownDirs : []), SCRATCH, ...(planPath() ? [planPath()] : []), ...(typeof deps.memFile === "string" && deps.memFile ? [deps.memFile] : [])].filter((x) => typeof x === "string" && x);
+  const outsidePath = (full) => {
+    if (typeof full !== "string" || !full) return null;
+    const own = ownFolders(), within = (x) => !!x && own.some((d) => x === d || x.startsWith(d.replace(/\/+$/, "") + "/"));
+    const to = leadsTo(full, workdirs, (x) => realPath(x)) || full;
+    return within(full) && within(to) ? null : { full, landing: within(full) ? to : "" };
+  };
+  /** Whether one of the owner's Read allow rules covers a path (Claude Code's mMt, after the working folders). */
+  const readAllows = (full) => !!fileRuleHit(ownRules.allow, "Read", full, "allow", { sources: ownRules.sources, root: deps.root || "/", cwd: ruleCwd(), home: deps.home || "", real: (y) => realPath(y), roots: workdirs.slice(1) });
   const sendFiles = async (files) => {
     // (Under the read block, a file outside the working folders is refused here, as Claude Code's check refuses it.)
     const req = { tool: "user_file_check", args: { files, ...(readBlock ? { blockOutside: true } : {}) } }, b64 = Buffer.from(JSON.stringify(req)).toString("base64");
@@ -4822,6 +4837,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         if (typeof args.path !== "string" && typeof args.file_path === "string") args.path = args.file_path;
         if (x.name === "read") { if (args.allow_large === true) return; delete args.max_chars; }
         const tgt = targetFor(x.name, args);
+        // (One outside the working folders waits for its turn, which asks or allows it: outsidePath.)
+        if (!offered && outsidePath(tgt)) return;
         const d = github ? null : fileToolDecision(x.name, tgt, { rules: ownRules, root: deps.root || "/", cwd: ruleCwd(), home: deps.home || "", real: (q) => realPath(q), input: args, roots: workdirs.slice(1) });
         if (d && d.verdict === "deny") early.refused(x.id);
         if (d && (d.verdict === "deny" || d.verdict === "ask")) return;
@@ -5737,11 +5754,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // folder; in Auto it runs, as Claude Code's auto mode approves read-only actions, "including reads outside the working
         // directories"). The chat's own folders count as inside (its output, scratch, plan and memory files), as Claude Code's own
         // files do. (The owner, 2026-11-18: "Match Claude Code".)
-        const ownHere = [...workdirs, ...(Array.isArray(deps.ownDirs) ? deps.ownDirs : []), SCRATCH, ...(planPath() ? [planPath()] : []), ...(typeof deps.memFile === "string" && deps.memFile ? [deps.memFile] : [])].filter((x) => typeof x === "string" && x);
-        const withinHere = (x) => !!x && ownHere.some((d) => x === d || x.startsWith(d.replace(/\/+$/, "") + "/"));
-        const outsideOf = (f) => { const full = toolFullPath(deps, f); const to = leadsTo(full, workdirs, (x) => realPath(x)) || full; return withinHere(full) && withinHere(to) ? null : { full, landing: withinHere(full) ? to : "" }; };
-        const readCtx = { sources: ownRules.sources, root: deps.root || "/", cwd: ruleCwd(), home: deps.home || "", real: (y) => realPath(y), roots: workdirs.slice(1) };
-        const out = github || modeNow() === "auto" ? null : files.map(outsideOf).find((o) => o && !fileRuleHit(ownRules.allow, "Read", o.full, "allow", readCtx));
+        const out = github || modeNow() === "auto" ? null : files.map((f) => outsidePath(toolFullPath(deps, f))).find((o) => o && !readAllows(o.full));
         const asks = byRule || (!github && wholeRule(ownRules, "ask", "Read") ? { why: "Send " + files.length + " " + (files.length === 1 ? "file" : "files") + " to the user? " + CC_SEND + " reads file contents." } : decs.find((d) => d && d.verdict === "ask")) || (out ? { why: outsideReadWhy(out.full, out.landing), rules: [outsideReadRule(out.full)] } : null);
         if (asks && !askedByRule && !c.rerun) {
           const card = { tool: c.name, id: c.id, what: scrub("Send " + files.join(", ") + " to you").slice(0, 300), why: String(asks.why || ""), told: String(asks.why || askedWhy(CC_SEND)), ...(Array.isArray(asks.rules) ? { rules: asks.rules } : {}) };
@@ -6853,8 +6866,30 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // Code's stash at its permission check, re-checked by its search. coder-search.mjs's checkedAt and searchRoot. Round 3.)
         const searchSaw = (c.name === "grep" || c.name === "glob") && fileTarget ? checkedAt(fileTarget) : null;
         if (fileDec && fileDec.verdict === "deny") { emit({ type: "result", id: c.id, code: 1, ran: false, output: fileDec.why }); reply(fileDec.why); continue; }
-        const ruleAsk = !!(fileDec && fileDec.verdict === "ask") || !!(c.hook && c.hook.decision === "ask" && !github && !c.rerun);
         const modeT = modeNow();
+        // A READ OUTSIDE THE WORKING FOLDERS (Claude Code 2.1.327's Read, Grep and Glob, and its LSP's read of its file; the owner,
+        // 2026-11-18: "Yes pls"): after the owner's rules, one outside the working folders (or a link out of them) that no Read
+        // allow rule covers asks in Accept edits and Plan, in its words, offering a rule for its folder ("still prompt for paths
+        // outside the working directory"); in Auto it is read, the first time after Auto's one-time question (Read, Grep and Glob,
+        // where someone can answer, unless answered "keep allowing" before). Under the read block it was refused above.
+        // (Coder's own chats only: Gloopy's stay as they were, the owner, 2026-11-17: "Dont touch gloopy for now".)
+        const outside = READ_TOOLS.has(c.name) && !github && !offered && fileTarget ? outsidePath(fileTarget) : null;
+        const outsideFree = !outside || readAllows(outside.full) || (c.hook && c.hook.decision === "allow");
+        const outsideAsk = !outsideFree && modeT !== "auto" && !c.rerun && !(fileDec && fileDec.verdict === "ask") ? { why: outsideReadWhy(outside.full, outside.landing), rules: [outsideReadRule(outside.full)] } : null;
+        if (!outsideFree && modeT === "auto" && !outsideSeen && canAsk() && !c.rerun && (c.name === "read" || c.name === "grep" || c.name === "glob")) {
+          const card = { tool: c.name, id: c.id, path: scrub(visibleChars(outside.full)).slice(0, 300), outsideReads: true, title: OUTSIDE_READS_TITLE, question: OUTSIDE_READS_QUESTION, explainer: OUTSIDE_READS_EXPLAINER, options: OUTSIDE_READS_ANSWERS.map(([value, label]) => ({ value, label })), why: OUTSIDE_READS_QUESTION, told: outsideReadWhy(outside.full, outside.landing) };
+          const a = await askOwner(card);
+          const o = a ? (["allow", "allow_once"].includes(a.choice) ? "go" : ["block", "ask_again"].includes(a.choice) ? "no" : answerOutcome(a)) : "no";
+          if (o === "stop") { emit({ type: "result", id: c.id, code: -1, ran: false, output: "Not run: stopped." }); return stopNow(reply); }
+          if (o === "time") { emit({ type: "result", id: c.id, code: -1, ran: false, output: "Not run: no answer before Coder's time limit." }); reply("not run: Coder ran out of time waiting for the owner's answer"); emit({ type: "error", text: "Coder ran out of time waiting for your answer." }); return end("time"); }
+          if (o === "said") { emit({ type: "result", id: c.id, code: -1, ran: false, output: saidShown(a), ...saidMarks(a) }); reply(saidReply(a)); continue; }
+          // ("Keep allowing": not asked again, here or in later chats, as Claude Code records it; "block": the read block on from
+          // now on, in this job and in Settings, as Claude Code sets it in the user's settings. Coder's server keeps them.)
+          if (a && a.choice === "allow") { outsideSeen = true; emit({ type: "outsidereads", answer: "allow" }); }
+          if (a && a.choice === "block") { readBlock = true; emit({ type: "outsidereads", answer: "block" }); }
+          if (o === "no") { emit({ type: "result", id: c.id, code: -1, ran: false, output: "Not run: you said no." }); reply(REJECTED); return noEnd(i, "stopped: the owner said no"); }
+        }
+        const ruleAsk = !!(fileDec && fileDec.verdict === "ask") || !!(c.hook && c.hook.decision === "ask" && !github && !c.rerun) || !!outsideAsk;
         const fetchDec = c.name === "web_fetch" && !github ? fetchDecision(String(args.url || ""), { mode: modeT, rules: ownRules }) : null;
         if (fetchDec && fetchDec.verdict === "deny") { emit({ type: "result", id: c.id, code: -1, ran: false, output: fetchDec.why }); reply(fetchDec.why); continue; }
         if (emailNo) { const m = accountEmailRefused(emailTool); emit({ type: "result", id: c.id, code: -1, ran: false, output: m }); reply(m); continue; }
@@ -6921,7 +6956,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           const card = fileAsk
             ? { tool: c.name, id: c.id, path: shownPath, change: changeShown(), why: why ? sensitiveWhy(fullFile) : planWriteWhy(targetFor(c.name, args)), ...(hookLine || {}) }
             : ruleAsk
-            ? { tool: c.name, id: c.id, ...(c.name === "web_fetch" ? { url: scrub(String(args.url || "")).slice(0, 500) } : { path: shownPath }), ...(writes ? { change: changeShown() } : {}), why: fileDec && fileDec.verdict === "ask" ? fileDec.why : "", ...(hookLine || {}), byRule: true }
+            ? { tool: c.name, id: c.id, ...(c.name === "web_fetch" ? { url: scrub(String(args.url || "")).slice(0, 500) } : { path: shownPath }), ...(writes ? { change: changeShown() } : {}), ...(outsideAsk && !(fileDec && fileDec.verdict === "ask") ? { rules: outsideAsk.rules } : {}), why: fileDec && fileDec.verdict === "ask" ? fileDec.why : outsideAsk ? outsideAsk.why : "", ...(hookLine || {}), byRule: !(outsideAsk && !(fileDec && fileDec.verdict === "ask")) }
             : { tool: "web_fetch", id: c.id, url: scrub(String(args.url || "")).slice(0, 500), why: fetchLimit ? fetchLimit.why : fetchSwitched ? ccFetch.why : fetchDec.why, ...((ccFetch ? ccFetch.suggest : fetchDec && fetchDec.suggest) ? { rules: ccFetch ? ccFetch.suggest : fetchDec.suggest } : {}), ...(fetchLimit ? { told: "Coder requested permissions to use WebFetch, but you haven't granted it yet." } : {}) };
           // (Claude Code's words for a page fetch no one can approve, with nothing in front of them; its PermissionRequest hooks
           // decide first: noOneHooks, fix round 4, D5.)
@@ -6974,7 +7009,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         const reqArgs = c.name === "write" ? { ...given, show_change: true, check: lspCheck, facts: true } : c.name === "edit" ? { ...args, show_change: true, check: lspCheck, facts: true } : notebook ? { ...args, show_change: true, facts: true } : c.name === "read" ? { ...args, facts: true } : args;
         // (Grep and Glob get the owner's Read deny rules and the search settings with it: searchCtx.)
         const search = c.name === "grep" || c.name === "glob";
-        const req = { tool: c.name, args: reqArgs, ...(search ? { ctx: { ...searchCtx(), ...(searchSaw ? { spellings: searchSaw } : {}) } } : {}) };
+        // (A read outside the working folders, allowed above: the tools script reads there for this call only, `outside`.)
+        const req = { tool: c.name, args: reqArgs, ...(search || outside ? { ctx: { ...(search ? { ...searchCtx(), ...(searchSaw ? { spellings: searchSaw } : {}) } : {}), ...(outside ? { outside: true } : {}) } } : {}) };
         let r;
         // (One call of the tools script, toolRun above: the chat's language servers' keeper started first when the call needs
         // one. One started at its group's start, coder-parallel.mjs: its result, for this same request.)

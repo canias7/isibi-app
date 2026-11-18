@@ -2048,6 +2048,15 @@ export const ccPath = (p) => String(p).replace(/[\u0000-\u001f\u007f-\u009f\u202
  * 2026-11-18 (the owner: "Match Claude Code").
  */
 export const outsideReadWhy = (p, landing = "") => "Coder requested permissions to read from " + ccPath(p) + ", but you haven't granted it yet." + (landing ? " " + ccPath(p) + " resolves through a symlink to " + ccPath(landing) + ", which is outside the allowed working directories." : "");
+/**
+ * AUTO'S ONE-TIME QUESTION BEFORE THE FIRST READ OUTSIDE THE WORKING FOLDERS (Claude Code 2.1.327: its Read, Grep and Glob
+ * tools, in auto mode, where someone can answer, until answered "keep allowing"): its title, question and four answers, in its
+ * order; its explanation, its words for a machine whose commands no sandbox fences, with Coder's names.
+ */
+export const OUTSIDE_READS_TITLE = "Read outside the working directories";
+export const OUTSIDE_READS_QUESTION = "Allow this read outside the working directories?";
+export const OUTSIDE_READS_ANSWERS = Object.freeze([["allow", "Yes, and keep allowing any reads outside the working directories"], ["block", "No, and block reads outside the working directories from now on"], ["ask_again", "No, and ask again next time"], ["allow_once", "Yes, but ask again next time"]]);
+export const OUTSIDE_READS_EXPLAINER = "Auto mode reads outside the working directories without asking. Yes or No answers for this read; the rest is for later reads. Block: the file tools refuse reads outside the working directories in every chat. Auto mode asks before each shell command it can't check. To undo, turn off “Block reads outside the working folders” in Settings.";
 export const outsideReadRule = (p) => { const dir = String(p).replace(/\/[^/]*$/, "") || "/"; return "Read(/" + (dir === "/" ? "/" : dir + "/") + "**)"; };
 /**
  * THE FILES A COMMAND NAMES, for the owner's Read and Edit rules: `{ tool: "Read" | "Edit", path, name, how, glob }` for each

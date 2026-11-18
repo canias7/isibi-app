@@ -961,9 +961,10 @@ test("R6R5 (round 6) read, write, edit and lsp take their path as Claude Code 2.
   // The chat keeps what Grok wrote, as Claude Code's transcript keeps its model's input.
   const asked = t.r.messages.filter((m) => m.role === "assistant" && Array.isArray(m.tool_calls)).flatMap((m) => m.tool_calls.map((c) => JSON.parse(c.function.arguments).path));
   assert.deepEqual(asked, [" src/a.txt ", " .env", "~/notes.md", " .bashrc"]);
-  // A ~ path outside the project: the step in full, the tool's refusal.
+  // A ~ path outside the project: the step in full; read in Auto, as Claude Code's Read reads outside the working folders there
+  // (2026-11-18, the owner: "Yes pls"; with no one to answer, no question); not there, in the words of a missing file.
   const o = await realLoop(d, [sayR("", [callR("read", { path: "~/n2.md" }, "h1")]), sayR("Done.")], { here: join(d, "sub"), home: outHome });
-  assert.equal(o.told("h1"), "error: that path is outside the project");
+  assert.equal(o.told("h1"), "error: no such file: " + join(outHome, "n2.md") + ". Note: your current working directory is " + join(d, "sub") + ".");
   assert.deepEqual(o.events.filter((e) => e.type === "bash").map((e) => e.command), [join(outHome, "n2.md")]);
 });
 

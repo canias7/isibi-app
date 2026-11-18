@@ -4,6 +4,25 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-18: Reading files outside the project works like Claude Code (your words: "Yes pls")
+
+Before, Coder's read, grep and glob refused any file outside the project and its working folders. Claude Code asks first. Now Coder does it Claude Code's way:
+
+- **In Accept edits and Plan:** Coder asks you first, in Claude Code's words ("Coder requested permissions to read from /etc/hosts, but you haven't granted it yet."). You can allow it once, or for that whole folder from then on.
+- **In Auto:** Coder reads them without asking, as Claude Code's auto mode does. The very first time, it asks one question, with Claude Code's four answers:
+  - **Yes, and keep allowing any reads outside the working directories:** it never asks again, in any chat.
+  - **No, and block reads outside the working directories from now on:** they're refused in every chat. This turns on a new Settings switch, "Block reads outside the working folders", which you can turn off again.
+  - **No, and ask again next time,** or **Yes, but ask again next time:** this read only.
+- In jobs started from GitHub, nobody is asked, so Coder reads without asking, like Claude Code's background sessions.
+- The read block (the setting, the environment variable or the repository's settings) still refuses them, as before.
+- A missing file outside the project now gets the same "no such file" words as one inside.
+
+Unchanged: Coder still won't read a project's `.git` folder (Claude Code would). Gloopy is untouched.
+
+The docs page has a new part, "Files outside the project", under Read.
+
+Tests: OR1 to OR6 are new. Five older tests were updated for the new behavior. All 1,363 pass. On this chat's branch.
+
 ## 2026-11-18: send_user_file matches Claude Code everywhere, checked against its docs (your words: "Match Claude Code", "double check against the Claude Code docs")
 
 I read Claude Code's docs again (every page fetched fresh) and its program, and matched all seven differences:

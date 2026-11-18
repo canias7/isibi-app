@@ -20,6 +20,23 @@
 import { seal, unseal } from "./coder-github.mjs";
 import { pushesFor, notifyOwner } from "./coder-push.mjs";
 
+/**
+ * AUTO'S ONE-TIME QUESTION ANSWERED (a read outside the working folders, the owner, 2026-11-18: "Yes pls"; Claude Code 2.1.327
+ * records "Yes, and keep allowing any reads outside the working directories" so it isn't asked again, its
+ * hasSeenAutoModeOutsideReadPrompt, and puts "No, and block reads outside the working directories from now on" in the user's
+ * settings, permissions.blockReadsOutsideWorkingDirectories): kept in the owner's Settings, which every later job gets.
+ */
+export async function keepOutsideAnswers(bucket, uid, events) {
+  const answers = (Array.isArray(events) ? events : []).filter((e) => e && e.type === "outsidereads" && (e.answer === "allow" || e.answer === "block")).map((e) => e.answer);
+  if (!answers.length) return false;
+  const key = ["coder", uid, "settings.json"].join("/");
+  let s = {};
+  try { const o = await bucket.get(key); s = o ? JSON.parse(await o.text()) : {}; } catch { s = {}; }
+  if (!s || typeof s !== "object" || Array.isArray(s)) s = {};
+  await bucket.put(key, JSON.stringify({ ...s, ...(answers.includes("allow") ? { outsideReadsSeen: true } : {}), ...(answers.includes("block") ? { blockOutsideReads: true } : {}) }), { httpMetadata: { contentType: "application/json" } });
+  return true;
+}
+
 export const LIVE_PATH = "/api/coder/live";
 /**
  * One sending at most (the machine sends fewer steps when it is refused as too large; and, refused with the conversation, it
@@ -181,6 +198,8 @@ export async function handleLive(request, env, { fetchFn = fetch, waitUntil = nu
     // may be pushed to the owner's devices: Coder's own notify, its question, a key or an approval it needs,
     // the end of a long job.
     const fresh = take.slice(Math.max(0, start + known.length - from));
+    // (Auto's one-time question answered: kept in the owner's Settings.)
+    await keepOutsideAnswers(bucket, uid, fresh).catch(() => false);
     const list = fresh.length ? pushesFor(fresh, meta, now) : [];
     if (list.length) {
       const work = (async () => { for (const p of list) await notifyOwner(env, uid, { ...p, chat: id }, { fetchFn, now }).catch(() => null); })();
