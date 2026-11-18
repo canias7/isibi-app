@@ -1044,4 +1044,6 @@ file's end (Claude Code: "Error calling tool (Edit): ENOTDIR: not a directory, s
 makes new.txt, "File created successfully at: …/new.txt/"), not yet compared.
 
 **Tests:** RM6 (read: a "/" at the end, the screenshot's spellings), RM7 (grep and glob: ENOTDIR), RM8 (.git writes with the
-flag), RM9 (through the loop: the card, Yes, No, a job from GitHub, Gloopy) new; RM1, RM3 and CD36 updated.
+flag), RM9 (through the loop: the card, Yes, No, a job from GitHub, Gloopy) new; RM1, RM3 and CD36 updated. The full suite: 1372
+pass, 4 skipped, 0 fail. Deployed to coder2 (deploy 258): its docs page has the new words. Not tried in a live chat (coder2's
+GitHub sign-in).

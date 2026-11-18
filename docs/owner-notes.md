@@ -19,6 +19,8 @@ Found on the way (tell me if you want these matched too):
 
 Gloopy is untouched: its read, grep and glob keep their old words, and its writes into `.git` are still refused.
 
+The docs page says this under Read and Write. Tests: RM6 to RM9 are new; three older tests were updated. All 1,372 pass. On this chat's branch, deployed to coder2 (deploy 258). Not tried in a live chat with Grok yet (coder2's GitHub sign-in).
+
 ## 2026-11-18: Read, grep and glob now match Claude Code's own tools (your words: "match claude code")
 
 I tried the same cases on Claude Code's real tools in this session and matched all four differences:
