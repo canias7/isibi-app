@@ -981,3 +981,22 @@ inside the project; Gloopy is as it was ("Dont touch gloopy for now").
 **Tests:** OR1–OR6 (`coder/test/outside-reads.test.mjs`); R6R5 (a `~` path outside the project, read in Auto), CD392 and RS13
 (the machine's code), CD380 (Settings), CD248 (the docs page's new part) updated. WF20 (the card's note box, now left off this question too). The full suite: 1363 pass, 4 skipped,
 0 fail. Deployed to coder2 (deploy 254); not tried in a live chat (coder2's GitHub sign-in).
+
+**Checked on Claude Code's own tools** (the owner, 2026-11-18: "go check against claude code tools again"; this Claude Code
+cloud session, 2.1.327, in auto mode, and the same calls through Coder's loop in Auto):
+
+| Call | Claude Code | Coder |
+|---|---|---|
+| Read /etc/hosts (outside) | read, no question asked | read; asks its one-time question first where someone can answer |
+| Grep "localhost" in /etc/hosts, content | `1:127.0.0.1 localhost` | the same |
+| Glob `host*` in /etc | /etc/host.conf, /etc/hosts, /etc/hostname | the same |
+| Read a link out of the project | read | read |
+| Glob in a missing folder outside | "Directory does not exist: /etc/no-such-folder-here. Note: your current working directory is …" | the same |
+| Grep in a missing path outside | "Path does not exist: …. Note: your current working directory is …" | the same |
+| Read a missing file (outside, or a misspelled name inside) | "File does not exist. Note: your current working directory is …" | "no such file: <path>. Note: your current working directory is …" |
+| Read a folder | "EISDIR: illegal operation on a directory, read '/etc'" | "/etc is a folder, not a file: list what is in it with glob, or a command such as ls" |
+| Read the project's .git/HEAD | read | refused ("the .git folder is off limits"; the owner's choice of 2026-11-14) |
+
+So Claude Code's cloud sessions don't ask the one-time question (its docs: "The prompt doesn't appear in non-interactive -p runs
+or background sessions"; a cloud session runs it so). For the owner: drop Coder's question in Auto to match; read's two
+wordings; the .git folder.
