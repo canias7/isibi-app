@@ -116,6 +116,59 @@ test("CD147 the admin sandbox, for real: sudo for anything inside (packages, sys
   }
 });
 
+test("CD147b the admin sandbox's own layer lasts while the tools do (the owner, 2026-11-18: \"finish this\": an environment's saved copy holds it, and a deploy of Coder's own files must not start it fresh): a new Coder version on the same tools keeps what was installed, never the old version's own /app; a restart of the same version keeps everything; new tools start it fresh; tools that are not a tools image's name: one layer per version, as before", { skip: !ready && process.env.CODER_TESTS_NEED_ROOT !== "1" && "needs root, a user 1001, and ip, nsenter, setpriv, unshare, mountpoint, findmnt, newuidmap, sudo, python3, curl" }, async () => {
+  for (const f of ["/etc/subuid", "/etc/subgid"]) if (!/^root:1000000:262144$/m.test(readFileSync(f, "utf8"))) appendFileSync(f, "root:1000000:262144\n");
+  const dir = mkdtempSync("/run/coder-sbx-test-"), data = mkdtempSync("/var/tmp/coder-sbx-data-");
+  chmodSync(data, 0o755);
+  spawnSync("ip", ["netns", "del", NAME], { stdio: "ignore" });
+  const T1 = "registry.fly.io/app:coder-tools-111111111111", T2 = "registry.fly.io/app:coder-tools-222222222222";
+  const A = "registry.fly.io/app:coder-aaaaaaaaaaaa-111111111111", B = "registry.fly.io/app:coder-bbbbbbbbbbbb-111111111111", C = "registry.fly.io/app:coder-cccccccccccc-222222222222";
+  let box = null;
+  try {
+    assert.equal(S.makeLower({ base: S.sandboxBase(), dir }), true, S.sandboxWhy());
+    assert.equal(R.makeRoom({ ns: NS, name: NAME }), true);
+    const work = join(data, "work"), proj = join(work, "shop");
+    mkdirSync(proj, { recursive: true });
+    for (const p of [work, proj]) chownSync(p, 0, 0);
+    chownSync(proj, 1001, 1001);
+    const start = async (up) => { box = await S.startSandbox({ ...up, ns: NS, dir, binds: [{ src: work, mode: "rw", mine: true }] }); assert.ok(box && box.pid > 1, S.sandboxWhy()); };
+    const sh = (cmd) => inBox(box, proj, cmd);
+    const stop = () => { box.stop(); box = null; };
+    // VERSION A: something installed, and something in Coder's own folder (which no setup should touch).
+    const up = S.makeUpper({ data, image: A, tools: T1 });
+    await start(up);
+    assert.equal((await sh("sudo -n sh -c 'echo installed > /etc/coder-sbx-kept && mkdir -p /app && echo a > /app/coder-sbx-own' && echo ok")).out, "ok");
+    stop();
+    // A RESTART OF THE SAME VERSION: everything stays.
+    assert.equal(S.makeUpper({ data, image: A, tools: T1 }).upper, up.upper);
+    await start(up);
+    assert.equal((await sh("cat /etc/coder-sbx-kept /app/coder-sbx-own")).out, "installed\na");
+    stop();
+    // VERSION B, THE SAME TOOLS: the same layer; what was installed stays; the old version's /app does not.
+    const up2 = S.makeUpper({ data, image: B, tools: T1 });
+    assert.equal(up2.upper, up.upper, "the same layer");
+    await start(up2);
+    assert.equal((await sh("cat /etc/coder-sbx-kept")).out, "installed");
+    assert.notEqual((await sh("cat /app/coder-sbx-own")).code, 0, "the old version's own /app is gone");
+    stop();
+    // NEW TOOLS: a fresh layer, the old one gone.
+    const up3 = S.makeUpper({ data, image: C, tools: T2 });
+    assert.notEqual(up3.upper, up.upper);
+    assert.equal(existsSync(up.upper), false, "the old tools' layer is gone");
+    await start(up3);
+    assert.notEqual((await sh("cat /etc/coder-sbx-kept")).code, 0);
+    stop();
+    // NOT A TOOLS IMAGE'S NAME: one layer per version, as before.
+    const up4 = S.makeUpper({ data, image: A, tools: "core" }), up5 = S.makeUpper({ data, image: B, tools: "core" });
+    assert.notEqual(up4.upper, up5.upper);
+    assert.equal(existsSync(up4.upper), false);
+  } finally {
+    if (box) box.stop();
+    spawnSync("ip", ["netns", "del", NAME], { stdio: "ignore" });
+    for (const m of ["lower", "image"]) spawnSync("umount", ["-l", join(dir, m)], { stdio: "ignore" });
+  }
+});
+
 test("CD301 (the live test after deploy 75) a background command in the admin sandbox, paused while root works and resumed, is still seen to end: its own starter (nsenter, outside the sandbox) is woken too, so it collects the command and its output closes; and what a command leaves behind in the sandbox is collected by its first process, never left a zombie", { skip: !ready && process.env.CODER_TESTS_NEED_ROOT !== "1" && "needs root, a user 1001, and ip, nsenter, setpriv, unshare, mountpoint, findmnt, newuidmap, sudo, python3, curl" }, async () => {
   const F = await import("../container/coder-freeze.mjs");
   const { wakeStarters } = await import("../container/server.mjs");

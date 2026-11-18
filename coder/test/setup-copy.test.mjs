@@ -523,3 +523,58 @@ test("CD153b a setup that took longer than about five minutes is not saved as th
   const page = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
   assert.ok(page.includes("Keep it under about 5 minutes. Then Coder saves a copy of what it set up, and new chats start from that copy without running it again. A script still running at 5 minutes is stopped, and no copy is saved."));
 });
+
+test("CD153c a copy made by one Coder version is used by the next on the same tools (the owner, 2026-11-18: \"finish this\"; Claude Code's saved setup is rebuilt when the setup script or the allowed hosts change, or after about 7 days, not when Claude Code itself is updated): its note says which tools made it; the next version's chat starts from it without running the setup, and what the setup installed and the admin sandbox's layer stay; a copy made with other tools, or one from before the tools were named made by another version, is not used", async () => {
+  const T1 = "registry.fly.io/app:coder-tools-111111111111", T2 = "registry.fly.io/app:coder-tools-222222222222";
+  const A = "registry.fly.io/app:coder-aaaaaaaaaaaa-111111111111", B = "registry.fly.io/app:coder-bbbbbbbbbbbb-111111111111";
+  const script = "echo setup-ran";
+  const { normNetwork } = await import("../container/coder-secrets.mjs");
+  // VERSION A MAKES THE COPY: its note says which tools.
+  const a = await diskMachine({ holdMs: 60_000, image: A, tools: T1 });
+  let sha;
+  try {
+    sha = a.S.setupSha(script, normNetwork(undefined));
+    assert.deepEqual(await a.turn("shop-aaa1", { setup: { script }, cache: { make: true } }), { ok: true });
+    assert.equal((await a.done("shop-aaa1")).result.copy, true);
+    const note = JSON.parse(await readFile(join(a.data, a.S.COPY_NOTE), "utf8"));
+    assert.deepEqual({ ...note, at: 0 }, { from: "shop-aaa1", sha, image: A, tools: T1, at: 0 });
+  } finally { await a.close(); }
+  // (Tools that are not a tools image's name are never written down.)
+  const plain = await diskMachine({ holdMs: 60_000, tools: "core" });
+  try {
+    await plain.turn("shop-aaa2", { setup: { script }, cache: { make: true } });
+    await plain.done("shop-aaa2");
+    assert.equal("tools" in JSON.parse(await readFile(join(plain.data, plain.S.COPY_NOTE), "utf8")), false);
+  } finally { await plain.close(); }
+  // VERSION B, THE SAME TOOLS: a new chat starts from it; the setup does not run; what it installed stays.
+  const b = await diskMachine({ holdMs: 60_000, image: B, tools: T1 });
+  try {
+    await writeFile(join(b.data, b.S.COPY_NOTE), JSON.stringify({ from: "shop-aaa1", sha, image: A, tools: T1, at: Date.now() - 3600e3 }));
+    await writeFile(join(b.data, b.S.USED_NOTE), "1");
+    for (const p of [join(b.dirs.home, ".cache"), join(b.data, ".coder-admin", "v1", "upper")]) await mkdir(p, { recursive: true });
+    await writeFile(join(b.dirs.home, ".cache", "pip.txt"), "installed by the setup\n");
+    assert.deepEqual(await b.turn("shop-eee1", { setup: { script }, cache: { make: true } }, "used"), { ok: true });
+    const s = await b.done("shop-eee1");
+    assert.equal(s.result.status, "done");
+    assert.ok(!s.events.some((e) => e.tool === "setup"), "the setup did not run");
+    const up = s.events.find((e) => e.type === "startup");
+    assert.ok(up.steps.some((x) => x.k === "restored"), JSON.stringify(up));
+    assert.equal(up.copyWhy, undefined);
+    assert.equal(await readFile(join(b.dirs.home, ".cache", "pip.txt"), "utf8"), "installed by the setup\n");
+    assert.equal(existsSync(join(b.data, ".coder-admin", "v1", "upper")), true, "the admin sandbox's layer stays");
+  } finally { await b.close(); }
+  // OTHER TOOLS, OR A COPY FROM BEFORE THE TOOLS WERE NAMED BY ANOTHER VERSION: not used (a fresh disk).
+  const odd = await diskMachine({ holdMs: 60_000 });
+  try {
+    const take = async (note, tools, image = B) => {
+      await writeFile(join(odd.data, odd.S.COPY_NOTE), JSON.stringify({ from: "shop-aaa1", sha, at: Date.now() - 3600e3, ...note }));
+      await mkdir(join(odd.data, ".coder-admin", "v1"), { recursive: true });
+      const r = await odd.S.takeCopy({ data: odd.data, project: "shop-zzz1", sha, image, tools, dirs: odd.dirs, fromCopy: true });
+      return [r, existsSync(join(odd.data, ".coder-admin"))];
+    };
+    assert.deepEqual(await take({ image: A, tools: T1 }, T2), [{ why: "it was made with other tools (a new tools image for Coder's machine since)" }, false]);
+    assert.deepEqual(await take({ image: A }, T1), [{ why: "it was made by an older version of Coder" }, false], "from before the tools were named");
+    assert.deepEqual(await take({ image: A, tools: T1 }, ""), [{ why: "it was made by an older version of Coder" }, false], "this version's tools not said");
+    assert.deepEqual((await take({ image: B, tools: T1 }, T1))[1], true, "the same tools: kept");
+  } finally { await odd.close(); }
+});

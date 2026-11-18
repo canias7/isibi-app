@@ -183,10 +183,19 @@ jobs:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
         run: |
           flyctl auth docker
+          # THE TOOLS ARE BUILT ONCE (owner, 2026-11-10: "yea do that lol, do it from now on"): the
+          # Dockerfile up to its last stage (every tool, container/tools too) is its own image on
+          # Fly.io, named after what it is built from and the month, so it is built again only when
+          # those change, or once a month to stay fresh. A deploy that changes only Coder's own files
+          # builds just the last stage on top of it: a few minutes, not a quarter of an hour.
+          base="registry.fly.io/$FLY_APP:coder-tools-$({ sed '/^FROM \${CODER_IMAGE} AS app/,$d' container/Dockerfile; git rev-parse HEAD:coder/container/tools; date -u +%Y-%m; } | sha256sum | cut -c1-12)"
           # THE VERSION NAME CHANGES ONLY WHEN CODER'S MACHINE DOES (2026-11-07): it is the
           # git fingerprint of coder/container, so a deploy that changes nothing there leaves
           # every chat's machine as it is (its kept disk, and no setup running again).
-          img="registry.fly.io/$FLY_APP:coder-$(git rev-parse HEAD:coder/container | cut -c1-12)"
+          # AND IT ENDS WITH THE TOOLS' OWN (2026-11-18, the owner: "finish this"): an environment's saved copy of its setup
+          # belongs to the tools it was made with, not to Coder's own files, so the Worker is told which tools each version
+          # has (CODER_FLY_TOOLS) and a copy lasts from one deploy to the next, as Claude Code's does.
+          img="registry.fly.io/$FLY_APP:coder-$(git rev-parse HEAD:coder/container | cut -c1-12)-${base##*-}"
           # ALL OF CLAUDE CODE'S TOOLS (owner, 2026-11-07): Fly.io's machines get the full image
           # (Cloudflare's backup machines keep the small one, which wrangler builds below). It
           # takes a while to build, so a version already sent is not built again.
@@ -206,12 +215,6 @@ jobs:
             echo "Coder's machine $img is already on Fly.io: not built again."
           else
             sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
-            # THE TOOLS ARE BUILT ONCE (owner, 2026-11-10: "yea do that lol, do it from now on"): the
-            # Dockerfile up to its last stage (every tool, container/tools too) is its own image on
-            # Fly.io, named after what it is built from and the month, so it is built again only when
-            # those change, or once a month to stay fresh. A deploy that changes only Coder's own files
-            # builds just the last stage on top of it: a few minutes, not a quarter of an hour.
-            base="registry.fly.io/$FLY_APP:coder-tools-$({ sed '/^FROM \${CODER_IMAGE} AS app/,$d' container/Dockerfile; git rev-parse HEAD:coder/container/tools; date -u +%Y-%m; } | sha256sum | cut -c1-12)"
             if docker manifest inspect "$base" >/dev/null 2>&1; then
               echo "The machine's tools ($base) are already on Fly.io: only Coder's own files are built."
             else
@@ -222,6 +225,7 @@ jobs:
             send "$img"
           fi
           echo "image=$img" >> "$GITHUB_OUTPUT"
+          echo "tools=$base" >> "$GITHUB_OUTPUT"
       - name: "Fly.io: give the Worker the token"
         if: steps.fly.outputs.on == 'true' && env.TARGET == 'live'
         env:
@@ -243,7 +247,7 @@ jobs:
           wranglerVersion: "4.107.0"
           workingDirectory: coder
           # Where chats' machines run, and (on Fly.io) the machine version just sent.
-          command: deploy --var CODER_MACHINES:${{ steps.fly.outputs.on == 'true' && 'fly' || 'cloudflare' }} --var CODER_FLY_APP:${{ env.FLY_APP }} --var CODER_FLY_IMAGE:${{ steps.flyimage.outputs.image || 'none' }}
+          command: deploy --var CODER_MACHINES:${{ steps.fly.outputs.on == 'true' && 'fly' || 'cloudflare' }} --var CODER_FLY_APP:${{ env.FLY_APP }} --var CODER_FLY_IMAGE:${{ steps.flyimage.outputs.image || 'none' }} --var CODER_FLY_TOOLS:${{ steps.flyimage.outputs.tools || 'none' }}
           secrets: |
             XAI_API_KEY
             GITHUB_APP_CLIENT_SECRET
@@ -261,7 +265,8 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           MACHINES: ${{ steps.fly.outputs.on == 'true' && 'fly' || 'cloudflare' }}
           IMAGE: ${{ steps.flyimage.outputs.image || 'none' }}
-        run: npx --yes wrangler@4.107.0 deploy --config wrangler.test.json --var "CODER_MACHINES:$MACHINES" --var "CODER_FLY_APP:$FLY_APP" --var "CODER_FLY_IMAGE:$IMAGE"
+          TOOLS: ${{ steps.flyimage.outputs.tools || 'none' }}
+        run: npx --yes wrangler@4.107.0 deploy --config wrangler.test.json --var "CODER_MACHINES:$MACHINES" --var "CODER_FLY_APP:$FLY_APP" --var "CODER_FLY_IMAGE:$IMAGE" --var "CODER_FLY_TOOLS:$TOOLS"
       - name: "Test copy: its keys (on the test copy only)"
         if: env.TARGET == 'test'
         env:

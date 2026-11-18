@@ -182,6 +182,18 @@ test("SP4 nothing leaks: a spare from an older image or size, older than 7 days,
   assert.ok(w4.machines.has(s4.id), "the chat keeps its machine"); assert.ok(!spares(b4).some((x) => x.id === s4.id));
 });
 
+test("SP6 (the owner, 2026-11-18: \"finish this\") a spare from an older Coder version on the same tools still counts for the pool (the every-minute run brings it to the new version in place, CD151e), so none is made beside it; on new tools one is", async () => {
+  const T1 = "registry.fly.io/" + APP + ":coder-tools-111111111111", T2 = "registry.fly.io/" + APP + ":coder-tools-222222222222";
+  const A = "registry.fly.io/" + APP + ":coder-aaaaaaaaaaaa-111111111111", B = "registry.fly.io/" + APP + ":coder-bbbbbbbbbbbb-111111111111", C = "registry.fly.io/" + APP + ":coder-cccccccccccc-222222222222";
+  const b = fakeBucket(), w = fakeFly();
+  await F.runFlyMachines(envWith(b, { CODER_FLY_IMAGE: A, CODER_FLY_TOOLS: T1 }), deps(w), now0);
+  assert.equal(spares(b).length, 1);
+  assert.equal(spares(b)[0].tools, T1);
+  const later = deps(w, { now: () => now0 + 60e3 });
+  assert.equal(await F.refillSpares(envWith(b, { CODER_FLY_IMAGE: B, CODER_FLY_TOOLS: T1 }), later), 0, "same tools: it counts");
+  assert.equal(await F.refillSpares(envWith(b, { CODER_FLY_IMAGE: C, CODER_FLY_TOOLS: T2 }), later), 1, "new tools: one is made");
+});
+
 test("SP5 the Worker passes its background hook to the machines, and the README says how the pool works", () => {
   const worker = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
   assert.match(worker, /flyBox\(env, name, \{ waitUntil/);

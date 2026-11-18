@@ -46,7 +46,7 @@ import { cleanEnv, PROJECT_ID, PROJECT_ROOT, splitSetup, APT_NAME_RE, DEV_HOME, 
 import { bashEndBytes } from "./coder-checks.mjs";
 import { startProxy, okHost, firewall, blockedNote } from "./coder-proxy.mjs";
 import { makeRoom, roomArgs, roomGate, roomInternet, gateForApt, NSENTER, SETPRIV } from "./coder-room.mjs";
-import { sandboxBase, makeLower, makeUpper, startSandbox, sandboxArgs, sandboxWhy, SBX_BASE, SBX_RANGE } from "./coder-sandbox.mjs";
+import { sandboxBase, makeLower, makeUpper, startSandbox, sandboxArgs, sandboxWhy, SBX_BASE, SBX_RANGE, TOOLS_REF } from "./coder-sandbox.mjs";
 import { pauseAI, endOthers, resumeAI, aiProcesses, markOf, TASK_MARK } from "./coder-freeze.mjs";
 import { globMatch } from "./coder-globs.mjs";
 import { searchSettingsFrom } from "./coder-search.mjs";
@@ -3156,9 +3156,9 @@ export function timedSend(timing, send) {
     return r;
   };
 }
-export async function copyAtEnd({ data, project, sha, image, now = Date.now(), syncMs = 20_000 }) {
+export async function copyAtEnd({ data, project, sha, image, tools = "", now = Date.now(), syncMs = 20_000 }) {
   if (typeof data !== "string" || !data.startsWith("/") || !sha) return false;
-  await writeFile(join(data, COPY_NOTE), JSON.stringify({ from: project, sha, image, at: now }), { mode: 0o600 });
+  await writeFile(join(data, COPY_NOTE), JSON.stringify({ from: project, sha, image, ...(TOOLS_REF.test(String(tools || "")) ? { tools: String(tools) } : {}), at: now }), { mode: 0o600 });
   await new Promise((ok) => {
     let p = null;
     const done = () => { clearTimeout(timer); ok(); };
@@ -3177,7 +3177,9 @@ export function setupSha(script, net) {
  * A DISK MADE FROM THE ENVIRONMENT'S SAVED COPY (a new chat's first job, before
  * anything else). What was the other chat's own (its repositories, git folders,
  * memory) goes: every chat clones its repository fresh. A copy of this same setup
- * (`sha`), made by this Coder version (`image`), under seven days old, answers
+ * (`sha`), made with these tools (`tools`, 2026-11-18: a deploy of Coder's own files
+ * keeps it, as Claude Code's own updates keep its saved setup; a copy from before
+ * the tools were named: this Coder version, `image`), under seven days old, answers
  * { at } (the setup need not run). Any other copy (made for an older script, say)
  * is cleared down to a fresh disk, the AI's home and the admin sandbox's layer too,
  * and answers { why }. THE CHAT'S OWN NOTE STAYS (live test #25, 2026-11-07: Fly.io
@@ -3187,7 +3189,7 @@ export function setupSha(script, net) {
  * it holds is not known, so it too is cleared down to a fresh disk ({ why }). No
  * note otherwise: null, nothing touched. Only folders on the kept disk are cleared.
  */
-export async function takeCopy({ data, project, sha, image, dirs = {}, now = Date.now(), fromCopy = false }) {
+export async function takeCopy({ data, project, sha, image, tools = "", dirs = {}, now = Date.now(), fromCopy = false }) {
   if (typeof data !== "string" || !data.startsWith("/")) return null;
   const f = join(data, COPY_NOTE);
   const onDisk = (d) => typeof d === "string" && d.startsWith(data + "/") && resolve(d) === d;
@@ -3204,9 +3206,12 @@ export async function takeCopy({ data, project, sha, image, dirs = {}, now = Dat
   try { note = JSON.parse(await readFile(f, "utf8")); } catch { note = null; }
   if (note && note.from === project && !fromCopy) return null;
   for (const d of [dirs.root, dirs.gitRoot, dirs.memRoot]) await clear(d);
+  const toolsNow = TOOLS_REF.test(String(tools || "")) ? String(tools) : "";
+  const byTools = !!(note && toolsNow && note.tools);
   const why = !note ? "its note could not be read"
     : !sha || note.sha !== sha ? "it was made for another setup script or network setting"
-    : note.image !== image ? "it was made by an older version of Coder"
+    : byTools && note.tools !== toolsNow ? "it was made with other tools (a new tools image for Coder's machine since)"
+    : !byTools && note.image !== image ? "it was made by an older version of Coder"
     : !(Number(note.at) > now - SETUP_CACHE_MS && Number(note.at) <= now + 60000) ? "it is over seven days old" : "";
   if (why) await setupGoes();
   await rm(join(data, USED_NOTE), { force: true });
@@ -3680,7 +3685,7 @@ export function wakeStarters(jobs, { cont = (pid) => { try { process.kill(pid, "
 /** Why the gate didn't start when the environment's CODER_TEST_NETWORK_GATE_FAIL switch is on (a test of its failing closed). */
 export const GATE_TEST_FAIL = "switched off for a test: the environment sets CODER_TEST_NETWORK_GATE_FAIL";
 
-export function createApp({ kept = null, gitVia = false, modelVia = false, liveFetch = null, setupRoot = null, keepaliveMs = KEEPALIVE_MS, streamMs = SCREEN_STREAM_MS, root = PROJECT_ROOT, env = process.env, send = null, remote = DEFAULT_REMOTE, gitRoot = GIT_ROOT, memRoot = MEM_ROOT, bgRoot = BG_DIR, proxyDir = "/srv/coder-proxy", proxyOpts = {}, apt = null, home = null, room = false, sandbox = false, data = null, image = "", holdMs = HOLD_MS, copySetupMaxMs = COPY_SETUP_MAX_MS, parkMs = 0, copyNeedsBox = true, checker = false, hookQuietMs = 10_000, browserRoot = null, vaultFetch = null, filesFetch = null } = {}) {
+export function createApp({ kept = null, gitVia = false, modelVia = false, liveFetch = null, setupRoot = null, keepaliveMs = KEEPALIVE_MS, streamMs = SCREEN_STREAM_MS, root = PROJECT_ROOT, env = process.env, send = null, remote = DEFAULT_REMOTE, gitRoot = GIT_ROOT, memRoot = MEM_ROOT, bgRoot = BG_DIR, proxyDir = "/srv/coder-proxy", proxyOpts = {}, apt = null, home = null, room = false, sandbox = false, data = null, image = "", tools = "", holdMs = HOLD_MS, copySetupMaxMs = COPY_SETUP_MAX_MS, parkMs = 0, copyNeedsBox = true, checker = false, hookQuietMs = 10_000, browserRoot = null, vaultFetch = null, filesFetch = null } = {}) {
   // The setup script's packages are installed as root (this service's own user), never as `dev`.
   const aptRun = apt || ((dir, command, timeoutS, o) => execIn(dir, command, timeoutS, { ...o, uid: null, gid: null, kill: true, extraEnv: { DEBIAN_FRONTEND: "noninteractive" } }));
   const sendFn = send || coderSend(env);
@@ -3697,7 +3702,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     try { return (!px || await roomGate(px.port)) && await roomInternet(!limited); } catch { return false; }
   };
   // THE JOB'S ADMIN SANDBOX (owner, 2026-11-07: "finish this"; coder-sandbox.mjs), in the room: the
-  // machine image under its own layer on the chat's kept disk (`data`, one per Coder version `image`),
+  // machine image under its own layer on the chat's kept disk (`data`, one per tools image `tools`, else per Coder version `image`),
   // with the chat's files and dev's home as dev's, and, read-only, the git folders, the background logs
   // and the gate's certificates. Null (commands as before) when this machine cannot have one.
   let lowerOk = null, saidWhy = "";
@@ -3708,7 +3713,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     if (!sandbox || !data) return null;
     if (lowerOk === null) lowerOk = makeLower({ base: sandboxBase() });
     if (!lowerOk) return noBox(sandboxWhy() || "no base for its system");
-    const up = makeUpper({ data, image });
+    const up = makeUpper({ data, image, tools });
     if (!up) return noBox("no layer of its own on the kept disk");
     const binds = [{ src: root, mode: "rw", mine: true }, ...(home ? [{ src: home, mode: "rw", mine: true }] : []), { src: memRoot, mode: "rw", mine: true }, { src: gitRoot, mode: "ro" }, { src: bgRoot, mode: "ro" }, { src: proxyDir, mode: "ro" }];
     return (await startSandbox({ ...up, binds })) || noBox(sandboxWhy());
@@ -3864,7 +3869,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     const script0 = body.setup && typeof body.setup.script === "string" ? body.setup.script.trim().slice(0, SETUP_SCRIPT_MAX) : "";
     let copied = null;
     const copyInfo = String(copy || "");
-    try { copied = await takeCopy({ data, project, sha: script0 ? setupSha(script0, normNetwork(body.setup && body.setup.network)) : "", image, dirs: { root, gitRoot, memRoot, home }, fromCopy: copyInfo === "used" }); } catch { copied = null; }
+    try { copied = await takeCopy({ data, project, sha: script0 ? setupSha(script0, normNetwork(body.setup && body.setup.network)) : "", image, tools, dirs: { root, gitRoot, memRoot, home }, fromCopy: copyInfo === "used" }); } catch { copied = null; }
     // FRESH: no job has worked on this disk yet (only then is a copy of it saved): never marked so, and
     // no project on it before this job's clone (a disk from before the mark has its chat's project).
     const fresh = !!data && !existsSync(join(data, USED_NOTE)) && (await readdir(root).catch(() => [""])).length === 0;
@@ -4964,7 +4969,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
             t.timing.answered = t.timing.answered || Date.now();
             // THE SETUP COPY, TAKEN NOW THE TURN IS OVER (2026-11-15): the machine is idle, so its disk is as the setup and the
             // turn left it; takeCopy clears the project's folders when a new chat starts from it. At most 20 seconds.
-            const copy = t.copyWanted ? await copyAtEnd({ data, project, sha: t.copyWanted.sha, image }).catch(() => false) : false;
+            const copy = t.copyWanted ? await copyAtEnd({ data, project, sha: t.copyWanted.sha, image, tools }).catch(() => false) : false;
             t.copyWanted = null;
             t.timing.ended = Date.now();
             t.result = { ...result, ...(dirty === false ? { dirty: false } : {}), background: jobsOf(project), hooksRunning: rewakeHooksOf(project), readQueued: t.queue.filter((q) => q.read).map((q) => q.qid), timing: { ...t.timing }, ...(copy ? { copy: true } : {}) };
@@ -5529,7 +5534,7 @@ if (import.meta.url === "file://" + process.argv[1]) {
   // The machine's own disk grows to the size Fly.io gave it (growOwnDisk), never holding up the start.
   console.log("coder: the machine's own disk: " + growOwnDisk());
   // Its commands run as admin in a sandbox of their own (coder-sandbox.mjs), where the machine allows one.
-  const app = createApp({ kept: bootKept(), gitVia: true, modelVia: true, room: true, sandbox: true, data: process.env.CODER_DATA || null, image: process.env.CODER_IMAGE_REF || imageId(), liveFetch: (url, init) => fetch(url, init), home: DEV_HOME, ...dataDirs(process.env.CODER_DATA), checker: true });
+  const app = createApp({ kept: bootKept(), gitVia: true, modelVia: true, room: true, sandbox: true, data: process.env.CODER_DATA || null, image: process.env.CODER_IMAGE_REF || imageId(), tools: process.env.CODER_TOOLS_REF || "", liveFetch: (url, init) => fetch(url, init), home: DEV_HOME, ...dataDirs(process.env.CODER_DATA), checker: true });
   // The link from the owner's computer (a WebSocket) comes as an upgrade.
   const srv = http.createServer(app);
   srv.on("upgrade", app.upgrade);

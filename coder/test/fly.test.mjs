@@ -120,8 +120,8 @@ test("CD125 Fly.io machines: on only when switched on and set up; each chat's ma
   assert.deepEqual(a, a2, "the same chat, the same names");
   assert.notEqual(a.machine, c.machine);
   assert.match(a.machine, /^coder-[0-9a-f]{20}$/); assert.match(a.volume, /^coder_[0-9a-f]{20}$/); assert.match(a.key, /^coder\/fly-machines\/[0-9a-f]{20}\.json$/);
-  assert.deepEqual(F.flySettings(envWith(b)), { app: APP, image: IMG1, region: "iad", kind: "performance", cpus: 4, memory: 16384, disk: 10, diskMax: 50, root: 20, gloopy: { kind: "performance", cpus: 1, memory: 2048 } });
-  assert.deepEqual(F.flySettings(envWith(b, { CODER_FLY_REGION: "ams", CODER_FLY_CPUS: "4", CODER_FLY_MEMORY_MB: "8192", CODER_FLY_DISK_GB: "20", CODER_FLY_ROOT_GB: "30" })), { app: APP, image: IMG1, region: "ams", kind: "performance", cpus: 4, memory: 8192, disk: 20, diskMax: 50, root: 30, gloopy: { kind: "performance", cpus: 1, memory: 2048 } });
+  assert.deepEqual(F.flySettings(envWith(b)), { app: APP, image: IMG1, tools: "", region: "iad", kind: "performance", cpus: 4, memory: 16384, disk: 10, diskMax: 50, root: 20, gloopy: { kind: "performance", cpus: 1, memory: 2048 } });
+  assert.deepEqual(F.flySettings(envWith(b, { CODER_FLY_REGION: "ams", CODER_FLY_CPUS: "4", CODER_FLY_MEMORY_MB: "8192", CODER_FLY_DISK_GB: "20", CODER_FLY_ROOT_GB: "30" })), { app: APP, image: IMG1, tools: "", region: "ams", kind: "performance", cpus: 4, memory: 8192, disk: 20, diskMax: 50, root: 30, gloopy: { kind: "performance", cpus: 1, memory: 2048 } });
   assert.equal(F.flySettings(envWith(b, { CODER_FLY_ROOT_GB: "99" })).root, 20, "Fly allows at most 50");
   assert.equal(F.flySettings(envWith(b, { CODER_FLY_CPUS: "99", CODER_FLY_REGION: "x" })).cpus, 4, "nonsense falls back");
   assert.deepEqual(F.machineConfig(envWith(b, { CODER_MODEL: "default" }), "vol_9"), {
@@ -380,10 +380,12 @@ test("CD129 wiring: the switch between Fly.io and Cloudflare, the every-minute F
   // settings; the shared copies Fly.io held are taken away, and none is given again.
   assert.doesNotMatch(y, /flyctl secrets import/);
   assert.match(y, /for k in XAI_API_KEY CODER_CONTROL_KEY; do\n[\s\S]{0,240}flyctl secrets unset "\$k" -a "\$FLY_APP" --stage/);
-  assert.match(y, /img="registry\.fly\.io\/\$FLY_APP:coder-\$\(git rev-parse HEAD:coder\/container \| cut -c1-12\)"\n/, "named after the machine's own folder: a deploy that does not change it leaves the machines as they are");
+  // (2026-11-18: and after the tools it is built on, whose name is worked out first and given to the Worker too.)
+  assert.match(y, /\n\s+base="registry\.fly\.io\/\$FLY_APP:coder-tools-[^\n]*\n(\s+#[^\n]*\n)*\s+img="registry\.fly\.io\/\$FLY_APP:coder-\$\(git rev-parse HEAD:coder\/container \| cut -c1-12\)-\$\{base##\*-\}"\n/, "named after the machine's own folder and its tools: a deploy that changes neither leaves the machines as they are");
+  assert.match(y, /echo "image=\$img" >> "\$GITHUB_OUTPUT"\n\s+echo "tools=\$base" >> "\$GITHUB_OUTPUT"\n/);
   // ALL OF CLAUDE CODE'S TOOLS (2026-11-07): Fly.io's machines get the full image, built only when that version is not there yet.
   // (2026-11-10: the tools are built once and kept on Fly.io; each deploy builds only Coder's own files on top, CD376.)
-  assert.match(y, /if docker manifest inspect "\$img" >\/dev\/null 2>&1; then\n[^\n]*not built again[^\n]*\n\s+else\n[^\n]*\n(\s+#[^\n]*\n)*\s+base="registry\.fly\.io\/\$FLY_APP:coder-tools-[^\n]*\n\s+if docker manifest inspect "\$base" >\/dev\/null 2>&1; then\n[^\n]*only Coder's own files are built[^\n]*\n\s+else\n\s+docker build --build-arg CODER_IMAGE=full --target full -t "\$base" container\n\s+send "\$base"\n\s+fi\n\s+docker build --build-arg CODER_IMAGE="\$base" -t "\$img" container [^\n]*\n\s+send "\$img"\n\s+fi\n/);
+  assert.match(y, /if docker manifest inspect "\$img" >\/dev\/null 2>&1; then\n[^\n]*not built again[^\n]*\n\s+else\n[^\n]*\n\s+if docker manifest inspect "\$base" >\/dev\/null 2>&1; then\n[^\n]*only Coder's own files are built[^\n]*\n\s+else\n\s+docker build --build-arg CODER_IMAGE=full --target full -t "\$base" container\n\s+send "\$base"\n\s+fi\n\s+docker build --build-arg CODER_IMAGE="\$base" -t "\$img" container [^\n]*\n\s+send "\$img"\n\s+fi\n/);
   // (Fly.io's image store cut the upload off twice in a row on 2026-11-10: each upload is tried up to five times.)
   assert.match(y, /send\(\) \{\n\s+for try in 1 2 3 4 5; do\n\s+if docker push "\$1"; then return 0; fi\n\s+if \[ "\$try" = 5 \]; then echo "The upload to Fly\.io failed five times\."; return 1; fi\n/);
   // The name is the same as long as coder/container is (a change elsewhere, like the notes, keeps it).
@@ -391,7 +393,8 @@ test("CD129 wiring: the switch between Fly.io and Cloudflare, the every-minute F
   const tree = (rev) => execFileSync("git", ["rev-parse", rev + ":coder/container"], { cwd: new URL("../..", import.meta.url).pathname }).toString().trim();
   assert.match(tree("HEAD"), /^[0-9a-f]{40}$/);
   assert.match(y, /printf '%s' "\$FLY_API_TOKEN" \| npx --yes wrangler@4\.107\.0 secret put FLY_API_TOKEN/);
-  assert.match(y, /command: deploy --var CODER_MACHINES:\$\{\{ steps\.fly\.outputs\.on == 'true' && 'fly' \|\| 'cloudflare' \}\} --var CODER_FLY_APP:\$\{\{ env\.FLY_APP \}\} --var CODER_FLY_IMAGE:\$\{\{ steps\.flyimage\.outputs\.image \|\| 'none' \}\}/);
+  assert.match(y, /command: deploy --var CODER_MACHINES:\$\{\{ steps\.fly\.outputs\.on == 'true' && 'fly' \|\| 'cloudflare' \}\} --var CODER_FLY_APP:\$\{\{ env\.FLY_APP \}\} --var CODER_FLY_IMAGE:\$\{\{ steps\.flyimage\.outputs\.image \|\| 'none' \}\} --var CODER_FLY_TOOLS:\$\{\{ steps\.flyimage\.outputs\.tools \|\| 'none' \}\}\n/);
+  assert.match(y, /TOOLS: \$\{\{ steps\.flyimage\.outputs\.tools \|\| 'none' \}\}\n\s+run: npx --yes wrangler@4\.107\.0 deploy --config wrangler\.test\.json [^\n]* --var "CODER_FLY_IMAGE:\$IMAGE" --var "CODER_FLY_TOOLS:\$TOOLS"\n/, "the test copy too");
 });
 
 test("CD143 the size (owner, 2026-11-07: \"4 CPUs, 16 GB\", like Claude Code's machine; \"Grow to 50 GB\"): full CPUs and 16 GB, a work disk that grows by itself, its disk placed where that size fits; with no room, the size chats had before, so the chat still works; a machine from before gets the new size when it next wakes, never under a job", async () => {
@@ -593,6 +596,15 @@ test("CD151 the environment's saved copy of its setup, on Fly.io (owner, 2026-11
   assert.equal(F.cacheUsable(env, { ...c, at: now + 3600e3 }, key, now), false, "from the future");
   assert.equal(F.cacheUsable(env, null, key, now), false);
   assert.equal(F.cacheUsable(env, c, "", now), false);
+  // MADE WITH THE SAME TOOLS (2026-11-18, the owner: "finish this"): a new Coder version on the same tools keeps the copy.
+  const T1 = "registry.fly.io/" + APP + ":coder-tools-111111111111", T2 = "registry.fly.io/" + APP + ":coder-tools-222222222222";
+  const onTools = (img, t) => ({ ...env, CODER_FLY_IMAGE: "registry.fly.io/" + APP + ":coder-" + img + "-" + t.slice(-12), CODER_FLY_TOOLS: t });
+  const ct = { ...c, image: onTools("aaaaaaaaaaaa", T1).CODER_FLY_IMAGE, tools: T1 };
+  assert.equal(F.cacheUsable(onTools("bbbbbbbbbbbb", T1), ct, key, now), true, "a new Coder version on the same tools");
+  assert.equal(F.cacheUsable(onTools("bbbbbbbbbbbb", T2), ct, key, now), false, "new tools");
+  assert.equal(F.cacheUsable({ ...onTools("bbbbbbbbbbbb", T1), CODER_FLY_TOOLS: "none" }, ct, key, now), false, "tools not said: the same version only");
+  assert.equal(F.cacheUsable(onTools("bbbbbbbbbbbb", T1), { ...ct, tools: undefined }, key, now), false, "a copy from before the tools were named: the same version only");
+  assert.equal(F.cacheUsable({ ...onTools("bbbbbbbbbbbb", T1), CODER_FLY_TOOLS: T2 }, ct, key, now), false, "tools the version's own name does not end with are not trusted");
 });
 
 test("CD248 (2026-11-12) Gloopy's computer starts in seconds (owner: \"yes build all four\"; Grok Bot's is up at once): Gloopy's machine has its own size (1 full-speed CPU, 2 GB; Fly suspends machines of at most 2 GB) and, when idle, is suspended, not stopped, so it wakes as it was (its browser open) in under a second; stopped if Fly won't suspend it; an older Gloopy machine gets its size at its next wake; Coder's chats are as before", async () => {
@@ -812,6 +824,75 @@ test("CD151c a copy saved unfinished gets its spare once Fly.io finishes it (liv
   await F.ensureCopySpare(env, { snapshot: "vs_CapNew1", volume: chatVol, size: 10, ready: false }, deps(w));
   assert.ok(w.volumes.has(chatVol), "the chat's disk stays");
   assert.ok(copySpares().length <= F.COPY_SPARES_MAX, "at most " + F.COPY_SPARES_MAX);
+});
+
+test("CD151e a deploy of Coder's own files keeps the environment's saved copy and its spare (the owner, 2026-11-18: \"finish this\"; Claude Code's saved setup is rebuilt when the setup script or the allowed hosts change, or after about 7 days, not when Claude Code itself is updated): the machines, the copy's record and its spare say which tools; on a new version with the same tools the copy's spare is brought to it in place (its disk, the copy, stays; its own key; its age kept), ready once it answers, and a new chat takes it; a spare waited for or being restored lasts too; new tools: they go", async () => {
+  const T1 = "registry.fly.io/" + APP + ":coder-tools-111111111111", T2 = "registry.fly.io/" + APP + ":coder-tools-222222222222";
+  const A = "registry.fly.io/" + APP + ":coder-aaaaaaaaaaaa-111111111111", B = "registry.fly.io/" + APP + ":coder-bbbbbbbbbbbb-111111111111", C = "registry.fly.io/" + APP + ":coder-cccccccccccc-222222222222";
+  const b = fakeBucket(), w = fakeFly();
+  const on = (img, tools) => envWith(b, { CODER_TOKEN_KEY: TKEY, CODER_FLY_SPARES: "1", CODER_FLY_IMAGE: img, CODER_FLY_TOOLS: tools });
+  const envA = on(A, T1), envB = on(B, T1), envC = on(C, T2);
+  const turn = (env, name, more = {}) => F.flyBox(env, name, deps(w)).fetch(signed(new Request("http://coder/turn", { method: "POST", headers: { "content-type": "application/json", ...more }, body: JSON.stringify({ project: "p", text: "hi" }) })));
+  const copySpares = () => [...b.m.keys()].filter((k) => k.startsWith(F.SPARES) && !k.includes("claimed/")).map((k) => JSON.parse(b.m.get(k))).filter((r) => r.snap);
+  assert.equal((await turn(envA, "user-1-shop-a1")).status, 200);
+  const recA = JSON.parse(b.m.get((await F.flyNames("user-1-shop-a1")).key));
+  assert.equal(recA.tools, T1);
+  assert.equal(w.machines.get(recA.id).config.env.CODER_TOOLS_REF, T1, "the machine is told its tools");
+  w.snapLag = 0; w.snapWait = 0; w.snapRun = 0;
+  const snap = await F.snapshotChat(envA, "user-1-shop-a1", deps(w));
+  assert.equal(snap.tools, T1, "the copy's record says which tools made it");
+  const spareOf = () => copySpares().find((r) => r.snap === snap.snapshot);
+  for (let i = 0; i < 4 && !(spareOf() || {}).ready; i++) await F.tendSpares(envA, b, deps(w), Date.now(), [...w.machines.values()]);
+  const sp0 = spareOf();
+  assert.ok(sp0 && sp0.ready, "its spare, ready");
+  assert.equal(sp0.tools, T1);
+
+  // THE DEPLOY: version B, on the same tools.
+  w.api.length = 0;
+  const t1 = Date.now() + 1000;
+  const plain = [...b.m.keys()].filter((k) => k.startsWith(F.SPARES) && !k.includes("claimed/")).map((k) => JSON.parse(b.m.get(k))).filter((r) => !r.snap);
+  assert.equal(plain.length, 1, "and the pool's plain spare");
+  const out = await F.tendSpares(envB, b, deps(w), t1, [...w.machines.values()]);
+  assert.equal(out.updated, 2, "both brought to the new version");
+  assert.equal(out.made, 0, "none made again");
+  assert.equal(w.machines.get(plain[0].id).config.image, B);
+  let sp = spareOf();
+  assert.deepEqual([sp.id, sp.volume, sp.snap], [sp0.id, sp0.volume, sp0.snap], "the same spare, on the same disk (the copy)");
+  assert.ok(w.volumes.has(sp0.volume) && !w.api.includes("POST /volumes"), "no disk made again");
+  assert.ok(w.api.includes("POST /machines/" + sp0.id), "updated in place");
+  assert.equal(w.machines.get(sp0.id).config.image, B);
+  assert.deepEqual([w.machines.get(sp0.id).config.env.CODER_IMAGE_REF, w.machines.get(sp0.id).config.env.CODER_TOOLS_REF], [B, T1]);
+  assert.equal(w.machines.get(sp0.id).config.env.CODER_CONTROL_KEY, await controlKeyFor(TKEY, "cspare-" + sp0.h), "still its own key");
+  assert.deepEqual([sp.image, sp.tools, sp.ready, sp.at, sp.born], [B, T1, false, t1, sp0.at]);
+  assert.equal(F.spareUsable(envB, sp, t1, snap.snapshot), false, "no chat takes it until it answers again");
+  await F.tendSpares(envB, b, deps(w), t1 + 60e3, [...w.machines.values()]);
+  sp = spareOf();
+  assert.equal(sp.ready, true);
+  assert.equal(w.machines.get(sp0.id).state, "stopped");
+  assert.equal(F.spareUsable(envB, sp, t1 + 60e3, snap.snapshot), true);
+  assert.equal(F.spareUsable(envB, sp, sp0.at + F.SPARE_MAX_AGE_MS + 1, snap.snapshot), false, "its age counts from its first making");
+  // A NEW CHAT IN THAT ENVIRONMENT TAKES IT, on the new version.
+  assert.equal((await turn(envB, "user-1-shop-c1", { [F.FROM_COPY]: snap.snapshot, [F.FROM_COPY_GB]: "10" })).status, 200);
+  const recC = JSON.parse(b.m.get((await F.flyNames("user-1-shop-c1")).key));
+  assert.deepEqual([recC.id, recC.volume, recC.from, recC.image, recC.tools], [sp0.id, sp0.volume, snap.snapshot, B, T1]);
+  assert.equal(w.told.at(-1), "used");
+
+  // A SPARE WAITED FOR, AND ONE BEING RESTORED, LAST ACROSS THE DEPLOY; with new tools both go (the restored disk too).
+  const shape = F.flyShape(F.flySettings(envA));
+  w.snapRun = 50;
+  assert.equal((await turn(envA, "user-1-shop-d1")).status, 200);
+  const snapD = await F.snapshotChat(envA, "user-1-shop-d1", deps(w));
+  assert.equal(snapD.ready, false);
+  const waitKey = F.SPARES + copySpares().find((r) => r.snap === snapD.snapshot).h + ".json";
+  w.volumes.set("vol_Restoring1", { id: "vol_Restoring1", state: "restoring", restoring: 99, snapshot_id: snap.snapshot, attached_machine_id: null });
+  const restKey = F.SPARES + "0123456789abcdef.json";
+  await b.put(restKey, JSON.stringify({ volume: "vol_Restoring1", region: "iad", image: A, tools: T1, shape, at: Date.now(), ready: false, restoring: true, snap: snap.snapshot, size: 10, h: "0123456789abcdef" }));
+  await F.tendSpares(envB, b, deps(w), Date.now(), [...w.machines.values()]);
+  assert.ok(b.m.has(waitKey), "waited for, across the deploy");
+  assert.ok(b.m.has(restKey) && w.volumes.has("vol_Restoring1"), "being restored, across the deploy");
+  await F.tendSpares(envC, b, deps(w), Date.now(), [...w.machines.values()]);
+  assert.ok(!b.m.has(waitKey), "new tools: the spare waited for goes");
+  assert.ok(!b.m.has(restKey) && !w.volumes.has("vol_Restoring1"), "new tools: the one being restored goes, with its disk");
 });
 
 test("CD151d a finished copy offered to a chat whose machine is already made without it (live, 2026-11-18: started early, when the repository was picked, before the copy was known to be finished): the machine is told \"late\" (awake or woken), nothing is made; a machine made from that copy is told nothing new; only a job's start", async () => {

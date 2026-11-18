@@ -18,7 +18,7 @@
 // The chat's files are shown to it as its own, and stay the AI's user's on disk,
 // so Coder's saving to GitHub works as before.
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, chmodSync, chownSync, statSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, chmodSync, chownSync, statSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -125,24 +125,38 @@ export function makeLower({ base, dir = SBX_DIR, run = spawnSync } = {}) {
   } catch (e) { return fail("its system: " + String((e && e.message) || e), false); }
 }
 
+/** The name of the tools image a Coder version is built on (the deploy's, given by Coder's Worker: CODER_TOOLS_REF). */
+export const TOOLS_REF = /^registry\.fly\.io\/[a-z0-9][a-z0-9-]*[a-z0-9]:coder-tools-[0-9a-f]{12}$/;
+
 /**
- * THE SANDBOX'S OWN CHANGES: a folder per Coder version (`image`) on the chat's
- * kept disk (`data`); older versions' folders are removed, so a new version
- * starts fresh. Answers { upper, work }, or null.
+ * THE SANDBOX'S OWN CHANGES: a folder on the chat's kept disk (`data`) for the
+ * tools this Coder version is built on (`tools`; 2026-11-18, the owner: "finish
+ * this": what was installed lasts from one deploy to the next while the tools
+ * do, and an environment's saved copy with it), else for the version itself
+ * (`image`). Other folders are removed, so new tools start fresh. Coder's own
+ * files (/app, the only thing a version adds to its tools) always come from this
+ * version: a layer kept from another version loses what it had there. Answers
+ * { upper, work }, or null.
  */
-export function makeUpper({ data, image } = {}) {
+export function makeUpper({ data, image, tools = "" } = {}) {
   if (typeof data !== "string" || !/^\/[\w-]+(\/[\w-]+)*$/.test(data)) return null;
   try {
     const top = join(data, ".coder-admin");
     mkdirSync(top, { recursive: true, mode: 0o711 });
     chownSync(top, 0, 0);
     chmodSync(top, 0o711);
-    const tag = createHash("sha256").update(String(image || "image")).digest("hex").slice(0, 16);
+    const key = TOOLS_REF.test(String(tools || "")) ? String(tools) : String(image || "image");
+    const tag = createHash("sha256").update(key).digest("hex").slice(0, 16);
     for (const old of readdirSync(top)) if (old !== tag) rmSync(join(top, old), { recursive: true, force: true });
     const here = join(top, tag);
     mkdirSync(here, { recursive: true, mode: 0o711 });
     chmodSync(here, 0o711);
     const out = { upper: join(here, "upper"), work: join(here, "work") };
+    // (Which version used it last: root's own note, beside the layer, out of the sandbox's reach.)
+    const mark = join(here, "version"), version = String(image || "image");
+    let was = null;
+    try { was = readFileSync(mark, "utf8"); } catch { was = null; }
+    if (was !== version) { rmSync(join(out.upper, "app"), { recursive: true, force: true }); writeFileSync(mark, version, { mode: 0o600 }); }
     for (const p of [out.upper, out.work]) {
       mkdirSync(p, { recursive: true, mode: 0o755 });
       chownSync(p, SBX_BASE, SBX_BASE);

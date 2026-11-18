@@ -54,6 +54,12 @@ export const FLY_SMALL = { cpu_kind: "shared", cpus: 2, memory_mb: 4096 };
 export const FLY_DISK_STEP_GB = 10;
 
 /** The machines' size and place (wrangler.jsonc vars; sensible defaults). */
+/** The tools image's name, as the deploy gives it (CODER_FLY_TOOLS), only when CODER_FLY_IMAGE's name ends with its 12 letters. */
+export const FLY_TOOLS_REF = /^registry\.fly\.io\/[a-z0-9][a-z0-9-]*[a-z0-9]:coder-tools-([0-9a-f]{12})$/;
+export function flyTools(env) {
+  const m = FLY_TOOLS_REF.exec(String((env && env.CODER_FLY_TOOLS) || ""));
+  return m && String((env && env.CODER_FLY_IMAGE) || "").endsWith("-" + m[1]) ? String(env.CODER_FLY_TOOLS) : "";
+}
 export function flySettings(env) {
   const num = (v, d, lo, hi) => { const n = Number(v); return Number.isInteger(n) && n >= lo && n <= hi ? n : d; };
   // THE SIZE (owner, 2026-11-07: "4 CPUs, 16 GB", the size of Claude Code's machine): Fly.io's
@@ -70,6 +76,10 @@ export function flySettings(env) {
   return {
     app: String(env.CODER_FLY_APP),
     image: String(env.CODER_FLY_IMAGE),
+    // THE TOOLS THIS VERSION IS BUILT ON (2026-11-18): an environment's saved copy belongs to them, not to Coder's own
+    // files, so it lasts from one deploy to the next (sameTools). Empty when the deploy did not say, or when the version's
+    // own name (which ends with its tools' 12 letters, deploy-coder.yml) says other tools.
+    tools: flyTools(env),
     region: /^[a-z]{3}$/.test(String(env.CODER_FLY_REGION || "")) ? String(env.CODER_FLY_REGION) : "iad",
     kind,
     cpus,
@@ -159,8 +169,9 @@ export function machineConfig(env, volumeId, { keepRoot = true, bigRoot = true, 
     image: s.image,
     // ITS LOCK, ALWAYS: on Fly.io a machine is on the internet (Fly's front door), so its control
     // key is given here too, not only as a Fly secret (made from CODER_TOKEN_KEY; never the key itself).
-    // CODER_IMAGE_REF: which Coder version this is, so the admin sandbox's own layer starts fresh with a new one.
-    env: { CODER_DATA: FLY_DATA, CODER_IMAGE_REF: s.image, ...(env.CODER_MODEL ? { CODER_MODEL: String(env.CODER_MODEL) } : {}), ...(lock ? { CODER_CONTROL_KEY: lock } : env.CODER_TOKEN_KEY ? { CODER_CONTROL_KEY: controlKeySync(env.CODER_TOKEN_KEY) } : {}) },
+    // CODER_IMAGE_REF: which Coder version this is; CODER_TOOLS_REF (2026-11-18): the tools it is built on, so the admin
+    // sandbox's own layer and an environment's saved copy last while the tools do (a new version on new tools starts fresh).
+    env: { CODER_DATA: FLY_DATA, CODER_IMAGE_REF: s.image, ...(s.tools ? { CODER_TOOLS_REF: s.tools } : {}), ...(env.CODER_MODEL ? { CODER_MODEL: String(env.CODER_MODEL) } : {}), ...(lock ? { CODER_CONTROL_KEY: lock } : env.CODER_TOKEN_KEY ? { CODER_CONTROL_KEY: controlKeySync(env.CODER_TOKEN_KEY) } : {}) },
     guest: { ...size, ...(keepRoot && !bigRoot ? { persist_rootfs: "restart" } : {}) },
     ...(keepRoot && bigRoot ? { rootfs: { persist: "restart", size_gb: s.root } } : {}),
     // The chat's work disk, which Fly.io makes bigger by itself when it is 80% full (Fly's auto-extend).
@@ -300,14 +311,24 @@ const snapStatus = (x) => String((x && x.status) || (Date.parse(String((x && x.c
 export const flyWhy = (r) => (String((r && r.status) || "no answer") + (r && r.data && r.data.error ? ": " + String(r.data.error) : "")).replace(/[^\x20-\x7e]/g, " ").replace(/\s+/g, " ").trim().slice(0, 160);
 
 /**
- * May a new chat start from this copy? Made for this setup, by this Coder version, in this region, not too old,
+ * MADE WITH THE SAME TOOLS (2026-11-18, the owner: "finish this"; Claude Code's saved setup is rebuilt when the setup
+ * script or the allowed hosts change, or after about seven days, not when Claude Code itself is updated): what an
+ * environment's saved copy holds (what the setup installed, the admin sandbox's own layer) belongs to the tools image a
+ * version is built on, not to Coder's own files. Records from before the tools were named: the same Coder version.
+ */
+export function sameTools(rec, s) {
+  return rec && rec.tools && s.tools ? rec.tools === s.tools : !!rec && rec.image === s.image;
+}
+
+/**
+ * May a new chat start from this copy? Made for this setup, with these tools (sameTools), in this region, not too old,
  * still kept by Fly, and known by its disk (a copy recorded before 2026-11-07's fix is not: one is made again).
  * Whether Fly.io has finished it is asked separately (copyState).
  */
 export function cacheUsable(env, c, key, now = Date.now()) {
   if (!c || !SNAP_ID.test(String(c.snapshot)) || !VOL_ID.test(String(c.volume)) || !key || c.key !== key) return false;
   const s = flySettings(env);
-  if (c.image !== s.image || c.region !== s.region) return false;
+  if (!sameTools(c, s) || c.region !== s.region) return false;
   const age = now - Number(c.at);
   const kept = Number(c.retention) > 0 ? Number(c.retention) * 24 * 3600 * 1000 - 12 * 3600 * 1000 : CACHE_MS;
   return age >= 0 && age < Math.min(CACHE_MS, kept);
@@ -340,7 +361,7 @@ export async function snapshotChat(env, name, deps0 = {}) {
     const st = hit ? snapStatus(hit) : "";
     if (st === "running" || st === "created") {
       if (st === "running") await deps.sleep(CACHE_SETTLE_MS);
-      const out = { snapshot: id, volume: rec.volume, size: Number(v.ok && v.data && v.data.size_gb) || s.disk, region: rec.region || s.region, image: rec.image, retention: Number(hit.retention_days) || 0, ready: st === "created" };
+      const out = { snapshot: id, volume: rec.volume, size: Number(v.ok && v.data && v.data.size_gb) || s.disk, region: rec.region || s.region, image: rec.image, ...(rec.tools ? { tools: rec.tools } : {}), retention: Number(hit.retention_days) || 0, ready: st === "created" };
       // THE NEXT CHAT'S SPARE FROM THIS COPY (2026-11-18): made now when Fly.io has finished the copy, else as soon as it has
       // (the every-minute run asks, tendSpares), so the next new chat in this environment starts in seconds.
       await ensureCopySpare(env, out, deps0).catch(() => null);
@@ -389,7 +410,7 @@ async function makeMachine(env, bucket, names, deps, from = null, gloopy = false
     await flyApi(env, "/apps/" + s.app + "/volumes/" + v.data.id, { method: "DELETE", ...deps });
     return { why: "Fly.io could not make the machine (" + m.status + ")" };
   }
-  const rec = { id: m.data.id, volume: v.data.id, region: s.region, image: s.image, shape: flyShape(s, gloopy), small: m.small, lock: 2, at: deps.now(), used: deps.now(), stopped: false, ...(gloopy ? { gloopy: true } : {}), ...(copyMiss ? { copyMiss } : {}) };
+  const rec = { id: m.data.id, volume: v.data.id, region: s.region, image: s.image, tools: s.tools, shape: flyShape(s, gloopy), small: m.small, lock: 2, at: deps.now(), used: deps.now(), stopped: false, ...(gloopy ? { gloopy: true } : {}), ...(copyMiss ? { copyMiss } : {}) };
   await writeRec(bucket, names.key, rec);
   await untilAnswers(env, rec.id, deps, FLY_PULL_MS);
   return { rec, ...(copyMiss ? { copyMiss } : {}) };
@@ -423,7 +444,7 @@ async function machineFromCopy(env, bucket, names, deps, from) {
   const lock = await controlKeyFor(env.CODER_TOKEN_KEY, names.machine);
   const m = await withConfig((o) => flyApi(env, "/apps/" + s.app + "/machines", { method: "POST", body: { name: names.machine, region: s.region, config: machineConfig(env, vol, { ...o, lock }) }, ...deps }));
   if (!m.ok || !m.data || typeof m.data.id !== "string") { await drop(); return { why: "Fly.io could not start a machine on it (" + flyWhy(m) + ")" }; }
-  const rec = { id: m.data.id, volume: vol, region: s.region, image: s.image, shape: flyShape(s), small: m.small, lock: 2, at: deps.now(), used: deps.now(), stopped: false, from: copy.snapshot_id };
+  const rec = { id: m.data.id, volume: vol, region: s.region, image: s.image, tools: s.tools, shape: flyShape(s), small: m.small, lock: 2, at: deps.now(), used: deps.now(), stopped: false, from: copy.snapshot_id };
   await writeRec(bucket, names.key, rec);
   await untilAnswers(env, rec.id, deps, FLY_PULL_MS);
   return { rec };
@@ -450,7 +471,7 @@ async function wakeMachine(env, bucket, names, rec, deps, gloopy = false) {
       // Updated, it gets its own lock key too (step 2).
       const lock = await controlKeyFor(env.CODER_TOKEN_KEY, names.machine);
       const u = await withConfig((o) => flyApi(env, "/apps/" + s.app + "/machines/" + rec.id, { method: "POST", body: { config: machineConfig(env, rec.volume, { ...o, lock, gloopy: !!rec.gloopy }) }, ...deps }));
-      if (u.ok) { rec = { ...rec, image: s.image, shape, small: u.small, lock: 2 }; pulled = true; }
+      if (u.ok) { rec = { ...rec, image: s.image, tools: s.tools, shape, small: u.small, lock: 2 }; pulled = true; }
       else await flyApi(env, "/apps/" + s.app + "/machines/" + rec.id + "/start", { method: "POST", ...deps });
     } else await flyApi(env, "/apps/" + s.app + "/machines/" + rec.id + "/start", { method: "POST", ...deps });
   }
@@ -601,10 +622,12 @@ async function spareRecs(bucket) {
   } while (cursor);
   return out;
 }
+/** When a spare was first made: an update to a newer Coder version keeps its age (`born`), its `at` is the update's. */
+export const spareBorn = (rec) => Number((rec && (rec.born || rec.at)) || 0);
 /** Can a chat start on this spare now? Ready (stopped, image fetched), from the current image and size, in this region, not old. */
 export function spareUsable(env, rec, now = Date.now(), snap = null) {
   const s = flySettings(env);
-  return !!rec && (rec.snap || null) === (snap || null) && rec.ready === true && !rec.claimed && rec.image === s.image && rec.shape === flyShape(s) && rec.region === s.region && now - Number(rec.at || 0) < SPARE_MAX_AGE_MS;
+  return !!rec && (rec.snap || null) === (snap || null) && rec.ready === true && !rec.claimed && rec.image === s.image && rec.shape === flyShape(s) && rec.region === s.region && now - spareBorn(rec) < SPARE_MAX_AGE_MS;
 }
 
 /** MAKE ONE SPARE: its disk, then its machine (Fly starts it and fetches the image); it is stopped once it answers (tendSpares). */
@@ -626,7 +649,7 @@ export async function makeSpare(env, deps0 = {}, copy = null) {
   if (!v.ok || !v.data || typeof v.data.id !== "string") return null;
   // (Still being restored: its machine is made by the every-minute run once the disk is ready, tendSpares.)
   if (snap && String(v.data.state || "created") !== "created") {
-    const rec = { volume: v.data.id, region: s.region, image: s.image, shape: flyShape(s), at: deps.now(), ready: false, restoring: true, snap, size: size.size_gb, h };
+    const rec = { volume: v.data.id, region: s.region, image: s.image, tools: s.tools, shape: flyShape(s), at: deps.now(), ready: false, restoring: true, snap, size: size.size_gb, h };
     await writeRec(bucket, SPARES + h + ".json", rec);
     return rec;
   }
@@ -640,7 +663,7 @@ async function spareMachine(env, deps, h, volume, snap = null, gb = 0) {
   const lock = env.CODER_TOKEN_KEY ? await controlKeyFor(env.CODER_TOKEN_KEY, "cspare-" + h) : "";
   const m = await withConfig((o) => flyApi(env, "/apps/" + s.app + "/machines", { method: "POST", body: { name: "cspare-" + h, region: s.region, config: { ...machineConfig(env, v.data.id, { ...o, lock }), metadata: { coder: "spare-machine" } } }, ...deps }));
   if (!m.ok || !m.data || typeof m.data.id !== "string") { await flyApi(env, "/apps/" + s.app + "/volumes/" + v.data.id, { method: "DELETE", ...deps }); return null; }
-  const rec = { id: m.data.id, volume: v.data.id, region: s.region, image: s.image, shape: flyShape(s), small: m.small, at: deps.now(), ready: false, h, ...(snap ? { snap, size: gb } : {}) };
+  const rec = { id: m.data.id, volume: v.data.id, region: s.region, image: s.image, tools: s.tools, shape: flyShape(s), small: m.small, at: deps.now(), ready: false, h, ...(snap ? { snap, size: gb } : {}) };
   await writeRec(bucket, SPARES + h + ".json", rec);
   return rec;
 }
@@ -655,7 +678,7 @@ export async function ensureCopySpare(env, copy, deps0 = {}) {
   if (!flyOn(env) || spareCount(env) < 1 || !copy || !SNAP_ID.test(String(copy.snapshot))) return null;
   const now = (deps0.now || Date.now)();
   const all = (await spareRecs(env.CODER_BUCKET)).filter(({ rec }) => rec.snap && !rec.claimed);
-  if (all.some(({ rec }) => rec.snap === String(copy.snapshot) && now - Number(rec.at || 0) < SPARE_MAX_AGE_MS)) return null;
+  if (all.some(({ rec }) => rec.snap === String(copy.snapshot) && now - spareBorn(rec) < SPARE_MAX_AGE_MS)) return null;
   const old = all.sort((a, b) => Number(a.rec.at || 0) - Number(b.rec.at || 0));
   for (let i = 0; i <= old.length - COPY_SPARES_MAX; i++) {
     // (A spare only waited for has no machine or disk of its own: just its record goes.)
@@ -667,7 +690,7 @@ export async function ensureCopySpare(env, copy, deps0 = {}) {
     const s = flySettings(env);
     const h = [...crypto.getRandomValues(new Uint8Array(8))].map((b) => b.toString(16).padStart(2, "0")).join("");
     // `of`: the chat disk the copy was made from, only to ask Fly about the copy (never removed with a spare).
-    const rec = { waiting: true, snap: String(copy.snapshot), of: String(copy.volume), size: Math.min(500, Math.max(s.disk, Math.ceil(Number(copy.size) || 0))), region: s.region, image: s.image, shape: flyShape(s), at: now, ready: false, h };
+    const rec = { waiting: true, snap: String(copy.snapshot), of: String(copy.volume), size: Math.min(500, Math.max(s.disk, Math.ceil(Number(copy.size) || 0))), region: s.region, image: s.image, tools: s.tools, shape: flyShape(s), at: now, ready: false, h };
     await writeRec(env.CODER_BUCKET, SPARES + h + ".json", rec);
     return rec;
   }
@@ -704,7 +727,7 @@ export async function claimSpare(env, bucket, names, deps, snap = null) {
     // (Fly starts a machine it updates; if it says otherwise, it is started.)
     const st = u.data && u.data.state;
     if (st && st !== "started" && st !== "starting" && st !== "replacing" && st !== "updating") await flyApi(env, "/apps/" + s.app + "/machines/" + sr.id + "/start", { method: "POST", ...deps });
-    const rec = { id: sr.id, volume: sr.volume, region: sr.region, image: sr.image, shape: sr.shape, small: u.small, lock: 2, at: now, used: now, stopped: false, spare: sr.h, ...(snap ? { from: snap } : {}) };
+    const rec = { id: sr.id, volume: sr.volume, region: sr.region, image: sr.image, tools: sr.tools || "", shape: sr.shape, small: u.small, lock: 2, at: now, used: now, stopped: false, spare: sr.h, ...(snap ? { from: snap } : {}) };
     await writeRec(bucket, names.key, rec);
     await bucket.delete(key);
     const refill = (snap ? ensureCopySpare(env, { snapshot: snap, size: sr.size }, deps) : refillSpares(env, deps)).catch(() => null);
@@ -715,12 +738,12 @@ export async function claimSpare(env, bucket, names, deps, snap = null) {
   return null;
 }
 
-/** Spares are made until the pool has `spareCount` (ready or being made, from the current image). */
+/** Spares are made until the pool has `spareCount` (ready or being made, with the current tools: sameTools). */
 export async function refillSpares(env, deps0 = {}) {
   if (!flyOn(env)) return 0;
   const now = (deps0.now || Date.now)();
   const s = flySettings(env);
-  const have = (await spareRecs(env.CODER_BUCKET)).filter(({ rec }) => !rec.snap && !rec.claimed && rec.image === s.image && rec.shape === flyShape(s) && rec.region === s.region && now - Number(rec.at || 0) < SPARE_MAX_AGE_MS).length;
+  const have = (await spareRecs(env.CODER_BUCKET)).filter(({ rec }) => !rec.snap && !rec.claimed && sameTools(rec, s) && rec.shape === flyShape(s) && rec.region === s.region && now - spareBorn(rec) < SPARE_MAX_AGE_MS).length;
   let made = 0;
   for (let i = have; i < spareCount(env); i++) if (await makeSpare(env, deps0)) made++;
   return made;
@@ -728,18 +751,20 @@ export async function refillSpares(env, deps0 = {}) {
 
 /**
  * EVERY MINUTE (runFlyMachines): each spare being made is stopped once it answers (its image is then on its server) and
- * marked ready; one from an older image or size, older than SPARE_MAX_AGE_MS, never ready in SPARE_READY_MS, or gone from
- * Fly is removed with its disk; a spare left marked taken (its claim cut off) is removed too; then the pool is filled.
+ * marked ready; one from older tools or another size, older than SPARE_MAX_AGE_MS, never ready in SPARE_READY_MS, or gone
+ * from Fly is removed with its disk; a spare left marked taken (its claim cut off) is removed too; then the pool is filled.
+ * ONE FROM AN OLDER CODER VERSION ON THE SAME TOOLS (2026-11-18, the owner: "finish this") is updated to the new version in
+ * place: its disk stays (a saved copy's spare stays that copy), and it is stopped again once it answers.
  */
 export async function tendSpares(env, bucket, deps, now, machines) {
-  const out = { removed: 0, made: 0, volumes: [] };
+  const out = { removed: 0, made: 0, updated: 0, volumes: [] };
   const s = flySettings(env);
   const byId = new Map((Array.isArray(machines) ? machines : []).map((m) => [m && m.id, m]));
   for (const { key, rec } of await spareRecs(bucket)) {
-    // A COPY'S SPARE WAITED FOR (2026-11-18): made once Fly.io says the copy is finished; dropped when the copy is gone, from
-    // an older image, or still not finished after CACHE_PENDING_MS (then no chat waits for that copy either).
+    // A COPY'S SPARE WAITED FOR (2026-11-18): made once Fly.io says the copy is finished; dropped when the copy is gone, made
+    // with older tools, or still not finished after CACHE_PENDING_MS (then no chat waits for that copy either).
     if (rec.waiting) {
-      const stale = rec.image !== s.image || now - Number(rec.at || 0) >= CACHE_PENDING_MS;
+      const stale = !sameTools(rec, s) || now - Number(rec.at || 0) >= CACHE_PENDING_MS;
       const st = stale ? null : await copyState(env, { snapshot: rec.snap, volume: rec.of }, deps);
       if (stale || (st && st.status === "gone")) { await bucket.delete(key); out.removed++; continue; }
       if (st && st.status === "created") {
@@ -751,7 +776,7 @@ export async function tendSpares(env, bucket, deps, now, machines) {
     if (rec.restoring) {
       const g = await flyApi(env, "/apps/" + s.app + "/volumes/" + rec.volume, deps);
       const late = now - Number(rec.at || 0) >= SPARE_READY_MS;
-      if (g.status === 404 || late || rec.image !== s.image) { await removeMachine(env, null, g.status === 404 ? null : rec.volume, deps); await bucket.delete(key); out.removed++; continue; }
+      if (g.status === 404 || late || !sameTools(rec, s)) { await removeMachine(env, null, g.status === 404 ? null : rec.volume, deps); await bucket.delete(key); out.removed++; continue; }
       out.volumes.push(rec.volume);
       if (g.ok && g.data && String(g.data.state || "created") === "created") {
         const made = await spareMachine(env, { ...deps, now: () => now }, rec.h, rec.volume, rec.snap, rec.size);
@@ -761,7 +786,7 @@ export async function tendSpares(env, bucket, deps, now, machines) {
       continue;
     }
     const m = byId.get(rec.id);
-    const old = rec.image !== s.image || rec.shape !== flyShape(s) || rec.region !== s.region || now - Number(rec.at || 0) >= SPARE_MAX_AGE_MS;
+    const old = !sameTools(rec, s) || rec.shape !== flyShape(s) || rec.region !== s.region || now - spareBorn(rec) >= SPARE_MAX_AGE_MS;
     const stuck = !rec.ready && now - Number(rec.at || 0) >= SPARE_READY_MS;
     const dropped = rec.claimed && now - Number(rec.claimedAt || 0) >= FLY_ORPHAN_MS;
     if (rec.claimed && !dropped) { out.volumes.push(rec.volume); continue; }
@@ -775,6 +800,19 @@ export async function tendSpares(env, bucket, deps, now, machines) {
       await removeMachine(env, m ? rec.id : null, rec.volume, deps);
       await bucket.delete(key);
       out.removed++;
+      continue;
+    }
+    if (rec.image !== s.image) {
+      // (Its own key, from its spare name, as when it was made; Fly starts a machine it updates, else it is started.)
+      const lock = env.CODER_TOKEN_KEY ? await controlKeyFor(env.CODER_TOKEN_KEY, "cspare-" + rec.h) : "";
+      const u = await withConfig((o) => flyApi(env, "/apps/" + s.app + "/machines/" + rec.id, { method: "POST", body: { config: { ...machineConfig(env, rec.volume, { ...o, lock }), metadata: { coder: "spare-machine" } } }, ...deps }));
+      if (!u.ok) { await removeMachine(env, rec.id, rec.volume, deps); await bucket.delete(key); out.removed++; continue; }
+      const st = u.data && u.data.state;
+      if (st && st !== "started" && st !== "starting" && st !== "replacing" && st !== "updating") await flyApi(env, "/apps/" + s.app + "/machines/" + rec.id + "/start", { method: "POST", ...deps });
+      const { readyAt: _r, ...was } = rec;
+      await writeRec(bucket, key, { ...was, image: s.image, tools: s.tools, small: u.small, ready: false, at: now, born: spareBorn(rec) });
+      out.volumes.push(rec.volume);
+      out.updated++;
       continue;
     }
     out.volumes.push(rec.volume);
@@ -906,11 +944,12 @@ export async function runFlyMachines(env, deps0 = {}, now = Date.now()) {
       out.removed++;
     }
   }
-  // THE SPARES: made ready, recycled when old or from an older image, and the pool filled up again.
+  // THE SPARES: made ready, recycled when old or from older tools, brought to a new version, and the pool filled up again.
   const spr = await tendSpares(env, bucket, deps, now, list.data);
   for (const v of spr.volumes) known.add(v);
   out.removed += spr.removed;
   if (spr.made) out.spares = spr.made;
+  if (spr.updated) out.sparesUpdated = spr.updated;
   // ONCE AN HOUR: kept disks no machine uses (a machine removed before its disk could go).
   if (new Date(now).getUTCMinutes() === 17) {
     const vols = await flyApi(env, "/apps/" + s.app + "/volumes", deps);
