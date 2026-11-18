@@ -1080,4 +1080,5 @@ classifier decides in Auto; Coder refuses, "that path is outside the project"); 
 session's working directories (its F9t, addDirectories) or to accept edits for the session in default mode (Coder's card:
 Yes or No).
 
-**Tests:** PW7 (a write through a link out) and PW8 (Plan's checker) new.
+**Tests:** PW7 (a write through a link out) and PW8 (Plan's checker) new. The full suite: 1380 pass, 4 skipped, 0 fail.
+Deployed to coder2 (deploy 261): its docs page has the new words. Not tried in a live chat (coder2's GitHub sign-in).

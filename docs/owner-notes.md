@@ -13,6 +13,8 @@ Still the same as before: a path that names a place outside the project directly
 
 Gloopy is untouched.
 
+The docs page says this under Write and Edit. Tests: PW7 and PW8 are new. All 1,380 pass. On this chat's branch, deployed to coder2 (deploy 261). Not tried in a live chat with Grok yet (coder2's GitHub sign-in).
+
 ## 2026-11-18: Protected folders, links and a "/" at the end, matched for write and edit (your word: "match")
 
 Again, I checked each one on Claude Code's real tools and in its program first:
