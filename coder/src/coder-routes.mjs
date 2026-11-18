@@ -140,7 +140,7 @@ import { makeRouteTicket, readRouteTicket, ROUTE_TICKET_MS } from "./coder-auth.
 import { readSchedules, writeSchedules, schedulesForTurn, addSchedule, addFromTurn, runsLeft, queueEvent, setPaused, pauseAll, editSchedule, logRun, endRun, testText, LATE_MS } from "./gloopy-schedules.mjs";
 import { FILE_IN_MAX, FILE_OUT_MAX, ATTACH_MAX, readFiles, keepFile, removeFile, fileOf, filesForTurn, fileDownload, fileViewAddress, serveFileView, PREVIEW_TYPES, extOf, canPreview } from "./gloopy-files.mjs";
 // (The files Coder sends the owner in a chat, Claude Code's SendUserFile: kept with the chat. 2026-11-18.)
-import { handleSentPut, serveSentView, readSent, sentOf, sentDownload, sentViewAddress, viewTypeOf, dropSent } from "./coder-sent.mjs";
+import { handleSentPut, serveSentView, serveSentGet, readSent, sentOf, sentDownload, sentViewAddress, sentGetAddress, viewTypeOf, dropSent } from "./coder-sent.mjs";
 import { HOOK_PREFIX, HOOK_BODY_MAX, readWebhooks, addWebhook, removeWebhook, writeWebhooks, hookAddress, hookKey, callHasKey, webhooksForTurn, callData, eventText } from "./gloopy-webhooks.mjs";
 // (Gloopy's own modes for what it may do, Ask, Always allow or Deny, named apart from Coder's permission modes: merged 2026-11-13.)
 import { PERMISSIONS, PERMISSION_KEYS, MODES as GLOOPY_MODES, DEFAULT_MODE, DEFAULTS, TESTING, cleanPermissions } from "../container/gloopy-permissions.mjs";
@@ -976,7 +976,8 @@ export async function handleCoder(request, env, ctx, deps) {
   // ── A FILE CODER SENDS THE OWNER (send_user_file, Claude Code's SendUserFile; 2026-11-18; src/coder-sent.mjs): from its machine
   // with the running job's own pass; and one shown in its chat, a plain visit with its signed address. ──
   if (parts[0] === "sent-put" && parts.length === 1 && request.method === "POST") return handleSentPut(request, env);
-  if (parts[0] === "sent-view" && parts.length === 4 && request.method === "GET") return serveSentView(env, bucket, decodeURIComponent(parts[1]), decodeURIComponent(parts[2]), parts[3], url);
+  if (parts[0] === "sent-get" && parts.length === 4 && request.method === "GET") return serveSentGet(env, bucket, decodeURIComponent(parts[1]), decodeURIComponent(parts[2]), parts[3], url);
+  if (parts[0] === "sent-view" && parts.length === 4 && request.method === "GET") return serveSentView(env, bucket, decodeURIComponent(parts[1]), decodeURIComponent(parts[2]), parts[3], url, Date.now(), () => request.headers.get("range"));
   // ── A SAVED LOGIN, FOR GLOOPY'S MACHINE (2026-11-09; src/gloopy-vault.mjs): asked by its service with the running
   // job's own pass (as the Worker's egress is), for the one site its browser is on; never by the page or the AI. ──
   if (parts[0] === "gloopy-vault" && parts.length === 1 && request.method === "POST") return gloopyVaultAsk(request, env, bucket);
@@ -2784,10 +2785,16 @@ export async function handleCoder(request, env, ctx, deps) {
 
   // THE FILES CODER SENT IN THIS CHAT (send_user_file, Claude Code's SendUserFile; 2026-11-18; src/coder-sent.mjs): GET the list;
   // GET sent/<id> to download one (always saved, never opened here); GET sent/<id>/view for the signed address that shows it in
-  // place.
+  // the side panel; GET sent/<id>/link for the signed address that saves it, as big as it is.
   if (action === "sent" && request.method === "GET") {
     const fid = parts[3] || "";
     if (!fid) return json({ ok: true, files: await readSent(bucket, uid, id) });
+    if (parts[4] === "link") {
+      const item = (await readSent(bucket, uid, id)).find((x) => x.id === fid);
+      if (!item) return json({ error: "That file is gone." }, 404);
+      const address = await sentGetAddress(env, uid, id, item);
+      return address ? json({ ok: true, url: address }) : json({ error: "That file could not be downloaded." }, 503);
+    }
     if (parts[4] === "view") {
       const item = (await readSent(bucket, uid, id)).find((x) => x.id === fid);
       if (!item) return json({ error: "That file is gone." }, 404);

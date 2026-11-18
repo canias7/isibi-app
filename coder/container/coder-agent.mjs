@@ -47,7 +47,7 @@ import { ASK_USER_DESCRIPTION, ASK_USER_PROPERTIES, shownInput, answerKeys, card
 import { sharedChat, sharedChatText, NOT_FETCHED, webFetchDescription, WEBFETCH_PARAMS, WEBFETCH_DEADLINE_MS, WEBFETCH_CACHE_TTL_MS, WEBFETCH_READ_CHARS, WEBFETCH_RESULT_MAX, NO_ANSWER, pageCache, docSite, readerMessage, redirectText, httpErrorText, pastEndText, leadText, readOnNote, binaryNote, fromOffset, firstChars, statusText, persistedText } from "./coder-webfetch.mjs";
 import { ENV_TOOLS, ENV_TOOL_NAMES, ENV_INPUT_CHECKS, envTable } from "./coder-envtools.mjs";
 // (Claude Code's SendUserFile as send_user_file: the owner, 2026-11-18, "Ok you can start".)
-import { SEND_TOOL, SEND_TOOL_DEF, CC_SEND, sentText, tooBigToSend, serverReturned, networkError, CONNECTION_CLOSED, UNEXPECTED_ANSWER, renders as sendRenders } from "./coder-sendfile.mjs";
+import { SEND_TOOL, SEND_TOOL_DEF, CC_SEND, sentText, isPreviewCopy, copyName, tooBigToSend, serverTooBig, allowanceUsed, serverReturned, networkError, couldNotRead, CONNECTION_CLOSED, UNEXPECTED_ANSWER, SEND_FILE_MAX, SEND_PART_SIZE, renders as sendRenders } from "./coder-sendfile.mjs";
 // (Claude Code's MCP resource tools, ListMcpResourcesTool and ReadMcpResourceTool: the owner, 2026-11-17, "yes build it like
 // claude code".)
 import { LIST_TOOL as MCP_LIST_TOOL, READ_TOOL as MCP_READ_TOOL, DIR_TOOL as MCP_DIR_TOOL, LIST_TOOL_DEF as MCP_LIST_DEF, READ_TOOL_DEF as MCP_READ_DEF, DIR_TOOL_DEF as MCP_DIR_DEF, listText as mcpListText, readText as mcpReadText, dirText as mcpDirText, extOf as mcpExtOf, blobSavedText, blobNotSaved, blobTooBig, BLOB_SAVE_MAX, RESOURCE_INLINE_MAX, RELAY_TYPE, RELAY_MAX, relayedAnswer, readErrorAnswer, contentsOf } from "./coder-mcpres.mjs";
@@ -65,7 +65,7 @@ import { psDescription, psCommand, psSleepWhat } from "./coder-ps.mjs";
 import { psParseResult, psParseFail, psExitOf, PS_PARSE_RETRYABLE, psCommands, psFileRedirections, psCmdlet, psWriteTargets } from "./coder-psparse.mjs";
 import { posix as pathPosix } from "node:path";
 import { checkAction, actionShown, autoDenied, checkUnavailable, blockedShown, limitWhy, checkerState, countBlock, countAllowed, resume, droppedInAuto, NO_VERDICT, NO_VERDICT_STOP, NOT_RUN_ROW, STOPPED_NO_VERDICT, noVerdictTold, noVerdictStopTold, NO_VERDICT_STOP_SHOWN, noVerdictWait, rmUnanswered, rmAnswered, noPromptDenied } from "./coder-checker.mjs";
-import { psDecision, psPlanFile, toolGlob, MODES, MODE_NAMES, normMode, bashDecision, MONITOR_SETTINGS, namedForMonitor, fetchDecision, fileToolDecision, fileRuleHit, readCommand, fileCommandTargets, parseRule, allowRuleCovers, readBlockWhy, sensitiveWhy, linkOutWhy, ruleAskWhy, askedWhy, hookAskWhy, hookAskTold, planWriteWhy, planCallWhy, ccPath, RULE_MAX, REJECTED, REJECTED_SAID, NOT_NOW, PLAN_NOTE, PLAN_EXITED, AUTO_NOTE, AUTO_EXITED, planApproved, wholeReadOnly, movesWorkTree, monitorRules, partsAllowedByRules, discardsWork, wsDecision, wsProblem, wsAskText, wholeRule, MONITOR_BASH_DENIED, toolSearchParamRule, toolSearchParamDenied, resourceParamRule, paramDenied } from "./coder-perms.mjs";
+import { psDecision, psPlanFile, toolGlob, MODES, MODE_NAMES, normMode, bashDecision, MONITOR_SETTINGS, namedForMonitor, fetchDecision, fileToolDecision, fileRuleHit, readCommand, fileCommandTargets, parseRule, allowRuleCovers, readBlockWhy, sensitiveWhy, linkOutWhy, ruleAskWhy, askedWhy, hookAskWhy, hookAskTold, planWriteWhy, planCallWhy, ccPath, RULE_MAX, REJECTED, REJECTED_SAID, NOT_NOW, PLAN_NOTE, PLAN_EXITED, AUTO_NOTE, AUTO_EXITED, planApproved, wholeReadOnly, movesWorkTree, monitorRules, partsAllowedByRules, discardsWork, wsDecision, wsProblem, wsAskText, wholeRule, MONITOR_BASH_DENIED, toolSearchParamRule, toolSearchParamDenied, resourceParamRule, paramDenied, outsideReadWhy, outsideReadRule } from "./coder-perms.mjs";
 // (Claude Code's plan mode and ExitPlanMode, with its plan file: the owner, 2026-11-14, "Do all the talk to you tools execpt
 // for the notify one".)
 import { EXIT_PLAN_TOOL, EXIT_PLAN_TOOL_NO_FILE, planModeNote, planModeSparse, planKind, planReminderDue, planExitOwed, autoNoteOwed, autoExitOwed, planExitedNote, planReentryNote, planInput, checkPlanInput, NOT_IN_PLAN_MODE, PLAN_SHOW_MAX, PLAN_WITHHELD, ENTER_PLAN_TOOL, ENTERED_PLAN, ENTERED_PLAN_TEXT, ENTERED_PLAN_SHOWN, checkEnterPlanInput, planFileReference } from "./coder-plan.mjs";
@@ -1566,21 +1566,60 @@ export function sentFileCaller(via, fetchFn = fetch) {
     if (["ECONNRESET", "EPIPE", "ERR_STREAM_PREMATURE_CLOSE", "UND_ERR_SOCKET"].includes(code)) return CONNECTION_CLOSED;
     return networkError(String((e && e.cause && e.cause.message) || (e && e.message) || e || "fetch failed").slice(0, 300));
   };
-  return async ({ name, bytes }) => {
+  /** One request, tried once more after a network failure or one of the statuses Claude Code tries again. → { r } or { error }. */
+  const post = async (to, headers, body) => {
     let r = null, why = "";
     for (let k = 0; k < 2; k++) {
-      try { r = await fetchFn(url, { method: "POST", headers: { ...via.headers, "content-type": "application/octet-stream", "x-file-name": encodeURIComponent(String(name || "file")) }, body: bytes, signal: AbortSignal.timeout(SENT_PUT_MS) }); why = ""; }
+      try { r = await fetchFn(to, { method: "POST", headers: { ...via.headers, ...headers }, body, signal: AbortSignal.timeout(SENT_PUT_MS) }); why = ""; }
       catch (e) { r = null; why = failed(e); continue; }
       if (k === 0 && [502, 503, 504, 507, 520, 521, 522, 523, 524].includes(r.status)) continue;
       break;
     }
-    if (!r) return { error: why };
-    // (Over the limit: its words for its server's refusal of a file too big, naming its size and the limit.)
-    if (r.status === 413) return { error: tooBigToSend(bytes ? bytes.length : 0) };
-    if (!r.ok) return { error: serverReturned(r.status) };
-    const j = await r.json().catch(() => null);
-    if (!j || j.ok !== true || typeof j.id !== "string") return { error: UNEXPECTED_ANSWER };
-    return { id: String(j.id), name: String(j.name || name), size: Number(j.size) || 0, type: typeof j.type === "string" ? j.type : "" };
+    return r ? { r } : { error: why };
+  };
+  /** A refusal in its words: one too big with the server's limit (its file_too_large), the allowance used up, else the status. */
+  const refused = async (r, size) => {
+    const j = await r.json().catch(() => null), e = j && j.error && typeof j.error === "object" ? j.error : {};
+    if (r.status === 413) return serverTooBig(size, Number(e.max_bytes) > 0 ? Number(e.max_bytes) : SEND_FILE_MAX);
+    if (e.code === "file_limit_exceeded") return allowanceUsed(r.status);
+    return serverReturned(r.status);
+  };
+  const named = (name) => ({ "x-file-name": encodeURIComponent(String(name || "file")) });
+  return async ({ name, bytes = null, size = 0, readPart = null }) => {
+    // WHOLE, in one request.
+    if (bytes) {
+      const p = await post(url, { "content-type": "application/octet-stream", ...named(name) }, bytes);
+      if (p.error) return { error: p.error };
+      if (!p.r.ok) return { error: await refused(p.r, bytes.length) };
+      const j = await p.r.json().catch(() => null);
+      if (!j || j.ok !== true || typeof j.id !== "string") return { error: UNEXPECTED_ANSWER };
+      return { id: String(j.id), name: String(j.name || name), size: Number(j.size) || 0, type: typeof j.type === "string" ? j.type : "" };
+    }
+    // IN PARTS, each read from disk as it is sent (readPart), as Claude Code streams a big file.
+    const s = await post(url + "?part=start", { ...named(name), "x-file-size": String(size) }, "");
+    if (s.error) return { error: s.error };
+    if (!s.r.ok) return { error: await refused(s.r, size) };
+    const sj = await s.r.json().catch(() => null);
+    if (!sj || sj.ok !== true || typeof sj.id !== "string" || typeof sj.upload !== "string") return { error: UNEXPECTED_ANSWER };
+    const q = "&id=" + encodeURIComponent(sj.id) + "&upload=" + encodeURIComponent(sj.upload);
+    const quit = async (error) => { await post(url + "?part=abort" + q, named(name), "").catch(() => null); return { error }; };
+    const parts = [];
+    for (let at = 0, n = 1; at < size; at += SEND_PART_SIZE, n++) {
+      let chunk;
+      try { chunk = await readPart(at, Math.min(SEND_PART_SIZE, size - at)); } catch (e) { return quit(e && e.sendWhy ? e.sendWhy : couldNotRead(String((e && e.message) || e))); }
+      const p = await post(url + "?part=" + n + q, { "content-type": "application/octet-stream", ...named(name) }, chunk);
+      if (p.error) return quit(p.error);
+      if (!p.r.ok) return quit(await refused(p.r, size));
+      const pj = await p.r.json().catch(() => null);
+      if (!pj || pj.ok !== true || typeof pj.etag !== "string") return quit(UNEXPECTED_ANSWER);
+      parts.push({ partNumber: n, etag: pj.etag });
+    }
+    const d = await post(url + "?part=done" + q, { "content-type": "application/json", ...named(name) }, JSON.stringify({ parts, name }));
+    if (d.error) return quit(d.error);
+    if (!d.r.ok) return quit(await refused(d.r, size));
+    const dj = await d.r.json().catch(() => null);
+    if (!dj || dj.ok !== true || typeof dj.id !== "string") return { error: UNEXPECTED_ANSWER };
+    return { id: String(dj.id), name: String(dj.name || name), size: Number(dj.size) || 0, type: typeof dj.type === "string" ? dj.type : "" };
   };
 }
 /**
@@ -2932,7 +2971,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
    * the tool then answers for itself).
    */
   const sendFiles = async (files) => {
-    const req = { tool: "user_file_check", args: { files } }, b64 = Buffer.from(JSON.stringify(req)).toString("base64");
+    // (Under the read block, a file outside the working folders is refused here, as Claude Code's check refuses it.)
+    const req = { tool: "user_file_check", args: { files, ...(readBlock ? { blockOutside: true } : {}) } }, b64 = Buffer.from(JSON.stringify(req)).toString("base64");
     let r;
     try { r = await deps.exec({ command: "node --no-warnings " + TOOLS_SCRIPT + " " + (b64.length > 100_000 ? "@REQUEST" : b64), timeoutS: 60, tool: true, here: true, ...(b64.length > 100_000 ? { payload: JSON.stringify(req) } : {}) }); } catch { return ""; }
     const out = String((r && r.output) || "");
@@ -5692,9 +5732,19 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         const deniedWhy = !github && wholeRule(ownRules, "deny", "Read") ? CC_SEND + " reads file contents; that action is disabled." : oneDenied ? oneDenied.why : "";
         if (deniedWhy) { emit({ type: "note", text: deniedWhy, warn: true }); reply(deniedWhy); continue; }
         const byRule = decs.find((d) => d && d.verdict === "ask" && d.byRule);
-        const asks = byRule || (!github && wholeRule(ownRules, "ask", "Read") ? { why: "Send " + files.length + " " + (files.length === 1 ? "file" : "files") + " to the user? " + CC_SEND + " reads file contents." } : decs.find((d) => d && d.verdict === "ask"));
+        // A FILE OUTSIDE THE WORKING FOLDERS (Claude Code 2.1.327's Read permission: after its deny and ask rules, a path inside the
+        // working folders, or one a Read allow rule covers, is read; any other asks, in its words, offering a rule for the file's
+        // folder; in Auto it runs, as Claude Code's auto mode approves read-only actions, "including reads outside the working
+        // directories"). The chat's own folders count as inside (its output, scratch, plan and memory files), as Claude Code's own
+        // files do. (The owner, 2026-11-18: "Match Claude Code".)
+        const ownHere = [...workdirs, ...(Array.isArray(deps.ownDirs) ? deps.ownDirs : []), SCRATCH, ...(planPath() ? [planPath()] : []), ...(typeof deps.memFile === "string" && deps.memFile ? [deps.memFile] : [])].filter((x) => typeof x === "string" && x);
+        const withinHere = (x) => !!x && ownHere.some((d) => x === d || x.startsWith(d.replace(/\/+$/, "") + "/"));
+        const outsideOf = (f) => { const full = toolFullPath(deps, f); const to = leadsTo(full, workdirs, (x) => realPath(x)) || full; return withinHere(full) && withinHere(to) ? null : { full, landing: withinHere(full) ? to : "" }; };
+        const readCtx = { sources: ownRules.sources, root: deps.root || "/", cwd: ruleCwd(), home: deps.home || "", real: (y) => realPath(y), roots: workdirs.slice(1) };
+        const out = github || modeNow() === "auto" ? null : files.map(outsideOf).find((o) => o && !fileRuleHit(ownRules.allow, "Read", o.full, "allow", readCtx));
+        const asks = byRule || (!github && wholeRule(ownRules, "ask", "Read") ? { why: "Send " + files.length + " " + (files.length === 1 ? "file" : "files") + " to the user? " + CC_SEND + " reads file contents." } : decs.find((d) => d && d.verdict === "ask")) || (out ? { why: outsideReadWhy(out.full, out.landing), rules: [outsideReadRule(out.full)] } : null);
         if (asks && !askedByRule && !c.rerun) {
-          const card = { tool: c.name, id: c.id, what: scrub("Send " + files.join(", ") + " to you").slice(0, 300), why: String(asks.why || ""), told: String(asks.why || askedWhy(CC_SEND)) };
+          const card = { tool: c.name, id: c.id, what: scrub("Send " + files.join(", ") + " to you").slice(0, 300), why: String(asks.why || ""), told: String(asks.why || askedWhy(CC_SEND)), ...(Array.isArray(asks.rules) ? { rules: asks.rules } : {}) };
           const ok = canAsk() ? await askOwner(card) : await noOneHooks(card);
           if (!ok) { reply(card.told); continue; }
           const o = answerOutcome(ok);
@@ -5702,6 +5752,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           if (o === "time") { reply("not run: Coder ran out of time waiting for the owner's answer"); emit({ type: "error", text: "Coder ran out of time waiting for your answer." }); return end("time"); }
           if (o === "said") { reply(saidReply(ok)); continue; }
           if (o === "no") { reply(REJECTED); return noEnd(i, "stopped: the owner said no"); }
+          if (ok.choice === "always") for (const r of card.rules || []) addRule(r);
         }
         // ITS FILES, ONE AT A TIME: read as the AI's user (user_file_read, checked again as it is read, as Claude Code checks a file
         // again as it sends it), then kept by Coder's server with the chat (deps.sendFile). One over the limit, or that the server or
@@ -5709,7 +5760,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         ranAt.set(c.id, now());
         const attachments = [];
         for (const f of files) {
-          const req = { tool: "user_file_read", args: { path: f } }, b64 = Buffer.from(JSON.stringify(req)).toString("base64");
+          // (Claude Code's copies of a picture for the chat, unless `display` is "attach", its "originals only".)
+          const req = { tool: "user_file_read", args: { path: f, ...(readBlock ? { blockOutside: true } : {}), ...(a.display !== "attach" ? { copies: true } : {}) } }, b64 = Buffer.from(JSON.stringify(req)).toString("base64");
           let r = null;
           try { r = await deps.exec({ command: "node --no-warnings " + TOOLS_SCRIPT + " " + (b64.length > 100_000 ? "@REQUEST" : b64), timeoutS: 120, tool: true, here: true, ...(b64.length > 100_000 ? { payload: JSON.stringify(req) } : {}) }); } catch { r = null; }
           const out = String((r && r.output) || "");
@@ -5717,17 +5769,45 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           if (r && r.code === 0) { try { got = JSON.parse(out); } catch { got = null; } }
           if (!got || typeof got !== "object") { attachments.push({ path: toolFullPath(deps, f), size: 0, isImage: false, upload_error: "not sent: " + (out.startsWith("error: ") ? out.slice(7).trim() : "it could not be read") }); continue; }
           const head = { path: String(got.path), size: Number(got.size) || 0, isImage: got.isImage === true, ...(typeof got.media_type === "string" ? { media_type: got.media_type } : {}) };
+          // (Past Claude Code's own limit, 500 MiB: its words, as it refuses one before sending, "600.0 MiB exceeds the 500 MiB
+          // upload limit".)
           if (got.tooBig) { attachments.push({ ...head, upload_error: tooBigToSend(head.size) }); continue; }
+          // (The chat's copy of a picture, in its place: Claude Code's preview or scaled copy, user_file_read.)
+          const copy = got.copy && typeof got.copy === "object" && typeof got.copy.path === "string" ? got.copy : null;
+          const src = copy || got;
+          // (A big one is read as it is sent, in parts, each as the AI's user from the same file: user_file_part.)
+          const readPart = src.parts ? async (offset, length) => {
+            const preq = { tool: "user_file_part", args: { path: copy ? copy.path : f, offset, length, ino: src.ino, dev: src.dev } }, pb = Buffer.from(JSON.stringify(preq)).toString("base64");
+            let pr = null;
+            try { pr = await deps.exec({ command: "node --no-warnings " + TOOLS_SCRIPT + " " + pb, timeoutS: 120, tool: true, here: true }); } catch { pr = null; }
+            const pout = String((pr && pr.output) || "");
+            let pj = null;
+            if (pr && pr.code === 0) { try { pj = JSON.parse(pout); } catch { pj = null; } }
+            if (!pj || typeof pj.data !== "string") throw Object.assign(new Error("part"), { sendWhy: pout.startsWith("error: ") ? pout.slice(7).trim() : couldNotRead("it could not be read") });
+            return Buffer.from(pj.data, "base64");
+          } : null;
+          const sendName = copy && copy.kind === "preview" ? copy.path.split("/").pop() : head.path.split("/").pop();
           let sent = null;
-          try { sent = typeof deps.sendFile === "function" ? await deps.sendFile({ name: head.path.split("/").pop(), bytes: Buffer.from(String(got.data || ""), "base64") }) : null; } catch (e) { sent = { error: networkError(String((e && e.message) || e).slice(0, 300)) }; }
-          attachments.push(sent && sent.id ? { ...head, file_uuid: String(sent.id) } : { ...head, upload_error: String((sent && sent.error) || UNEXPECTED_ANSWER) });
+          try { sent = typeof deps.sendFile === "function" ? await deps.sendFile(src.parts ? { name: sendName, size: Number(src.size) || 0, readPart } : { name: sendName, bytes: Buffer.from(String(src.data || ""), "base64") }) : null; } catch (e) { sent = { error: networkError(String((e && e.message) || e).slice(0, 300)) }; }
+          // (A copy read in parts is dropped once sent; one sent whole was dropped as it was read.)
+          if (copy && src.parts) { const dq = Buffer.from(JSON.stringify({ tool: "user_file_drop", args: { path: copy.path } })).toString("base64"); try { await deps.exec({ command: "node --no-warnings " + TOOLS_SCRIPT + " " + dq, timeoutS: 60, tool: true, here: true }); } catch { /* the machine's temporary folder goes with it */ } }
+          // (Its result object as Claude Code's: a preview copy's type in media_type, a scaled copy's sizes in `scaled`.)
+          const withCopy = copy ? (copy.kind === "preview" ? { media_type: String(copy.media_type) } : copy.scaled ? { scaled: copy.scaled } : {}) : {};
+          attachments.push(sent && sent.id ? { ...head, ...withCopy, file_uuid: String(sent.id) } : { ...head, upload_error: String((sent && sent.error) || UNEXPECTED_ANSWER) });
         }
         doneAt.set(c.id, now());
         const facts = { ...(typeof a.caption === "string" ? { caption: a.caption } : {}), ...(a.display === "render" || a.display === "attach" ? { display: a.display } : {}), attachments };
         toolFacts.set(c.id, facts);
         // THE CARD: each file delivered, with the caption; shown in place or to download (Claude Code's `display`, else by its kind).
         const delivered = attachments.filter((x) => x.upload_error === undefined);
-        if (delivered.length) emit({ type: "sent", id: c.id, ...(facts.caption ? { caption: scrub(facts.caption).slice(0, 2000) } : {}), files: delivered.map((x) => { const name = x.path.split("/").pop(); return { id: x.file_uuid, name: scrub(name).slice(0, 200), size: x.size, ...(x.media_type ? { type: x.media_type } : {}), ...(sendRenders(name, facts.display) ? { render: true } : {}) }; }) });
+        // (`proactive`, Claude Code's "the user is away and you want this to reach their phone": a push to the owner's devices,
+        // src/coder-push.mjs pushesFor.)
+        if (delivered.length) emit({ type: "sent", id: c.id, ...(a.status === "proactive" ? { proactive: true } : {}), ...(facts.caption ? { caption: scrub(facts.caption).slice(0, 2000) } : {}), files: delivered.map((x) => {
+          // (A preview copy goes by its own name, "photo.jpg"; a picture shows as one in the chat when Claude Code's chat shows it
+          // as one, `image`, else as a file to open; `render` opens it in the side panel right away.)
+          const copied = isPreviewCopy(x), name = copied ? copyName(x.path, x.media_type === "image/jpeg" ? "jpeg" : "png") : x.path.split("/").pop();
+          return { id: x.file_uuid, name: scrub(name).slice(0, 200), size: x.size, ...(x.media_type ? { type: x.media_type } : {}), ...(x.isImage && facts.display !== "attach" ? { image: true } : {}), ...(x.scaled ? { scaled: x.scaled } : {}), ...(sendRenders(name, facts.display) ? { render: true } : {}) };
+        }) });
         const text = sentText(facts);
         // (A file not delivered is no failure of the call, as Claude Code's: its answer says so.)
         emit({ type: "result", id: c.id, code: 0, output: scrub(text).slice(0, 4000) });

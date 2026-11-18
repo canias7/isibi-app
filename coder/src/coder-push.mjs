@@ -185,6 +185,10 @@ export function pushesFor(events, meta, now = Date.now()) {
     // MCP server's question to continue"), and which connector asks.
     else if (e.type === "elicit") out.push({ kind: "actions", title: who + " needs your input" + tail, body: "Answer the MCP server's question to continue" + (e.connector ? " (" + String(e.connector).slice(0, 80) + ")" : "") });
     else if (e.type === "done" && meta && now - Number(meta.at || now) >= LONG_JOB_MS) out.push({ kind: "decides", title: who + " finished" + tail, body: e.text || "" });
+    // A FILE SENT `proactive` (send_user_file, Claude Code's SendUserFile: "Use `proactive` when you're initiating — the user is
+    // away and you want this to reach their phone"; the owner, 2026-11-18, "Match Claude Code"): a push under "Push when Coder
+    // decides", the caption or the files' names.
+    else if (e.type === "sent" && e.proactive === true && Array.isArray(e.files) && e.files.length) out.push({ kind: "decides", title: who + " sent you " + (e.files.length === 1 ? "a file" : e.files.length + " files") + tail, body: String(e.caption || e.files.map((f) => f && f.name).filter(Boolean).join(", ")) });
   }
   return out.slice(0, NOTIFY_MAX + 1);
 }

@@ -906,13 +906,42 @@ machine's file list (CD78, CD163) has the new modules. The full suite: 1353 pass
 251): its docs section is up, the machine's upload refuses a call without a job's pass (403), a bad view signature is "not found"
 (404). Not tried in a live chat (coder2's GitHub sign-in).
 
-**For the owner to decide:**
-1. **The notification sentence** is left out, as Coder has no PushNotification tool.
-2. **30 MiB per file.** Claude Code's limit is set by its service and is at least that.
-3. **No smaller copies of pictures.** Claude Code makes them for its apps; Coder's chat shows the original.
-4. **Only files in the project and its working folders.** Claude Code can send a file from elsewhere on its machine (asking
-   first, as its Read does), unless a setting blocks reads outside its working folders; Coder's file tools never open files
-   outside them.
-5. **No notification** for "proactive": the file waits in the chat, as in Claude Code's text for that case.
-6. **Shown in the chat, not a side panel:** a picture or page shows right under its card. Coder's chat has no side panel.
-7. **Files kept with the chat:** up to 500 files and 2 GB a chat, the oldest going first; gone when the chat is deleted.
+**For the owner to decide** (as first built): 1. the notification sentence left out; 2. 30 MiB per file; 3. no smaller copies of
+pictures; 4. only files in the project and its working folders; 5. no notification for "proactive"; 6. shown in the chat, not a
+side panel; 7. files kept with the chat, 500 files and 2 GB, the oldest going first.
+
+**Claude Code's docs, double-checked** (the owner, 2026-11-18: "Go back again to the tools that you use at it, and double check
+against the Claude Code docs"; every page fetched fresh and compared with the day before's copy): the tools reference's entry,
+"Sends files from the session to you with an optional caption, so a generated report, diagram, screenshot, or built artifact
+reaches your device … The optional `display` input controls presentation: `render` opens the file inline in the client, `attach`
+shows a download card only, and when unset the client decides by file type. Available when a Remote Control client is connected
+or in a cloud session", permission required: No (its note: file tools "still prompt for paths outside the working directory and
+additional directories"); VS Code's row "Sent report.md, chart.png", the caption under it (VS Code's own); the changelog: an upload
+retried once after a timeout, a network error, a 502, 503, 504, 507 or a proxy's 520 to 524, waiting 35 seconds; "large files now
+stream from disk instead of being read into memory, and a file over the size limit is refused with the server's limit named";
+"the Claude apps now show a preview" of BMP, HEIC, HEIF, AVIF and TIFF pictures "where Claude Code can convert them"; the auto
+mode page: reads outside the working directories run without a prompt in auto mode (the one-time prompt is the Read, Grep and Glob
+tools'). Where the docs say less, its program (2.1.327) says the rest.
+
+**Matched, all seven** (the owner: "Match Claude Code"):
+
+| | Claude Code | Coder before | Coder now |
+|---|---|---|---|
+| 1. Description | its default text (the one this session got): "Use `proactive` when you're initiating — the user is away and you want this to reach their phone"; the text naming PushNotification only behind a switch of its own, off by default (its prompt(): tengu_smooth_pelican) | that other text, its PushNotification sentence cut | its default text, word for word |
+| 1b. "proactive" | reaches the phone (its service pushes it; the tool itself only counts it) | nothing | a push under "Push when Coder decides" (the caption, or the files' names), none while the owner looks at the chat |
+| 2. Size | its own limit 500 MiB (its KXn), its service's lower one when it names one ("never under 30 MiB"); big files read from disk as they are sent; "600.0 MiB exceeds the 500 MiB upload limit"; the server's refusal with its limit and "— send a smaller or compressed copy"; "upload failed: the file became shorter while it was being uploaded" | 30 MiB, and in fact about 6 MiB: the machine's tool output holds 8 MiB, and a file went through it whole | 500 MiB: up to 4 MiB in one request, a bigger file read in 5 MiB parts as the AI's user and kept by Coder's server in parts (R2 multipart), each part tried once more as its upload is; its words for each failure; a 12 MiB file tested end to end, byte for byte |
+| 3. Picture copies | a BMP or TIFF sent as a PNG copy, a HEIC, HEIF or AVIF one as a JPEG (a PNG with an alpha layer), unless already a picture by its bytes, cut short, of several pages, turned or mirrored, over 8,000 pixels on a side, or the copy over 30 MiB; a PNG, JPEG or WebP over 8,000 pixels on a side (up to 40 million pixels, one frame) sent scaled to fit; none with display "attach"; its words: "The chat got a PNG copy of …, named …, which the chat shows as a plain file, not a picture; the file at that path is unchanged." and "1 image was sent to the chat as a scaled-down copy, because the server accepts images at most 8000 pixels wide or tall: …" | the original only | the same, its checks of the bytes ported from its program (its HEIF box reader among them), the copies made by ImageMagick as the AI's user |
+| 4. Outside the working folders | sent after its Read permission asks ("Claude requested permissions to read from …, but you haven't granted it yet.", a link out named "… resolves through a symlink to …, which is outside the allowed working directories."), offering a rule for the folder; read without asking in auto mode; refused only under permissions.blockReadsOutsideWorkingDirectories | refused | the same, in its words ("Coder"); refused under CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES |
+| 5. The side panel | "render" opens the file "inline in the client" (its text: "in the side panel right now"); left out, "renderable types render": "HTML, SVG, Mermaid, images, PDFs"; a picture its chat shows as one (a PNG, JPEG, GIF or WebP) | each kind shown under its card in the chat | a picture in the chat; a card for each file; a file that renders opens in a panel beside the chat as it arrives (over it on a phone), any the panel shows from its name or picture: pictures, drawings, PDFs, web pages and Mermaid diagrams (sealed off), text, videos (played, sought) |
+| 6. A refused send | its error shown in the transcript (its row has no name) | "Send a.csv ✕ not run" with why | kept: the refusal and why, as its transcript shows them |
+| 7. Keeping the files | kept by its service; its allowance a count of files, "this account has uploaded as many files as it is allowed for now (a count of files, not a size)" | 500 files and 2 GB a chat, the oldest going first | kept as long as the chat, none dropped; 1,000 files a day for the account (its number isn't public), past that its words; deleted with the chat. Downloads come from a signed address the browser saves as it comes, so a 500 MiB file is never held in the page |
+
+**Found on the way, outside this tool (for the owner):** the tools reference's note now says Claude Code's Read, Grep and Glob
+"still prompt for paths outside the working directory and additional directories, apart from files Claude Code itself needs",
+and the auto mode page that they read there without a prompt in auto mode, after a one-time question. Coder's read, grep and glob
+refuse such paths ("that path is outside the project"): different on purpose since 2026-11-08, when Coder had no prompts.
+notebook_edit's and the resource tools' entries and pages: no change since the day before's check (the MCP page only reworded).
+
+**Tests (the match):** SF9 (the push), SF10 (files outside the working folders), SF11 (a 12 MiB file through the Worker in parts,
+the day's allowance), SF12 (the picture copies, its checks ported) new; SF1–SF8 for the rest. The full suite: 1357 pass, 4 skipped,
+0 fail.

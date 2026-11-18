@@ -6,7 +6,7 @@
 // inputs, the card, the hooks' result object); and the page.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync, mkdtempSync, writeFileSync, mkdirSync, symlinkSync } from "node:fs";
+import { readFileSync, mkdtempSync, writeFileSync, mkdirSync, symlinkSync, truncateSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -32,11 +32,12 @@ function project() {
   return { dir, run };
 }
 
-test("SF1 (2026-11-18) Claude Code 2.1.327's words: its description (its text for when no notification is sent, without the sentence naming its PushNotification tool, which Coder doesn't have), inputs and hint; its input refused as it refuses it (tried)", () => {
+test("SF1 (2026-11-18) Claude Code 2.1.327's words: its description (its default text, where `proactive` reaches the owner's phone: the owner, \"Match Claude Code\"), inputs and hint; its input refused as it refuses it (tried)", () => {
   assert.equal(SF.SEND_TOOL, "send_user_file");
   assert.equal(SF.CC_SEND, "SendUserFile");
   const cc = readFileSync(HERE("test/fixtures/sendfile/claude-code-description.txt"), "utf8");
-  assert.equal(SF.SEND_DESCRIPTION, cc.replace(" If this run is meant to notify the user, call PushNotification as well.", "").replace("SendUserFile({", "send_user_file({"));
+  assert.equal(SF.SEND_DESCRIPTION, cc.replace("SendUserFile({", "send_user_file({"));
+  assert.ok(!SF.SEND_DESCRIPTION.includes("PushNotification"), "its default text names no tool Coder doesn't have");
   assert.deepEqual(SF.SEND_TOOL_DEF.function.parameters.required, ["files", "status"]);
   assert.equal(SF.SEND_TOOL_DEF.function.parameters.additionalProperties, false);
   assert.deepEqual(SF.SEND_PROPERTIES.files, { type: "array", items: { type: "string" }, minItems: 1, description: "File paths (absolute or relative to cwd) to send to the user. Always pass an array, even for a single file." });
@@ -55,7 +56,7 @@ test("SF1 (2026-11-18) Claude Code 2.1.327's words: its description (its text fo
 
 test("SF2 (2026-11-18) its checks of each file before any hook, as the AI's user, in its order and words (tried): a URL, a missing file with its three guesses, a folder, outside the project or a link out of it, a /proc link, a device, a name with a line break; then its reading: path, size, kind and bytes, or only its size past the limit", () => {
   const { dir, run } = project();
-  const check = (files) => run({ tool: "user_file_check", args: { files } });
+  const check = (files, blockOutside = false) => run({ tool: "user_file_check", args: { files, ...(blockOutside ? { blockOutside } : {}) } });
   assert.deepEqual(check(["report.md", "chart.png"]), { code: 0, output: "ok" });
   assert.equal(check(["https://example.com/report.pdf"]).output, "error: Attachment \"https://example.com/report.pdf\" looks like a URL, not a local file path. This tool can only send files that exist on the local filesystem — download or write the content to a local file first, then pass that path.");
   assert.equal(check(["report.txt"]).output, "error: Attachment \"report.txt\" does not exist. Current working directory: " + dir + ". Did you mean \"report.md\"?");
@@ -63,8 +64,13 @@ test("SF2 (2026-11-18) its checks of each file before any hook, as the AI's user
   assert.equal(check([base + "/data.csv"]).output, "error: Attachment \"" + base + "/data.csv\" does not exist. Current working directory: " + dir + ". Did you mean \"data.csv\"?", "given from the folder's own name");
   assert.equal(check(["nothing.bin"]).output, "error: Attachment \"nothing.bin\" does not exist. Current working directory: " + dir + ".");
   assert.equal(check(["out"]).output, "error: Attachment \"out\" is not a regular file.");
-  assert.equal(check(["/etc/hostname"]).output, "error: Attachment \"/etc/hostname\" is outside the working directories; reads outside them are blocked (Coder's file tools open files only inside the project and its working folders).");
-  assert.match(check(["link-out"]).output, /^error: Attachment "link-out" is outside the working directories/);
+  // (Outside the working folders, or a link out of them: refused only under the read block, in its words with Coder's setting;
+  // otherwise checked as any file, and the owner is asked first: SF10.)
+  assert.equal(check(["/etc/hostname"], true).output, "error: Attachment \"/etc/hostname\" is outside the working directories; reads outside them are blocked (CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES).");
+  assert.match(check(["link-out"], true).output, /^error: Attachment "link-out" is outside the working directories/);
+  assert.deepEqual([check(["/etc/hostname"]).output, check(["link-out"]).output], ["ok", "ok"]);
+  mkdirSync(join(dir, ".git"), { recursive: true }); writeFileSync(join(dir, ".git", "HEAD"), "ref: refs/heads/main\n");
+  assert.equal(check([".git/HEAD"]).output, "ok", "a .git folder's file, as any (Claude Code refuses none)");
   assert.equal(check(["/proc/self/fd/0"]).output, "error: Attachment \"/proc/self/fd/0\" is a path through a /proc or /dev link that this tool does not follow; give the file's own path.");
   assert.equal(check(["/dev/null"]).output, "error: Attachment \"/dev/null\" is a device or process file, which this tool does not send.");
   const badWhy = ": its name contains a line break, another control character or a character that changes text direction. If a file is really named so, copy or rename it to a name without such characters and send that; otherwise correct the path.";
@@ -80,8 +86,17 @@ test("SF2 (2026-11-18) its checks of each file before any hook, as the AI's user
   const read = JSON.parse(run({ tool: "user_file_read", args: { path: "chart.png" } }).output);
   assert.deepEqual(read, { path: dir + "/chart.png", size: 8, isImage: true, media_type: "image/png", data: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).toString("base64") });
   assert.equal(JSON.parse(run({ tool: "user_file_read", args: { path: "report.md" } }).output).media_type, "text/markdown");
-  writeFileSync(join(dir, "big.bin"), Buffer.alloc(SF.SEND_FILE_MAX + 1));
+  // (Past Claude Code's 500 MiB, only its size; past SEND_INLINE_MAX, read in parts from its inode: a sparse file, no disk used.)
+  writeFileSync(join(dir, "big.bin"), ""); truncateSync(join(dir, "big.bin"), SF.SEND_FILE_MAX + 1);
   assert.deepEqual(JSON.parse(run({ tool: "user_file_read", args: { path: "big.bin" } }).output), { path: dir + "/big.bin", size: SF.SEND_FILE_MAX + 1, isImage: false, tooBig: true });
+  writeFileSync(join(dir, "mid.bin"), ""); truncateSync(join(dir, "mid.bin"), SF.SEND_INLINE_MAX + 1);
+  const st = statSync(join(dir, "mid.bin"));
+  assert.deepEqual(JSON.parse(run({ tool: "user_file_read", args: { path: "mid.bin" } }).output), { path: dir + "/mid.bin", size: SF.SEND_INLINE_MAX + 1, isImage: false, parts: true, ino: String(st.ino), dev: String(st.dev) });
+  const part = JSON.parse(run({ tool: "user_file_part", args: { path: "mid.bin", offset: SF.SEND_INLINE_MAX, length: 1, ino: String(st.ino) } }).output);
+  assert.equal(Buffer.from(part.data, "base64").length, 1);
+  assert.equal(run({ tool: "user_file_part", args: { path: "mid.bin", offset: SF.SEND_INLINE_MAX, length: 2, ino: String(st.ino) } }).output, "error: upload failed: the file became shorter while it was being uploaded");
+  assert.equal(run({ tool: "user_file_part", args: { path: "mid.bin", offset: 0, length: 1, ino: "1" } }).output, "error: upload failed: could not read file (the file was replaced while it was being uploaded)");
+  assert.deepEqual([SF.SEND_FILE_MAX, SF.SEND_INLINE_MAX, SF.SEND_PART_SIZE], [524_288_000, 4 * 1048576, 5 * 1048576], "Claude Code's 500 MiB; parts whose base64 fits the machine's 8 MiB tool output");
   assert.match(run({ tool: "user_file_read", args: { path: "out" } }).output, /^error: Attachment "out" is not a regular file\./, "checked again as it is read");
 });
 
@@ -89,20 +104,23 @@ test("SF3 (2026-11-18) what Coder is told, as Claude Code words it: the files de
   const ok = { path: "/w/a.png", size: 10, isImage: true, file_uuid: "s000000000001", media_type: "image/png" };
   assert.equal(SF.sentText({ attachments: [ok] }), "1 file delivered to user.\n  /w/a.png → file_uuid: s000000000001");
   assert.equal(SF.sentText({ attachments: [ok, { ...ok, path: "/w/b.png", file_uuid: "s000000000002" }] }), "2 files delivered to user.\n  /w/a.png → file_uuid: s000000000001\n  /w/b.png → file_uuid: s000000000002");
-  const big = { path: "/w/v.mp4", size: 40 * 1048576, isImage: false, upload_error: SF.tooBigToSend(40 * 1048576) };
-  assert.equal(SF.tooBigToSend(40 * 1048576), "40.0 MiB exceeds the 30 MiB upload limit — send a smaller or compressed copy");
-  assert.equal(SF.sentText({ attachments: [ok, big] }), "1 file delivered to user.\n  /w/a.png → file_uuid: s000000000001\n1 file could NOT be delivered to the user:\n  /w/v.mp4 (40.0 MiB): 40.0 MiB exceeds the 30 MiB upload limit — send a smaller or compressed copy\nTell the user the file was not delivered and why.");
+  const big = { path: "/w/v.mp4", size: 600 * 1048576, isImage: false, upload_error: SF.tooBigToSend(600 * 1048576) };
+  assert.equal(SF.tooBigToSend(600 * 1048576), "600.0 MiB exceeds the 500 MiB upload limit");
+  assert.equal(SF.serverTooBig(40 * 1048576, 31457280), "40.0 MiB exceeds the 30 MiB upload limit — send a smaller or compressed copy", "its server's refusal, with the remedy for file_too_large");
+  assert.equal(SF.allowanceUsed(), "upload failed: server returned 429 — this account has uploaded as many files as it is allowed for now (a count of files, not a size); sending again, even a smaller file, will fail the same way until the allowance resets, so tell the user instead of retrying");
+  assert.equal(SF.sentText({ attachments: [ok, big] }), "1 file delivered to user.\n  /w/a.png → file_uuid: s000000000001\n1 file could NOT be delivered to the user:\n  /w/v.mp4 (600.0 MiB): 600.0 MiB exceeds the 500 MiB upload limit\nTell the user the file was not delivered and why.");
   const down = { path: "/w/c.csv", size: 1048576, isImage: false, upload_error: SF.serverReturned(503) };
   assert.equal(SF.sentText({ attachments: [down] }), "1 file could NOT be delivered to the user:\n  /w/c.csv (1.0 MiB): upload failed: server returned 503\nTell the user the file was not delivered and why. The failure may be temporary, so also tell the user they can ask you to send it again in a few minutes.");
-  assert.equal(SF.sentText({ attachments: [down, big] }), "2 files could NOT be delivered to the user:\n  /w/c.csv (1.0 MiB): upload failed: server returned 503\n  /w/v.mp4 (40.0 MiB): 40.0 MiB exceeds the 30 MiB upload limit — send a smaller or compressed copy\nTell the user the files were not delivered and why. For /w/c.csv, whose failure may be temporary, also tell the user they can ask you to send it again in a few minutes.");
+  assert.equal(SF.sentText({ attachments: [down, big] }), "2 files could NOT be delivered to the user:\n  /w/c.csv (1.0 MiB): upload failed: server returned 503\n  /w/v.mp4 (600.0 MiB): 600.0 MiB exceeds the 500 MiB upload limit\nTell the user the files were not delivered and why. For /w/c.csv, whose failure may be temporary, also tell the user they can ask you to send it again in a few minutes.");
   // (Which may pass, as its De has it: a server's 429, 5xx or 52x and the network's, but for a bad address or a certificate;
   // not a 403, nor a file too big.)
-  assert.deepEqual([SF.serverReturned(429), SF.serverReturned(503), SF.serverReturned(403), SF.networkError("timeout of 35000ms exceeded"), SF.CONNECTION_CLOSED, SF.networkError("unable to verify the first certificate"), SF.UNEXPECTED_ANSWER, SF.tooBigToSend(SF.SEND_FILE_MAX + 1)].map(SF.mayPass), [true, true, false, true, true, false, false, false]);
+  assert.deepEqual([SF.serverReturned(429), SF.serverReturned(503), SF.serverReturned(403), SF.networkError("timeout of 35000ms exceeded"), SF.CONNECTION_CLOSED, SF.networkError("unable to verify the first certificate"), SF.UNEXPECTED_ANSWER, SF.tooBigToSend(SF.SEND_FILE_MAX + 1), SF.allowanceUsed(), SF.SHORTER].map(SF.mayPass), [true, true, false, true, true, false, false, false, false, false]);
   // (A path and an id as they are but for control characters; a failure's words with `<` and `>` as entities: its Yc and Hp.)
   assert.equal(SF.sentText({ attachments: [{ ...ok, path: "/w/<a>\tb.png" }, { ...down, upload_error: "upload failed: network error (<x>)" }] }), "1 file delivered to user.\n  /w/<a>&#9;b.png → file_uuid: s000000000001\n1 file could NOT be delivered to the user:\n  /w/c.csv (1.0 MiB): upload failed: network error (&lt;x&gt;)\nTell the user the file was not delivered and why. The failure may be temporary, so also tell the user they can ask you to send it again in a few minutes.");
   // (Shown in place by its kind, or as `display` says.)
-  assert.deepEqual(["a.png", "b.svg", "c.pdf", "d.html", "e.csv", "f.zip", "g.docx"].map((n) => SF.renders(n)), [true, true, true, true, true, false, false]);
-  assert.deepEqual([SF.renders("f.zip", "render"), SF.renders("a.png", "attach")], [true, false]);
+  // (Its own list of what renders by itself, "HTML, SVG, Mermaid, images, PDFs"; with "render", what the panel can show.)
+  assert.deepEqual(["a.png", "b.svg", "c.pdf", "d.html", "e.csv", "f.zip", "g.docx"].map((n) => SF.renders(n)), [true, true, true, true, false, false, false]);
+  assert.deepEqual([SF.renders("e.csv", "render"), SF.renders("f.zip", "render"), SF.renders("a.png", "attach")], [true, false, false]);
 });
 
 // ── CODER'S SERVER ───────────────────────────────────────────────────────────
@@ -112,7 +130,7 @@ function memBucket() {
   return { m, get: async (k) => (m.has(k) ? { text: async () => String(m.get(k)), arrayBuffer: async () => (typeof m.get(k) === "string" ? new TextEncoder().encode(m.get(k)).buffer : m.get(k).buffer) } : null), put: async (k, v) => { m.set(k, typeof v === "string" ? v : new Uint8Array(v)); }, delete: async (k) => { m.delete(k); } };
 }
 
-test("SF4 (2026-11-18) Coder's server keeps a chat's sent files: from its machine only with the chat's current job's pass, at most the limit, the oldest going past the chat's caps; shown in place from a signed address for 10 minutes (a picture loading nothing, a page sealed off, text as text), else downloaded; all gone with the chat", async () => {
+test("SF4 (2026-11-18) Coder's server keeps a chat's sent files: from its machine only with the chat's current job's pass, at most the limit, none dropped to make room; shown in place from a signed address for 10 minutes (a picture loading nothing, a page sealed off, text as text), else downloaded; all gone with the chat", async () => {
   const b = memBucket(), e2 = { ...env, CODER_BUCKET: b };
   await b.put("coder/u1/chat-1/meta.json", JSON.stringify({ turn: 3 }));
   const until = String(Date.now() + 60_000), pass = await modelPass(env, "u1/chat-1", "3", until);
@@ -127,7 +145,7 @@ test("SF4 (2026-11-18) Coder's server keeps a chat's sent files: from its machin
   assert.equal(tooBig.status, 200, "(its own size, 1 byte: kept)");
   const over = await SENT.handleSentPut(new Request("https://x/api/coder/sent-put", { method: "POST", headers: { "x-coder-chat": "u1/chat-1", "x-coder-turn": "3", "x-coder-until": until, "x-coder-model": pass, "content-length": String(SF.SEND_FILE_MAX + 1) }, body: new Uint8Array(1) }), e2);
   assert.equal(over.status, 413);
-  assert.deepEqual(await over.json(), { error: SF.tooBigToSend(SF.SEND_FILE_MAX + 1) });
+  assert.deepEqual(await over.json(), { error: { code: "file_too_large", max_bytes: SF.SEND_FILE_MAX } });
   const list = await SENT.readSent(b, "u1", "chat-1");
   assert.deepEqual(list.map((x) => x.name), ["v.mp4", "chart.png"], "newest first");
   // (Another turn's job: refused.)
@@ -145,7 +163,8 @@ test("SF4 (2026-11-18) Coder's server keeps a chat's sent files: from its machin
   assert.equal(shown.headers.get("x-content-type-options"), "nosniff");
   assert.equal((await view(address.replace(/t=[\w-]+$/, "t=AAAA"))).status, 404);
   assert.equal((await view(address.replace(/e=\d+/, "e=" + (Date.now() - 1000)))).status, 404);
-  assert.equal(await SENT.sentViewAddress(env, "u1", "chat-1", list.find((x) => x.name === "v.mp4")), "", "a video: downloaded, not shown");
+  assert.match(await SENT.sentViewAddress(env, "u1", "chat-1", list.find((x) => x.name === "v.mp4")), /^\/api\/coder\/sent-view\//, "a video: played in the side panel");
+  assert.equal(await SENT.sentViewAddress(env, "u1", "chat-1", { id: "s000000000009", name: "a.zip" }), "", "a zip: downloaded, not shown");
   // (A page, sealed off: its own sandbox, nothing sent anywhere.)
   await b.put("coder/u1/chat-1/meta.json", JSON.stringify({ turn: 5 }));
   const pass5 = await modelPass(env, "u1/chat-1", "5", until);
@@ -159,10 +178,10 @@ test("SF4 (2026-11-18) Coder's server keeps a chat's sent files: from its machin
   const dl = SENT.sentDownload(f.item, f.body);
   assert.equal(dl.headers.get("content-disposition"), "attachment; filename=\"chart.png\"; filename*=UTF-8''chart.png");
   assert.equal(dl.headers.get("content-type"), "application/octet-stream");
-  // (Past the chat's caps the oldest go; with the chat, all of them.)
-  assert.deepEqual([SENT.SENT_MAX, SENT.SENT_TOTAL_MAX], [500, 2 * 1024 ** 3]);
+  // (None dropped to make room; past the account's day allowance, refused: SF11. With the chat, all of them go.)
+  assert.deepEqual([SENT.SENT_DAY_MAX, SENT.SENT_DAY_MS], [1000, 24 * 3600 * 1000]);
   await SENT.dropSent(b, "u1", "chat-1");
-  assert.deepEqual([...b.m.keys()].filter((k) => k.includes("/sent")), []);
+  assert.deepEqual([...b.m.keys()].filter((k) => k.includes("/chat-1/sent")), [], "(the account's day count stays: it is not the chat's)");
   // The routes: the job's own, the signed view, the chat's own (signed in), and the chat's deletion.
   const routes = readFileSync(HERE("src/coder-routes.mjs"), "utf8");
   assert.match(routes, /parts\[0\] === "sent-put" && parts\.length === 1 && request\.method === "POST"\) return handleSentPut\(request, env\)/);
@@ -182,8 +201,10 @@ test("SF5 (2026-11-18) the machine's sender: each file to /api/coder/sent-put wi
   assert.equal(sent[0][1].headers["x-coder-model"], "pass");
   assert.equal(sent[0][1].headers["x-file-name"], "a%20b.png");
   assert.equal(A.SENT_PUT_MS, 35_000);
-  replies = [new Response(JSON.stringify({ error: "too big" }), { status: 413 })];
-  assert.deepEqual(await send({ name: "v.mp4", bytes: Buffer.alloc(3 * 1048576) }), { error: "3.0 MiB exceeds the 30 MiB upload limit — send a smaller or compressed copy" });
+  replies = [new Response(JSON.stringify({ error: { code: "file_too_large", max_bytes: 2097152 } }), { status: 413 })];
+  assert.deepEqual(await send({ name: "v.mp4", bytes: Buffer.alloc(3 * 1048576) }), { error: "3.0 MiB exceeds the 2 MiB upload limit — send a smaller or compressed copy" }, "the limit its server names");
+  replies = [new Response(JSON.stringify({ error: { code: "file_limit_exceeded" } }), { status: 429 })];
+  assert.deepEqual(await send({ name: "a.png", bytes: Buffer.alloc(1) }), { error: SF.allowanceUsed(429) });
   replies = [new Response(JSON.stringify({ error: "not this job's pass" }), { status: 403 })];
   assert.deepEqual(await send({ name: "a.png", bytes: Buffer.alloc(1) }), { error: "upload failed: server returned 403" }, "its words: the status only");
   replies = [new Response("<html>", { status: 200 })];
@@ -237,7 +258,7 @@ test("SF6 (2026-11-18) Coder's loop: offered from the start in Coder's own chats
   assert.equal(t.told("c1"), "3 files delivered to user.\n  " + t.dir + "/chart.png → file_uuid: s000000000001\n  " + t.dir + "/report.md → file_uuid: s000000000002\n  " + t.dir + "/data.csv → file_uuid: s000000000003");
   const { at, ...card } = t.events.find((e) => e.type === "sent");
   assert.ok(at > 0, "when it was sent");
-  assert.deepEqual(card, { type: "sent", id: "c1", caption: "This week's numbers", files: [{ id: "s000000000001", name: "chart.png", size: 8, type: "image/png", render: true }, { id: "s000000000002", name: "report.md", size: 15, type: "text/markdown", render: true }, { id: "s000000000003", name: "data.csv", size: 8, type: "text/csv", render: true }] });
+  assert.deepEqual(card, { type: "sent", id: "c1", proactive: true, caption: "This week's numbers", files: [{ id: "s000000000001", name: "chart.png", size: 8, type: "image/png", image: true, render: true }, { id: "s000000000002", name: "report.md", size: 15, type: "text/markdown" }, { id: "s000000000003", name: "data.csv", size: 8, type: "text/csv" }] });
   assert.ok(!t.events.some((e) => e.type === "bash" && e.id === "c1"), "no step row: the card is what the owner sees");
   const post = t.hookCalls.find((x) => x.hook_event_name === "PostToolUse");
   assert.equal(post.tool_name, "SendUserFile");
@@ -281,21 +302,194 @@ test("SF7 (2026-11-18) its permission, as Claude Code's: each file a read of its
   assert.ok(P.SAFE_TOOLS.has("send_user_file"));
 });
 
-test("SF8 (2026-11-18) the page: each sent file a card with Download, what renders shown in place from its signed address and kept through redraws, the caption under them; the docs", () => {
+test("SF8 (2026-11-18) the page, as Claude Code's apps show sent files (the owner: \"Match Claude Code\"): a picture its chat shows as one in the chat, every file a card with Download (from a signed address, saved as it comes), the caption under them; one that renders opens in the side panel as it arrives (not one already there), any the panel shows opens from its name or picture; the panel outside the redrawn chat, beside it on a wide screen, over it on a phone; the docs", () => {
   const js = readFileSync(HERE("public/coder.js"), "utf8");
   assert.match(js, /else if \(e\.type === 'sent'\) out\.push\(sentHTML\(e\)\);/);
-  assert.match(js, /const SENT_PIC = \/\\\.\(png\|jpe\?g\|gif\|webp\|svg\)\$\/i, SENT_FRAME = \/\\\.\(pdf\|html\?\|txt\|log\|md\|csv\|json\|xml\)\$\/i;/);
+  assert.match(js, /const SENT_VIEW = \/\\\.\(png\|jpe\?g\|gif\|webp\|svg\|html\?\|pdf\|mmd\|mermaid\|txt\|log\|md\|csv\|json\|xml\|mp4\|webm\|mov\|m4v\)\$\/i;/);
+  assert.equal(new RegExp(/const SENT_VIEW = \/(.*)\/i;/.exec(js)[1], "i").source, SF.VIEWABLE.source, "the page's list is the tool's");
+  assert.match(js, /\(f\.image \? '<button type="button" class="cd-sent-pic"' \+ open/);
   assert.match(js, /data-sent-get="' \+ esc\(f\.id\) \+ '"/);
-  assert.match(js, /call\('\/projects\/' \+ encodeURIComponent\(S\.project\.id\) \+ '\/sent\/' \+ encodeURIComponent\(id\) \+ '\/view'\)/);
-  assert.match(js, /fr\.setAttribute\('sandbox', 'allow-scripts allow-popups allow-popups-to-escape-sandbox'\)/);
-  assert.match(js, /const sentKept = \[\.\.\.root\.querySelectorAll\('\.cd-sent-live\[data-sent-live\]'\)\]\.filter\(\(x\) => x\.firstChild\);/);
+  assert.match(js, /'\/sent\/' \+ encodeURIComponent\(id\) \+ '\/link'\);/);
+  assert.match(js, /const a = document\.createElement\('a'\); a\.href = r\.data\.url; a\.download = name \|\| 'file';/);
+  assert.doesNotMatch(js, /readAsDataURL\(r\.blob\)[\s\S]{0,400}data-sent-get/, "no file held whole in the page");
+  // THE SIDE PANEL.
+  assert.match(js, /v\.className = 'cd-sentview'; v\.id = 'cdSentView';/);
+  assert.match(js, /document\.body\.appendChild\(v\);\n    document\.body\.classList\.add\('cd-sent-on'\);/);
+  assert.match(js, /if \(\/\^text\\\/html\/\.test\(type\) \|\| type === 'text\/vnd\.mermaid'\) fr\.setAttribute\('sandbox', 'allow-scripts allow-popups allow-popups-to-escape-sandbox'\);/);
+  assert.match(js, /else if \(\/\^video\\\/\/\.test\(type\)\) \{ const vd = document\.createElement\('video'\); vd\.controls = true;/);
+  assert.match(js, /if \(!\(Number\(e\.at\) >= S\.sentFrom\)\) continue;\n      const f = \(Array\.isArray\(e\.files\) \? e\.files : \[\]\)\.filter\(\(x\) => x && x\.render\)\.pop\(\);\n      if \(f\) openSent\(f\.id, f\.name\);/);
+  assert.match(js, /if \(!GLOOPY\) \{ sentLive\(root\)\.catch\(\(\) => \{\}\); sentArrivals\(\); \}/);
   assert.match(js, /send_user_file: 'Send file'/);
   const css = readFileSync(HERE("public/coder.css"), "utf8");
-  assert.match(css, /\.cd-sent-live iframe \{ display: block; width: 100%; height: 420px;/);
+  assert.match(css, /\.cd-sentview \{ position: fixed; top: 0; right: 0; bottom: 0; width: min\(560px, 46vw\);/);
+  assert.match(css, /@media \(min-width: 1100px\) \{ body\.cd-sent-on #gfApp \.cd \{ padding-right: min\(560px, 46vw\); \} \}/);
+  assert.match(css, /@media \(max-width: 760px\) \{ \.cd-sentview \{ width: 100%;/);
+  // WHAT OPENS BY ITSELF: its own list, "HTML, SVG, Mermaid, images, PDFs"; with "render", any the panel shows; never with "attach".
+  assert.deepEqual(["a.html", "b.svg", "c.mmd", "d.png", "e.pdf", "f.csv", "g.mp4", "h.zip"].map((x) => SF.renders(x)), [true, true, true, true, true, false, false, false]);
+  assert.deepEqual(["f.csv", "g.mp4", "h.zip"].map((x) => SF.renders(x, "render")), [true, true, false]);
+  assert.equal(SF.renders("d.png", "attach"), false);
   const docs = readFileSync(HERE("public/docs.html"), "utf8");
   assert.match(docs, /<h2>Sending you files<\/h2>/);
   assert.match(docs, /<code>send_user_file<\/code>/);
   // (Its numbers, the code's own.)
-  assert.ok(docs.includes("up to <b>" + SF.limitWords(SF.SEND_FILE_MAX) + "</b> each"));
-  assert.ok(docs.includes("up to <b>" + SENT.SENT_MAX + " files</b> and <b>" + SENT.SENT_TOTAL_MAX / 1024 ** 3 + " GB</b>"));
+  assert.ok(docs.includes("Files up to <b>" + SF.limitWords(SF.SEND_FILE_MAX) + "</b> each"));
+  assert.ok(docs.includes("Up to <b>" + SENT.SENT_DAY_MAX.toLocaleString("en-US") + " files</b> a day"));
+  assert.ok(docs.includes("over " + SF.IMAGE_SIDE_MAX.toLocaleString("en-US") + " pixels on a side"));
+});
+
+test("SF9 (2026-11-18) `proactive` reaches the owner's devices, as Claude Code's text says (\"the user is away and you want this to reach their phone\"): a push under \"Push when Coder decides\", its caption or the files' names; `normal` none", async () => {
+  const { pushesFor } = await import("../src/coder-push.mjs");
+  const meta = { title: "Shop" };
+  assert.deepEqual(pushesFor([{ type: "sent", id: "c1", proactive: true, caption: "This week's numbers", files: [{ id: "s1", name: "chart.png" }] }], meta), [{ kind: "decides", title: "Coder sent you a file · Shop", body: "This week's numbers" }]);
+  assert.deepEqual(pushesFor([{ type: "sent", id: "c1", proactive: true, files: [{ id: "s1", name: "a.png" }, { id: "s2", name: "b.csv" }] }], meta), [{ kind: "decides", title: "Coder sent you 2 files · Shop", body: "a.png, b.csv" }]);
+  assert.deepEqual(pushesFor([{ type: "sent", id: "c1", files: [{ id: "s1", name: "a.png" }] }], meta), [], "normal: no push");
+  const t = await job([say("", [call("send_user_file", { files: ["report.md"], status: "normal" })]), say("Done.")]);
+  assert.equal(t.events.find((e) => e.type === "sent").proactive, undefined);
+});
+
+test("SF10 (2026-11-18) a file outside the working folders, as Claude Code's Read permission takes it: in Accept edits and Plan the owner is asked first, in its words, with a rule for the file's folder; a Read allow rule covering it, or Auto, sends it; under the read block, refused before any hook; a link out of the project named with where it leads", async () => {
+  const P = await import("../container/coder-perms.mjs");
+  assert.equal(P.outsideReadWhy("/etc/hostname"), "Coder requested permissions to read from /etc/hostname, but you haven't granted it yet.");
+  assert.equal(P.outsideReadWhy("/w/link-out", "/etc/hostname"), "Coder requested permissions to read from /w/link-out, but you haven't granted it yet. /w/link-out resolves through a symlink to /etc/hostname, which is outside the allowed working directories.");
+  assert.deepEqual([P.outsideReadRule("/etc/hostname"), P.outsideReadRule("/hostname")], ["Read(//etc/**)", "Read(//**)"]);
+  const cards = [];
+  const ask = (choice) => async (card) => { cards.push(card); return { choice }; };
+  let t = await job([say("", [call("send_user_file", { files: ["/etc/hostname"], status: "normal" })]), say("Done.")], { extra: { mode: "acceptEdits" }, deps: { ask: ask("yes") } });
+  const card = t.events.find((e) => e.type === "permission");
+  assert.ok(card, "asked");
+  assert.equal(card.why, "Coder requested permissions to read from /etc/hostname, but you haven't granted it yet.");
+  assert.deepEqual(card.rules, ["Read(//etc/**)"]);
+  assert.deepEqual(t.sent.map((x) => x.name), ["hostname"], "sent once allowed");
+  t = await job([say("", [call("send_user_file", { files: ["/etc/hostname"], status: "normal" })]), say("Done.")], { extra: { mode: "auto" } });
+  assert.ok(!t.events.some((e) => e.type === "permission"), "Auto: read-only, not asked");
+  assert.equal(t.sent.length, 1);
+  t = await job([say("", [call("send_user_file", { files: ["/etc/hostname"], status: "normal" })]), say("Done.")], { extra: { mode: "plan", rules: { allow: ["Read(//etc/**)"], ask: [], deny: [] } } });
+  assert.ok(!t.events.some((e) => e.type === "permission"), "a Read allow rule covers it");
+  assert.equal(t.sent.length, 1);
+  t = await job([say("", [call("send_user_file", { files: ["/etc/hostname"], status: "normal" })]), say("Done.")], { extra: { mode: "auto", readBlock: true } });
+  assert.equal(t.told("c1"), "error: Attachment \"/etc/hostname\" is outside the working directories; reads outside them are blocked (CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES).");
+  assert.equal(t.sent.length, 0);
+  t = await job([say("", [call("send_user_file", { files: ["link-out"], status: "normal" })]), say("Done.")], { extra: { mode: "acceptEdits" }, deps: { ask: ask("no") } });
+  const linkCard = t.events.find((e) => e.type === "permission");
+  assert.equal(linkCard.why, "Coder requested permissions to read from " + t.dir + "/link-out, but you haven't granted it yet. " + t.dir + "/link-out resolves through a symlink to /etc/hostname, which is outside the allowed working directories.");
+  assert.equal(t.sent.length, 0, "the owner said no");
+});
+
+/** An R2 bucket in memory that takes multipart uploads, as R2's binding does (parts joined in order; a part may be re-sent). */
+function partsBucket() {
+  const m = new Map(), meta = new Map(), ups = new Map();
+  let n = 0;
+  const bytesOf = (v) => (typeof v === "string" ? new TextEncoder().encode(v) : new Uint8Array(v));
+  return {
+    m, ups,
+    get: async (k) => (m.has(k) ? { size: m.get(k).length, customMetadata: meta.get(k), text: async () => new TextDecoder().decode(m.get(k)), arrayBuffer: async () => m.get(k).slice().buffer } : null),
+    put: async (k, v, o = {}) => { m.set(k, bytesOf(v)); meta.set(k, o.customMetadata || {}); },
+    delete: async (k) => { m.delete(k); },
+    createMultipartUpload: async (k, o = {}) => { const uploadId = "up" + (++n); ups.set(uploadId, { key: k, parts: new Map(), o }); return { key: k, uploadId }; },
+    resumeMultipartUpload: (k, uploadId) => ({
+      uploadPart: async (no, v) => { const u = ups.get(uploadId); if (!u || u.key !== k) throw new Error("no such upload"); u.parts.set(no, bytesOf(v)); return { partNumber: no, etag: "e" + no + "-" + u.parts.get(no).length }; },
+      complete: async (parts) => {
+        const u = ups.get(uploadId); if (!u || u.key !== k) throw new Error("no such upload");
+        const all = Buffer.concat(parts.slice().sort((a, b) => a.partNumber - b.partNumber).map((p) => { const b = u.parts.get(p.partNumber); if (!b || p.etag !== "e" + p.partNumber + "-" + b.length) throw new Error("bad part"); return Buffer.from(b); }));
+        m.set(k, new Uint8Array(all)); meta.set(k, u.o.customMetadata || {}); ups.delete(uploadId);
+        return { size: all.length, customMetadata: u.o.customMetadata || {} };
+      },
+      abort: async () => { ups.delete(uploadId); },
+    }),
+  };
+}
+
+test("SF11 (2026-11-18) a big file, as Claude Code sends one (\"large files now stream from disk instead of being read into memory\"): read from disk in parts as the AI's user, kept by Coder's server in parts (R2 multipart) with the job's pass, joined whole; a part re-sent after a 503; one that got shorter while it was sent, in Claude Code's words, and its parts dropped; the account's day allowance in its words", async () => {
+  const b = partsBucket(), e2 = { ...env, CODER_BUCKET: b };
+  await b.put("coder/u1/shop-sf/meta.json", JSON.stringify({ turn: 1 }));
+  const until = String(Date.now() + 600_000), pass = await modelPass(env, "u1/shop-sf", "1", until);
+  const via = { url: "https://coder2.gofarther.dev/api/coder/model", headers: { "x-coder-chat": "u1/shop-sf", "x-coder-turn": "1", "x-coder-until": until, "x-coder-model": pass } };
+  const seen = [];
+  let flaky = 1;
+  const worker = async (u, init) => {
+    seen.push(u.replace(/^https:\/\/[^/]+/, "").replace(/&upload=[^&]+/, "").replace(/&id=s[a-z0-9]+/, ""));
+    if (/part=2&/.test(u) && flaky-- > 0) return new Response("busy", { status: 503 });
+    return SENT.handleSentPut(new Request(u, { ...init, headers: { ...init.headers, "content-length": String(init.body && init.body.length !== undefined ? init.body.length : Buffer.byteLength(String(init.body || ""))) } }), e2);
+  };
+  const sendFile = A.sentFileCaller(via, worker);
+  const { dir, run } = project();
+  const bytes = Buffer.alloc(12 * 1048576 + 7);
+  for (let i = 0; i < bytes.length; i += 4096) bytes[i] = (i / 4096) & 255;
+  writeFileSync(join(dir, "clip.mp4"), bytes);
+  const r = await A.runCoder({
+    send: (() => { const steps = [say("", [call("send_user_file", { files: ["clip.mp4"], status: "normal" })]), say("Done.")]; let k = 0; return async () => steps[Math.min(k++, steps.length - 1)]; })(),
+    exec: async (x) => { const tm = /coder-tools\.mjs (\S+)$/.exec(String(x.command)); return tm ? run(tm[1] === "@REQUEST" ? JSON.parse(x.payload) : JSON.parse(Buffer.from(tm[1], "base64").toString("utf8"))) : { code: 0, output: "ok\n" }; },
+    emit: () => {}, here: () => dir, root: dir, chatId: "shop-sf", where: (p) => (p.startsWith("/") ? p : dir + "/" + p), sendFile,
+  }, { text: "send me the clip", mode: "acceptEdits", messages: [] });
+  const told = r.messages.find((x) => x.role === "tool").content;
+  assert.match(told, /^1 file delivered to user\.\n  .*\/clip\.mp4 → file_uuid: s[a-z0-9]{12}$/);
+  assert.deepEqual(seen, ["/api/coder/sent-put?part=start", "/api/coder/sent-put?part=1", "/api/coder/sent-put?part=2", "/api/coder/sent-put?part=2", "/api/coder/sent-put?part=3", "/api/coder/sent-put?part=done"], "three parts of 5 MiB at most, the second tried once more after a 503");
+  const list = await SENT.readSent(b, "u1", "shop-sf");
+  assert.deepEqual(list.map((x) => [x.name, x.size, x.type]), [["clip.mp4", bytes.length, "video/mp4"]]);
+  assert.ok(Buffer.from(b.m.get("coder/u1/shop-sf/sent/" + list[0].id)).equals(bytes), "joined whole, byte for byte");
+  // (One that got shorter while it was sent: Claude Code's words, and the parts kept so far dropped.)
+  const shrink = Buffer.alloc(9 * 1048576);
+  writeFileSync(join(dir, "grow.bin"), shrink);
+  const cut = await sendFile({ name: "grow.bin", size: shrink.length, readPart: async (at, len) => { if (at > 0) throw Object.assign(new Error("x"), { sendWhy: SF.SHORTER }); return shrink.subarray(at, at + len); } });
+  assert.deepEqual(cut, { error: "upload failed: the file became shorter while it was being uploaded" });
+  assert.equal(b.ups.size, 0, "its parts dropped");
+  // THE DAY'S ALLOWANCE (a count of files): past it, refused in Claude Code's words, whole or in parts.
+  await b.put("coder/u1/sent-day.json", JSON.stringify(Array.from({ length: SENT.SENT_DAY_MAX }, () => Date.now())));
+  assert.deepEqual(await sendFile({ name: "a.txt", bytes: Buffer.from("x") }), { error: SF.allowanceUsed(429) });
+  assert.deepEqual(await sendFile({ name: "b.bin", size: 6 * 1048576, readPart: async () => Buffer.alloc(1) }), { error: SF.allowanceUsed(429) });
+  await b.put("coder/u1/sent-day.json", JSON.stringify(Array.from({ length: SENT.SENT_DAY_MAX }, () => Date.now() - SENT.SENT_DAY_MS - 1)));
+  assert.equal(typeof (await sendFile({ name: "a.txt", bytes: Buffer.from("x") })).id, "string", "a day later, sent");
+  // (A part bigger than SEND_PART_SIZE, or one request bigger than SEND_INLINE_MAX: refused by the server.)
+  const big1 = await SENT.handleSentPut(new Request("https://x/api/coder/sent-put", { method: "POST", headers: { ...via.headers, "content-length": String(SF.SEND_INLINE_MAX + 2048) }, body: new Uint8Array(SF.SEND_INLINE_MAX + 2048) }), e2);
+  assert.deepEqual([big1.status, (await big1.json()).error], [400, "send a file this big in parts"]);
+});
+
+test("SF12 (2026-11-18) Claude Code's copies of a picture for the chat: a BMP, TIFF, HEIC, HEIF or AVIF one sent as a PNG or JPEG copy, in its words (\"The chat got a PNG copy of …, named …\"); a PNG, JPEG or WebP one over 8,000 pixels on a side sent scaled to fit, in its words; with display \"attach\", the original; its checks of the bytes, ported (a HEIF turned or mirrored, a multi-page TIFF, a cut-short BMP, one already a picture)", async () => {
+  const { execFileSync } = await import("node:child_process");
+  const im = (dir, ...args) => execFileSync("convert", args, { cwd: dir });
+  const { dir, run } = project();
+  im(dir, "-size", "64x48", "xc:orange", "pic.bmp");
+  im(dir, "-size", "9000x120", "gradient:red-blue", "wide.png");
+  im(dir, "-size", "40x30", "xc:green", "xc:blue", "two.tif");
+  const read = (path, copies = true) => JSON.parse(run({ tool: "user_file_read", args: { path, copies } }).output);
+  const bmp = read("pic.bmp");
+  assert.deepEqual({ ...bmp.copy, data: "", path: "" }, { kind: "preview", path: "", size: bmp.copy.size, media_type: "image/png", data: "" });
+  assert.equal(Buffer.from(bmp.copy.data, "base64").toString("latin1", 1, 4), "PNG");
+  const wide = read("wide.png");
+  assert.deepEqual(wide.copy.scaled, { width: 8000, height: 107, original_width: 9000, original_height: 120 });
+  assert.equal(read("wide.png", false).copy, undefined, "attach: the original");
+  assert.equal(read("two.tif").copy, undefined, "a multi-page TIFF: the original");
+  // WHAT CODER IS TOLD, in its words.
+  const att = [{ path: dir + "/pic.bmp", size: 9354, isImage: false, media_type: "image/png", file_uuid: "s000000000001" }, { path: dir + "/wide.png", size: 7282, isImage: true, media_type: "image/png", file_uuid: "s000000000002", scaled: wide.copy.scaled }];
+  assert.equal(SF.sentText({ attachments: att }), "2 files delivered to user.\n  " + dir + "/pic.bmp → file_uuid: s000000000001\n  " + dir + "/wide.png → file_uuid: s000000000002\nThe chat got a PNG copy of " + dir + "/pic.bmp, named pic.png, which the chat shows as a plain file, not a picture; the file at that path is unchanged.\n1 image was sent to the chat as a scaled-down copy, because the server accepts images at most 8000 pixels wide or tall:\n  " + dir + "/wide.png: sent at 8000×107 pixels; the original (9000×120) is unchanged on disk\nTell the user they are seeing a scaled-down copy; if they need the full-size original, offer to send it inside a .zip.");
+  // ITS CHECKS OF THE BYTES (ported from its program).
+  const C = (await import("../container/coder-tools.mjs")).PICTURE_CHECKS;
+  const box = (type, body) => { const b = Buffer.alloc(8 + body.length); b.writeUInt32BE(8 + body.length, 0); b.write(type, 4, "latin1"); body.copy(b, 8); return b; };
+  const full = (body) => Buffer.concat([Buffer.alloc(4), body]);
+  const heif = (props) => {
+    const ipco = box("ipco", Buffer.concat(props.map(([t, v]) => box(t, Buffer.from(v)))));
+    const assoc = Buffer.concat([Buffer.from([0, 0, 0, 0]), Buffer.from([0, 0, 0, 1]), Buffer.from([0, 1, props.length]), Buffer.from(props.map((_, i) => 0x80 | (i + 1)))]);
+    const meta = box("meta", full(Buffer.concat([box("pitm", Buffer.concat([Buffer.alloc(4), Buffer.from([0, 1])])), box("iprp", Buffer.concat([ipco, box("ipma", assoc)]))])));
+    return Buffer.concat([box("ftyp", Buffer.from("heicmif1")), meta]);
+  };
+  assert.deepEqual(C.heifTurn(heif([["ispe", [0, 0, 0, 0]]])), { clockwise: 0, mirrored: false });
+  assert.deepEqual(C.heifTurn(heif([["irot", [1]]])), { clockwise: 270, mirrored: false });
+  assert.deepEqual(C.heifTurn(heif([["imir", [0]]])), { clockwise: 0, mirrored: true });
+  assert.equal(C.heifTurn(Buffer.from("nothing")), undefined);
+  assert.equal(C.tiffPages(readFileSync(join(dir, "two.tif"))), true);
+  assert.equal(C.bmpCut(readFileSync(join(dir, "pic.bmp"))), false);
+  assert.equal(C.bmpCut(readFileSync(join(dir, "pic.bmp")).subarray(0, 200)), true);
+  assert.equal(C.sniffedPicture(readFileSync(join(dir, "wide.png"))), true);
+  assert.equal(C.heifAlpha(Buffer.from("…urn:mpeg:hevc:2015:auxid:1…")), true);
+  // IN CODER'S LOOP: the copy sent in the original's place, its card by its own name, the hooks' result object as Claude Code's.
+  writeFileSync(join(dir, "x"), "");
+  const sent = [];
+  const r = await A.runCoder({
+    send: (() => { const steps = [say("", [call("send_user_file", { files: ["pic.bmp", "wide.png"], status: "normal" })]), say("Done.")]; let k = 0; return async () => steps[Math.min(k++, steps.length - 1)]; })(),
+    exec: async (x) => { const tm = /coder-tools\.mjs (\S+)$/.exec(String(x.command)); return tm ? run(tm[1] === "@REQUEST" ? JSON.parse(x.payload) : JSON.parse(Buffer.from(tm[1], "base64").toString("utf8"))) : { code: 0, output: "ok\n" }; },
+    emit: (e) => { if (e.type === "sent") sent.push(e); }, here: () => dir, root: dir, chatId: "shop-sf", where: (p) => (p.startsWith("/") ? p : dir + "/" + p),
+    sendFile: async ({ name, bytes }) => ({ id: "s" + String(sent.length + 1).padStart(12, "0") + name.length, name, size: bytes.length }),
+  }, { text: "send them", mode: "acceptEdits", messages: [] });
+  assert.match(r.messages.find((x) => x.role === "tool").content, /\nThe chat got a PNG copy of .*\/pic\.bmp, named pic\.png, which the chat shows as a plain file, not a picture; the file at that path is unchanged\.\n1 image was sent to the chat as a scaled-down copy/);
+  assert.deepEqual(sent[0].files.map((f) => [f.name, f.type, f.image === true, !!f.scaled]), [["pic.png", "image/png", false, false], ["wide.png", "image/png", true, true]]);
 });

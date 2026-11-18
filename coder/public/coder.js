@@ -3048,22 +3048,23 @@
     '</div>' + (S.web && !S.web.card ? webHTML() : '') + (S.view ? viewHTML() : '');
   }
   // A PREVIEW OF A FILE (the audit, 2026-11-10): a PDF or a picture Gloopy made, shown over the chat at its signed address
-  // FILES CODER SENT YOU (send_user_file, Claude Code's SendUserFile; the owner, 2026-11-18: "Ok you can start"): a card for each,
-  // its caption under them. One that renders (Claude Code's display "render", or left out, by its kind) is shown in place: a
-  // picture or a drawing as itself, a PDF, a web page (sealed off from the app) or plain text in a frame, from its signed address
-  // (src/coder-sent.mjs), kept through the page's redraws (sentLive); any other, and every one, can be downloaded.
-  const SENT_PIC = /\.(png|jpe?g|gif|webp|svg)$/i, SENT_FRAME = /\.(pdf|html?|txt|log|md|csv|json|xml)$/i;
+  // FILES CODER SENT YOU (send_user_file, Claude Code's SendUserFile; the owner, 2026-11-18: "Ok you can start", then "Match
+  // Claude Code"): a picture its chat shows as one (a PNG, JPEG, GIF or WebP, not sent to download only: `image`) shows in the
+  // chat; every file has its card, with Download; the caption under them. One that renders (its display "render", or left out
+  // and one of its kinds that render, "HTML, SVG, Mermaid, images, PDFs") opens in the side panel as it arrives, and any the
+  // panel can show opens there from its name or picture (openSent).
+  const SENT_VIEW = /\.(png|jpe?g|gif|webp|svg|html?|pdf|mmd|mermaid|txt|log|md|csv|json|xml|mp4|webm|mov|m4v)$/i;
   function sentHTML(e) {
     const files = Array.isArray(e.files) ? e.files.filter((f) => f && typeof f.id === 'string') : [];
     return '<div class="cd-sent">' + files.map((f) => {
-      const name = String(f.name || 'file'), ext = (/\.([A-Za-z0-9]{1,6})$/.exec(name) || [])[1] || '';
-      const kind = f.render ? (SENT_PIC.test(name) ? 'pic' : SENT_FRAME.test(name) ? 'frame' : '') : '';
-      return '<div class="cd-sent-one">' + (kind ? '<div class="cd-sent-live is-' + kind + '" data-sent-live="' + esc(f.id) + '" data-sent-kind="' + kind + '" data-sent-name="' + esc(name) + '"></div>' : '') +
-        '<div class="cd-filecard"><span class="cd-filecard-icon">' + ICON.doc + (ext ? '<b>' + esc(ext.toUpperCase()) + '</b>' : '') + '</span><span class="cd-filecard-t"><b>' + esc(name) + '</b><small>' + esc(sizeWords(Number(f.size) || 0)) + '</small></span>' +
+      const name = String(f.name || 'file'), ext = (/\.([A-Za-z0-9]{1,6})$/.exec(name) || [])[1] || '', view = SENT_VIEW.test(name);
+      const open = ' data-sent-open="' + esc(f.id) + '" data-sent-name="' + esc(name) + '"';
+      return '<div class="cd-sent-one">' + (f.image ? '<button type="button" class="cd-sent-pic"' + open + ' aria-label="Open ' + esc(name) + '"><span class="cd-sent-live" data-sent-live="' + esc(f.id) + '" data-sent-name="' + esc(name) + '"></span></button>' : '') +
+        '<div class="cd-filecard"><span class="cd-filecard-icon">' + ICON.doc + (ext ? '<b>' + esc(ext.toUpperCase()) + '</b>' : '') + '</span><span class="cd-filecard-t">' + (view ? '<button type="button" class="cd-sent-name"' + open + '>' + esc(name) + '</button>' : '<b>' + esc(name) + '</b>') + '<small>' + esc(sizeWords(Number(f.size) || 0)) + '</small></span>' +
         '<button type="button" class="cd-card-no cd-filecard-get" data-sent-get="' + esc(f.id) + '" data-file-name="' + esc(name) + '">Download</button></div></div>';
     }).join('') + (e.caption ? '<p class="cd-sent-cap">' + esc(e.caption) + '</p>' : '') + '</div>';
   }
-  /** Each file shown in place, once: its signed address asked for with the owner's sign-in, then the picture or frame put in. */
+  /** Each picture in the chat, once: its signed address asked for with the owner's sign-in, then the picture put in. */
   async function sentLive(root) {
     if (!S.project) return;
     S.sentAsked = S.sentAsked || {};
@@ -3074,16 +3075,63 @@
       const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/sent/' + encodeURIComponent(id) + '/view');
       const now = S.root && S.root.querySelector('.cd-sent-live[data-sent-live="' + CSS.escape(id) + '"]');
       if (!now || now.firstChild) continue;
-      if (r.status !== 200 || !r.data || !r.data.url) { now.classList.add('is-gone'); now.textContent = (r.data && r.data.error) || 'This file can’t be shown here: download it.'; continue; }
-      const name = now.dataset.sentName || 'file';
-      if (now.dataset.sentKind === 'pic') { const img = document.createElement('img'); img.src = r.data.url; img.alt = name; now.appendChild(img); }
-      else {
-        const fr = document.createElement('iframe');
-        fr.title = name; fr.setAttribute('referrerpolicy', 'no-referrer');
-        // (A web page runs sealed off from the app: no sign-in, nothing kept for the site, nothing sent anywhere.)
-        if (/^text\/html/.test(String(r.data.type || ''))) fr.setAttribute('sandbox', 'allow-scripts allow-popups allow-popups-to-escape-sandbox');
-        fr.src = r.data.url; now.appendChild(fr);
-      }
+      if (r.status !== 200 || !r.data || !r.data.url) { now.classList.add('is-gone'); now.textContent = (r.data && r.data.error) || 'This picture can’t be shown here: download it.'; continue; }
+      const img = document.createElement('img'); img.src = r.data.url; img.alt = now.dataset.sentName || 'picture'; now.appendChild(img);
+    }
+  }
+  /** A sent file, saved: its signed address asked for with the owner's sign-in, then saved by the browser as it comes. */
+  async function sentGet(id, name, b) {
+    if (!S.project) return;
+    if (b) b.disabled = true;
+    const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/sent/' + encodeURIComponent(id) + '/link');
+    if (b) b.disabled = false;
+    if (r.status !== 200 || !r.data || !r.data.url) { note((r.data && r.data.error) || 'That file could not be downloaded.'); return; }
+    const a = document.createElement('a'); a.href = r.data.url; a.download = name || 'file'; document.body.appendChild(a); a.click(); a.remove();
+  }
+  // THE SIDE PANEL (Claude Code's display "render": "opens it inline in the side panel"): one sent file at a time, beside the
+  // chat on a wide screen and over it on a phone, outside the redrawn chat so it doesn't reload while Coder works: a picture or
+  // drawing as itself, a video to play, a PDF, a web page or a Mermaid diagram (sealed off from the app) or text in a frame.
+  // Download and × in its bar; Escape closes it.
+  const sentEsc = (e) => { if (e.key === 'Escape') closeSent(); };
+  function closeSent() { const v = document.getElementById('cdSentView'); if (v) v.remove(); document.body.classList.remove('cd-sent-on'); document.removeEventListener('keydown', sentEsc); S.sentOpen = ''; }
+  async function openSent(id, name) {
+    if (!S.project || GLOOPY) return;
+    const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/sent/' + encodeURIComponent(id) + '/view');
+    if (r.status !== 200 || !r.data || !r.data.url) { note((r.data && r.data.error) || 'That file can’t be shown here: download it.'); return; }
+    closeSent();
+    const v = document.createElement('aside');
+    v.className = 'cd-sentview'; v.id = 'cdSentView'; v.setAttribute('aria-label', name || 'File');
+    v.innerHTML = '<div class="cd-sentview-bar"><b class="cd-sentview-t"></b><button type="button" class="cd-card-no cd-sentview-get">Download</button><button type="button" class="cd-sentview-x" aria-label="Close">×</button></div><div class="cd-sentview-body"></div>';
+    v.querySelector('.cd-sentview-t').textContent = name || 'File';
+    const body = v.querySelector('.cd-sentview-body'), type = String(r.data.type || '');
+    if (/^image\//.test(type)) { const img = document.createElement('img'); img.src = r.data.url; img.alt = name || 'picture'; body.appendChild(img); }
+    else if (/^video\//.test(type)) { const vd = document.createElement('video'); vd.controls = true; vd.setAttribute('playsinline', ''); vd.src = r.data.url; body.appendChild(vd); }
+    else {
+      const fr = document.createElement('iframe');
+      fr.title = name || 'File'; fr.setAttribute('referrerpolicy', 'no-referrer');
+      // (A web page or a Mermaid diagram runs sealed off from the app: no sign-in, nothing kept for the site, nothing sent anywhere.)
+      if (/^text\/html/.test(type) || type === 'text/vnd.mermaid') fr.setAttribute('sandbox', 'allow-scripts allow-popups allow-popups-to-escape-sandbox');
+      fr.src = r.data.url; body.appendChild(fr);
+    }
+    v.querySelector('.cd-sentview-x').addEventListener('click', closeSent);
+    v.querySelector('.cd-sentview-get').addEventListener('click', (ev) => sentGet(id, name, ev.currentTarget));
+    document.body.appendChild(v);
+    document.body.classList.add('cd-sent-on');
+    document.addEventListener('keydown', sentEsc);
+    S.sentOpen = id;
+  }
+  /** A file that renders opens in the side panel as it arrives (not one already in the chat when it was opened). */
+  function sentArrivals() {
+    if (GLOOPY || !S.project || !Array.isArray(S.events)) return;
+    if (S.sentFor !== S.project.id) { S.sentFor = S.project.id; S.sentFrom = Date.now() - 5000; S.sentSeen = new Set(); closeSent(); }
+    for (const e of S.events) {
+      if (!e || e.type !== 'sent') continue;
+      const k = String(e.id) + ':' + String(e.at || '');
+      if (S.sentSeen.has(k)) continue;
+      S.sentSeen.add(k);
+      if (!(Number(e.at) >= S.sentFrom)) continue;
+      const f = (Array.isArray(e.files) ? e.files : []).filter((x) => x && x.render).pop();
+      if (f) openSent(f.id, f.name);
     }
   }
 
@@ -4459,7 +4507,7 @@
       const now = root.querySelector('.cd-sent-live[data-sent-live="' + CSS.escape(String(old.dataset.sentLive || '')) + '"]');
       if (now && !now.firstChild) now.replaceWith(old);
     }
-    if (!GLOOPY) sentLive(root).catch(() => {});
+    if (!GLOOPY) { sentLive(root).catch(() => {}); sentArrivals(); }
     for (const old of elKept) {
       const now = root.querySelector('.cd-elicit[data-elicit-pid="' + CSS.escape(String(old.dataset.elicitPid || '')) + '"]');
       if (!now) continue;
@@ -5138,18 +5186,10 @@
       if (!href) { note('That file could not be saved.'); return; }
       const a = document.createElement('a'); a.href = href; a.download = name; document.body.appendChild(a); a.click(); a.remove();
     });
-    // A FILE CODER SENT, TO SAVE: fetched signed in, saved as a data: address (the page's rules block blob: ones), as Gloopy's are.
-    on('[data-sent-get]', 'click', async (e) => {
-      const b = e.currentTarget, id = b.dataset.sentGet, name = b.dataset.fileName || 'file';
-      if (!S.project) return;
-      b.disabled = true;
-      const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/sent/' + encodeURIComponent(id), { file: name });
-      b.disabled = false;
-      if (!r.blob) { note((r.data && r.data.error) || 'That file could not be downloaded.'); return; }
-      const href = await new Promise((ok) => { const fr = new FileReader(); fr.onload = () => ok(String(fr.result || '')); fr.onerror = () => ok(''); fr.readAsDataURL(r.blob); });
-      if (!href) { note('That file could not be saved.'); return; }
-      const a = document.createElement('a'); a.href = href; a.download = name; document.body.appendChild(a); a.click(); a.remove();
-    });
+    // A FILE CODER SENT, TO SAVE: from its signed address, saved by the browser as it comes (a file of up to 500 MiB is never held
+    // whole in the page); and one to look at, in the side panel.
+    on('[data-sent-get]', 'click', (e) => { const b = e.currentTarget; sentGet(b.dataset.sentGet, b.dataset.fileName || 'file', b); });
+    on('[data-sent-open]', 'click', (e) => { const b = e.currentTarget; openSent(b.dataset.sentOpen, b.dataset.sentName || 'file'); });
     on('[data-slash]', 'mousedown', (e) => { e.preventDefault(); pickSlash(e.currentTarget.dataset.slash); });
     on('.cd-mention-i', 'mousedown', (e) => { e.preventDefault(); if (e.currentTarget.dataset.slash) return; const f = e.currentTarget.dataset.file; return S.mention && S.mention.shell ? pickShellPath(f) : pickMention(f); });
     on('#cdPush', 'click', () => pushBranch());

@@ -459,15 +459,30 @@
 .cd-filecard-t { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 /* FILES CODER SENT (send_user_file, Claude Code's SendUserFile; 2026-11-18): each card, with what renders shown above it in place, and
    the caption under them all. */
+/* Files Coder sent: a picture in the chat, a card for each file, the caption under them (coder.js sentHTML). */
 .cd-sent { margin: 8px 0; max-width: 640px; }
 .cd-sent-one + .cd-sent-one { margin-top: 10px; }
-.cd-sent-live { border: 1px solid #e5e2dc; border-radius: 16px; background: #fff; overflow: hidden; margin-top: 8px; }
+.cd-sent-pic { display: block; width: 100%; padding: 0; border: 0; background: none; cursor: zoom-in; text-align: left; }
+.cd-sent-live { display: block; border: 1px solid #e5e2dc; border-radius: 16px; background: #fff; overflow: hidden; margin-top: 8px; }
 .cd-sent-live:empty { min-height: 120px; background: #f6f5f2; }
 .cd-sent-live img { display: block; max-width: 100%; max-height: 480px; margin: 0 auto; }
-.cd-sent-live iframe { display: block; width: 100%; height: 420px; border: 0; background: #fff; }
 .cd-sent-live.is-gone { min-height: 0; padding: 12px 14px; color: #8a857d; font-size: 13px; }
 .cd-sent-one .cd-filecard { margin-top: 6px; max-width: none; }
+.cd-sent-name { display: block; max-width: 100%; padding: 0; border: 0; background: none; font: inherit; font-weight: 600; color: #1f1e1d; text-align: left; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cd-sent-name:hover { text-decoration: underline; }
 .cd-sent-cap { margin: 6px 2px 0; color: #5f5a52; font-size: 14px; }
+/* The side panel (Claude Code's display "render"): beside the chat on a wide screen, over it on a phone (coder.js openSent). */
+.cd-sentview { position: fixed; top: 0; right: 0; bottom: 0; width: min(560px, 46vw); z-index: 55; display: flex; flex-direction: column; background: #fff; border-left: 1px solid #ece8e1; box-shadow: -10px 0 30px rgba(31, 30, 29, .06); }
+.cd-sentview-bar { display: flex; align-items: center; gap: 10px; padding: 10px 12px 10px 16px; border-bottom: 1px solid #ece8e1; background: #faf9f7; font: 14px Inter, system-ui, sans-serif; }
+.cd-sentview-t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; color: #1f1e1d; }
+.cd-sentview-get { flex: none; font: inherit; font-size: 14px; font-weight: 600; border-radius: 999px; padding: 6px 14px; cursor: pointer; }
+.cd-sentview-x { border: 0; background: none; font-size: 26px; line-height: 1; color: #6b7280; cursor: pointer; padding: 0 4px; }
+.cd-sentview-body { flex: 1; min-height: 0; overflow: auto; background: #fff; }
+.cd-sentview-body img { display: block; max-width: calc(100% - 32px); height: auto; margin: 16px auto; }
+.cd-sentview-body video { display: block; width: 100%; max-height: 100%; background: #000; }
+.cd-sentview-body iframe { display: block; width: 100%; height: 100%; border: 0; background: #fff; }
+@media (min-width: 1100px) { body.cd-sent-on #gfApp .cd { padding-right: min(560px, 46vw); } }
+@media (max-width: 760px) { .cd-sentview { width: 100%; border-left: 0; box-shadow: none; } }
 .cd-filecard-t b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
 .cd-filecard-t small { color: #6b7280; font-size: 12.5px; }
 .cd-filecard-get { flex: none; font: inherit; font-size: 14px; font-weight: 600; border-radius: 999px; padding: 8px 16px; cursor: pointer; }

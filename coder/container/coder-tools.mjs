@@ -2301,11 +2301,11 @@ export async function toolSendFile({ path }) {
  * can't read can't be sent: `user_file_check` makes Claude Code's checks of each file before any hook (its validateInput, in
  * its order and words) and answers "ok" or its first refusal; `user_file_read` reads one file to send, checked again as it is
  * read (Claude Code checks it again as it sends it): its full path, size, kind and bytes, or its size alone when it is over
- * SEND_FILE_MAX. A file is one Coder's read may open: inside the project, its working folders and the chat's output folders.
+ * SEND_FILE_MAX. A file outside the project, its working folders and the chat's output folders is sent too, once the owner
+ * allows it (coder-agent.mjs asks, as Claude Code's Read permission does), and refused under the read block (`blockOutside`).
  */
-export const OUTSIDE_WHY = "Coder's file tools open files only inside the project and its working folders";
 const PROC_LINK = /^\/(?:proc\/[^/]+\/(?:fd|cwd|root|exe|map_files)|dev\/fd)(?:\/|$)/;
-async function userFileProblem(p) {
+async function userFileProblem(p, { blockOutside = false } = {}) {
   if (SF.URL_LIKE.test(p)) return SF.looksUrl(p);
   if (SF.UNC_LIKE.test(p)) return SF.uncPath(p);
   const abs = toolPath(p);
@@ -2315,8 +2315,16 @@ async function userFileProblem(p) {
   try { real = await realpath(abs); } catch { real = ""; }
   if (/^\/(?:proc|dev|sys)(?:\/|$)/.test(abs) || (real && /^\/(?:proc|dev|sys)(?:\/|$)/.test(real))) return SF.deviceFile(p);
   if (SF.BAD_NAME.test(basename(abs))) return SF.badName(abs);
+  // OUTSIDE THE WORKING FOLDERS (or a link leading out of them): refused only under the read block, as Claude Code refuses it only
+  // under permissions.blockReadsOutsideWorkingDirectories (its yle); otherwise the owner is asked first (coder-agent.mjs), as its
+  // Read permission asks. Nor is the .git folder refused here: Claude Code's sends one's files as any. (The owner, 2026-11-18:
+  // "Match Claude Code".)
   try { await inside(p, { output: true, tool: SF.SEND_TOOL }); }
-  catch (e) { if (e instanceof ToolError) return /outside the project|leads outside|off limits/.test(e.message) ? SF.outsideBlocked(p, OUTSIDE_WHY) : e.message; throw e; }
+  catch (e) {
+    if (!(e instanceof ToolError)) throw e;
+    if (/outside the project/.test(e.message)) { if (blockOutside) return SF.outsideBlocked(p, SF.READ_BLOCK_SETTING); }
+    else if (!/the \.git folder is off limits/.test(e.message)) return e.message;
+  }
   let st;
   try { st = await stat(abs); }
   catch (e) {
@@ -2337,13 +2345,147 @@ async function sendGuess(p, abs) {
   return similarGuess(abs);
 }
 const refuse = (why) => { throw Object.assign(new ToolError(why), { whole: true }); };
-export async function toolUserFileCheck({ files }) {
-  for (const p of Array.isArray(files) ? files : []) { const why = await userFileProblem(String(p)); if (why) refuse(why); }
+// ── CLAUDE CODE'S COPIES OF A PICTURE FOR THE CHAT (2.1.327; the owner, 2026-11-18: "Match Claude Code") ─────────────────────────
+// Its checks, ported from its program: an ISO box walk (its Y), a HEIF/AVIF primary item's rotation and mirroring (its Yr), a
+// multi-page TIFF (its Wr), a cut-short BMP (its zr), a HEIF with an alpha layer (its Hr), and a file whose bytes are already a
+// picture its apps show (its sniff). The copies are made by ImageMagick, told each file's format, as the AI's user.
+function isoBoxes(b, from, to, want) {
+  const out = [];
+  let at = from;
+  while (at + 8 <= to) {
+    let size = b.readUInt32BE(at), head = 8;
+    if (size === 1) { if (at + 16 > to) break; size = Number(b.readBigUInt64BE(at + 8)); head = 16; } else if (size === 0) size = to - at;
+    if (size < head || at + size > to) break;
+    const box = { type: b.toString("latin1", at + 4, at + 8), start: at + head, end: at + size };
+    if (want === undefined) out.push(box); else if (box.type === want) return [box];
+    at += size;
+  }
+  return out;
+}
+function heifTurn(b) {
+  const [meta] = isoBoxes(b, 0, b.length, "meta");
+  if (!meta) return undefined;
+  const [pitm] = isoBoxes(b, meta.start + 4, meta.end, "pitm"), [iprp] = isoBoxes(b, meta.start + 4, meta.end, "iprp");
+  if (!pitm || !iprp) return undefined;
+  const v0 = b[pitm.start] === 0;
+  if (pitm.start + (v0 ? 6 : 8) > pitm.end) return undefined;
+  const primary = v0 ? b.readUInt16BE(pitm.start + 4) : b.readUInt32BE(pitm.start + 4);
+  const [ipco] = isoBoxes(b, iprp.start, iprp.end, "ipco"), [ipma] = isoBoxes(b, iprp.start, iprp.end, "ipma");
+  if (!ipco || !ipma) return undefined;
+  const props = isoBoxes(b, ipco.start, ipco.end), version = b[ipma.start], wide = (b[ipma.start + 3] & 1) === 1;
+  const idSize = version < 1 ? 2 : 4, refSize = wide ? 2 : 1;
+  let at = ipma.start + 4;
+  if (at + 4 > ipma.end) return undefined;
+  const count = b.readUInt32BE(at); at += 4;
+  let clockwise = 0, mirrored = false;
+  for (let i = 0; i < count; i++) {
+    if (at + idSize + 1 > ipma.end) return undefined;
+    const item = idSize === 2 ? b.readUInt16BE(at) : b.readUInt32BE(at), n = b[at + idSize];
+    at += idSize + 1;
+    for (let j = 0; j < n; j++) {
+      if (at + refSize > ipma.end) return undefined;
+      const ref = refSize === 2 ? b.readUInt16BE(at) & 32767 : b[at] & 127;
+      at += refSize;
+      if (item !== primary || ref === 0) continue;
+      const p = props[ref - 1];
+      if (!p) return undefined;
+      if (p.type === "imir") mirrored = true;
+      else if (p.type === "irot" && p.start < p.end) clockwise = ((4 - (b[p.start] & 3)) % 4) * 90;
+    }
+  }
+  return { clockwise, mirrored };
+}
+function tiffPages(b) {
+  if (b.length < 8) return false;
+  const le = b[0] === 73 && b[1] === 73;
+  if (!le && !(b[0] === 77 && b[1] === 77)) return false;
+  const d = new DataView(b.buffer, b.byteOffset, b.byteLength);
+  if (d.getUint16(2, le) !== 42) return false;
+  const ifd = d.getUint32(4, le);
+  if (ifd + 2 > b.length) return false;
+  const next = ifd + 2 + d.getUint16(ifd, le) * 12;
+  return next + 4 <= b.length && d.getUint32(next, le) !== 0;
+}
+function bmpCut(b) {
+  if (b.length < 30 || b[0] !== 66 || b[1] !== 77) return false;
+  const hs = b.readUInt32LE(14), core = hs === 12;
+  if (!core && (hs < 40 || hs === 64 || b.length < 34)) return false;
+  const w = Math.abs(core ? b.readUInt16LE(18) : b.readInt32LE(18)), h = Math.abs(core ? b.readUInt16LE(20) : b.readInt32LE(22));
+  const bits = b.readUInt16LE(core ? 24 : 28), comp = core ? 0 : b.readUInt32LE(30), data = b.length - b.readUInt32LE(10);
+  if (comp === 1 || comp === 2) return w * h > 127.5 * data;
+  if (comp !== 0 && comp !== 3 && comp !== 6) return false;
+  const row = Math.floor((w * bits + 31) / 32) * 4, last = Math.ceil(w * bits / 8);
+  return h > 0 && row * (h - 1) + last > data;
+}
+const heifAlpha = (b) => ["urn:mpeg:hevc:2015:auxid:1", "urn:mpeg:avc:2015:auxid:1", "urn:mpeg:mpegB:cicp:systems:auxiliary:alpha"].some((u) => b.includes(u));
+const sniffedPicture = (b) => (b.length >= 8 && b[0] === 0x89 && b.toString("latin1", 1, 4) === "PNG") || (b.length >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) || (b.length >= 6 && /^GIF8[79]a$/.test(b.toString("latin1", 0, 6))) || (b.length >= 12 && b.toString("latin1", 0, 4) === "RIFF" && b.toString("latin1", 8, 12) === "WEBP");
+const IM_FORMAT = { ".bmp": "bmp", ".tif": "tiff", ".tiff": "tiff", ".heic": "heic", ".heif": "heic", ".avif": "avif", "image/png": "png", "image/jpeg": "jpeg", "image/webp": "webp" };
+/** A picture's width and height, as ImageMagick reads its first frame in its own format, and its frame count. */
+async function pictureSize(fmt, abs) {
+  const r = await runProg("identify", ["-format", "%w %h\n", fmt + ":" + abs], { timeoutMs: 20_000, max: 1 << 20 });
+  const lines = r.code === 0 ? r.out.toString("utf8").trim().split("\n").filter(Boolean) : [];
+  const [w, h] = (lines[0] || "").split(" ").map(Number);
+  return Number.isFinite(w) && Number.isFinite(h) && w > 0 && h > 0 ? { w, h, frames: lines.length } : null;
+}
+/**
+ * THE CHAT'S COPY OF A PICTURE, AS CLAUDE CODE MAKES IT, or null for none (the original is sent): a PREVIEW copy, PNG or JPEG,
+ * of a BMP, TIFF, HEIC, HEIF or AVIF picture its apps can't show, unless its bytes are already a picture they show, it is
+ * cut short, has several pages, is turned or mirrored (a HEIF or AVIF one), is over IMAGE_SIDE_MAX on a side, or the copy is
+ * over COPY_MAX; or a SCALED copy of a PNG, JPEG or WebP picture over IMAGE_SIDE_MAX on a side (and at most IMAGE_PIXELS_MAX
+ * pixels, one frame), fit inside IMAGE_SIDE_MAX, in its own format. Only for a picture of at most COPY_MAX. In a folder of its
+ * own in the AI's temporary folder, dropped once sent (user_file_drop).
+ */
+async function pictureCopy(abs, size, mediaType) {
+  if (size > SF.COPY_MAX || !size) return null;
+  const ext = extname(abs).toLowerCase(), preview = SF.PREVIEW_COPY[ext];
+  const scale = !preview && SF.SCALE_TYPES.has(mediaType || "");
+  if (!preview && !scale) return null;
+  const b = await readFile(abs);
+  const fmt = IM_FORMAT[preview ? ext : mediaType];
+  let format = preview || (mediaType === "image/png" ? "png" : mediaType === "image/jpeg" ? "jpeg" : "webp"), args = [];
+  const dims = { w: 0, h: 0 };
+  if (preview) {
+    if (sniffedPicture(b)) return null;
+    if (format === "jpeg" && heifAlpha(b)) format = "png";
+    if (tiffPages(b) || bmpCut(b)) return null;
+    if (b.toString("latin1", 4, 8) === "ftyp") { const t = heifTurn(b); if (!t || t.mirrored || t.clockwise !== 0) return null; }
+    const s = await pictureSize(fmt, abs);
+    if (!s || s.w > SF.IMAGE_SIDE_MAX || s.h > SF.IMAGE_SIDE_MAX) return null;
+    Object.assign(dims, s);
+    args = [fmt + ":" + abs + "[0]", ...(format === "jpeg" ? ["-quality", String(SF.COPY_JPEG_QUALITY)] : [])];
+  } else {
+    const s = await pictureSize(fmt, abs);
+    if (!s || (s.w <= SF.IMAGE_SIDE_MAX && s.h <= SF.IMAGE_SIDE_MAX) || s.w * s.h > SF.IMAGE_PIXELS_MAX || s.frames > 1) return null;
+    if (mediaType === "image/png" && b.indexOf("acTL") > 0 && b.indexOf("acTL") < b.indexOf("IDAT")) return null;
+    Object.assign(dims, s);
+    args = [fmt + ":" + abs + "[0]", "-resize", SF.IMAGE_SIDE_MAX + "x" + SF.IMAGE_SIDE_MAX + ">"];
+  }
+  const dir = await mkdtemp(join(tmpdir(), "coder-send-"));
+  const out = join(dir, SF.copyName(abs, format));
+  const r = await runProg("convert", [...args, format + ":" + out], { timeoutMs: 120_000, max: 1 << 20 });
+  let st = null;
+  try { st = r.code === 0 ? await stat(out) : null; } catch { st = null; }
+  if (!st || !st.size || st.size > SF.COPY_MAX) { await rm(dir, { recursive: true, force: true }); return null; }
+  const s2 = preview ? null : await pictureSize(format, out);
+  if (!preview && (!s2 || s2.w > SF.IMAGE_SIDE_MAX || s2.h > SF.IMAGE_SIDE_MAX)) { await rm(dir, { recursive: true, force: true }); return null; }
+  return { kind: preview ? "preview" : "scaled", path: out, size: st.size, media_type: format === "jpeg" ? "image/jpeg" : format === "png" ? "image/png" : "image/webp", ...(preview ? {} : { scaled: { width: s2.w, height: s2.h, original_width: dims.w, original_height: dims.h } }) };
+}
+/** Its checks of a picture's bytes, for the tests. */
+export const PICTURE_CHECKS = Object.freeze({ heifTurn, tiffPages, bmpCut, heifAlpha, sniffedPicture });
+/** A copy made to send, dropped (only one of pictureCopy's own folders). */
+export async function toolUserFileDrop({ path }) {
+  const p = String(path ?? ""), dir = dirname(p);
+  if (!isAbsolute(p) || dirname(dir) !== tmpdir() || !/^coder-send-[A-Za-z0-9]+$/.test(basename(dir))) fail("not a copy made to send");
+  await rm(dir, { recursive: true, force: true });
   return "ok";
 }
-export async function toolUserFileRead({ path }) {
+export async function toolUserFileCheck({ files, blockOutside = false }) {
+  for (const p of Array.isArray(files) ? files : []) { const why = await userFileProblem(String(p), { blockOutside: blockOutside === true }); if (why) refuse(why); }
+  return "ok";
+}
+export async function toolUserFileRead({ path, blockOutside = false, copies = false }) {
   const p = String(path ?? "");
-  const why = await userFileProblem(p);
+  const why = await userFileProblem(p, { blockOutside: blockOutside === true });
   if (why) refuse(why);
   const abs = toolPath(p);
   const fh = await openFile(abs, "r");
@@ -2353,7 +2495,39 @@ export async function toolUserFileRead({ path }) {
     const type = SF.sendTypeOf(abs);
     const base = { path: abs, size: st.size, isImage: SF.isImageName(abs), ...(type ? { media_type: type } : {}) };
     if (st.size > SF.SEND_FILE_MAX) return JSON.stringify({ ...base, tooBig: true });
+    // (The chat's copy of a picture, sent in its place, as Claude Code's: its own bytes, or read in parts from it.)
+    const copy = copies === true ? await pictureCopy(abs, st.size, type) : null;
+    if (copy) {
+      const cst = await stat(copy.path);
+      if (copy.size <= SF.SEND_INLINE_MAX) { const data = (await readFile(copy.path)).toString("base64"); await rm(dirname(copy.path), { recursive: true, force: true }); return JSON.stringify({ ...base, copy: { ...copy, data } }); }
+      return JSON.stringify({ ...base, copy: { ...copy, parts: true, ino: String(cst.ino), dev: String(cst.dev) } });
+    }
+    // (A bigger one is read in parts, user_file_part, from this same file: its inode, to check each part comes from it.)
+    if (st.size > SF.SEND_INLINE_MAX) return JSON.stringify({ ...base, parts: true, ino: String(st.ino), dev: String(st.dev) });
     return JSON.stringify({ ...base, data: (await fh.readFile()).toString("base64") });
+  } finally { await fh.close(); }
+}
+/**
+ * ONE PART OF A BIG FILE BEING SENT (user_file_part; Claude Code reads such a file from disk as it sends it): at most
+ * SEND_PART_SIZE bytes from `offset`, as the AI's user, from the file user_file_read read (the same inode); in Claude Code's
+ * words when it got shorter ("the file became shorter while it was being uploaded") or could not be read.
+ */
+export async function toolUserFilePart({ path, offset, length, ino = "", dev = "" }) {
+  let fh;
+  try { fh = await openFile(toolPath(String(path ?? "")), "r"); } catch (e) { refuse(SF.couldNotRead(String((e && e.message) || e))); }
+  try {
+    const st = await fh.stat();
+    if ((ino && String(st.ino) !== String(ino)) || (dev && String(st.dev) !== String(dev))) refuse(SF.couldNotRead("the file was replaced while it was being uploaded"));
+    const at = Math.max(0, Number(offset) || 0), want = Math.max(0, Math.min(Number(length) || 0, SF.SEND_PART_SIZE));
+    const buf = Buffer.alloc(want);
+    let got = 0;
+    while (got < want) {
+      let n = 0;
+      try { n = (await fh.read(buf, got, want - got, at + got)).bytesRead; } catch (e) { refuse(SF.couldNotRead(String((e && e.message) || e))); }
+      if (!n) refuse(SF.SHORTER);
+      got += n;
+    }
+    return JSON.stringify({ data: buf.toString("base64") });
   } finally { await fh.close(); }
 }
 
@@ -2364,7 +2538,7 @@ export async function toolUserFileRead({ path }) {
  */
 export const errorLine = (e) => { const m = String((e && e.message) || e); return "error: " + (e && e.whole === true ? m : m.slice(0, e && e.long === true ? 4000 : 600)); };
 
-export const TOOLS = { page_file: toolPageFile, save_file: toolSaveFile, send_file: toolSendFile, user_file_check: toolUserFileCheck, user_file_read: toolUserFileRead, ps_parse: toolPsParse, save_picture: toolSavePicture, fit_picture: toolFitPicture, lsp: toolLsp, lsp_file: toolLspFile, lsp_take: toolLspTake, read: toolRead, write: toolWrite, edit: toolEdit, notebook_edit: toolNotebookEdit, notebook_cell: toolNotebookCell, file_check: toolFileCheck, grep: toolGrep, glob: toolGlob, web_fetch: toolWebFetch, mtimes: toolMtimes, listing: toolListing, changed: toolChanged, seen: toolSeen, snap: toolSnap, snapdiff: toolSnapDiff, http_hook: toolHttpHook, stamps: toolStamps, ws_watch: toolWsWatch };
+export const TOOLS = { page_file: toolPageFile, save_file: toolSaveFile, send_file: toolSendFile, user_file_check: toolUserFileCheck, user_file_read: toolUserFileRead, user_file_part: toolUserFilePart, user_file_drop: toolUserFileDrop, ps_parse: toolPsParse, save_picture: toolSavePicture, fit_picture: toolFitPicture, lsp: toolLsp, lsp_file: toolLspFile, lsp_take: toolLspTake, read: toolRead, write: toolWrite, edit: toolEdit, notebook_edit: toolNotebookEdit, notebook_cell: toolNotebookCell, file_check: toolFileCheck, grep: toolGrep, glob: toolGlob, web_fetch: toolWebFetch, mtimes: toolMtimes, listing: toolListing, changed: toolChanged, seen: toolSeen, snap: toolSnap, snapdiff: toolSnapDiff, http_hook: toolHttpHook, stamps: toolStamps, ws_watch: toolWsWatch };
 
 // Run as a command: node coder-tools.mjs <base64 of {"tool": ..., "args": {...}}>
 if (process.argv[1] && import.meta.url === "file://" + process.argv[1]) {

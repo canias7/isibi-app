@@ -2042,6 +2042,14 @@ export function fileToolDecision(tool, path, { rules = {}, root = "/", cwd = "",
 /** A path as Claude Code writes it in these words (its Hc): each control character as a character reference, "&#10;". */
 export const ccPath = (p) => String(p).replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, (c) => "&#" + c.charCodeAt(0) + ";");
 /**
+ * A READ OUTSIDE THE WORKING FOLDERS, ASKED (Claude Code 2.1.327's Read permission, its Qd and KJe: a path outside them that no
+ * Read allow rule covers): its words, and where a link inside them leads when it leads out; "Claude" is Coder here. With its
+ * "don't ask again" rule for the file's folder (its suggestion, a session rule for that folder). send_user_file's since
+ * 2026-11-18 (the owner: "Match Claude Code").
+ */
+export const outsideReadWhy = (p, landing = "") => "Coder requested permissions to read from " + ccPath(p) + ", but you haven't granted it yet." + (landing ? " " + ccPath(p) + " resolves through a symlink to " + ccPath(landing) + ", which is outside the allowed working directories." : "");
+export const outsideReadRule = (p) => { const dir = String(p).replace(/\/[^/]*$/, "") || "/"; return "Read(/" + (dir === "/" ? "/" : dir + "/") + "**)"; };
+/**
  * THE FILES A COMMAND NAMES, for the owner's Read and Edit rules: `{ tool: "Read" | "Edit", path, name, how, glob }` for each
  * path a reading command names (READ_PATHS: cat, head, tail, sed …), each input redirection (Read), each file an output
  * redirection or tee writes, and each path a file command changes (rm, mv, cp, mkdir, touch, sed -i: Edit). Paths worked out

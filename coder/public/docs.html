@@ -366,23 +366,25 @@
 
         <h3 id="send-see">What you see</h3>
         <ul>
-          <li>Each file is a card in the chat with its name, its size and <b>Download</b>. Coder's caption, if it adds one, shows under the files.</li>
-          <li>Pictures (PNG, JPG, GIF, WebP and SVG), PDFs, web pages and text files (such as Markdown, CSV and JSON) also show right in the chat, unless Coder sends one only to download. Other files are a card to download.</li>
-          <li>A web page shown in the chat runs sealed off: it can't see your sign-in or send anything anywhere.</li>
-          <li>Nothing is pushed to your phone: the file waits in the chat until you open it.</li>
+          <li>A picture (PNG, JPEG, GIF or WebP) shows in the chat. Every file has a card with its name, its size and <b>Download</b>. Coder's caption, if it adds one, shows under the files.</li>
+          <li>Web pages, pictures, SVG drawings, Mermaid diagrams and PDFs open in a panel beside the chat as they arrive, unless Coder sends one only to download. Click a file's name or picture to open it there; text files and videos open there too. On a phone the panel covers the chat, and × closes it.</li>
+          <li>A web page or diagram in the panel runs sealed off: it can't see your sign-in or send anything anywhere.</li>
+          <li>When Coder sends a file on its own to tell you something, you get a notification if <b>Push when Coder decides</b> is on, unless you're looking at that chat.</li>
         </ul>
 
         <h3 id="send-what">What it sends</h3>
         <ul>
-          <li>Files inside the project and its working folders, up to <b>30 MiB</b> each. Not folders, web addresses, or links that lead out of the project.</li>
-          <li>A file that couldn't be sent, such as one over 30 MiB, isn't: Coder is told why, in Claude Code's words, and tells you.</li>
-          <li>The files stay with the chat, up to <b>500 files</b> and <b>2 GB</b>; past that, the oldest go. Deleting the chat deletes them.</li>
+          <li>Files up to <b>500 MiB</b> each, as in Claude Code. Not folders or web addresses.</li>
+          <li>A picture Claude Code's apps can't show (BMP, TIFF, HEIC, HEIF or AVIF) is sent as a PNG or JPEG copy, and one over 8,000 pixels on a side is sent scaled down to fit, as Claude Code does. The file itself stays as it was. Sent only to download, the original goes.</li>
+          <li>A file that couldn't be sent isn't: Coder is told why, in Claude Code's words, and tells you.</li>
+          <li>The files stay with the chat as long as it does, and deleting the chat deletes them. Up to <b>1,000 files</b> a day.</li>
           <li>A job started from GitHub doesn't get the tool.</li>
         </ul>
 
         <h3 id="send-rules">Permission rules</h3>
         <ul>
           <li>Sending a file reads it, so your Read rules apply to each file: one Coder may not read can't be sent, and one that asks first asks before it's sent.</li>
+          <li>A file outside the project and its working folders asks you first, as in Claude Code, except in Auto. With <code>CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES</code> on, it's refused.</li>
           <li>A rule can also turn the tool off or make it ask, for the whole tool (<code>SendUserFile</code>) or one input (<code>SendUserFile(status:proactive)</code>).</li>
         </ul>
       </section>

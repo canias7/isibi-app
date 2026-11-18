@@ -4,6 +4,24 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-18: send_user_file matches Claude Code everywhere, checked against its docs (your words: "Match Claude Code", "double check against the Claude Code docs")
+
+I read Claude Code's docs again (every page fetched fresh) and its program, and matched all seven differences:
+
+1. **Its instructions:** Coder now gets the exact text Claude Code uses by default. The sentence about PushNotification was only in a version Claude Code keeps switched off.
+2. **Notifications:** when Coder sends a file on its own to tell you something ("proactive"), you get a push if "Push when Coder decides" is on, unless you're looking at that chat. Claude Code's text says such a file should "reach their phone".
+3. **Bigger files:** up to 500 MiB each, Claude Code's own limit. A big file is read and sent in 5 MiB pieces, the way Claude Code streams one. Found and fixed on the way: before, any file over about 6 MiB failed, because Coder's machine passes at most 8 MiB out of a tool at once.
+4. **Picture copies:** a BMP, TIFF, HEIC, HEIF or AVIF picture is sent as a PNG or JPEG copy, and one over 8,000 pixels wide or tall is sent scaled down, with Claude Code's own checks and its words to Coder.
+5. **Files outside the project:** Coder now asks you first, as Claude Code does (in Auto it sends them without asking, as Claude Code's auto mode does). With the read block on, they're refused.
+6. **The panel:** a picture shows in the chat, and every file has a card. Web pages, pictures, SVG drawings, Mermaid diagrams and PDFs open in a panel beside the chat as they arrive (over the chat on a phone). Click a file to open it there; videos and text files open there too. On 2026-11-16 you turned off the fixed right-hand panel ("dont put this pls, i dont like it"). This one only shows when there's a file to look at, and × closes it. See the screenshots.
+7. **Keeping files:** files stay as long as the chat, and none are deleted to make room. Like Claude Code, there's a daily count instead: 1,000 files a day. Claude Code's own number isn't public.
+
+The line for a refused send stays: Claude Code shows the refusal too. Downloads now come straight from a signed address, so a big file is never held whole in the page.
+
+**The docs check of the other tools from this session:** notebook_edit and the resource tools haven't changed since yesterday's check. One finding outside these tools: Claude Code's Read, Grep and Glob ask before reading a file outside the working folders (in Auto, they ask once). Coder's refuse those paths. That was "different on purpose" back on 2026-11-08, when Coder had no permission prompts.
+
+Tests: SF9 to SF12 are new, and SF1 to SF8 cover the changes. All 1,357 pass. On this chat's branch.
+
 ## 2026-11-18: Coder can send you files, like Claude Code's SendUserFile (your words: "Ok you can start")
 
 Coder has a new tool, `send_user_file`, built like Claude Code's SendUserFile. When Coder makes something you'd want to see (a screenshot, a report, a chart, a page), it can send it to you in the chat.
