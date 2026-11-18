@@ -6,9 +6,13 @@ log (81,000 lines) is in git history.
 
 ## 2026-11-18: A setup longer than about 5 minutes isn't saved as a copy, like Claude Code
 
-You said "match pls". Claude Code's docs: "When setup completes within roughly five minutes, Anthropic snapshots the filesystem", and "When setup takes longer than that, the environment isn't cached." Coder saved the copy however long the setup took. Now it only saves one when the setup finished within about 5 minutes. A longer setup runs in every new chat, as in Claude Code.
+You said "match pls". Claude Code's docs: "When setup completes within roughly five minutes, Anthropic snapshots the filesystem", and "When setup takes longer than that, the environment isn't cached." Coder now only saves a copy when the setup finished within about 5 minutes.
 
-The Setup script editor now says so: "Keep it under about 5 minutes. Then Coder saves a copy of what it set up, and new chats start from that copy without running it again. A longer one runs in every new chat."
+The live test showed something I had missed: Coder has stopped the setup script at 5 minutes since 6 November. A stopped setup counts as failed, so a longer setup was never saved as a copy anyway. The new check is a second guard. Claude Code's docs give the same 5-minute budget: when sessions "hang or time out during setup", "the script is likely exceeding the roughly five-minute time budget". When a setup fails, the session "starts without whatever the script failed to install", which is what Coder does too.
+
+The Setup script editor now says so: "Keep it under about 5 minutes. Then Coder saves a copy of what it set up, and new chats start from that copy without running it again. A script still running at 5 minutes is stopped, and no copy is saved." (The first version said a longer one "runs in every new chat", which was wrong; corrected.)
+
+Tested live in env-test: its setup script was made to take 5 minutes 20 seconds. The first chat (14:42) had its setup stopped at 5:00, and Coder said the setup had failed. No copy was saved: the second chat, 16 minutes later, ran the setup again. env-test's own script was put back at 15:04.
 
 Tests: CD153b in `coder/test/setup-copy.test.mjs`.
 

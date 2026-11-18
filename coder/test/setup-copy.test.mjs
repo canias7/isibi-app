@@ -494,5 +494,5 @@ test("CD153b a setup that took longer than about five minutes is not saved as th
   // Said where the script is written, as Claude Code's docs say it ("keep the script's total runtime under roughly five
   // minutes so the environment cache can build").
   const page = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
-  assert.ok(page.includes("Keep it under about 5 minutes. Then Coder saves a copy of what it set up, and new chats start from that copy without running it again. A longer one runs in every new chat."));
+  assert.ok(page.includes("Keep it under about 5 minutes. Then Coder saves a copy of what it set up, and new chats start from that copy without running it again. A script still running at 5 minutes is stopped, and no copy is saved."));
 });

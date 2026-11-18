@@ -1474,7 +1474,7 @@
         '<textarea id="envScriptIn" spellcheck="false" placeholder="#!/bin/bash&#10;npm install">' + esc(f.text) + '</textarea><div class="cd-em-codefoot">Files up to 64 KB</div></div>' +
         '<p class="cd-em-help">Runs when a new chat starts, before Coder starts. A change reaches a chat that has already started only when its machine is made fresh: to apply it right away, run the commands in the chat or start a new chat. It can\'t read your variables or secrets.</p>' +
         // (Claude Code's docs: "keep the script's total runtime under roughly five minutes so the environment cache can build".)
-        '<p class="cd-em-help">Keep it under about 5 minutes. Then Coder saves a copy of what it set up, and new chats start from that copy without running it again. A longer one runs in every new chat.</p>' +
+        '<p class="cd-em-help">Keep it under about 5 minutes. Then Coder saves a copy of what it set up, and new chats start from that copy without running it again. A script still running at 5 minutes is stopped, and no copy is saved.</p>' +
         // (Where it starts, Claude Code's: "The script normally starts in the directory that holds the repository checkouts, not
         // inside one"; a script saved before 2026-11-14 still starts inside the chat's repository until it is changed. E7.)
         '<p class="cd-em-help">It starts in the folder that holds the chat\'s repositories, not inside one: reach each one by its name, like <code>if [ -d myapp ]; then (cd myapp &amp;&amp; npm install); fi</code>.</p>' +
