@@ -30,7 +30,7 @@ Different from Claude Code, for you to decide:
 5. A picture or page shows right in the chat. Claude Code's apps open it in a side panel, and Coder's chat has none.
 6. When a send is refused, Coder shows a "Send a.csv ✕ not run" line so you can see it.
 
-Tests: SF1 to SF8 are new. Four older tests were updated: two that list Coder's tools (PA1, TP1), the docs page test (CD248, the new section) and one about deleting a chat (CD541: its sent files go too). All 1,353 pass. On this chat's branch.
+Tests: SF1 to SF8 are new. Four older tests were updated: two that list Coder's tools (PA1, TP1), the docs page test (CD248, the new section) and one about deleting a chat (CD541: its sent files go too). All 1,353 pass. On this chat's branch, deployed to coder2 (deploy 251). Not tried in a live chat yet: chats on coder2 need the GitHub sign-in, which wasn't working there yesterday.
 
 ## 2026-11-17: Connector answers reach Coder exactly as they came, like Claude Code (your words: "Matcha claude code")
 

@@ -902,7 +902,9 @@ The owner (2026-11-18): "Is that part of a certain tool ? Or is it a tool ?", th
 
 **Tests:** SF1–SF8 (`coder/test/send-file.test.mjs`, with Claude Code's own description and refusal as fixtures); CD248 (the docs
 page's new section and links); PA1 and TP1 (the lists of Coder's tools); CD541 (a deleted chat's sent files go with it); the
-machine's file list (CD78, CD163) has the new modules. The full suite: 1353 pass, 4 skipped, 0 fail.
+machine's file list (CD78, CD163) has the new modules. The full suite: 1353 pass, 4 skipped, 0 fail. Deployed to coder2 (deploy
+251): its docs section is up, the machine's upload refuses a call without a job's pass (403), a bad view signature is "not found"
+(404). Not tried in a live chat (coder2's GitHub sign-in).
 
 **For the owner to decide:**
 1. **The notification sentence** is left out, as Coder has no PushNotification tool.
