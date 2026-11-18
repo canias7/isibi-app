@@ -944,4 +944,5 @@ notebook_edit's and the resource tools' entries and pages: no change since the d
 
 **Tests (the match):** SF9 (the push), SF10 (files outside the working folders), SF11 (a 12 MiB file through the Worker in parts,
 the day's allowance), SF12 (the picture copies, its checks ported) new; SF1–SF8 for the rest. The full suite: 1357 pass, 4 skipped,
-0 fail.
+0 fail. Deployed to coder2 (deploy 253): its parts upload refuses a call without a job's pass (403), a bad download signature is
+"not found" (404), the page has the panel. Not tried in a live chat (coder2's GitHub sign-in).

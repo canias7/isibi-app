@@ -20,7 +20,7 @@ The line for a refused send stays: Claude Code shows the refusal too. Downloads 
 
 **The docs check of the other tools from this session:** notebook_edit and the resource tools haven't changed since yesterday's check. One finding outside these tools: Claude Code's Read, Grep and Glob ask before reading a file outside the working folders (in Auto, they ask once). Coder's refuse those paths. That was "different on purpose" back on 2026-11-08, when Coder had no permission prompts.
 
-Tests: SF9 to SF12 are new, and SF1 to SF8 cover the changes. All 1,357 pass. On this chat's branch.
+Tests: SF9 to SF12 are new, and SF1 to SF8 cover the changes. All 1,357 pass. On this chat's branch, deployed to coder2 (deploy 253). Not tried in a live chat with Grok yet: chats on coder2 need the GitHub sign-in, which wasn't working there yesterday.
 
 ## 2026-11-18: Coder can send you files, like Claude Code's SendUserFile (your words: "Ok you can start")
 
