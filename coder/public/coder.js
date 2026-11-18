@@ -2923,7 +2923,9 @@
   // while Coder thinks. A message on a machine already awake: only the dots and the seconds. A step running before Coder's
   // first words: that step, live, with its seconds. (Gloopy's chat keeps its own status line.)
   const BOOT_WORDS = { container: 'Setting up a cloud container', clone: 'Cloning repository', setup: 'Running setup script' };
-  const BOOT_DONE = { container: 'Set up a cloud container', clone: 'Cloned repository', setup: 'Ran setup script' };
+  // (With the environment's saved copy, Claude Code's own steps for it, in its words: its start-up log says "Restored saved
+  // setup" when a session starts from it and "Saving setup for next time" when a session makes it. 2026-11-18.)
+  const BOOT_DONE = { container: 'Set up a cloud container', restored: 'Restored saved setup', saving: 'Saving setup for next time', clone: 'Cloned repository', setup: 'Ran setup script' };
   // The start-up's step, as a look at the chat (/state) said it: kept per message, with when this page first saw it.
   function bootSeen(d) {
     if (GLOOPY || !d) return;
@@ -2974,9 +2976,10 @@
     let u = null;
     for (let j = i - 1; j >= 0; j--) if (S.events[j].type === 'user') { u = S.events[j]; break; }
     const extra = u && Number(u.at) > 0 && Number(e.got) > Number(u.at) && Number(e.got) - Number(u.at) < 600000 ? Number(e.got) - Number(u.at) : 0;
-    const steps = (Array.isArray(e.steps) ? e.steps : []).filter((x) => x && BOOT_DONE[x.k]).map((x) => ({ k: x.k, ms: Number(x.ms) + (x.k === 'container' ? extra : 0) }));
+    // (A step with no time of its own, the saved copy's, is named without one.)
+    const steps = (Array.isArray(e.steps) ? e.steps : []).filter((x) => x && BOOT_DONE[x.k]).map((x) => ({ k: x.k, ms: typeof x.ms === 'number' ? x.ms + (x.k === 'container' ? extra : 0) : null }));
     return '<div class="cd-init' + (open ? ' is-open' : '') + '"><button type="button" class="cd-init-head" data-init="' + k + '" aria-expanded="' + open + '">Initialized session <span class="cd-chev" aria-hidden="true">›</span></button>' +
-      (open ? '<ul class="cd-init-list">' + steps.map((x) => '<li><span>' + BOOT_DONE[x.k] + '</span><b>' + secsWords(x.ms / 1000) + '</b></li>').join('') + '</ul>' : '') + '</div>';
+      (open ? '<ul class="cd-init-list">' + steps.map((x) => '<li><span>' + BOOT_DONE[x.k] + '</span>' + (x.ms === null ? '' : '<b>' + secsWords(x.ms / 1000) + '</b>') + '</li>').join('') + '</ul>' : '') + '</div>';
   }
   // (The counter and the times tick on their own, between redraws.)
   function metaTick() {

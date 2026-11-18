@@ -3131,13 +3131,21 @@ export function phaseOf(t) { return t && t.running && t.cold && t.phase && t.pha
  * THE START-UP, ONCE READY (2026-11-16): one `startup` step with how long each part took on this machine (ms): getting the
  * job ready (container), the clone, the setup script. The page shows it as "Initialized session ›".
  */
-export function startupEvent(m) {
+/**
+ * THE START-UP'S RECORD ("Initialized session ›"): each step and how long it took. With the environment's saved copy, Claude
+ * Code's own steps for it (the owner, 2026-11-18: "match claude code pls"; its start-up log: "Restored saved setup" when a
+ * session starts from it, "Saving setup for next time" when a session makes it), after the machine and before the clone.
+ * `copy.why`: why a saved copy was not used (kept for us, never shown).
+ */
+export function startupEvent(m, copy = {}) {
   const at = Date.now(), got = Number(m.got) || at, ready = Number(m.ready) || at;
   const cs = Number(m.cloneStart) || 0, ce = Number(m.cloneEnd) || 0, ss = Number(m.setupStart) || 0, se = Number(m.setupEnd) || 0;
   const steps = [{ k: "container", ms: Math.max(0, (cs || ss || ready) - got) }];
+  if (copy.restored) steps.push({ k: "restored", ...(Number(copy.restored.at) > 0 ? { built: Number(copy.restored.at) } : {}) });
+  else if (copy.saving) steps.push({ k: "saving" });
   if (cs && ce >= cs) steps.push({ k: "clone", ms: ce - cs });
   if (ss && se >= ss) steps.push({ k: "setup", ms: se - ss });
-  return { at, type: "startup", got, ms: Math.max(0, ready - got), steps };
+  return { at, type: "startup", got, ms: Math.max(0, ready - got), steps, ...(copy.why ? { copyWhy: String(copy.why).slice(0, 400) } : {}) };
 }
 export function timedSend(timing, send) {
   if (typeof send !== "function") return send;
@@ -3863,12 +3871,15 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     // WHY THIS NEW CHAT DID NOT START FROM THE ENVIRONMENT'S SAVED COPY, in the chat (live test #25,
     // 2026-11-07: it once fell back to an empty disk unseen): Fly.io would not make the disk from it
     // (Coder's Worker says), the copy was not of this setup, or Fly is still finishing it.
+    // (2026-11-18, the owner: "match claude code pls": Claude Code's start-up says nothing of a saved setup it did not use, its
+    // own log shows only the steps it took. So the reason is kept with the start-up's record, for us, and not said in the chat.)
+    t.copyWhy = ""; t.restored = null;
     if (script0) {
-      if (copyInfo.startsWith("missed: ")) t.events.push({ at: Date.now(), type: "note", text: "Setup: this chat could not start from the environment's saved copy (" + copyInfo.slice(8, 220) + "), so the setup script runs here." });
-      if (copied && copied.why) t.events.push({ at: Date.now(), type: "note", text: "Setup: the environment's saved copy could not be used here (" + copied.why + "), so the setup script runs here." });
-      if (fresh && body.cache && typeof body.cache.note === "string" && body.cache.note.trim()) t.events.push({ at: Date.now(), type: "note", text: body.cache.note.trim().slice(0, 300) });
+      if (copyInfo.startsWith("missed: ")) t.copyWhy = "missed: " + copyInfo.slice(8, 220);
+      else if (copied && copied.why) t.copyWhy = "not usable: " + copied.why;
+      else if (fresh && body.cache && typeof body.cache.note === "string" && body.cache.note.trim()) t.copyWhy = "still finishing: " + body.cache.note.trim().slice(0, 300);
       // (Its machine started before the copy was known to be finished: Coder's Worker says "late", 2026-11-18.)
-      if (copyInfo === "late" && fresh && !(copied && copied.at)) t.events.push({ at: Date.now(), type: "note", text: "Setup: this chat's machine was already started without the environment's saved copy, so the setup script runs here." });
+      else if (copyInfo === "late" && fresh && !(copied && copied.at)) t.copyWhy = "late: this chat's machine was already started without it";
     }
     const dir = join(root, project);
     // A COLD START (this machine's first job for the chat, or no project on its disk yet): its start-up steps are shown,
@@ -4237,7 +4248,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       if (due && copied && copied.at) {
         await setupMark("copied", copied.at);
         setupCopied = copied;
-        t.events.push({ at: Date.now(), type: "note", text: "Setup: this chat started from the environment's saved copy (made " + new Date(copied.at).toISOString().slice(0, 16).replace("T", " ") + " UTC), so the setup script did not run again." });
+        // (A start-up step, as Claude Code's own: "Restored saved setup", not a note in the chat. 2026-11-18.)
+        t.restored = { at: Number(copied.at) || 0 };
       }
       // (Not without the admin sandbox, where it would run on a machine made for one: fix 7. The chat says why already, and
       // Coder is not asked to fix a script that never ran; it runs at the next message whose sandbox starts.)
@@ -4552,7 +4564,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     if (copyWanted) t.copyWanted = { sha: setupSha(script, net) };
     t.timing.ready = Date.now();
     setPhase(t, "ready");
-    if (t.cold) t.events.push(startupEvent(t.timing));
+    if (t.cold) t.events.push(startupEvent(t.timing, { restored: t.restored || null, saving: copyWanted, why: t.copyWhy || "" }));
+    t.restored = null;
     const begin = () => {
       t.timing.began = Date.now();
       // A job has worked on this disk: no copy is made of it from now on.

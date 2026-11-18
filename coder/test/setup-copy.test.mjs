@@ -230,6 +230,10 @@ test("CD153 the machine: after a setup that ran on a fresh disk and worked, the 
     assert.equal(s.result.status, "done");
     assert.equal(m.seen.length, 1, "Coder started without waiting");
     assert.equal(s.result.copy, true, "the turn's end says the disk is ready to be saved");
+    // (Its start-up says so, in Claude Code's words: "Saving setup for next time", after the machine, before the clone.)
+    const up = s.events.find((e) => e.type === "startup");
+    assert.deepEqual(up.steps.map((x) => x.k), ["container", "saving", "clone", "setup"], JSON.stringify(up));
+    assert.ok(!s.events.some((e) => e.type === "note"));
     // THE COPY'S NOTE, written at the turn's end, the disk synced: what the Worker then has Fly.io save.
     const note = JSON.parse(await readFile(join(m.data, m.S.COPY_NOTE), "utf8"));
     const { normNetwork } = await import("../container/coder-secrets.mjs");
@@ -281,7 +285,12 @@ test("CD153 the machine: after a setup that ran on a fresh disk and worked, the 
     const s = await b.done("shop-eee1");
     assert.equal(s.result.status, "done");
     assert.ok(!s.events.some((e) => e.tool === "setup"), "the setup did not run");
-    assert.ok(s.events.some((e) => e.type === "note" && /started from the environment's saved copy/.test(e.text)), "said in the chat");
+    // (Said as Claude Code's start-up says it, a step: "Restored saved setup", with when the copy was made; no note. 2026-11-18.)
+    assert.ok(!s.events.some((e) => e.type === "note"), "no note in the chat");
+    const up = s.events.find((e) => e.type === "startup");
+    assert.ok(up && up.steps.some((x) => x.k === "restored" && x.built > 0), JSON.stringify(up));
+    assert.ok(up.steps.findIndex((x) => x.k === "restored") < up.steps.findIndex((x) => x.k === "clone"), "before the clone, as Claude Code's");
+    assert.ok(!up.steps.some((x) => x.k === "setup" || x.k === "saving"));
     // (In the chat's context, told in the conversation since fix round 4: context-cache.test.mjs.)
     assert.match(JSON.stringify(b.seen[0].messages.filter((m) => m.ctx).map((m) => m.content)), /started from the environment's saved copy of its result[\s\S]*run the project's own install yourself/, "and to Coder");
     // (Beside it, root's link named after its repository, where the setup script starts: E7 of recheck 2, server.mjs repoLinks.)
@@ -308,7 +317,11 @@ test("CD153 the machine: after a setup that ran on a fresh disk and worked, the 
       const s = await c.done("shop-fff1");
       assert.equal(s.result.copy, true, "saved as the new copy at the turn's end");
       assert.ok(s.events.some((e) => e.tool === "setup"), "the setup ran");
-      assert.ok(s.events.some((e) => e.type === "note" && /^Setup: the environment's saved copy could not be used here \((it was made for another setup script or network setting|it was made by an older version of Coder|it is over seven days old)\), so the setup script runs here\.$/.test(e.text)), "and the chat says why");
+      // (Why, kept with the start-up's record for us; the chat shows Claude Code's steps only: no note. 2026-11-18.)
+      assert.ok(!s.events.some((e) => e.type === "note"), "no note in the chat");
+      const up = s.events.find((e) => e.type === "startup");
+      assert.match(up.copyWhy, /^not usable: (it was made for another setup script or network setting|it was made by an older version of Coder|it is over seven days old)$/);
+      assert.ok(up.steps.some((x) => x.k === "saving"), "this chat makes the new copy: \"Saving setup for next time\"");
       // (Only this job's snapshot of the shell's startup file is there: tool 4, docs pass 2.)
       assert.deepEqual(await readdir(c.dirs.home), [".cache"], "the other setup's home is gone");
       assert.deepEqual(await readdir(join(c.dirs.home, ".cache")), ["coder"]);
@@ -350,16 +363,18 @@ test("CD153 the machine: after a setup that ran on a fresh disk and worked, the 
   } finally { await own.close(); }
 });
 
-test("CD192 why a new chat did not start from the environment's saved copy is said in its chat (live test #25, 2026-11-07: it once fell back to an empty disk unseen): Fly.io would not make the disk (the Worker's word), or Fly is still finishing the copy; only on a fresh disk with a setup script, said once, before the setup runs", async () => {
+test("CD192 why a new chat did not start from the environment's saved copy is kept with its start-up's record, not said in the chat (2026-11-18, the owner: \"match claude code pls\"; live test #25, 2026-11-07: it once fell back to an empty disk unseen): Fly.io would not make the disk (the Worker's word), or Fly is still finishing the copy; only on a fresh disk with a setup script, said once, before the setup runs", async () => {
   // FLY WOULD NOT MAKE THE DISK FROM THE COPY: the Worker made an empty one and says why.
   const a = await diskMachine({ holdMs: 60_000 });
   const script = "echo setup-ran";
   try {
     assert.deepEqual(await a.turn("shop-aaa1", { setup: { script } }, "missed: Fly.io would not make a disk from it (422: snapshot vs_X is not ready)"), { ok: true });
     const s = await a.done("shop-aaa1");
-    const notes = s.events.filter((e) => e.type === "note").map((e) => e.text);
-    assert.deepEqual(notes, ["Setup: this chat could not start from the environment's saved copy (Fly.io would not make a disk from it (422: snapshot vs_X is not ready)), so the setup script runs here."]);
-    assert.ok(s.events.findIndex((e) => e.type === "note") < s.events.findIndex((e) => e.tool === "setup"), "before the setup runs");
+    assert.ok(!s.events.some((e) => e.type === "note"), "no note in the chat (2026-11-18: Claude Code's start-up shows only its steps)");
+    const up = s.events.find((e) => e.type === "startup");
+    assert.equal(up.copyWhy, "missed: Fly.io would not make a disk from it (422: snapshot vs_X is not ready)", "kept with the start-up's record");
+    assert.ok(s.events.some((e) => e.tool === "setup"), "the setup ran");
+    assert.ok(!up.steps.some((x) => x.k === "restored"));
   } finally { await a.close(); }
   // FLY IS STILL FINISHING THE COPY: the Worker's note, on this chat's fresh disk.
   const b = await diskMachine({ holdMs: 60_000 });
@@ -367,16 +382,23 @@ test("CD192 why a new chat did not start from the environment's saved copy is sa
     const note = "Setup: Fly.io is still finishing the environment's saved copy of the setup (asked for 1 minute ago), so this chat runs the setup script itself.";
     assert.deepEqual(await b.turn("shop-bbb1", { setup: { script }, cache: { make: false, note } }), { ok: true }, "no copy made: one is being finished");
     const s = await b.done("shop-bbb1");
-    assert.deepEqual(s.events.filter((e) => e.type === "note").map((e) => e.text), [note]);
-    // Its next message (the disk has had a job): not said again.
+    assert.ok(!s.events.some((e) => e.type === "note"), "no note in the chat");
+    const up = s.events.find((e) => e.type === "startup");
+    assert.equal(up.copyWhy, "still finishing: " + note);
+    assert.ok(!up.steps.some((x) => x.k === "saving" || x.k === "restored"), "no copy made here: one is being finished");
+    // Its next message (the disk has had a job): nothing kept.
     await b.turn("shop-bbb1", { setup: { script }, cache: { make: false, note } });
-    assert.ok(!(await b.done("shop-bbb1")).events.some((e) => e.type === "note"));
+    const s2 = await b.done("shop-bbb1");
+    assert.ok(!s2.events.some((e) => e.type === "note"));
+    assert.ok(!s2.events.some((e) => e.type === "startup" && e.copyWhy));
   } finally { await b.close(); }
   // NO SETUP SCRIPT: nothing to say about its copy.
   const c = await diskMachine({ holdMs: 60_000 });
   try {
     await c.turn("shop-ccc1", { cache: { make: false, note: "Setup: x" } }, "missed: y");
-    assert.ok(!(await c.done("shop-ccc1")).events.some((e) => e.type === "note"));
+    const s = await c.done("shop-ccc1");
+    assert.ok(!s.events.some((e) => e.type === "note"));
+    assert.ok(!s.events.some((e) => e.type === "startup" && e.copyWhy));
   } finally { await c.close(); }
   // The Worker's word only: the AI's commands cannot reach the machine's control panel (it needs the machine's key).
   const { readFileSync } = await import("node:fs");
@@ -390,19 +412,24 @@ test("CD192 why a new chat did not start from the environment's saved copy is sa
     assert.deepEqual(await w.post("/warm", { project: "../x" }), { error: "bad project" });
     await w.turn("shop-www1", { setup: { script } });
     const s = await w.done("shop-www1");
-    assert.deepEqual(s.events.filter((e) => e.type === "note").map((e) => e.text), ["Setup: this chat could not start from the environment's saved copy (Fly.io would not make a disk from it), so the setup script runs here."]);
+    assert.ok(!s.events.some((e) => e.type === "note"));
+    assert.equal(s.events.find((e) => e.type === "startup").copyWhy, "missed: Fly.io would not make a disk from it");
   } finally { await w.close(); }
 });
 
-test("CD192b a finished copy offered too late for a chat's machine (live, 2026-11-18: every new chat's machine was started when the repository was picked, before the copy was known to be finished; each then ran the setup and saved a new, unfinished copy over the finished one, so no chat ever started from it): told \"late\", the setup runs, the chat says why, and no second copy is made", async () => {
+test("CD192b a finished copy offered too late for a chat's machine (live, 2026-11-18: every new chat's machine was started when the repository was picked, before the copy was known to be finished; each then ran the setup and saved a new, unfinished copy over the finished one, so no chat ever started from it): told \"late\", the setup runs, why is kept with the start-up's record, and no second copy is made", async () => {
   const m = await diskMachine({ holdMs: 60_000 });
   const script = "echo setup-ran";
   try {
     assert.deepEqual(await m.turn("shop-lat1", { setup: { script }, cache: { make: true } }, "late"), { ok: true });
     const s = await m.done("shop-lat1");
     assert.equal(s.result.status, "done");
-    assert.deepEqual(s.events.filter((e) => e.type === "note").map((e) => e.text), ["Setup: this chat's machine was already started without the environment's saved copy, so the setup script runs here."]);
-    assert.ok(s.events.findIndex((e) => e.type === "note") < s.events.findIndex((e) => e.tool === "setup"), "said before the setup runs");
+    // (Not said in the chat since 2026-11-18, as Claude Code's start-up: kept with the start-up's record.)
+    assert.ok(!s.events.some((e) => e.type === "note"));
+    const up = s.events.find((e) => e.type === "startup");
+    assert.equal(up.copyWhy, "late: this chat's machine was already started without it");
+    assert.ok(!up.steps.some((x) => x.k === "saving"), "it makes no copy");
+    assert.ok(s.events.some((e) => e.tool === "setup"), "the setup ran");
     assert.equal(s.result.copy, undefined, "no second copy over the finished one");
     assert.equal(existsSync(join(m.data, m.S.COPY_NOTE)), false);
     // Its next message: not said again.

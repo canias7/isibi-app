@@ -4,6 +4,21 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-18: The saved copy shows as Claude Code's start-up steps, not as notes in the chat
+
+You said "match claude code pls". I read Claude Code's own start-up log from your earlier Claude Code sessions in env-test and "isibi-app tools test". It shows the saved setup as two steps:
+
+- "Saving setup for next time", when a session makes the copy.
+- "Restored saved setup", when a session starts from it.
+
+It writes no message about it in the chat. Coder wrote notes in the chat instead: "Setup: this chat started from the environment's saved copy (made …), so the setup script did not run again.", plus other notes when the copy couldn't be used. Now:
+
+- A chat that started from the copy shows "Restored saved setup" in its "Initialized session ›" list, between the machine and the clone.
+- A chat that makes the copy shows "Saving setup for next time" there.
+- The other notes are gone from the chat. Why a copy wasn't used is still saved with the chat's start-up record, so I can check it.
+
+Tests: CD153, CD192 and CD192b updated in `coder/test/setup-copy.test.mjs`; two new tests in `coder/test/startup-line.test.mjs`.
+
 ## 2026-11-18: A setup longer than about 5 minutes isn't saved as a copy, like Claude Code
 
 You said "match pls". Claude Code's docs: "When setup completes within roughly five minutes, Anthropic snapshots the filesystem", and "When setup takes longer than that, the environment isn't cached." Coder now only saves a copy when the setup finished within about 5 minutes.

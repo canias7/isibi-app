@@ -46,10 +46,10 @@ test("code: the machine sets each phase where the step really starts; the Worker
 });
 
 /** The page in Chromium with a fake Coder whose /state says what the test sets (`st.state`). */
-async function openPage(browser) {
+async function openPage(browser, events = null) {
   const ORIGIN = "https://gofarther.test";
   const at = Date.now();
-  const st = { running: false, state: {}, events: [{ type: "user", text: "Hi", at: at - 60000 }], fresh: [] };
+  const st = { running: false, state: {}, events: events || [{ type: "user", text: "Hi", at: at - 60000 }], fresh: [] };
   const project = () => ({ id: "c1", title: "New chat", repo: "ana/shop", base: "main", branch: "coder/c1", status: st.running ? "running" : "done", mode: "acceptEdits", turn: 1, at, marks: [] });
   const api = (method, p) => {
     if (method === "POST" && p === "/api/coder/projects/c1/message") { st.running = true; return { project: project() }; }
@@ -190,4 +190,43 @@ test("SL-SETUP (owner, 2026-11-16) the setup script is not a step in Coder's cha
   const js = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
   assert.match(js, /if \(e\.tool === 'setup' && !GLOOPY && !\(results\[e\.id\] && Number\(results\[e\.id\]\.code\) !== 0\)\) return;/);
   assert.match(js, /setup: 'Ran setup script'/);
+});
+
+test("in Chromium: with the environment's saved copy, Claude Code's own start-up words (2026-11-18, the owner: \"match claude code pls\"; its start-up log): \"Restored saved setup\" when the chat started from it, \"Saving setup for next time\" when it makes it, named without a time between the machine and the clone; why a copy was not used is never shown", { skip: !chromium && "Playwright is not installed" }, async () => {
+  const at = Date.now();
+  const events = [
+    { type: "user", text: "Hi", at: at - 60000 },
+    { type: "startup", at: at - 59000, got: at - 63000, ms: 4000, steps: [{ k: "container", ms: 1000 }, { k: "restored", built: at - 3600e3 }, { k: "clone", ms: 3000 }] },
+    { type: "done", text: "Hi.", at: at - 58000 },
+    { type: "user", text: "Again", at: at - 30000 },
+    { type: "startup", at: at - 29000, got: at - 38000, ms: 9000, steps: [{ k: "container", ms: 1000 }, { k: "saving" }, { k: "clone", ms: 2000 }, { k: "setup", ms: 6000 }], copyWhy: "late: this chat's machine was already started without it" },
+    { type: "done", text: "Hi again.", at: at - 28000 },
+  ];
+  const browser = await chromium.launch();
+  try {
+    const { page, errors } = await openPage(browser, events);
+    await page.waitForSelector("#gfApp .cd-init-head >> nth=1");
+    await page.click("#gfApp .cd-init-head >> nth=0");
+    await page.waitForSelector("#gfApp .cd-init.is-open");
+    await page.click("#gfApp .cd-init:not(.is-open) .cd-init-head");
+    await page.waitForFunction(() => document.querySelectorAll("#gfApp .cd-init.is-open").length === 2);
+    const opened = await page.$$eval("#gfApp .cd-init.is-open", (ns) => ns.map((n) => [...n.querySelectorAll(".cd-init-list li")].map((l) => [l.querySelector("span").textContent, l.querySelector("b") ? l.querySelector("b").textContent : null])));
+    assert.deepEqual(opened[0], [["Set up a cloud container", "1s"], ["Restored saved setup", null], ["Cloned repository", "3s"]], JSON.stringify(opened));
+    assert.deepEqual(opened[1], [["Set up a cloud container", "1s"], ["Saving setup for next time", null], ["Cloned repository", "2s"], ["Ran setup script", "6s"]], JSON.stringify(opened));
+    assert.ok(!(await page.textContent("#gfApp")).includes("already started without"), "why a copy was not used is never shown");
+    assert.equal(await page.locator("#gfApp .cd-note").count(), 0);
+    await shot(page, "st-9-saved-setup.png");
+    assert.deepEqual(errors, []);
+  } finally { await browser.close(); }
+});
+
+test("machine: the start-up's record with the saved copy (Claude Code's steps): restored or saving after the machine, before the clone; why kept", () => {
+  const r = startupEvent({ got: 1000, cloneStart: 1500, cloneEnd: 3500, ready: 4000 }, { restored: { at: 99 } });
+  assert.deepEqual(r.steps, [{ k: "container", ms: 500 }, { k: "restored", built: 99 }, { k: "clone", ms: 2000 }]);
+  const m = startupEvent({ got: 1000, cloneStart: 1500, cloneEnd: 3500, setupStart: 3600, setupEnd: 5600, ready: 6000 }, { saving: true, why: "" });
+  assert.deepEqual(m.steps.map((x) => x.k), ["container", "saving", "clone", "setup"]);
+  assert.equal(m.copyWhy, undefined);
+  const w = startupEvent({ got: 1000, ready: 2000 }, { why: "missed: no room" });
+  assert.equal(w.copyWhy, "missed: no room");
+  assert.deepEqual(w.steps, [{ k: "container", ms: 1000 }]);
 });
