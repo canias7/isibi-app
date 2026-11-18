@@ -690,3 +690,26 @@ test("FS5 a new chat's machine started early (/warm, owner 2026-11-15: \"start t
   assert.equal((await F.flyBox(envWith(b4), "user-6-warm-4", deps(w4)).fetch(signed(new Request("http://coder/state?project=warm-4")))).status, 503);
   assert.equal(w4.machines.size, 0);
 });
+
+test("CD126b a machine slow to wake (live, 2026-11-18: \"did not answer. Try again in a minute\"): the request waits and is sent again once it answers, for up to a minute, never twice to Coder's service; still silent after that, the same error as before", async () => {
+  const b = fakeBucket(), w = fakeFly(), env = envWith(b, { CODER_TOKEN_KEY: TKEY });
+  let t = 0;
+  const clock = { now: () => t, sleep: async (ms) => { t += ms; } };
+  const box = F.flyBox(env, "user-1-shop-a1", deps(w, clock));
+  assert.equal((await box.fetch(signed(new Request("http://coder/turn", { method: "POST", body: JSON.stringify({ project: "shop-a1", text: "hi" }) })))).status, 200);
+  const [mach] = [...w.machines.values()];
+  // Silent for a while, then answering: one request reaches Coder's service.
+  w.door.length = 0;
+  let left = 3; const orig = w.fetchFn;
+  const box2 = F.flyBox(env, "user-1-shop-a1", deps({ ...w, fetchFn: async (u, i) => { if (left > 0 && /\/claim$/.test(String(u))) { left--; return new Response("could not reach the machine", { status: 503 }); } return orig(u, i); } }, clock));
+  const r = await box2.fetch(signed(new Request("http://coder/claim", { method: "POST", body: "{}" })));
+  assert.equal(r.status, 409, "the machine's own answer, after waiting");
+  assert.ok(t < F.FLY_RETRY_MS);
+  // Silent for good: after the wait, the same error as before.
+  t = 0; w.silent.add(mach.id);
+  const box3 = F.flyBox(env, "user-1-shop-a1", deps({ ...w, fetchFn: async (u, i) => (/\/claim$/.test(String(u)) ? new Response("down", { status: 503 }) : orig(u, i)) }, clock));
+  const r3 = await box3.fetch(signed(new Request("http://coder/claim", { method: "POST", body: "{}" })));
+  assert.equal(r3.status, 503);
+  assert.match((await r3.json()).error, /did not answer\. Try again in a minute/);
+  assert.ok(t >= F.FLY_RETRY_MS, "it waited the minute first");
+});

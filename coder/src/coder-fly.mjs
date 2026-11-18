@@ -256,6 +256,8 @@ export async function viaFly(env, machineId, req, body, fetchFn = fetch) {
   return new Response(JSON.stringify(w.body), { status: w.coderStatus, headers: { "content-type": "application/json", "x-coder-machine": "1" } });
 }
 
+/** How long a request waits for a machine slow to wake before it is said to have not answered. */
+export const FLY_RETRY_MS = 60_000;
 /** Until the machine answers (a stopped Fly machine starts "well under a second"; Coder's service then starts). */
 async function untilAnswers(env, id, { fetchFn, sleep, now }, waitMs = FLY_WAKE_MS) {
   const until = now() + waitMs;
@@ -512,7 +514,14 @@ export function flyBox(env, name, deps0 = {}, { gloopy = false } = {}) {
       }
       const fwd = await locked(env, names.machine, rec, req);
       if (copy) fwd.headers.set(COPY_INFO, copy.replace(/[^\x20-\x7e]/g, " ").slice(0, 220));
-      const r = await viaFly(env, rec.id, fwd, body, deps.fetchFn);
+      let r = await viaFly(env, rec.id, fwd, body, deps.fetchFn);
+      // A MACHINE SLOW TO WAKE, WAITED FOR (live, 2026-11-18: a new chat said "did not answer. Try again in a minute", and
+      // the next try took 107 s; Claude Code waits while its machine starts). No answer from Coder's own service means
+      // the request never reached it, so it is sent again once the machine answers, for up to FLY_RETRY_MS.
+      for (const until = deps.now() + FLY_RETRY_MS; !r && deps.now() < until; ) {
+        await untilAnswers(env, rec.id, deps, Math.min(15000, Math.max(1000, until - deps.now())));
+        r = await viaFly(env, rec.id, fwd, body, deps.fetchFn);
+      }
       return r || json({ error: "Coder's machine on Fly.io did not answer. Try again in a minute." }, 503);
     },
   };

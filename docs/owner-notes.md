@@ -4,6 +4,12 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-18: Coder waits for a machine that is slow to wake
+
+Rerunning group 3, a new chat failed with "Coder's machine on Fly.io did not answer. Try again in a minute." The retry worked, but its first answer took 107 seconds: the machine was slow to start. Claude Code keeps waiting while its machine starts. Coder now does the same. When the machine hasn't answered yet, the message never reached Coder, so the Worker waits until the machine answers and sends it again, for up to a minute. Only after a full minute of silence does the chat show the error.
+
+Tests: CD126b in `coder/test/fly.test.mjs`.
+
 ## 2026-11-18: Coder asks to watch a pull request it just opened
 
 Your group 3 Claude Code recording ended with "Should I watch it for new comments, reviews and CI results?". Coder had a line asking for this in its instructions, but Grok skipped it in the live run. Claude Code's own instructions say "After creating a PR, ask the user if they'd like you to watch it". Now the message Coder gets right after opening a pull request also reminds it to end by asking that. If you say yes, Coder turns on Auto-fix for that pull request. It doesn't ask for a pull request that only got updated, or for jobs started from GitHub.
