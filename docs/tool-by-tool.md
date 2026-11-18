@@ -1021,5 +1021,7 @@ reads the file; Coder's says ENOTDIR); a Mac screenshot's name, "… 9.41.03 AM.
 narrow no-break space macOS puts before AM or PM, its Nxt); a write into .git (write and edit, outside these tools: Claude Code
 asks, a protected path; Coder refuses).
 
-**Tests:** RM1–RM5 (`coder/test/read-match.test.mjs`) new; OR2, OR4, OR5, OR6 (the question gone) and R6R5 (a missing file's
-words) updated.
+**Tests:** RM1–RM5 (`coder/test/read-match.test.mjs`) new; OR2, OR4, OR5, OR6 (the question gone), R6R5 (a missing file's
+words), SR8 (the search's ctx), CD380, CD392, RS13 and WF20 (the question's setting and answers gone) updated. The full suite:
+1368 pass, 4 skipped, 0 fail. Deployed to coder2 (deploy 257): its docs page has the new words, its page script no card for
+the question. Not tried in a live chat (coder2's GitHub sign-in).

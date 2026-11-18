@@ -24,6 +24,8 @@ Gloopy is untouched: its read, grep and glob keep the old words and still stay o
 
 The docs page's Read part says all this now.
 
+Tests: RM1 to RM5 are new; nine older tests were updated for the new behavior. All 1,368 pass. On this chat's branch, deployed to coder2 (deploy 257). Not tried in a live chat with Grok yet (coder2's GitHub sign-in).
+
 ## 2026-11-18: Reading files outside the project works like Claude Code (your words: "Yes pls")
 
 Before, Coder's read, grep and glob refused any file outside the project and its working folders. Claude Code asks first. Now Coder does it Claude Code's way:
