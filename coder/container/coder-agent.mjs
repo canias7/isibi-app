@@ -2990,9 +2990,13 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   };
   /**
    * CLAUDE CODE'S WAYS FOR READ, GREP AND GLOB (the owner, 2026-11-18: "match claude code"): in Coder's own chats, its words for
-   * a file that isn't there or a folder, and the .git folder open to them (coder-tools.mjs CC_WAYS); never in Gloopy's.
+   * a file that isn't there or a folder, and the .git folder open to them (coder-tools.mjs CC_WAYS); never in Gloopy's. And
+   * for write, edit and notebook_edit (the owner, 2026-11-18: "match"): the .git folder, which reaches them only after this
+   * loop's protected-folder check (PROTECTED_DIRS: its card, or the owner's word before; refused where no one can answer), as
+   * Claude Code asks first ("Claude requested permissions to edit … which is a sensitive file.").
    */
-  const ccWays = (name) => (!offered && (name === "read" || name === "grep" || name === "glob") ? { cc: true } : {});
+  const CC_NAMES = new Set(["read", "grep", "glob", "write", "edit", "notebook_edit"]);
+  const ccWays = (name) => (!offered && CC_NAMES.has(name) ? { cc: true } : {});
   /** Whether one of the owner's Read allow rules covers a path (Claude Code's mMt, after the working folders). */
   const readAllows = (full) => !!fileRuleHit(ownRules.allow, "Read", full, "allow", { sources: ownRules.sources, root: deps.root || "/", cwd: ruleCwd(), home: deps.home || "", real: (y) => realPath(y), roots: workdirs.slice(1) });
   const sendFiles = async (files) => {

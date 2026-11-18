@@ -1025,3 +1025,23 @@ asks, a protected path; Coder refuses).
 words), SR8 (the search's ctx), CD380, CD392, RS13 and WF20 (the question's setting and answers gone) updated. The full suite:
 1368 pass, 4 skipped, 0 fail. Deployed to coder2 (deploy 257): its docs page has the new words, its page script no card for
 the question. Not tried in a live chat (coder2's GitHub sign-in).
+
+**The three left, matched** (the owner, 2026-11-18: "match"; Claude Code 2.1.327's own tools tried again on scratch files, and
+its program; in Coder's own chats, never Gloopy's):
+
+| | Claude Code | Coder before | Coder now |
+|---|---|---|---|
+| Read: a file's full path with "/" at its end | the file read ("/…/a.txt/", "/…/a.txt//"; a short "a.txt/" too) | "ENOTDIR: not a directory, open '…'" | the file read; a folder keeps its "/" for its EISDIR words |
+| Read: a Mac screenshot's name | its Nxt: a PNG named "<…> AM.png" or "<…> PM.png" that isn't there is tried with the other space before AM or PM (a plain one or U+202F, the narrow no-break space macOS uses), the first such " AM.png" in the path swapped, with the same permission; "am" in small letters or ".jpg": not | "File does not exist" | the same as Claude Code |
+| Grep and Glob: a path through a file, or a file's full path with "/" at its end | "ENOTDIR: not a directory, stat '/…/a.txt/'" (its vt keeps a full path's "/", a short one loses it: Grep searches "a.txt/", Glob says "Path is not a directory: a.txt/"); only a path that isn't there gets "Path does not exist" / "Directory does not exist" | ENOTDIR read as not there; a full path's "/" dropped (Grep searched the file, Glob said "Path is not a directory") | the same as Claude Code |
+| Write, edit, notebook_edit into .git | a protected path (its bg: .git, .vscode, .idea, .claude, .husky, .cargo, .devcontainer, .yarn, .mvn, .config/git): "Claude requested permissions to edit <path> which is a sensitive file.", then written | the card, then refused by the tools script whatever the answer | the card in Claude Code's words, then written; refused in a job from GitHub in those words |
+
+Found on the way, for the owner (not changed): protected-path writes by write and edit in Auto (Claude Code: "Routed to the
+classifier, which decides", the docs' table, and classifierApprovable in its program; Coder asks on a card in every mode, as
+it did; commands already go to the checker); a write through a folder link into a protected folder (Claude Code checks the
+path's spellings, its links followed; Coder's loop checks the path as written, as before today); Edit and Write with a "/" at a
+file's end (Claude Code: "Error calling tool (Edit): ENOTDIR: not a directory, stat '…/e.txt/'"; Write of a new "new.txt/"
+makes new.txt, "File created successfully at: …/new.txt/"), not yet compared.
+
+**Tests:** RM6 (read: a "/" at the end, the screenshot's spellings), RM7 (grep and glob: ENOTDIR), RM8 (.git writes with the
+flag), RM9 (through the loop: the card, Yes, No, a job from GitHub, Gloopy) new; RM1, RM3 and CD36 updated.

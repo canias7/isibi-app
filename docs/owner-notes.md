@@ -4,6 +4,21 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-18: The three leftover differences, matched (your word: "match")
+
+I checked each one on Claude Code's real tools and in its program first, then matched it:
+
+1. **A "/" at the end of a file's path:** Coder's read now opens the file, as Claude Code's Read does ("/etc/hosts/" reads /etc/hosts). Along the way I found that Claude Code's grep and glob *don't* do this: for "/…/notes.md/", or a path through a file such as "notes.md/x", they give the raw system error, "ENOTDIR: not a directory, stat '…'". Coder's grep and glob now do the same. Before, they searched the file or said "Path does not exist".
+2. **Mac screenshot names:** when "Screenshot … 9.41.03 AM.png" isn't there, read now tries the other kind of space before "AM" or "PM", the special narrow space a Mac uses, and opens that file. Like Claude Code, this is only for .png files with "AM" or "PM" in capitals.
+3. **Writing into `.git`:** Coder already showed a card before writing there, but even after you said yes, the write was refused. Now, as in Claude Code, the card asks first ("Coder requested permissions to edit … which is a sensitive file.") and the write happens once you allow it. In a job started from GitHub it's still refused, because no one can allow it.
+
+Found on the way (tell me if you want these matched too):
+- **Protected folders in Auto:** for write and edit, Claude Code's auto mode lets its checker decide on `.git`, `.husky` and the other protected folders, without asking you. Coder asks you on a card in every mode. Commands already go to the checker in Auto.
+- **A link into a protected folder:** a write through a folder link (say `gl` pointing at `.git`) isn't asked about. Claude Code looks where the link leads and asks. This gap is older than today's change.
+- **A "/" at the end, for edit and write:** Claude Code's Edit and Write give "ENOTDIR … stat" for an existing file's path ending in "/", and Write makes a new file without the "/". I haven't checked Coder's edit and write for this.
+
+Gloopy is untouched: its read, grep and glob keep their old words, and its writes into `.git` are still refused.
+
 ## 2026-11-18: Read, grep and glob now match Claude Code's own tools (your words: "match claude code")
 
 I tried the same cases on Claude Code's real tools in this session and matched all four differences:

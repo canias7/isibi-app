@@ -960,7 +960,8 @@ test("CD36 the loop runs a file tool like a command (as dev, in the project) and
   assert.equal(runs[1].tool, true);
   // Edit, as write, asks for its change for the chat and the language server's new problems (edit, tool 3, 2026-11-09), and
   // its result object for the PostToolUse hooks (Claude Code's Edit output, 2026-11-14).
-  assert.deepEqual(JSON.parse(Buffer.from(runs[1].command.split(" ")[3], "base64").toString()), { tool: "edit", args: { path: "a.js", old_string: "1", new_string: "2", show_change: true, check: true, facts: true } });
+  // (With `cc`, Claude Code's ways in Coder's own chats: the .git folder open to it after the protected-folder card. 2026-11-18.)
+  assert.deepEqual(JSON.parse(Buffer.from(runs[1].command.split(" ")[3], "base64").toString()), { tool: "edit", args: { path: "a.js", old_string: "1", new_string: "2", show_change: true, check: true, facts: true }, ctx: { cc: true } });
   const ev = events.find((e) => e.type === "bash");
   assert.deepEqual([ev.tool, ev.verb, ev.command], ["edit", "Edited", "a.js"]);
   // (Coder's checklist is Claude Code's task list since 2026-11-14: the chat shows its tasks.)

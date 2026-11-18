@@ -116,11 +116,15 @@ export const OUTSIDE_TOOLS = new Set(["read", "grep", "glob", "lsp", "lsp_file"]
  * is open to them, as to Claude Code's (its Read opens .git/HEAD; its Glob lists .git's files; its Grep searches a path in
  * .git); and read says what Claude Code's Read says for a file that isn't there ("File does not exist. Note: your current
  * working directory is …", and its "Did you mean …?"), a folder ("EISDIR: illegal operation on a directory, read '…'") or a
- * path through a file ("ENOTDIR: not a directory, open '…'"). Never set for a tool that writes, and never in Gloopy's chats,
- * which keep Coder's earlier ways (the owner, 2026-11-17: "Dont touch gloopy for now").
+ * path through a file ("ENOTDIR: not a directory, open '…'"), reads a file named with a "/" at its end, and a Mac
+ * screenshot's other spelling (readTarget). Never in Gloopy's chats, which keep Coder's earlier ways (the owner, 2026-11-17:
+ * "Dont touch gloopy for now").
+ * AND FOR WRITE, EDIT AND NOTEBOOK_EDIT (the owner, 2026-11-18: "match"): the .git folder, a protected folder Coder's loop asks
+ * the owner about first, as Claude Code asks ("Claude requested permissions to edit … which is a sensitive file."); Coder's
+ * tools had refused it whatever the answer. Nothing else of theirs changes.
  */
 let CC_WAYS = false;
-export const CC_TOOLS = new Set(["read", "grep", "glob"]);
+export const CC_TOOLS = new Set(["read", "grep", "glob", "write", "edit", "notebook_edit"]);
 /** A path that isn't there, refused in the tool's own words; `missing` keeps its full path, for read's words (readFailed). */
 const failMissing = (m, abs) => { const e = new ToolError(m); e.missing = abs; throw e; };
 async function inside(p, { mustExist = false, tool = "", output = false } = {}) {
@@ -268,6 +272,34 @@ export const readFolder = (abs) => "EISDIR: illegal operation on a directory, re
  * written out; a path through a file, or one the system refuses another way, in the system's own words, as Claude Code's
  * Read gives them ("ENOTDIR: not a directory, open '/etc/hosts/x'").
  */
+/**
+ * THE FILE CLAUDE CODE'S READ OPENS FOR A PATH, in Coder's own chats (Claude Code 2.1.327, its tool tried and its program read,
+ * 2026-11-18; the owner: "match"): a file named in full with a "/" (or more) at its end is that file ("/etc/hosts/" reads
+ * /etc/hosts; a short path loses its "/" anyway, toolPath; a folder keeps it, for its words, readFolder); and a PNG named as a
+ * Mac names its screenshots, "… 9.41.03 AM.png", that isn't there is the one with the other space before AM or PM, the narrow
+ * no-break space macOS puts there or a plain one, when that one is (its Nxt: the first " AM.png" in the path swapped, AM and
+ * PM in capitals, .png only), read with the same permission. Otherwise the path as given.
+ */
+const SCREENSHOT_NAME = /^(.+)([ \u202F])(AM|PM)(\.png)$/;
+export function screenshotAlt(full) {
+  const m = SCREENSHOT_NAME.exec(basename(String(full)));
+  if (!m) return "";
+  const other = m[2] === " " ? "\u202F" : " ";
+  return String(full).replace(m[2] + m[3] + m[4], other + m[3] + m[4]);
+}
+async function readTarget(p) {
+  if (typeof p !== "string") return p;
+  const full = toolPath(p);
+  if (full.length > 1 && full.endsWith("/")) {
+    const bare = full.replace(/\/+$/, "") || "/";
+    try { if ((await stat(bare)).isFile()) return bare; } catch { /* as given */ }
+    return p;
+  }
+  const alt = screenshotAlt(full);
+  if (!alt) return p;
+  try { await lstat(full); return p; } catch (e) { if (!e || e.code !== "ENOENT") return p; }
+  try { await lstat(alt); return alt; } catch { return p; }
+}
 async function readFailed(abs) {
   let err = null;
   try { await stat(abs); } catch (e) { err = e; }
@@ -887,6 +919,8 @@ export async function toolRead({ path, offset, limit, pages = "", allow_large = 
   // (Claude Code's checks before its hooks first, in its order: fileInputProblem.)
   const first = fileInputProblem("read", { path, pages }) || fileInputProblem("read", { path }, "after");
   if (first) fail(first);
+  // (A file named with a "/" at its end, or a Mac screenshot's other spelling: the file Claude Code's Read opens, readTarget.)
+  if (CC_WAYS) path = await readTarget(path);
   // (A path that isn't there, or one through a file: Claude Code's Read's words in Coder's own chats, readFailed.)
   let where;
   try { where = await inside(path, { mustExist: true, output: true, tool: "read" }); }

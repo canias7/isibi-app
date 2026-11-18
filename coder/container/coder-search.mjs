@@ -18,7 +18,7 @@ import { spawn } from "node:child_process";
 import { realpathSync, lstatSync, readlinkSync, constants as FS } from "node:fs";
 import { stat, lstat, realpath, open, readlink, access } from "node:fs/promises";
 import { homedir } from "node:os";
-import { isAbsolute, relative, resolve, join, dirname, basename, sep } from "node:path";
+import { isAbsolute, relative, resolve, join, dirname, basename, sep, normalize } from "node:path";
 import { fileRuleHit, anchorOf, plainPath } from "./coder-filerules.mjs";
 import { zodIssues, fromJsonSchema, failedText } from "./coder-zod.mjs";
 
@@ -271,6 +271,26 @@ export function fullPath(p, base) {
   if (n.startsWith("~/")) return resolve(home, n.slice(2));
   return isAbsolute(n) ? resolve(n) : resolve(base, n);
 }
+/**
+ * THE PATH CLAUDE CODE 2.1.327'S GREP AND GLOB CHECK IS THERE (their vt, as its Read's St; tried on its tools, 2026-11-18, the
+ * owner: "match"): as fullPath, but a full one keeps one "/" at its end, so "/…/a.txt/" is no file's path ("ENOTDIR: not a
+ * directory, stat '/…/a.txt/'"); a short one loses it, as there ("a.txt/" is a.txt). Coder's own chats only (env.cc).
+ */
+export function checkedFull(p, base) {
+  const n = String(p).trim();
+  if (!n) return base;
+  const home = process.env.HOME || homedir();
+  if (n === "~") return resolve(home);
+  if (n.startsWith("~/")) return join(home, n.slice(2));
+  return isAbsolute(n) ? normalize(n) : resolve(base, n);
+}
+/**
+ * WHETHER A STAT'S FAILURE MEANS "NOT THERE" for Grep's and Glob's own words ("Path does not exist", "Directory does not
+ * exist"): in Coder's own chats only a path that isn't there, as Claude Code 2.1.327's (a path through a file, or one the system
+ * refuses another way, is its error as the system gives it: "ENOTDIR: not a directory, stat '…'"); in Gloopy's, a path through
+ * a file too, as before.
+ */
+const notThere = (e, cc) => !!e && (e.code === "ENOENT" || (cc !== true && e.code === "ENOTDIR"));
 /** A result's path as Claude Code shows it (its Kit): from where the commands are, with no "./"; a full path when outside. */
 export const shownPath = (p, base) => { const r = relative(base, p); return r.startsWith("..") ? p : r; };
 const within = (p, dir) => p === dir || p.startsWith(dir.endsWith(sep) ? dir : dir + sep);
@@ -571,8 +591,8 @@ export async function grepTool(args, env) {
   // A PATH THAT ISN'T THERE (Claude Code's aMr): "Path does not exist: … Note: your current working directory is …". (Asked
   // only while its links are as checked, as Claude Code's fNr; otherwise its open below refuses it.)
   if (typeof a.path === "string" && a.path && now.spellings.every((q) => checked.includes(q))) {
-    try { await stat(target); } catch (e) {
-      if (!e || (e.code !== "ENOENT" && e.code !== "ENOTDIR")) throw e;
+    try { await stat(env.cc === true ? checkedFull(a.path, base) : target); } catch (e) {
+      if (!notThere(e, env.cc)) throw e;
       const guess = await didYouMean(target, base);
       throw new SearchError("Path does not exist: " + a.path + ". " + NOTE_CWD + " " + base + "." + (guess ? " Did you mean " + guess + "?" : ""));
     }
@@ -717,8 +737,8 @@ export async function globTool(args, env) {
   // directory: …".
   if (typeof a.path === "string" && a.path && dir0 === fullPath(a.path, base)) {
     let st;
-    try { st = await stat(dir); } catch (e) {
-      if (!e || (e.code !== "ENOENT" && e.code !== "ENOTDIR")) throw e;
+    try { st = await stat(env.cc === true ? checkedFull(a.path, base) : dir); } catch (e) {
+      if (!notThere(e, env.cc)) throw e;
       const guess = await didYouMean(dir, base);
       throw new SearchError("Directory does not exist: " + a.path + ". " + NOTE_CWD + " " + base + "." + (guess ? " Did you mean " + guess + "?" : ""));
     }
