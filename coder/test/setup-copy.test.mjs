@@ -700,3 +700,44 @@ test("CD153e GitHub away when a checkout from the saved copy is to be fetched: t
   assert.equal(other.ok, false, "a fresh clone of a repository with no trunk fails as it always did");
   assert.equal(existsSync(join(dir, "node_modules")), false, "the copy's checkout was given up");
 });
+
+test("CD153f audit T1 (2026-11-18): an early start's word that reaches the machine after the chat's first message never makes its second message clear the chat's own disk", async () => {
+  // (Chat names of its own: the machine's module remembers which chats it has seen, across the tests in this file.)
+  const m = await diskMachine({ holdMs: 60_000 });
+  const P = "shop-ttt1", script = "echo setup-ran";
+  try {
+    // The disk as Fly.io made it from the environment's saved copy (another chat's): its note and its files.
+    const sha = m.S.setupSha(script, (await import("../container/coder-secrets.mjs")).normNetwork(undefined));
+    await writeFile(join(m.data, m.S.COPY_NOTE), JSON.stringify({ from: "shop-other1", sha, image: "registry.fly.io/app:coder-1", at: Date.now() - 3600e3 }));
+    await writeFile(join(m.data, m.S.USED_NOTE), "1");
+    await mkdir(join(m.dirs.root, "shop-other1"), { recursive: true });
+    // Message 1 first, the early start's word a moment later (the race).
+    assert.deepEqual(await m.turn(P, { setup: { script }, cache: { make: true } }), { ok: true });
+    assert.deepEqual(await m.post("/warm", { project: P }, { "x-coder-copy": "used" }), { ok: true, warm: true });
+    await m.done(P);
+    const dir = join(m.dirs.root, P);
+    await writeFile(join(dir, "notes-local.txt"), "work in progress\n");
+    await writeFile(join(m.dirs.home, "tool-from-job-1"), "x\n");
+    // Message 2: the chat's own work stays.
+    assert.deepEqual(await m.turn(P, { setup: { script } }), { ok: true });
+    const s2 = await m.done(P);
+    assert.ok(s2.result, "job 2 ended");
+    assert.ok(existsSync(join(dir, "notes-local.txt")), "the chat's unsaved file is still there");
+    assert.ok(existsSync(join(m.dirs.home, "tool-from-job-1")), "what job 1 installed is still there");
+  } finally { await m.close(); }
+});
+
+test("CD153g audit T1: takeCopy never clears a disk with no copy note that already holds this chat's own project", async () => {
+  const S = await import("../container/server.mjs");
+  const data = await mkdtemp(join(tmpdir(), "coder-data-"));
+  const dirs = { root: join(data, "work"), gitRoot: join(data, "git"), memRoot: join(data, "memory"), home: join(data, "home") };
+  for (const d of Object.values(dirs)) await mkdir(d, { recursive: true });
+  await mkdir(join(dirs.root, "shop-own1"), { recursive: true });
+  await writeFile(join(dirs.root, "shop-own1", "mine.txt"), "mine\n");
+  assert.equal(await S.takeCopy({ data, project: "shop-own1", sha: "x", image: "i", dirs, fromCopy: true }), null);
+  assert.ok(existsSync(join(dirs.root, "shop-own1", "mine.txt")));
+  // A disk truly just made from another chat's copy (no note, nothing of this chat's) is still cleared, as before.
+  await mkdir(join(dirs.root, "shop-else1"), { recursive: true });
+  const r = await S.takeCopy({ data, project: "shop-new2", sha: "x", image: "i", dirs, fromCopy: true });
+  assert.equal(r.why, "the copy did not say what it is a copy of");
+});

@@ -4,6 +4,13 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-18: Fixed: a new chat's second message could empty its disk (audit T1)
+
+- Your words: "ok fix that one".
+- In an environment with a saved setup copy, a first message sent while the chat's machine was still starting could make the second message wipe the chat's disk (unsaved files, unpushed commits, installed tools) and run the setup again.
+- Now the machine ignores the early start's late note once the chat has had a message, and it never wipes a disk that already holds the chat's own project.
+- Two new tests (CD153f, CD153g). Not deployed yet: it waits for your "deploy", then a live check.
+
 ## 2026-11-18: Second full audit, and Coder checked against Claude Code
 
 - Your words: "just a complete check on everything, also skip gloopy only, and make sure also that almost all the code we have matches claude code pls".

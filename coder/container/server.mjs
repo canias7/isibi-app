@@ -3290,6 +3290,9 @@ export async function takeCopy({ data, project, sha, image, tools = "", repo = "
   const setupGoes = async () => { await clear(dirs.home); await rm(join(data, ".coder-admin"), { recursive: true, force: true }); };
   if (!existsSync(f)) {
     if (!fromCopy) return null;
+    // THE CHAT'S OWN WORK IS NEVER CLEARED (audit T1, 2026-11-18): a disk just made from another chat's copy never holds
+    // this chat's project, so a disk that does is this chat's own, whatever word came with the request.
+    if (PROJECT_ID.test(String(project || "")) && [dirs.root, dirs.gitRoot].some((d) => onDisk(d) && existsSync(join(d, project)))) return null;
     for (const d of [dirs.root, dirs.gitRoot, dirs.memRoot]) await clear(d);
     await setupGoes();
     await rm(join(data, USED_NOTE), { force: true });
@@ -5130,6 +5133,9 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
   let lastAsked = Date.now();
   // What became of the saved copy for a machine made by /warm, by chat, until its first turn.
   const warmCopy = new Map();
+  // Chats that have had a turn on this machine: an early start's word that comes after it is ignored (audit T1,
+  // 2026-11-18: a late word made the chat's second message clear its own disk).
+  const turnSeen = new Set();
   // BACKGROUND COMMANDS PAST THEIR TIME LIMIT are stopped, and those that ended are noted, every few seconds (tool 4).
   // (And an idle chat with news is woken at once, Bash docs pass 8: wakeIdle; only on the real machine, liveFetch.)
   const jobTimer = setInterval(() => { try { checkJobs(); } catch { /* next time */ } try { if (liveFetch) wakeIdle(liveFetch); } catch { /* next time */ } }, JOB_CHECK_MS);
@@ -5256,10 +5262,10 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       // x-coder-copy: what became of the environment's saved copy (Coder's Worker sets it, with this machine's key).
       // (A machine started early, when the owner picked the repository (/warm, 2026-11-15): what became of the copy was told
       // then, and is used by the chat's first turn.)
-      if (url.pathname === "/turn" && req.method === "POST") { const p0 = String(body.project || ""); const told = String(req.headers["x-coder-copy"] || "") || warmCopy.get(p0) || ""; warmCopy.delete(p0); const [st, o] = await startTurn(body, { copy: told }); return send(st, o); }
+      if (url.pathname === "/turn" && req.method === "POST") { const p0 = String(body.project || ""); const told = String(req.headers["x-coder-copy"] || "") || warmCopy.get(p0) || ""; warmCopy.delete(p0); turnSeen.add(p0); const [st, o] = await startTurn(body, { copy: told }); return send(st, o); }
       // A NEW CHAT'S MACHINE STARTED EARLY (2026-11-15: started when the owner picks the repository, so it is up when the
       // first message comes): nothing runs; what became of the environment's saved copy is kept for the first turn.
-      if (url.pathname === "/warm" && req.method === "POST") { const p0 = String(body.project || ""); if (!PROJECT_ID.test(p0)) return send(400, { error: "bad project" }); const c = String(req.headers["x-coder-copy"] || ""); if (c) warmCopy.set(p0, c.slice(0, 220)); return send(200, { ok: true, warm: true }); }
+      if (url.pathname === "/warm" && req.method === "POST") { const p0 = String(body.project || ""); if (!PROJECT_ID.test(p0)) return send(400, { error: "bad project" }); const c = String(req.headers["x-coder-copy"] || ""); if (c && !turnSeen.has(p0) && !SEEN_CHATS.has(p0)) warmCopy.set(p0, c.slice(0, 220)); return send(200, { ok: true, warm: true }); }
       const project = String(body.project || url.searchParams.get("project") || "");
       if (!PROJECT_ID.test(project)) return send(400, { error: "bad project" });
       const t = turns.get(project);
