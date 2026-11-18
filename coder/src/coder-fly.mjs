@@ -340,7 +340,11 @@ export async function snapshotChat(env, name, deps0 = {}) {
     const st = hit ? snapStatus(hit) : "";
     if (st === "running" || st === "created") {
       if (st === "running") await deps.sleep(CACHE_SETTLE_MS);
-      return { snapshot: id, volume: rec.volume, size: Number(v.ok && v.data && v.data.size_gb) || s.disk, region: rec.region || s.region, image: rec.image, retention: Number(hit.retention_days) || 0, ready: st === "created" };
+      const out = { snapshot: id, volume: rec.volume, size: Number(v.ok && v.data && v.data.size_gb) || s.disk, region: rec.region || s.region, image: rec.image, retention: Number(hit.retention_days) || 0, ready: st === "created" };
+      // THE NEXT CHAT'S SPARE FROM THIS COPY (2026-11-18): made now when Fly.io has finished the copy, else as soon as it has
+      // (the every-minute run asks, tendSpares), so the next new chat in this environment starts in seconds.
+      await ensureCopySpare(env, out, deps0).catch(() => null);
+      return out;
     }
     if (deps.now() >= until) return null;
     await deps.sleep(2000);
@@ -470,12 +474,19 @@ export function flyBox(env, name, deps0 = {}, { gloopy = false } = {}) {
       const body = req.method === "GET" || req.method === "HEAD" ? undefined : await req.arrayBuffer();
       const names = await flyNames(name);
       let rec = await readRec(bucket, names.key);
+      // A FINISHED COPY OFFERED TO A CHAT WHOSE MACHINE IS ALREADY MADE WITHOUT IT (live, 2026-11-18: the machine started early,
+      // when the owner picked the repository, before the copy was known to be finished): the disk stays as it is, the setup
+      // runs, and the machine is told so ("late"): it says so in the chat and makes no second copy over the finished one.
+      const offered = new URL(req.url).pathname === "/turn" ? String(req.headers.get(FROM_COPY) || "") : "";
+      const late = !!rec && SNAP_ID.test(offered) && String(rec.from || "") !== offered;
       if (rec && !rec.stopped) {
-        const r = await viaFly(env, rec.id, await locked(env, names.machine, rec, req), body, deps.fetchFn);
+        const fwd0 = await locked(env, names.machine, rec, req);
+        if (late) fwd0.headers.set(COPY_INFO, "late");
+        const r = await viaFly(env, rec.id, fwd0, body, deps.fetchFn);
         if (r) return r;
       }
       if (rec) rec = await wakeMachine(env, bucket, names, rec, deps, gloopy);
-      let copy = "";
+      let copy = rec && late ? "late" : "";
       if (!rec) {
         // ONLY A JOB'S START, OR AN UNDO (which needs the repo), MAKES A MACHINE.
         // Anything else (the every-minute check asking about a job whose machine
@@ -584,7 +595,7 @@ async function spareRecs(bucket) {
     for (const o of page.objects || []) {
       if (!/^[0-9a-f]{16}\.json$/.test(o.key.slice(SPARES.length))) continue;
       const r = await readJson(bucket, o.key);
-      if (r && (typeof r.id === "string" || r.restoring === true)) out.push({ key: o.key, rec: r });
+      if (r && (typeof r.id === "string" || r.restoring === true || r.waiting === true)) out.push({ key: o.key, rec: r });
     }
     cursor = page.truncated ? page.cursor : undefined;
   } while (cursor);
@@ -635,7 +646,11 @@ async function spareMachine(env, deps, h, volume, snap = null, gb = 0) {
 }
 /** How many spares made from saved copies are kept at most (one per copy; the oldest goes first). */
 export const COPY_SPARES_MAX = 3;
-/** A spare from a saved copy for this copy, unless there is one (ready, being made or restored); the oldest goes past the cap. */
+/**
+ * A spare from a saved copy for this copy, unless there is one (ready, being made, restored, or waited for); the oldest goes
+ * past the cap. A copy Fly.io has not finished yet (`ready: false`, just saved) cannot give a disk yet (Fly refuses): its spare
+ * is only written down, and made by the every-minute run once Fly says the copy is finished (tendSpares).
+ */
 export async function ensureCopySpare(env, copy, deps0 = {}) {
   if (!flyOn(env) || spareCount(env) < 1 || !copy || !SNAP_ID.test(String(copy.snapshot))) return null;
   const now = (deps0.now || Date.now)();
@@ -643,8 +658,18 @@ export async function ensureCopySpare(env, copy, deps0 = {}) {
   if (all.some(({ rec }) => rec.snap === String(copy.snapshot) && now - Number(rec.at || 0) < SPARE_MAX_AGE_MS)) return null;
   const old = all.sort((a, b) => Number(a.rec.at || 0) - Number(b.rec.at || 0));
   for (let i = 0; i <= old.length - COPY_SPARES_MAX; i++) {
-    await removeMachine(env, old[i].rec.id || null, old[i].rec.volume, { fetchFn: deps0.fetchFn || fetch, sleep: deps0.sleep || wait, now: deps0.now || Date.now });
+    // (A spare only waited for has no machine or disk of its own: just its record goes.)
+    if (!old[i].rec.waiting) await removeMachine(env, old[i].rec.id || null, old[i].rec.volume, { fetchFn: deps0.fetchFn || fetch, sleep: deps0.sleep || wait, now: deps0.now || Date.now });
     await env.CODER_BUCKET.delete(old[i].key);
+  }
+  if (copy.ready === false) {
+    if (!VOL_ID.test(String(copy.volume))) return null;
+    const s = flySettings(env);
+    const h = [...crypto.getRandomValues(new Uint8Array(8))].map((b) => b.toString(16).padStart(2, "0")).join("");
+    // `of`: the chat disk the copy was made from, only to ask Fly about the copy (never removed with a spare).
+    const rec = { waiting: true, snap: String(copy.snapshot), of: String(copy.volume), size: Math.min(500, Math.max(s.disk, Math.ceil(Number(copy.size) || 0))), region: s.region, image: s.image, shape: flyShape(s), at: now, ready: false, h };
+    await writeRec(env.CODER_BUCKET, SPARES + h + ".json", rec);
+    return rec;
   }
   return makeSpare(env, deps0, copy);
 }
@@ -711,6 +736,18 @@ export async function tendSpares(env, bucket, deps, now, machines) {
   const s = flySettings(env);
   const byId = new Map((Array.isArray(machines) ? machines : []).map((m) => [m && m.id, m]));
   for (const { key, rec } of await spareRecs(bucket)) {
+    // A COPY'S SPARE WAITED FOR (2026-11-18): made once Fly.io says the copy is finished; dropped when the copy is gone, from
+    // an older image, or still not finished after CACHE_PENDING_MS (then no chat waits for that copy either).
+    if (rec.waiting) {
+      const stale = rec.image !== s.image || now - Number(rec.at || 0) >= CACHE_PENDING_MS;
+      const st = stale ? null : await copyState(env, { snapshot: rec.snap, volume: rec.of }, deps);
+      if (stale || (st && st.status === "gone")) { await bucket.delete(key); out.removed++; continue; }
+      if (st && st.status === "created") {
+        await bucket.delete(key);
+        if (await makeSpare(env, { ...deps, now: () => now }, { snapshot: rec.snap, size: rec.size })) out.made++;
+      }
+      continue;
+    }
     if (rec.restoring) {
       const g = await flyApi(env, "/apps/" + s.app + "/volumes/" + rec.volume, deps);
       const late = now - Number(rec.at || 0) >= SPARE_READY_MS;
@@ -751,7 +788,7 @@ export async function tendSpares(env, bucket, deps, now, machines) {
       await flyApi(env, "/apps/" + s.app + "/machines/" + rec.id + "/stop", { method: "POST", ...deps });
     }
   }
-  out.made = await refillSpares(env, { ...deps, now: () => now });
+  out.made += await refillSpares(env, { ...deps, now: () => now });
   return out;
 }
 

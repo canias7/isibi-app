@@ -3861,6 +3861,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       if (copyInfo.startsWith("missed: ")) t.events.push({ at: Date.now(), type: "note", text: "Setup: this chat could not start from the environment's saved copy (" + copyInfo.slice(8, 220) + "), so the setup script runs here." });
       if (copied && copied.why) t.events.push({ at: Date.now(), type: "note", text: "Setup: the environment's saved copy could not be used here (" + copied.why + "), so the setup script runs here." });
       if (fresh && body.cache && typeof body.cache.note === "string" && body.cache.note.trim()) t.events.push({ at: Date.now(), type: "note", text: body.cache.note.trim().slice(0, 300) });
+      // (Its machine started before the copy was known to be finished: Coder's Worker says "late", 2026-11-18.)
+      if (copyInfo === "late" && fresh && !(copied && copied.at)) t.events.push({ at: Date.now(), type: "note", text: "Setup: this chat's machine was already started without the environment's saved copy, so the setup script runs here." });
     }
     const dir = join(root, project);
     // A COLD START (this machine's first job for the chat, or no project on its disk yet): its start-up steps are shown,
@@ -4537,7 +4539,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     // (2026-11-15: the job no longer waits for it. A new chat's first message took 97 s, and one that took the old wait got
     // stuck. The job starts at once; the copy's note is written when the turn ENDS, the disk synced, and the Worker then has
     // Fly.io save the disk, in the background: copyAtEnd.)
-    const copyWanted = !!(data && body.cache && body.cache.make === true && fresh && setupRan && !setupFailed && (t.box || !copyNeedsBox));
+    // (Not when a finished copy of this setup was offered too late for this disk: "late". That copy stays the environment's.)
+    const copyWanted = !!(data && body.cache && body.cache.make === true && fresh && setupRan && !setupFailed && (t.box || !copyNeedsBox) && copyInfo !== "late");
     if (copyWanted) t.copyWanted = { sha: setupSha(script, net) };
     t.timing.ready = Date.now();
     setPhase(t, "ready");

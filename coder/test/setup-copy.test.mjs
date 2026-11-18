@@ -393,3 +393,77 @@ test("CD192 why a new chat did not start from the environment's saved copy is sa
     assert.deepEqual(s.events.filter((e) => e.type === "note").map((e) => e.text), ["Setup: this chat could not start from the environment's saved copy (Fly.io would not make a disk from it), so the setup script runs here."]);
   } finally { await w.close(); }
 });
+
+test("CD192b a finished copy offered too late for a chat's machine (live, 2026-11-18: every new chat's machine was started when the repository was picked, before the copy was known to be finished; each then ran the setup and saved a new, unfinished copy over the finished one, so no chat ever started from it): told \"late\", the setup runs, the chat says why, and no second copy is made", async () => {
+  const m = await diskMachine({ holdMs: 60_000 });
+  const script = "echo setup-ran";
+  try {
+    assert.deepEqual(await m.turn("shop-lat1", { setup: { script }, cache: { make: true } }, "late"), { ok: true });
+    const s = await m.done("shop-lat1");
+    assert.equal(s.result.status, "done");
+    assert.deepEqual(s.events.filter((e) => e.type === "note").map((e) => e.text), ["Setup: this chat's machine was already started without the environment's saved copy, so the setup script runs here."]);
+    assert.ok(s.events.findIndex((e) => e.type === "note") < s.events.findIndex((e) => e.tool === "setup"), "said before the setup runs");
+    assert.equal(s.result.copy, undefined, "no second copy over the finished one");
+    assert.equal(existsSync(join(m.data, m.S.COPY_NOTE)), false);
+    // Its next message: not said again.
+    await m.turn("shop-lat1", { setup: { script }, cache: { make: true } }, "late");
+    assert.ok(!(await m.done("shop-lat1")).events.some((e) => e.type === "note"));
+  } finally { await m.close(); }
+  // Without the word (the same fresh disk otherwise): its copy is made, as before.
+  const c = await diskMachine({ holdMs: 60_000 });
+  try {
+    await c.turn("shop-lat2", { setup: { script }, cache: { make: true } });
+    assert.equal((await c.done("shop-lat2")).result.copy, true);
+  } finally { await c.close(); }
+  // NO SETUP SCRIPT: nothing to say.
+  const d = await diskMachine({ holdMs: 60_000 });
+  try {
+    await d.turn("shop-lat3", { cache: { make: true } }, "late");
+    assert.ok(!(await d.done("shop-lat3")).events.some((e) => e.type === "note"));
+  } finally { await d.close(); }
+});
+
+test("CD152b a new chat's machine started early (/warm) asks Fly.io about a copy not yet known to be finished, as the first message does (live, 2026-11-18: the early start came first, so no new chat ever started from the copy): finished, it is kept as finished and the machine is made from it; still being finished, or no answer, the machine is made without it; a copy known to be finished, or not usable, is not asked about", async () => {
+  const { handleCoder } = await import("../src/coder-routes.mjs");
+  const { saveConnection } = await import("../src/coder-github.mjs");
+  const E = await import("../src/coder-environments.mjs");
+  const { FROM_COPY, FROM_COPY_GB } = await import("../src/coder-fly.mjs");
+  const bucket = fakeBucket(); const env = ENV(bucket);
+  await saveConnection(env, bucket, UID, { access: "ghu_user" }, "ana");
+  const script = "apt-get install -y figlet";
+  await E.writeEnvData(env, bucket, UID, "default", { script, vars: {}, secrets: [], network: null });
+  const key = await E.setupKeyOf({ script, network: null });
+  const calls = [], asked = [];
+  let state = { status: "running" };
+  const box = () => ({ fetch: async (req) => { calls.push({ path: new URL(req.url).pathname, copy: req.headers.get(FROM_COPY), gb: req.headers.get(FROM_COPY_GB) }); return Response.json({ ok: true, warm: true }); } });
+  const deps = { fetchFn: async () => new Response("{}", { status: 404 }), authUser: async () => ({ id: UID, email: "me@x.y" }), container: box, snapshot: async () => null, cacheUsable: (c, k) => !!c && c.key === k && c.snapshot === "vs_Good1234", copyState: async (c) => { asked.push(c.snapshot); return state; } };
+  let n = 0;
+  const warm = async () => {
+    const id = "shop-w" + ++n;
+    await bucket.put("coder/" + UID + "/" + id + "/meta.json", JSON.stringify({ id, repo: "ana/shop", base: "main", branch: "coder/" + id, turn: 0, saved: 0, status: "idle", at: Date.now() }));
+    calls.length = 0; asked.length = 0;
+    const r = await handleCoder(new Request("https://gofarther.dev/api/coder/projects/" + id + "/warm", { method: "POST" }), env, {}, deps);
+    assert.deepEqual(await r.json(), { ok: true, warm: true });
+    assert.equal(calls.length, 1);
+    return calls[0];
+  };
+  const r0 = { snapshot: "vs_Good1234", volume: "vol_A1", size: 30, region: "iad", image: "registry.fly.io/app:coder-1", retention: 0, ready: false, key, at: Date.now() - 60_000, from: "shop-c1" };
+  const without = { path: "/warm", copy: null, gb: null }, from = { path: "/warm", copy: "vs_Good1234", gb: "30" };
+  // STILL BEING FINISHED: asked; the machine is made without it; the record as it was.
+  await E.writeEnvCache(bucket, UID, "default", r0);
+  assert.deepEqual([await warm(), asked], [without, ["vs_Good1234"]]);
+  assert.equal((await E.readEnvCache(bucket, UID, "default")).ready, false);
+  // NO ANSWER FROM FLY: the same.
+  state = null;
+  assert.deepEqual([await warm(), asked], [without, ["vs_Good1234"]]);
+  // FINISHED (Fly: created): kept as finished, with Fly's days, and the machine is made from it.
+  state = { status: "created", retention: 8 };
+  assert.deepEqual([await warm(), asked], [from, ["vs_Good1234"]]);
+  const now = await E.readEnvCache(bucket, UID, "default");
+  assert.deepEqual([now.ready, now.retention, now.snapshot], [true, 8, "vs_Good1234"]);
+  // KNOWN TO BE FINISHED: not asked again.
+  assert.deepEqual([await warm(), asked], [from, []]);
+  // NOT USABLE (made for another setup): not asked, not used.
+  await E.writeEnvCache(bucket, UID, "default", { ...r0, key: "f".repeat(64) });
+  assert.deepEqual([await warm(), asked], [without, []]);
+});

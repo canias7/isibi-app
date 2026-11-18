@@ -1795,7 +1795,14 @@ export async function handleCoder(request, env, ctx, deps) {
       const envId = await envIdOf(bucket, uid, meta);
       const setup = await readEnvData(env, bucket, uid, envId);
       if (typeof deps.cacheUsable === "function" && String(setup.script || "").trim()) {
-        const c = await readEnvCache(bucket, uid, envId);
+        let c = await readEnvCache(bucket, uid, envId);
+        // A COPY NOT YET KNOWN TO BE FINISHED IS ASKED ABOUT HERE TOO (live, 2026-11-18: every new chat's machine was started
+        // here, before its first message, while the copy was still marked unfinished; the message then learned it was
+        // finished, too late for that chat's disk): Fly.io's answer is kept, as the first message keeps it.
+        if (c && c.ready !== true && deps.cacheUsable(c, await setupKeyOf(setup)) && typeof deps.copyState === "function") {
+          const st = await deps.copyState(c).catch(() => null);
+          if (st && st.status === "created") { c = { ...c, ready: true, ...(st.retention > 0 ? { retention: st.retention } : {}) }; await writeEnvCache(bucket, uid, envId, c).catch(() => {}); }
+        }
         if (c && c.ready === true && deps.cacheUsable(c, await setupKeyOf(setup))) { head[FROM_COPY] = c.snapshot; head[FROM_COPY_GB] = String(Number(c.size) || 0); }
       }
     } catch { /* an empty disk, as without a copy */ }

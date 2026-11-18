@@ -4,6 +4,24 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-18: Why new chats never started from env-test's saved copy, and the fix
+
+Three new chats in env-test each ran the setup script, and none started from the environment's saved copy. The cause:
+
+1. When you open a new chat, the page starts its machine right away, before your first message, so it is ready sooner.
+2. At that moment Coder only used the saved copy if it was already marked "finished". Right after a chat saves a copy, it is marked "not finished yet", because Fly.io takes a minute or two to finish it. Only the next chat's first message asked Fly and learned it was finished. By then that chat's machine already existed without it.
+3. That chat then ran the setup on its fresh disk and saved another copy over the finished one, marked "not finished" again. Every chat repeated this, so no chat opened from the page ever used the copy.
+
+The fix:
+
+- When a new chat's machine starts early, Coder now asks Fly whether the copy is finished, as the first message already did. If it is, the machine is made from it.
+- If a chat's machine was already made without the copy, it runs the setup but no longer saves a new copy over the finished one. The chat says why: "Setup: this chat's machine was already started without the environment's saved copy, so the setup script runs here."
+- Once Fly finishes a copy, the every-minute run now makes the spare machine from it. So the next new chat in that environment starts in seconds. Before, that spare was only made after a chat had already waited for the copy.
+
+A saved copy belongs to one version of Coder's machine. After each deploy, the first chat in an environment runs the setup again and saves a new copy.
+
+Tests: CD151c and CD151d in `coder/test/fly.test.mjs` (CD151b updated), CD152b and CD192b in `coder/test/setup-copy.test.mjs`.
+
 ## 2026-11-18: New chats in an environment with a setup script start fast, the Claude Code way
 
 A new chat in env-test took 108 seconds to answer "Hi.". The timings showed where: about 80 seconds went to making the chat's machine. Its disk was being restored from the environment's saved copy, on a server that first had to download Coder's 6.9 GB image. Claude Code's docs: "New sessions start with your dependencies, tools, and Docker images already on disk, and skip the setup script step."

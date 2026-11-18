@@ -720,11 +720,14 @@ test("CD151b a spare from the environment's saved copy (the owner, 2026-11-18: \
   assert.equal((await turn(F.flyBox(env, "user-1-shop-a1", deps(w)))).status, 200);
   [...w.volumes.values()][0].size_gb = 20;
   w.snapWait = 0; w.snapRun = 0; w.snapLag = 0;
+  // MADE FROM THE COPY AS SOON AS IT IS SAVED (2026-11-18: snapshotChat; here Fly has finished it at once): its disk is being
+  // restored, so no machine yet.
+  w.restoreFor = 2;
   const snap = await F.snapshotChat(env, "user-1-shop-a1", deps(w));
   const sid = snap.snapshot;
-  // MADE FROM THE COPY: its disk is being restored, so no machine yet.
-  w.restoreFor = 2;
-  const sp = await F.ensureCopySpare(env, { snapshot: sid, size: 20 }, deps(w));
+  assert.equal(snap.ready, true);
+  const sp = [...b.m.keys()].filter((k) => k.startsWith(F.SPARES) && !k.includes("claimed/")).map((k) => JSON.parse(b.m.get(k))).find((r) => r.snap === sid);
+  assert.ok(sp, "made with the copy");
   assert.equal(sp.restoring, true); assert.equal(sp.snap, sid); assert.equal(sp.size, 20);
   const vol = w.volumes.get(sp.volume);
   assert.deepEqual([vol.snapshot_id, vol.size_gb], [sid, 20]);
@@ -755,4 +758,98 @@ test("CD151b a spare from the environment's saved copy (the owner, 2026-11-18: \
   }
   const copies = [...b.m.keys()].filter((k) => k.startsWith(F.SPARES) && !k.includes("claimed/")).map((k) => JSON.parse(b.m.get(k))).filter((r) => r.snap);
   assert.ok(copies.length <= F.COPY_SPARES_MAX, "at most " + F.COPY_SPARES_MAX + " (" + copies.length + ")");
+});
+
+test("CD151c a copy saved unfinished gets its spare once Fly.io finishes it (live, 2026-11-18: no new chat ever started from the copy): only written down at first (no disk, no machine: Fly refuses a disk from an unfinished copy), made by the every-minute run once Fly says the copy is finished, dropped when the copy is gone, from an older image, or never finished; never the chat's own disk", async () => {
+  const b = fakeBucket(), w = fakeFly(), env = envWith(b, { CODER_TOKEN_KEY: TKEY, CODER_FLY_SPARES: "1" });
+  const turn = (box, more = {}) => box.fetch(signed(new Request("http://coder/turn", { method: "POST", headers: { "content-type": "application/json", ...more }, body: JSON.stringify({ project: "p", text: "hi" }) })));
+  const copySpares = () => [...b.m.keys()].filter((k) => k.startsWith(F.SPARES) && !k.includes("claimed/")).map((k) => ({ key: k, rec: JSON.parse(b.m.get(k)) })).filter((x) => x.rec.snap);
+  assert.equal((await turn(F.flyBox(env, "user-1-shop-a1", deps(w)))).status, 200);
+  const chatVol = [...w.volumes.keys()][0];
+  // SAVED WHILE FLY IS STILL SAVING IT: written down only.
+  w.snapLag = 0; w.snapWait = 0; w.snapRun = 3;
+  const snap = await F.snapshotChat(env, "user-1-shop-a1", deps(w));
+  assert.equal(snap.ready, false);
+  let mine = copySpares();
+  assert.equal(mine.length, 1);
+  const wr = mine[0].rec;
+  assert.deepEqual([wr.waiting, wr.snap, wr.of, wr.ready, wr.volume, wr.id], [true, snap.snapshot, chatVol, false, undefined, undefined]);
+  assert.equal(w.volumes.size, 1, "no disk made from it yet");
+  assert.ok(!F.spareUsable(env, wr, Date.now(), snap.snapshot), "no chat takes it");
+  assert.equal(await F.ensureCopySpare(env, snap, deps(w)), null, "one per copy");
+  // EVERY MINUTE: still being saved: nothing made; then finished: its spare is made from it (and the record waited on goes).
+  await F.tendSpares(env, b, deps(w), Date.now(), [...w.machines.values()]);
+  assert.equal(copySpares()[0].rec.waiting, true);
+  assert.ok(![...w.volumes.values()].some((v) => v.snapshot_id), "still nothing from the copy");
+  let made = null;
+  for (let i = 0; i < 6 && !made; i++) {
+    await F.tendSpares(env, b, deps(w), Date.now(), [...w.machines.values()]);
+    mine = copySpares();
+    if (mine.length === 1 && !mine[0].rec.waiting && mine[0].rec.ready) made = mine[0].rec;
+  }
+  assert.ok(made, "made, then ready: " + JSON.stringify(copySpares()));
+  assert.equal(made.snap, snap.snapshot);
+  assert.notEqual(made.volume, chatVol);
+  assert.equal(w.volumes.get(made.volume).snapshot_id, snap.snapshot, "its disk is the copy");
+  assert.ok(w.volumes.has(chatVol), "the chat's own disk is kept");
+  assert.ok(F.spareUsable(env, made, Date.now(), snap.snapshot));
+  // GONE FROM FLY (never in the disk's list): dropped, nothing removed.
+  const vs = w.volumes.size;
+  await b.put(F.SPARES + "0123456789abcdef.json", JSON.stringify({ waiting: true, snap: "vs_Gone1234", of: chatVol, size: 10, region: made.region, image: IMG1, shape: made.shape, at: Date.now(), ready: false, h: "0123456789abcdef" }));
+  await F.tendSpares(env, b, deps(w), Date.now(), [...w.machines.values()]);
+  assert.ok(!b.m.has(F.SPARES + "0123456789abcdef.json"));
+  // FROM AN OLDER IMAGE, OR NEVER FINISHED: dropped without asking Fly.
+  for (const old of [{ image: IMG2 }, { at: Date.now() - F.CACHE_PENDING_MS - 1000 }]) {
+    await b.put(F.SPARES + "fedcba9876543210.json", JSON.stringify({ waiting: true, snap: snap.snapshot, of: chatVol, size: 10, region: made.region, image: IMG1, shape: made.shape, at: Date.now(), ready: false, h: "fedcba9876543210", ...old }));
+    w.api.length = 0;
+    await F.tendSpares(env, b, deps(w), Date.now(), [...w.machines.values()]);
+    assert.ok(!b.m.has(F.SPARES + "fedcba9876543210.json"), JSON.stringify(old));
+    assert.ok(!w.api.includes("GET /volumes/" + chatVol + "/snapshots"), "Fly not asked");
+  }
+  assert.ok(w.volumes.has(chatVol) && w.volumes.size >= vs, "never a chat's disk");
+  // PAST THE CAP: one only written down goes without removing anything (its `of` is a chat's disk).
+  for (let i = 0; i < F.COPY_SPARES_MAX; i++) await b.put(F.SPARES + "aaaaaaaaaaaaaaa" + i + ".json", JSON.stringify({ waiting: true, snap: "vs_Cap123" + i, of: chatVol, size: 10, region: made.region, image: IMG1, shape: made.shape, at: Date.now() - 1000 * (10 - i), ready: false, h: "aaaaaaaaaaaaaaa" + i }));
+  await F.ensureCopySpare(env, { snapshot: "vs_CapNew1", volume: chatVol, size: 10, ready: false }, deps(w));
+  assert.ok(w.volumes.has(chatVol), "the chat's disk stays");
+  assert.ok(copySpares().length <= F.COPY_SPARES_MAX, "at most " + F.COPY_SPARES_MAX);
+});
+
+test("CD151d a finished copy offered to a chat whose machine is already made without it (live, 2026-11-18: started early, when the repository was picked, before the copy was known to be finished): the machine is told \"late\" (awake or woken), nothing is made; a machine made from that copy is told nothing new; only a job's start", async () => {
+  const b = fakeBucket(), w = fakeFly(), env = envWith(b, { CODER_TOKEN_KEY: TKEY });
+  const post = (box, path, more = {}) => box.fetch(signed(new Request("http://coder" + path, { method: "POST", headers: { "content-type": "application/json", ...more }, body: JSON.stringify({ project: "p", text: "hi" }) })));
+  assert.equal((await post(F.flyBox(env, "user-1-shop-a1", deps(w)), "/turn")).status, 200);
+  w.snapLag = 0; w.snapWait = 0; w.snapRun = 0;
+  const sid = (await F.snapshotChat(env, "user-1-shop-a1", deps(w))).snapshot;
+  const offer = { [F.FROM_COPY]: sid, [F.FROM_COPY_GB]: "10" };
+  // STARTED EARLY WITHOUT THE COPY, THEN OFFERED IT: "late"; no disk or machine made.
+  const early = F.flyBox(env, "user-1-shop-l1", deps(w));
+  assert.equal((await post(early, "/warm")).status, 200);
+  const [vols, machines] = [w.volumes.size, w.machines.size];
+  w.told.length = 0;
+  assert.equal((await post(early, "/turn", offer)).status, 200);
+  assert.deepEqual(w.told, ["late"]);
+  assert.deepEqual([w.volumes.size, w.machines.size], [vols, machines]);
+  // WOKEN FIRST (stopped while the owner typed): "late" too.
+  const names = await F.flyNames("user-1-shop-l1");
+  const rec = JSON.parse(b.m.get(names.key));
+  w.machines.get(rec.id).state = "stopped";
+  await b.put(names.key, JSON.stringify({ ...rec, stopped: true }));
+  w.told.length = 0;
+  assert.equal((await post(early, "/turn", offer)).status, 200);
+  assert.deepEqual(w.told, ["late"]);
+  // MADE FROM THAT COPY: its start was told "used"; offered it again, nothing new.
+  const fromIt = F.flyBox(env, "user-1-shop-m1", deps(w));
+  w.told.length = 0;
+  assert.equal((await post(fromIt, "/turn", offer)).status, 200);
+  assert.deepEqual(w.told, ["used"]);
+  w.told.length = 0;
+  assert.equal((await post(fromIt, "/turn", offer)).status, 200);
+  assert.deepEqual(w.told, [null]);
+  // NOT OFFERED: nothing said.
+  w.told.length = 0;
+  assert.equal((await post(early, "/turn")).status, 200);
+  assert.deepEqual(w.told, [null]);
+  // Only a job's start (an early start offered a copy for a machine already made: nothing).
+  const src = readFileSync(new URL("../src/coder-fly.mjs", import.meta.url), "utf8");
+  assert.ok(src.includes('const offered = new URL(req.url).pathname === "/turn" ? String(req.headers.get(FROM_COPY) || "") : "";'));
 });
