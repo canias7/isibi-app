@@ -4,6 +4,15 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-18: Second full audit, and Coder checked against Claude Code
+
+- Your words: "just a complete check on everything, also skip gloopy only, and make sure also that almost all the code we have matches claude code pls".
+- It was read-only. Nothing in the code was changed, deployed or merged. No Grok calls were made, no sign-in emails were sent, and nothing was sent to the live site.
+- How it was done: one reviewer for each part of Coder and for each Claude Code topic, a separate skeptic to re-check every finding, two deeper checks on the serious ones, then a critic's list of what was missed and a second round on those gaps. Duplicates were merged, and every merged entry was checked again against its sources. When the weekly limit of the first model was reached, the rest ran on another model.
+- The model's safety filter stopped two reviewers (ways past the command checks, and ways out of the sandbox) and some deeper checks. Both areas got an ordinary quality review instead.
+- **The report is not in this repository.** The repository is public, and the report describes problems that are still live. It is on your private page in Claude (linked in the chat), with a box to tick for each thing you want fixed.
+- Nothing gets fixed until you choose what to fix.
+
 ## 2026-11-18: The saved copy lasts across deploys, and a new chat fetches its repository from it, like Claude Code
 
 You said "first, finish this", about the two last differences from Claude Code's saved setup.
