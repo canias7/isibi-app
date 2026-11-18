@@ -39,8 +39,10 @@ const call = (name, args, id = "c1") => ({ id, type: "function", function: { nam
 const say = (content, calls = []) => ({ message: { role: "assistant", content, ...(calls.length ? { tool_calls: calls } : {}) }, usage: { in: 1, out: 1 } });
 
 /** One job: a scripted Grok, the tools run for real in a project, the checker answering `verdict`, the owner `answers`. */
-async function job(steps, extra = {}, { verdict = '{"decision":"allow"}', answers = ["yes"] } = {}) {
+async function job(steps0, extra = {}, { verdict = '{"decision":"allow"}', answers = ["yes"], before = null } = {}) {
   const { dir, run } = project();
+  const more = before ? before(dir) : null;
+  const steps = typeof steps0 === "function" ? steps0(dir, more) : steps0;
   const events = [], checks = [], reqs = [];
   let n = 0, k = 0;
   const r = await A.runCoder({
@@ -53,7 +55,7 @@ async function job(steps, extra = {}, { verdict = '{"decision":"allow"}', answer
     ...(answers ? { ask: async () => ({ choice: answers[Math.min(k++, answers.length - 1)] }) } : {}),
   }, { text: "go", mode: "auto", messages: [], ...extra });
   const told = (id) => (r.messages.find((m) => m.role === "tool" && m.tool_call_id === id) || {}).content;
-  return { dir, r, events, checks, reqs, told, cards: events.filter((e) => e.type === "permission") };
+  return { dir, more, r, events, checks, reqs, told, cards: events.filter((e) => e.type === "permission") };
 }
 const shown = (t) => t.checks.map((q) => q.messages.map((m) => String(m.content)).join("\n")).join("\n");
 
@@ -155,4 +157,55 @@ test("PW6 through Coder's loop: a write through a file is refused by its check b
   assert.equal(t.cards.length, 0, "no card first, even in Plan");
   assert.equal(t.told("c1"), "error: ENOTDIR: not a directory, stat '" + t.dir + "/notes.md/x'");
   assert.ok(t.reqs.some((q) => q.tool === "file_check" && q.ctx && q.ctx.cc === true), "the check before the hooks has Claude Code's ways");
+});
+
+/** A folder outside the project, and a link `out` to it from the project. */
+function linkOut(dir) { const outside = mkdtempSync(join(tmpdir(), "pw-out-")); symlinkSync(outside, join(dir, "out")); return outside; }
+
+test("PW7 a write inside the working folders that leads out of them through a link asks first in every mode (Auto too, never the checker), in Claude Code's words; Yes writes it there, No leaves it; an Edit allow rule for the path and where it leads asks nothing; refused in a job from GitHub, and under the write block; one named outside them is still refused; Gloopy's as before", async () => {
+  const w = [say("", [call("write", { file_path: "out/x.txt", content: "x\n" })]), say("Done.")];
+  const why = (t) => "Coder requested permissions to write to " + t.dir + "/out/x.txt, but you haven't granted it yet. " + t.dir + "/out/x.txt resolves through a symlink to " + t.more + "/x.txt, which is outside the allowed working directories.";
+  assert.equal(P.outsideWriteWhy("/w/out/x", "/o/x"), "Coder requested permissions to write to /w/out/x, but you haven't granted it yet. /w/out/x resolves through a symlink to /o/x, which is outside the allowed working directories.");
+  let t = await job(w, { mode: "acceptEdits" }, { before: linkOut });
+  assert.deepEqual([t.cards.length, t.cards[0].why], [1, why(t)]);
+  assert.equal(readFileSync(join(t.more, "x.txt"), "utf8"), "x\n", "Yes: written where the link leads");
+  t = await job(w, { checker: true }, { before: linkOut });
+  assert.deepEqual([t.checks.length, t.cards.length, t.cards[0].why], [0, 1, why(t)], "Auto: the card, never the checker");
+  t = await job(w, { mode: "acceptEdits" }, { before: linkOut, answers: ["no"] });
+  assert.equal(existsSync(join(t.more, "x.txt")), false, "No: not written");
+  t = await job(w, { mode: "acceptEdits", rules: { allow: ["Edit(out/**)", "Edit(/" + tmpdir() + "/**)"], ask: [], deny: [] } }, { before: linkOut });
+  assert.equal(t.cards.length, 0, "an allow rule covers the path and where it leads");
+  assert.equal(readFileSync(join(t.more, "x.txt"), "utf8"), "x\n");
+  t = await job(w, { mode: "acceptEdits", rules: { allow: ["Edit(out/**)"], ask: [], deny: [] } }, { before: linkOut });
+  assert.equal(t.cards.length, 1, "a rule for the path alone does not");
+  t = await job(w, { checker: true, github: true }, { before: linkOut });
+  assert.equal(t.told("c1"), why(t));
+  assert.equal(existsSync(join(t.more, "x.txt")), false);
+  t = await job(w, { mode: "acceptEdits", writeBlock: true }, { before: linkOut });
+  assert.equal(t.cards.length, 0);
+  assert.match(t.told("c1"), /CODER_BLOCK_WRITES_OUTSIDE_WORKING_DIRECTORIES/);
+  assert.equal(existsSync(join(t.more, "x.txt")), false, "the write block refuses it first");
+  t = await job((dir, outside) => [say("", [call("write", { file_path: outside + "/direct.txt", content: "x\n" })]), say("Done.")], { mode: "acceptEdits" }, { before: linkOut });
+  assert.equal(t.told("c1"), "error: that path is outside the project", "named outside: still refused");
+  const { GLOOPY_TOOLS, GLOOPY_SYSTEM } = await import("../container/gloopy-agent.mjs");
+  t = await job([say("", [call("write", { path: "out/x.txt", content: "x\n" })]), say("Done.")], { mode: "acceptEdits", tools: GLOOPY_TOOLS, system: GLOOPY_SYSTEM, who: "Gloopy", nudges: false }, { before: linkOut });
+  assert.deepEqual([t.cards.length, t.told("c1")], [0, "error: that path leads outside the project"], "Gloopy's: as before");
+});
+
+test("PW8 in Plan, with its checker reviewing during planning: a write to a protected file goes to the checker (allowed: written without plan mode's card; blocked: refused); any other write asks as before; with Plan's checker off, the card", async () => {
+  const w = [say("", [call("write", { file_path: ".git/info/exclude", content: "*.log\n" })]), say("Done.")];
+  let t = await job(w, { mode: "plan", checker: true });
+  assert.equal(t.checks.length, 1);
+  assert.match(shown(t), /write: \.git\/info\/exclude: \*\.log/);
+  assert.equal(t.cards.length, 0, "no card, not even plan mode's");
+  assert.equal(readFileSync(join(t.dir, ".git", "info", "exclude"), "utf8"), "*.log\n");
+  t = await job(w, { mode: "plan", checker: true }, { verdict: '{"decision":"block","rule":"Self-Modification","reason":"git settings"}' });
+  assert.equal(t.cards.length, 0);
+  assert.match(t.told("c1"), /Self-Modification/);
+  assert.equal(existsSync(join(t.dir, ".git", "info", "exclude")), false);
+  t = await job([say("", [call("write", { file_path: "notes2.md", content: "x\n" })]), say("Done.")], { mode: "plan", checker: true });
+  assert.deepEqual([t.checks.length, t.cards.length], [0, 1], "another write: plan mode's card, as before");
+  assert.match(String(t.cards[0].why), /while in plan mode/);
+  t = await job(w, { mode: "plan", checker: true, checkerInPlan: false });
+  assert.deepEqual([t.checks.length, t.cards.length], [0, 1], "Plan's checker off: the card");
 });

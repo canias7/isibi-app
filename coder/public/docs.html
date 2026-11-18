@@ -161,8 +161,9 @@
         <ul>
           <li>Files that can make code run on your computer when you pull the branch, or change how the project is built, such as <code>.husky</code>, <code>.vscode</code>, <code>.devcontainer</code>, <code>.envrc</code>, <code>.npmrc</code>, <code>.pre-commit-config.yaml</code> and <code>.mcp.json</code>. Coder shows a card with what it would write, and <b>Allow</b> or <b>Don't allow</b>. In a job started from GitHub, it doesn't change them.</li>
           <li>Your project's <code>.git</code> folder is one of them, as in Claude Code: Coder asks first, and writes there only once you allow it.</li>
-          <li>In Auto, as in Claude Code, the checker decides about these files instead of asking you.</li>
+          <li>In Auto, as in Claude Code, the checker decides about these files instead of asking you. So does Plan, while its checker reviews during planning.</li>
           <li>A write that reaches one of these folders only through a link (a shortcut folder) always asks you, in every mode, even in Auto.</li>
+          <li>A write through a link that leads out of the project asks you first too, in every mode, as in Claude Code. Once you allow it, Coder writes where the link leads. A path that names a place outside the project is still refused.</li>
         </ul>
 
         <h3 id="write-no">When write says no</h3>
@@ -207,7 +208,7 @@
         <h3 id="edit-asks">Files Coder asks you about</h3>
         <ul>
           <li>The same files as write. The card shows the lines edit would take out and put in, and <b>Allow</b> or <b>Don't allow</b>. A very long line is cut short, with <code>&hellip;</code> at its end. In a job started from GitHub, Coder doesn't change them.</li>
-          <li>In Auto, the checker decides instead, as for write; a change that reaches one of these folders only through a link always asks you.</li>
+          <li>In Auto, the checker decides instead, as for write (and in Plan while its checker reviews); a change that reaches one of these folders only through a link, or that leads out of the project through one, always asks you.</li>
         </ul>
 
         <h3 id="edit-no">When edit says no</h3>

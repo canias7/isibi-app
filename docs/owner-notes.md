@@ -4,6 +4,15 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-18: Plan mode's checker and links that lead out, matched (your words: "yes match pls")
+
+1. **Plan mode, protected folders:** while Plan's checker is on (it is, unless Auto mode is turned off in Settings or the environment setting `CODER_USE_AUTO_MODE_DURING_PLAN` turns it off), a write or an edit to `.git`, `.husky` and the other protected folders now goes to the checker instead of a card, as in Claude Code. When the checker allows it, it's written without plan mode's own card, because Claude Code checks protected folders before plan mode's "Cannot write to … while in plan mode". Every other write in Plan still asks you, as before.
+2. **A write through a link that leads out of the project:** before, Coder refused it ("that path leads outside the project"). Now, as in Claude Code, it asks you first, in every mode, Auto included, and never the checker: "Coder requested permissions to write to …/out/x.txt, but you haven't granted it yet. …/out/x.txt resolves through a symlink to /…/x.txt, which is outside the allowed working directories." If you allow it, Coder writes where the link leads. One of your Edit allow rules that covers both the path and where it leads skips the question, as in Claude Code. In a job started from GitHub, or with the write block on, it's refused.
+
+Still the same as before: a path that names a place outside the project directly ("/tmp/x.txt") is refused. Claude Code asks about that one in Accept edits (in Auto its checker decides), and its card for these writes can also offer to add the folder to the session's working directories. Coder's card offers Yes or No. Tell me if you want those matched.
+
+Gloopy is untouched.
+
 ## 2026-11-18: Protected folders, links and a "/" at the end, matched for write and edit (your word: "match")
 
 Again, I checked each one on Claude Code's real tools and in its program first:

@@ -125,6 +125,14 @@ export const OUTSIDE_TOOLS = new Set(["read", "grep", "glob", "lsp", "lsp_file"]
  * and in their checks before the hooks ("file_check", which Coder's loop makes only in Coder's own chats).
  */
 let CC_WAYS = false;
+/**
+ * A WRITE THROUGH A LINK OUT OF THE WORKING FOLDERS, ALLOWED (Claude Code 2.1.327: a write inside its working directory that
+ * resolves outside it through a link asks first, then is written there; the owner, 2026-11-18: "yes match pls"): set for one
+ * call of write, edit or notebook_edit when Coder's loop has asked the owner, or an Edit allow rule covers it (its
+ * `ctx.linkOut`). Only a path named inside the working folders: one named outside them is still refused.
+ */
+let LINK_OUT_OK = false;
+const LINK_OUT_TOOLS = new Set(["write", "edit", "notebook_edit"]);
 export const CC_TOOLS = new Set(["read", "grep", "glob", "write", "edit", "notebook_edit", "file_check"]);
 /** A path that isn't there, refused in the tool's own words; `missing` keeps its full path, for read's words (readFailed). */
 const failMissing = (m, abs) => { const e = new ToolError(m); e.missing = abs; throw e; };
@@ -201,7 +209,7 @@ async function inside(p, { mustExist = false, tool = "", output = false } = {}) 
       const real = await realpath(probe);
       const rootReal = await realpath(home);
       const r2 = relative(rootReal, real);
-      if (r2.startsWith("..") || isAbsolute(r2)) { if (OUTSIDE_OK) return { abs, rel: abs }; fail("that path leads outside the project"); }
+      if (r2.startsWith("..") || isAbsolute(r2)) { if (OUTSIDE_OK || LINK_OUT_OK) return { abs, rel: abs }; fail("that path leads outside the project"); }
       break;
     } catch (e) {
       if (e instanceof ToolError) throw e;
@@ -2668,6 +2676,7 @@ if (process.argv[1] && import.meta.url === "file://" + process.argv[1]) {
     // failure is told whole, in Claude Code's words, ripgrep's own message in it: coder-search.mjs's SearchError.)
     OUTSIDE_OK = !!(req.ctx && req.ctx.outside === true) && OUTSIDE_TOOLS.has(req.tool);
     CC_WAYS = !!(req.ctx && req.ctx.cc === true) && CC_TOOLS.has(req.tool);
+    LINK_OUT_OK = !!(req.ctx && req.ctx.linkOut === true) && LINK_OUT_TOOLS.has(req.tool);
     try { text = printedAnswer(await fn(req.args || {}, req.ctx || {})); }
     catch (e) { return say(errorLine(e), 1); }
     say(text, 0);

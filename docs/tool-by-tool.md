@@ -1066,3 +1066,18 @@ Coder's Plan asks for every write, as before.
 **Tests:** PW1–PW6 (`coder/test/protected-writes.test.mjs`) new; RM1, CD36, CD377 and RS1 (the places a check's block is
 handled, one more) updated. The full suite: 1378 pass, 4 skipped, 0 fail. Deployed to coder2 (deploy 260): its docs page has
 the new words. Not tried in a live chat (coder2's GitHub sign-in).
+
+**The two left, matched** (the owner, 2026-11-18: "yes match pls"; Claude Code 2.1.327's docs and program; in Coder's own
+chats, never Gloopy's):
+
+| | Claude Code | Coder before | Coder now |
+|---|---|---|---|
+| Plan, its checker on: a protected-path write | its safety check before plan mode's own check ("Cannot write to <path> while in plan mode.", which comes after it in its Write and Edit permission check), classifier-approvable: "routed to the classifier when auto mode is available during planning"; other writes ask | the card | the checker (mode "plan"); allowed, written without plan mode's card; blocked, refused; other writes the card, as before; Plan's checker off, the card |
+| A write inside the working folders that leads out of them through a link | its Qd: "Claude requested permissions to write to <path>, but you haven't granted it yet. <path> resolves through a symlink to <landing>, which is outside the allowed working directories.", a safety check not classifier-approvable: asked in every mode; an Edit allow rule matching the path and where it leads allows it; a protected path that leads out, its words with the same sentence | refused ("that path leads outside the project") | the same as Claude Code, in its words; Yes writes it there (the tools script's `linkOut`, for that call); refused in a job from GitHub in those words, and under the write block |
+
+Still different, for the owner: a write to a path named outside the working folders (Claude Code asks in Accept edits, its
+classifier decides in Auto; Coder refuses, "that path is outside the project"); and its card's offer to add the folder to the
+session's working directories (its F9t, addDirectories) or to accept edits for the session in default mode (Coder's card:
+Yes or No).
+
+**Tests:** PW7 (a write through a link out) and PW8 (Plan's checker) new.

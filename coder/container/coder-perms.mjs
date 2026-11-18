@@ -2174,6 +2174,15 @@ export const sensitiveWhy = (target, from = "") => (settingsFileOf(target) ? "Co
  * leads>"; the owner, 2026-11-18: "match"). "Claude" is Coder here.
  */
 export const sensitiveViaWhy = (asked, landing) => sensitiveWhy(asked) + " " + asked + " resolves through a symlink to " + landing + ".";
+/**
+ * A WRITE, AN EDIT OR A NOTEBOOK EDIT INSIDE THE WORKING FOLDERS THAT LEADS OUT OF THEM THROUGH A LINK (Claude Code 2.1.327's
+ * Write and Edit, its Qd: "Claude requested permissions to write to <path>, but you haven't granted it yet." and its symlink
+ * sentence, "<path> resolves through a symlink to <where it leads>, which is outside the allowed working directories."; the
+ * owner, 2026-11-18: "yes match pls"). "Claude" is Coder here. outsideLinkSentence: that sentence alone, after a protected
+ * file's words when a protected path leads out.
+ */
+export const outsideLinkSentence = (asked, landing) => asked + " resolves through a symlink to " + landing + ", which is outside the allowed working directories.";
+export const outsideWriteWhy = (asked, landing) => "Coder requested permissions to write to " + asked + ", but you haven't granted it yet. " + outsideLinkSentence(asked, landing);
 /** A wildcard before a `..` (Claude Code: "A glob before the '..' in '…' is expanded by the shell before the path is opened, so the target cannot be checked …"). */
 export const globDotDotWhy = (p, against) => "A glob before the '..' in '" + p + "' is expanded by the shell before the path is opened, so the target cannot be checked" + against + ". Spell the path without the glob.";
 export const linkOutWhy = (from, to) => from + " resolves through a symlink to " + to + ", which is outside the allowed working directories";
