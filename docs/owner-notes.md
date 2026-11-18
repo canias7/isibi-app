@@ -22,6 +22,14 @@ A saved copy belongs to one version of Coder's machine. After each deploy, the f
 
 Tests: CD151c and CD151d in `coder/test/fly.test.mjs` (CD151b updated), CD152b and CD192b in `coder/test/setup-copy.test.mjs`.
 
+Tested live in env-test after the deploy, three new chats:
+
+- 13:21, the first chat after the deploy: there was no copy yet for the new version, so it ran the setup and saved the copy (13:22). Its machine had the message after 8.4 seconds.
+- 13:32: started from the copy and skipped the setup (the chat says so). But its machine took 95 seconds: the spare machine from the copy wasn't ready yet, so its disk was made from the copy then and there.
+- 13:40: took the spare machine made from the copy. Its machine had the message after 2.9 seconds, and it skipped the setup.
+
+So the first chats in the 10 to 20 minutes after a new copy can still wait. In that time Fly finishes the copy, then the spare machine's disk is restored and Coder's 6.9 GB image is downloaded onto its server.
+
 ## 2026-11-18: New chats in an environment with a setup script start fast, the Claude Code way
 
 A new chat in env-test took 108 seconds to answer "Hi.". The timings showed where: about 80 seconds went to making the chat's machine. Its disk was being restored from the environment's saved copy, on a server that first had to download Coder's 6.9 GB image. Claude Code's docs: "New sessions start with your dependencies, tools, and Docker images already on disk, and skip the setup script step."
