@@ -106,10 +106,23 @@ export function toolPath(p) {
 let OUTSIDE_OK = false;
 /** One outside, allowed: named in full; one that isn't there in the words a missing file in the project gets (Claude Code's Read). */
 async function outsideAllowed(abs, mustExist) {
-  if (mustExist) { try { await stat(abs); } catch (e) { if (e && (e.code === "ENOENT" || e.code === "ENOTDIR")) fail(missingFile(abs)); } }
+  if (mustExist) { try { await stat(abs); } catch (e) { if (e && (e.code === "ENOENT" || e.code === "ENOTDIR")) failMissing(missingFile(abs), abs); } }
   return { abs, rel: abs };
 }
 export const OUTSIDE_TOOLS = new Set(["read", "grep", "glob", "lsp", "lsp_file"]);
+/**
+ * CLAUDE CODE'S OWN WAYS FOR READ, GREP AND GLOB (Claude Code 2.1.327, tried on its own tools, 2026-11-18; the owner: "match
+ * claude code"): set for one call of read, grep or glob by Coder's loop in Coder's own chats (its `ctx.cc`). The .git folder
+ * is open to them, as to Claude Code's (its Read opens .git/HEAD; its Glob lists .git's files; its Grep searches a path in
+ * .git); and read says what Claude Code's Read says for a file that isn't there ("File does not exist. Note: your current
+ * working directory is …", and its "Did you mean …?"), a folder ("EISDIR: illegal operation on a directory, read '…'") or a
+ * path through a file ("ENOTDIR: not a directory, open '…'"). Never set for a tool that writes, and never in Gloopy's chats,
+ * which keep Coder's earlier ways (the owner, 2026-11-17: "Dont touch gloopy for now").
+ */
+let CC_WAYS = false;
+export const CC_TOOLS = new Set(["read", "grep", "glob"]);
+/** A path that isn't there, refused in the tool's own words; `missing` keeps its full path, for read's words (readFailed). */
+const failMissing = (m, abs) => { const e = new ToolError(m); e.missing = abs; throw e; };
 async function inside(p, { mustExist = false, tool = "", output = false } = {}) {
   if (typeof p !== "string" || !p.trim()) fail("give a path");
   // Named by its tool and argument, as Claude Code's are ("Read file_path cannot contain null bytes …"): write's so far
@@ -125,7 +138,7 @@ async function inside(p, { mustExist = false, tool = "", output = false } = {}) 
   if (mem && isAbsolute(mem) && abs === resolve(mem)) {
     let st = null; try { st = await lstat(abs); } catch { /* not made yet */ }
     if (st && !st.isFile()) fail("the memory file is not a plain file");
-    if (!st && mustExist) fail("no such file: " + abs);
+    if (!st && mustExist) failMissing("no such file: " + abs, abs);
     return { abs, rel: abs };
   }
   // THE CHAT'S PLAN FILE (coder-plan.mjs; the owner, 2026-11-14: "Do all the talk to you tools execpt for the notify one";
@@ -135,7 +148,7 @@ async function inside(p, { mustExist = false, tool = "", output = false } = {}) 
   if (plan && isAbsolute(plan) && abs === resolve(plan)) {
     let st = null; try { st = await lstat(abs); } catch { /* not written yet */ }
     if (st && !st.isFile()) fail("the plan file is not a plain file");
-    if (!st && mustExist) fail("no such file: " + abs);
+    if (!st && mustExist) failMissing("no such file: " + abs, abs);
     // (One in the project, in the repository's plansDirectory folder, is kept inside it as any file of the project is, below,
     // and is no hard link: Claude Code 2.1.325, "a write that can't be shown to stay inside the project is now refused".)
     const inProject = relative(ROOT, abs);
@@ -151,7 +164,7 @@ async function inside(p, { mustExist = false, tool = "", output = false } = {}) 
       const x = relative(d, abs);
       if (!x || x.startsWith("..") || isAbsolute(x)) continue;
       let real = "";
-      try { real = await realpath(abs); } catch { fail("no such file: " + abs); }
+      try { real = await realpath(abs); } catch { failMissing("no such file: " + abs, abs); }
       const r2 = relative(await realpath(d).catch(() => d), real);
       if (!r2 || r2.startsWith("..") || isAbsolute(r2)) fail("that path leads outside the project");
       return { abs, rel: abs };
@@ -169,9 +182,10 @@ async function inside(p, { mustExist = false, tool = "", output = false } = {}) 
   const home = roots.find(holds) || work[0] || ROOT;
   const rel = relative(home, abs);
   if (rel.startsWith("..") || isAbsolute(rel)) { if (OUTSIDE_OK) return outsideAllowed(abs, mustExist); fail("that path is outside the project"); }
-  if (rel.split(sep)[0] === ".git") fail("the .git folder is off limits");
+  // (Open to Claude Code's read, grep and glob in Coder's own chats: CC_WAYS. Never to a tool that writes.)
+  if (!CC_WAYS && rel.split(sep)[0] === ".git") fail("the .git folder is off limits");
   // (Never the .git folder of any of them that holds it: a working folder around the project, or inside another one.)
-  if ([...roots, ...work].some((r) => holds(r) && relative(r, abs).split(sep)[0] === ".git")) fail("the .git folder is off limits");
+  if (!CC_WAYS && [...roots, ...work].some((r) => holds(r) && relative(r, abs).split(sep)[0] === ".git")) fail("the .git folder is off limits");
   // How the file is named in the tool's answer: from the project's folder, or by its full path when the commands are in
   // another folder (or it is in the scratch folder, or one of the owner's working folders).
   const shown = home === SCRATCH || BASE !== ROOT || !roots.includes(home) ? abs : rel;
@@ -189,7 +203,7 @@ async function inside(p, { mustExist = false, tool = "", output = false } = {}) 
       // WHERE A SHORT PATH STARTS, said with it (the owner, 2026-11-08: "Ok do those fixes too"; Claude Code's Read,
       // tried side by side: "File does not exist. Note: your current working directory is /home/user/cc-test4."), so a
       // path given from the wrong folder is seen as such.
-      if (mustExist) fail(missingFile(shown));
+      if (mustExist) failMissing(missingFile(shown), abs);
       const up = dirname(probe);
       if (up === probe) break;
       probe = up;
@@ -241,6 +255,26 @@ const NOT_TEXT_WHY = {
  * comparison, 2026-11-08: "error:  is a folder"); with how to see what is in it (the owner: "ur suggestion yes").
  */
 const folderError = (abs) => abs + " is a folder, not a file: list what is in it with glob, or a command such as ls";
+/**
+ * READ'S WORDS FOR A FOLDER IN CODER'S OWN CHATS (Claude Code 2.1.327's Read, tried 2026-11-18; the owner: "match claude
+ * code"): the system's error as it gives it, "EISDIR: illegal operation on a directory, read '/etc'", the full path; one
+ * written with a "/" at its end shows with two ("/etc/" is "read '/etc//'"), as there; the root, "/", as itself.
+ */
+export const readFolder = (abs) => "EISDIR: illegal operation on a directory, read '" + abs + (abs !== "/" && abs.endsWith("/") ? "/" : "") + "'";
+/**
+ * READ'S WORDS FOR A PATH THAT ISN'T THERE IN CODER'S OWN CHATS (Claude Code 2.1.327's Read, its program and its tool tried,
+ * 2026-11-18): "File does not exist. Note: your current working directory is <where the commands are>.", with its "Did you
+ * mean …?" (the same path under that folder, or a file beside it with another ending: didYouMean), its control characters
+ * written out; a path through a file, or one the system refuses another way, in the system's own words, as Claude Code's
+ * Read gives them ("ENOTDIR: not a directory, open '/etc/hosts/x'").
+ */
+async function readFailed(abs) {
+  let err = null;
+  try { await stat(abs); } catch (e) { err = e; }
+  if (!err || err.code === "ENOENT" || typeof err.code !== "string") return shownChars(editMissing() + (await didYouMean(abs)));
+  const m = /^[A-Z0-9]+: (.+?), [a-z]+ '/.exec(String(err.message || ""));
+  return err.code + ": " + (m ? m[1] : String(err.message || "")) + ", open '" + abs + "'";
+}
 async function plainText(abs, rel, max, tooBig = "use bash (head, tail, sed -n) for parts of it", { anyBytes = false } = {}) {
   const st = await stat(abs);
   if (st.isDirectory()) fail(folderError(abs));
@@ -627,7 +661,7 @@ export function ccSize(n) {
   if (m < 1024) return m.toFixed(1).replace(/\.0$/, "") + "MB";
   return (m / 1024).toFixed(1).replace(/\.0$/, "") + "GB";
 }
-/** Edit's words for a missing file (Claude Code's Read and Edit, tried: "File does not exist. Note: your current working directory is …."). */
+/** Edit's words for a missing file, and read's in Coder's own chats (Claude Code's Read and Edit, its Lss, tried: "File does not exist. Note: your current working directory is …."). */
 const editMissing = () => "File does not exist. Note: your current working directory is " + BASE + ".";
 /**
  * EDIT'S "DID YOU MEAN …?" FOR A FILE THAT IS NOT THERE (round 6's follow-up; Claude Code 2.1.325's Edit, its RAe and wYe): the
@@ -853,10 +887,17 @@ export async function toolRead({ path, offset, limit, pages = "", allow_large = 
   // (Claude Code's checks before its hooks first, in its order: fileInputProblem.)
   const first = fileInputProblem("read", { path, pages }) || fileInputProblem("read", { path }, "after");
   if (first) fail(first);
-  const { abs, rel } = await inside(path, { mustExist: true, output: true, tool: "read" });
+  // (A path that isn't there, or one through a file: Claude Code's Read's words in Coder's own chats, readFailed.)
+  let where;
+  try { where = await inside(path, { mustExist: true, output: true, tool: "read" }); }
+  catch (e) { if (CC_WAYS && e instanceof ToolError && typeof e.missing === "string") fail(await readFailed(e.missing)); throw e; }
+  const { abs, rel } = where;
   // A PIPE OR A DEVICE is refused, as Claude Code's Read does ("is a pipe or a device"): reading one could wait forever.
-  const kind = await stat(abs);
+  let kind;
+  try { kind = await stat(abs); } catch (e) { if (CC_WAYS && e && typeof e.code === "string") fail(await readFailed(abs)); throw e; }
   if (!kind.isFile() && !kind.isDirectory()) fail(rel + " is a pipe or a device, not a file; it cannot be read");
+  // A FOLDER: Claude Code's Read's words in Coder's own chats (readFolder).
+  if (CC_WAYS && kind.isDirectory()) fail(readFolder(abs));
   const ext = extname(abs).toLowerCase();
   if (PIC_KINDS[ext]) return readPicture(abs, rel, PIC_KINDS[ext]);
   if (ext === ".pdf") return readPdf(abs, rel, pages);
@@ -1566,8 +1607,9 @@ export async function toolNotebookCell({ notebook_path, cell_id } = {}) {
 
 /**
  * GREP AND GLOB, CLAUDE CODE'S (coder-search.mjs; the owner, 2026-11-14: "start fixing and filling in gaps on those tools"):
- * their search runs there, with this file's own path check (`inside`: the project, never .git) and where Grok's commands are
- * (BASE). `ctx`, from Coder's loop: the owner's Read deny rules and the environment's search settings.
+ * their search runs there, with this file's own path check (`inside`: the working folders unless allowed, .git only in
+ * Coder's own chats, CC_WAYS) and where Grok's commands are (BASE). `ctx`, from Coder's loop: the owner's Read deny rules,
+ * the environment's search settings, and `cc` in Coder's own chats.
  */
 const searchEnv = (ctx) => ({ ...(ctx && typeof ctx === "object" ? ctx : {}), base: BASE, inside });
 export async function toolGrep(args, ctx = {}) { return grepTool(args, searchEnv(ctx)); }
@@ -2571,6 +2613,7 @@ if (process.argv[1] && import.meta.url === "file://" + process.argv[1]) {
     // (`ctx`: what Coder's loop adds for a tool, Grep's and Glob's settings and the owner's Read deny rules. A search's
     // failure is told whole, in Claude Code's words, ripgrep's own message in it: coder-search.mjs's SearchError.)
     OUTSIDE_OK = !!(req.ctx && req.ctx.outside === true) && OUTSIDE_TOOLS.has(req.tool);
+    CC_WAYS = !!(req.ctx && req.ctx.cc === true) && CC_TOOLS.has(req.tool);
     try { text = printedAnswer(await fn(req.args || {}, req.ctx || {})); }
     catch (e) { return say(errorLine(e), 1); }
     say(text, 0);

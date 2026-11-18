@@ -8,8 +8,11 @@
  *     and its validation, in its words;
  *   - the search itself, on Coder's machine (coder-tools.mjs runs it, as the unprivileged user, inside the project);
  *   - its text for Grok, and its result object for the PostToolUse hooks (Claude Code's GrepOutput and GlobOutput).
- * Where Claude Code's docs say nothing, its 2.1.323 program says what to do. Coder's own safety items stay (the owner's
- * choice): no path outside the project, and nothing in .git.
+ * Where Claude Code's docs say nothing, its 2.1.323 program says what to do. A path outside the working folders is searched
+ * once Coder's loop has allowed it (coder-tools.mjs OUTSIDE_OK). The .git folder: in Coder's own chats, as Claude Code's
+ * (`env.cc`; the owner, 2026-11-18: "match claude code"): Grep leaves the version-control folders out of a folder's search
+ * and searches a path in .git; Glob lists .git's files too. In Gloopy's, nothing in .git (Coder's earlier rule, kept there:
+ * the owner, 2026-11-17, "Dont touch gloopy for now").
  */
 import { spawn } from "node:child_process";
 import { realpathSync, lstatSync, readlinkSync, constants as FS } from "node:fs";
@@ -560,7 +563,7 @@ export async function grepTool(args, env) {
   const base = env.base;
   const mode = a.output_mode ?? "files_with_matches";
   const target0 = typeof a.path === "string" && a.path ? fullPath(a.path, base) : base;
-  // (Coder's own rule, kept: inside the project, never in .git.)
+  // (The path check of coder-tools.mjs: inside the working folders unless allowed; .git as env.cc says.)
   const { abs: target } = await env.inside(target0, { output: true });
   // (The path's spellings now, and those Coder's permission check saw: checkedSpellings.)
   const now = pathSpellings(target);
@@ -600,8 +603,9 @@ export async function grepTool(args, env) {
   // `glob`, split at spaces, and at commas outside braces (Claude Code: "*.{ts,tsx}" is one glob, "*.ts,*.tsx" two).
   if (a.glob) for (const w of a.glob.split(/\s+/)) for (const g of w.includes("{") && w.includes("}") ? [w] : w.split(",")) if (g) rg.push("--glob", g);
   for (const g of rootDenyGlobs(env.deny, root)) rg.push("--iglob", g);
-  // (And .git once more, last: a later glob of the call's own, such as "*", would take it back, and Coder never searches it.)
-  rg.push("--glob", "!.git");
+  // (And .git once more, last, in Gloopy's chats: a later glob of the call's own, such as "*", would take it back. Not in
+  // Coder's own, as Claude Code adds none: env.cc.)
+  if (env.cc !== true) rg.push("--glob", "!.git");
   let run;
   try { run = await runRipgrep(rg, root.target, { cwd: root.spawnCwd, inheritFd: root.inheritFd, timeoutMs: timeoutOf(env) }); } finally { await root.close(); }
   // (Each path as the one asked for: Claude Code's wNr.)
@@ -610,7 +614,7 @@ export async function grepTool(args, env) {
   const denied = denyCheck(env.deny);
   const pathOf = (l) => (mode === "content" ? (l === "--" ? null : l.slice(0, Math.max(0, l.indexOf("\u0000")))) : mode === "count" ? l.slice(0, Math.max(0, l.lastIndexOf(":"))) : l);
   const before = lines.length;
-  lines = lines.filter((l) => { const p = pathOf(l); return p === null || !(inGit(p) || (denied && denied(p))); });
+  lines = lines.filter((l) => { const p = pathOf(l); return p === null || !((env.cc !== true && inGit(p)) || (denied && denied(p))); });
   if (lines.length !== before) lines = lines.filter((l, k, all) => l !== "--" || (k > 0 && k < all.length - 1 && all[k - 1] !== "--"));
   const limit = a.head_limit, offset = a.offset ?? 0;
   const timed = run.timedOut ? { timedOut: true } : {};
@@ -707,7 +711,7 @@ export async function globTool(args, env) {
   let dir0, own = false;
   if (isAbsolute(pattern)) { const s = splitPattern(pattern); if (s.baseDir) { dir0 = fullPath(s.baseDir, base); pattern = s.relativePattern; own = true; } }
   if (!own) dir0 = typeof a.path === "string" && a.path ? fullPath(a.path, base) : base;
-  // (Coder's own rule, kept: inside the project, never in .git.)
+  // (The path check of coder-tools.mjs: inside the working folders unless allowed; .git as env.cc says.)
   const { abs: dir } = await env.inside(dir0);
   // `path` ITSELF CHECKED when it is the folder searched (Claude Code's UPr): "Directory does not exist: …", "Path is not a
   // directory: …".
@@ -733,14 +737,15 @@ export async function globTool(args, env) {
     pattern = r === "" || r === ".." || r.startsWith("../") || isAbsolute(r) ? pattern.slice(1) : "/" + r + pattern;
   }
   // RIPGREP'S ARGUMENTS (Claude Code's CPr): the files, oldest first, gitignored and hidden ones too unless the environment
-  // says otherwise; Read deny rules left out; .git never (Coder's).
+  // says otherwise; Read deny rules left out; .git's files too in Coder's own chats, as Claude Code's (env.cc), never in
+  // Gloopy's.
   const rg = ["--files", "--null", "--glob", pattern, "--sort=modified", ...(env.noIgnore !== false ? ["--no-ignore"] : []), ...(env.hidden !== false ? ["--hidden"] : [])];
   for (const g of rootDenyGlobs(env.deny, root)) rg.push("--iglob", g);
-  rg.push("--glob", "!.git");
+  if (env.cc !== true) rg.push("--glob", "!.git");
   let run;
   try { run = await runRipgrep(rg, root.target, { cwd: root.spawnCwd, inheritFd: root.inheritFd, timeoutMs: timeoutOf(env) }); } finally { await root.close(); }
-  // (Each path as the one asked for, Claude Code's Jia; nothing in .git, whatever the pattern: Coder's.)
-  const found = nullEntries(run.lines, "files_with_matches").map((p) => askedPath(p, root)).filter((p) => !inGit(p));
+  // (Each path as the one asked for, Claude Code's Jia; in Gloopy's chats nothing in .git, whatever the pattern.)
+  const found = nullEntries(run.lines, "files_with_matches").map((p) => askedPath(p, root)).filter((p) => env.cc === true || !inGit(p));
   // THE CAP, PAST READ DENY RULES (Claude Code's CPr: with deny rules, files are judged in order until 100 are kept, so the
   // count past them is only a floor).
   const denied = denyCheck(env.deny);

@@ -333,7 +333,7 @@ test("CD392 the repository's own .claude/settings.json and .claude/settings.loca
   assert.match(server, /const extraEnv = \{ \.\.\.withoutOtel\(repoSet\.env\), \.\.\.withoutOtel\(ownerVars\), GIT_EDITOR: "true", /);
   assert.match(server, /rules: withRepoRules\(body\.rules, repoSet\), /);
   // (And from the owner's Settings since 2026-11-18: Claude Code's user permissions.blockReadsOutsideWorkingDirectories.)
-  assert.match(server, /readBlock: varOn\(rawVars\.CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES\) \|\| repoSet\.blockReads \|\| PREFS\.blockOutsideReads === true, outsideSeen: PREFS\.outsideReadsSeen === true, writeBlock: varOn\(rawVars\.CODER_BLOCK_WRITES_OUTSIDE_WORKING_DIRECTORIES\) \|\| repoSet\.blockWrites, /);
+  assert.match(server, /readBlock: varOn\(rawVars\.CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES\) \|\| repoSet\.blockReads \|\| PREFS\.blockOutsideReads === true, writeBlock: varOn\(rawVars\.CODER_BLOCK_WRITES_OUTSIDE_WORKING_DIRECTORIES\) \|\| repoSet\.blockWrites, /);
   assert.match(server, /repoDirs: repoOnlyDirs,/);
   // The Worker keeps the trust switch with the repository's rules.
   const R = await import("../src/coder-routes.mjs");

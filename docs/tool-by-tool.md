@@ -1000,3 +1000,26 @@ cloud session, 2.1.327, in auto mode, and the same calls through Coder's loop in
 So Claude Code's cloud sessions don't ask the one-time question (its docs: "The prompt doesn't appear in non-interactive -p runs
 or background sessions"; a cloud session runs it so). For the owner: drop Coder's question in Auto to match; read's two
 wordings; the .git folder.
+
+**Matched** (the owner, 2026-11-18: "match claude code"; Claude Code 2.1.327's program and its own tools, tried again in this
+session; in Coder's own chats, never Gloopy's):
+
+| | Claude Code | Coder before | Coder now |
+|---|---|---|---|
+| Auto's one-time question | not asked in a cloud session | asked where someone could answer | not asked: its card, its four answers, the kept "keep allowing" (hasSeenAutoModeOutsideReadPrompt) and the server's keeping of them gone; the read block's Settings switch stays (its permissions.blockReadsOutsideWorkingDirectories) |
+| A missing file | "File does not exist. Note: your current working directory is <cwd>." and " Did you mean <X>?" (its bIe: the same path under the cwd, when it is under the cwd's parent; else its ott, findSimilarFile: a file beside it with another ending, by name), its control characters written out (Yc) | "no such file: <path>. Note: …" | the same as Claude Code |
+| A folder | "EISDIR: illegal operation on a directory, read '<path>'": "/etc" '/etc', "/etc/" and "/etc//" '/etc//', "/" '/', a short path ("../", "~/") without its "/" | "<path> is a folder, not a file: list what is in it with glob, or a command such as ls" | the same as Claude Code |
+| A path through a file | "ENOTDIR: not a directory, open '/etc/hosts/x/y'" (any error but ENOENT is the system's own) | "no such file: …" | the same as Claude Code: the system's words, "open '<path>'" |
+| .git | Read opens .git/HEAD; Grep searches a path in .git (path .git: .git/config and .git/HEAD for "refs/heads/claude"), leaves the version-control folders out of a folder's search ("No files found" from the root), and a glob of the call's own ("*") takes .git back; Glob lists .git's files ("**/HEAD" from the root: .git/HEAD, .git/logs/HEAD; "HEAD" in .git: both) | refused ("the .git folder is off limits"), left out of every search | the same as Claude Code; a write or an edit into .git still refused |
+
+How: Coder's loop sends `cc` with read, grep and glob in Coder's own chats (the same request when one is started early, so it
+runs once), and an @-mention reads with it; the tools script uses Claude Code's ways only then (coder-tools.mjs CC_WAYS,
+coder-search.mjs env.cc). Gloopy's chats send none and keep the earlier ways.
+
+Still different, found while matching (for the owner): a file's path with a "/" at its end, "/etc/hosts/" (Claude Code's Read
+reads the file; Coder's says ENOTDIR); a Mac screenshot's name, "… 9.41.03 AM.png" not found (Claude Code's Read tries the
+narrow no-break space macOS puts before AM or PM, its Nxt); a write into .git (write and edit, outside these tools: Claude Code
+asks, a protected path; Coder refuses).
+
+**Tests:** RM1–RM5 (`coder/test/read-match.test.mjs`) new; OR2, OR4, OR5, OR6 (the question gone) and R6R5 (a missing file's
+words) updated.

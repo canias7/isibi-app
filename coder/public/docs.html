@@ -76,7 +76,7 @@
 
       <section id="read">
         <h2>Read</h2>
-        <p class="dc-lead">Read opens a file in your project and shows it to Coder with line numbers, the way you'd see it in an editor. It never changes anything.</p>
+        <p class="dc-lead">Read opens a file in your project and shows it to Coder with line numbers, the way you'd see it in an editor. It never changes anything. As in Claude Code, it can open the files in your project's <code>.git</code> folder too, and search and file lists can look in there; nothing of Coder's writes to it.</p>
 
         <h3 id="read-text">Text files</h3>
         <ul>
@@ -110,7 +110,8 @@
 
         <h3 id="read-not">What read won't open</h3>
         <ul>
-          <li>A folder: read says it's a folder, and Coder lists what's in it instead.</li>
+          <li>A folder: read gives the system's error for it, <code>EISDIR: illegal operation on a directory</code>, as Claude Code's Read does, and Coder looks inside it another way, such as with <code>ls</code>.</li>
+          <li>A file that isn't there: read says so in Claude Code's words, <code>File does not exist</code>, with the folder Coder's commands are in. When a file with the same name and another ending is there, it asks whether Coder meant that one.</li>
           <li>Binary files such as <code>.zip</code> or <code>.xlsx</code>: Coder is told a way to read each kind.</li>
           <li>Pipes and devices.</li>
         </ul>
@@ -118,8 +119,8 @@
         <h3 id="read-outside">Files outside the project</h3>
         <ul>
           <li>A file outside the project and its working folders, or a link that points out of them, asks you first in Accept edits and Plan, as in Claude Code. You can allow it once, or for its whole folder from then on. Search and file lists work the same way.</li>
-          <li>In Auto, Coder reads them without asking. The first time, it asks once, with Claude Code's four answers: keep allowing, block from now on, or answer just this once either way.</li>
-          <li><b>Block reads outside the working folders</b> in Settings refuses them in every chat. Answering "block" turns it on.</li>
+          <li>In Auto, Coder reads them without asking, as Claude Code does in its cloud sessions.</li>
+          <li><b>Block reads outside the working folders</b> in Settings refuses them in every chat.</li>
         </ul>
 
         <h3 id="read-mentions">Files you mention with @</h3>

@@ -69,9 +69,7 @@ export function savedEffort(saved) {
  *   `autoMode` block, which it reads only from the user's own settings), as JSON text, checked when saved (autoModeSetting);
  * - `denyInstead`: refuse a step that would ask, instead of asking (Claude Code's permissions.denyInsteadOfPrompting).
  * - `blockOutsideReads`: the file tools refuse reads outside the working folders (Claude Code's user setting
- *   permissions.blockReadsOutsideWorkingDirectories; set by Auto's one-time question's "No, and block reads outside the working
- *   directories from now on", or here); `outsideReadsSeen`: that question answered "Yes, and keep allowing any reads outside the
- *   working directories" (its hasSeenAutoModeOutsideReadPrompt), so it is not asked again. 2026-11-18.
+ *   permissions.blockReadsOutsideWorkingDirectories). 2026-11-18.
  * - `autoOff`: Auto mode turned off (Bash docs pass 6; Claude Code's disableAutoMode "disable": "Remove auto mode from the
  *   Shift+Tab cycle. Any session that would otherwise start in auto mode … starts in default instead"): chats start in Accept
  *   edits, Coder's nearest to Claude Code's default mode, and Auto is not offered (noAuto).
@@ -91,7 +89,6 @@ export function prefsOf(saved) {
     // (Prompt suggestions, Claude Code's promptSuggestionEnabled: on unless turned off.)
     suggestOff: s.suggestOff === true,
     blockOutsideReads: s.blockOutsideReads === true,
-    outsideReadsSeen: s.outsideReadsSeen === true,
   };
 }
 /** A mode under the owner's Settings: Auto, with Auto mode turned off, is Accept edits. */
@@ -110,11 +107,10 @@ export function prefsChange(saved, body) {
   if ("autoOff" in b && typeof b.autoOff !== "boolean") return { error: "Turning Auto mode off is on or off." };
   if ("suggestOff" in b && typeof b.suggestOff !== "boolean") return { error: "Prompt suggestions are on or off." };
   if ("blockOutsideReads" in b && typeof b.blockOutsideReads !== "boolean") return { error: "Blocking reads outside the working folders is on or off." };
-  if ("outsideReadsSeen" in b && typeof b.outsideReadsSeen !== "boolean") return { error: "Asking before the first read outside the working folders is on or off." };
-  return { prefs: { bgHours: "bgHours" in b ? Number(b.bgHours) : now.bgHours, endDetached: "endDetached" in b ? b.endDetached : now.endDetached, diskWarnGib: "diskWarnGib" in b ? Number(b.diskWarnGib) : now.diskWarnGib, memWarnGib: "memWarnGib" in b ? Number(b.memWarnGib) : now.memWarnGib, hooks: "hooks" in b ? String(b.hooks).trim() : now.hooks, autoMode: "autoMode" in b ? String(b.autoMode).trim() : now.autoMode, denyInstead: "denyInstead" in b ? b.denyInstead : now.denyInstead, autoOff: "autoOff" in b ? b.autoOff : now.autoOff, suggestOff: "suggestOff" in b ? b.suggestOff : now.suggestOff, blockOutsideReads: "blockOutsideReads" in b ? b.blockOutsideReads : now.blockOutsideReads, outsideReadsSeen: "outsideReadsSeen" in b ? b.outsideReadsSeen : now.outsideReadsSeen }, ...(warnings.length ? { warnings } : {}) };
+  return { prefs: { bgHours: "bgHours" in b ? Number(b.bgHours) : now.bgHours, endDetached: "endDetached" in b ? b.endDetached : now.endDetached, diskWarnGib: "diskWarnGib" in b ? Number(b.diskWarnGib) : now.diskWarnGib, memWarnGib: "memWarnGib" in b ? Number(b.memWarnGib) : now.memWarnGib, hooks: "hooks" in b ? String(b.hooks).trim() : now.hooks, autoMode: "autoMode" in b ? String(b.autoMode).trim() : now.autoMode, denyInstead: "denyInstead" in b ? b.denyInstead : now.denyInstead, autoOff: "autoOff" in b ? b.autoOff : now.autoOff, suggestOff: "suggestOff" in b ? b.suggestOff : now.suggestOff, blockOutsideReads: "blockOutsideReads" in b ? b.blockOutsideReads : now.blockOutsideReads }, ...(warnings.length ? { warnings } : {}) };
 }
 /** What Coder's machine is given of them with each message. */
-export const machinePrefs = (saved) => { const p = prefsOf(saved); return { bgMaxMs: p.bgHours * 3_600_000, endDetached: p.endDetached, diskWarnGib: p.diskWarnGib, memWarnGib: p.memWarnGib, ...(p.denyInstead ? { denyInstead: true } : {}), ...(p.autoOff ? { autoOff: true } : {}), ...(p.suggestOff ? { suggestOff: true } : {}), ...(p.blockOutsideReads ? { blockOutsideReads: true } : {}), ...(p.outsideReadsSeen ? { outsideReadsSeen: true } : {}) }; };
+export const machinePrefs = (saved) => { const p = prefsOf(saved); return { bgMaxMs: p.bgHours * 3_600_000, endDetached: p.endDetached, diskWarnGib: p.diskWarnGib, memWarnGib: p.memWarnGib, ...(p.denyInstead ? { denyInstead: true } : {}), ...(p.autoOff ? { autoOff: true } : {}), ...(p.suggestOff ? { suggestOff: true } : {}), ...(p.blockOutsideReads ? { blockOutsideReads: true } : {}) }; };
 /** The owner's auto mode rules as Coder's machine takes them (Claude Code's autoMode block), or null. */
 export const machineAutoMode = (saved) => { const a = autoModeSetting(prefsOf(saved).autoMode); return a.ok && a.value ? a.value : null; };
 /** The owner's hooks as Coder's machine takes them (`{ hooks, disableAllHooks }`), or null. */

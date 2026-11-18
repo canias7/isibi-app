@@ -3,8 +3,9 @@
 // still prompt for paths outside the working directory and additional directories, apart from files Claude Code itself needs",
 // and "The first time Claude uses the Read, Grep, or Glob tool on a path outside them, Claude Code asks whether to allow that
 // read", read with its program): the tools script reads outside only for a call Coder's loop allowed; in Accept edits and Plan
-// the owner is asked, in Claude Code's words, offered a rule for the folder; in Auto the first such read asks Claude Code's
-// one-time question, its four answers kept in the owner's Settings; the read block still refuses them.
+// the owner is asked, in Claude Code's words, offered a rule for the folder; in Auto it is read, with no question (the owner,
+// 2026-11-18: "match claude code": Claude Code's one-time question isn't asked in its cloud sessions, tried on its own tools);
+// the read block still refuses them.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, mkdtempSync, writeFileSync, symlinkSync } from "node:fs";
@@ -54,14 +55,12 @@ test("OR1 the tools script reads outside the working folders only for a read, gr
   assert.deepEqual([...T.OUTSIDE_TOOLS].sort(), ["glob", "grep", "lsp", "lsp_file", "read"]);
 });
 
-test("OR2 Claude Code's words: its Read's ask for a path outside the working folders (a link out named with where it leads), the rule it offers for the folder; its one-time question's title, question and four answers in its order (read in its program, 2.1.327), its explanation with Coder's names", () => {
+test("OR2 Claude Code's words: its Read's ask for a path outside the working folders (a link out named with where it leads), the rule it offers for the folder; Auto's one-time question is gone (not asked in Claude Code's cloud sessions)", () => {
   assert.equal(P.outsideReadWhy("/etc/hostname"), "Coder requested permissions to read from /etc/hostname, but you haven't granted it yet.");
   assert.equal(P.outsideReadWhy("/w/link", "/etc/hostname"), "Coder requested permissions to read from /w/link, but you haven't granted it yet. /w/link resolves through a symlink to /etc/hostname, which is outside the allowed working directories.");
   assert.equal(P.outsideReadRule("/etc/hostname"), "Read(//etc/**)");
-  assert.equal(P.OUTSIDE_READS_TITLE, "Read outside the working directories");
-  assert.equal(P.OUTSIDE_READS_QUESTION, "Allow this read outside the working directories?");
-  assert.deepEqual(P.OUTSIDE_READS_ANSWERS, [["allow", "Yes, and keep allowing any reads outside the working directories"], ["block", "No, and block reads outside the working directories from now on"], ["ask_again", "No, and ask again next time"], ["allow_once", "Yes, but ask again next time"]]);
-  assert.match(P.OUTSIDE_READS_EXPLAINER, /^Auto mode reads outside the working directories without asking\. Yes or No answers for this read; the rest is for later reads\. Block: the file tools refuse reads outside the working directories in every chat\. Auto mode asks before each shell command it can't check\. To undo, turn off “Block reads outside the working folders” in Settings\.$/);
+  assert.deepEqual([P.OUTSIDE_READS_TITLE, P.OUTSIDE_READS_QUESTION, P.OUTSIDE_READS_ANSWERS, P.OUTSIDE_READS_EXPLAINER], [undefined, undefined, undefined, undefined]);
+  assert.doesNotMatch(readFileSync(HERE("container/coder-agent.mjs"), "utf8"), /outsideReads|outsidereads|outsideSeen/);
 });
 
 test("OR3 in Accept edits and Plan: a read, grep or glob outside the working folders asks first, in Claude Code's words, offering the folder's rule; Yes reads it; the rule's \"don't ask again\" covers the folder after; No refuses; a Read allow rule, or the project's own files, ask nothing; under the read block, refused", async () => {
@@ -84,64 +83,49 @@ test("OR3 in Accept edits and Plan: a read, grep or glob outside the working fol
   assert.match(t.told("c1"), /^error: \/etc\/hostname is outside .*; the CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES setting blocks reads outside the working directories/);
 });
 
-test("OR4 in Auto: reads outside the working folders run without asking, the first after Claude Code's one-time question (read, grep and glob, where someone can answer): keep allowing (not asked again, kept), allow once (asked next time), ask again (refused), block (refused, the read block on, kept); answered before, or no one to answer: no question", async () => {
-  const two = [say("", [call("read", { file_path: "/etc/hostname" })]), say("", [call("glob", { pattern: "host*", path: "/etc" }, "c2")]), say("Done.")];
-  let t = await job(two, { answers: ["allow"], extra: { mode: "auto" } });
-  assert.equal(t.cards.length, 1);
-  const q = t.cards[0];
-  assert.deepEqual([q.outsideReads, q.title, q.question, q.path], [true, "Read outside the working directories", "Allow this read outside the working directories?", "/etc/hostname"]);
-  assert.deepEqual(q.options.map((o) => o.value), ["allow", "block", "ask_again", "allow_once"]);
+test("OR4 in Auto: reads outside the working folders run without asking, as in Claude Code's cloud sessions (read, grep and glob, with someone to answer or not); under the read block, refused", async () => {
+  const two = [say("", [call("read", { file_path: "/etc/hostname" })]), say("", [call("glob", { pattern: "host*", path: "/etc" }, "c2")]), say("", [call("grep", { pattern: ".", path: "/etc/hostname" }, "c3")]), say("Done.")];
+  let t = await job(two, { answers: ["no"], extra: { mode: "auto" } });
+  assert.equal(t.cards.length, 0, "no question, though someone can answer");
   assert.match(t.told("c1"), /^1\t/);
-  assert.match(String(t.told("c2")), /\/etc\/hostname/, "not asked again");
-  assert.deepEqual(t.events.filter((e) => e.type === "outsidereads").map((e) => e.answer), ["allow"]);
-  t = await job(two, { answers: ["allow_once", "allow_once"], extra: { mode: "auto" } });
-  assert.equal(t.cards.length, 2, "asked again next time");
-  assert.equal(t.events.filter((e) => e.type === "outsidereads").length, 0, "nothing kept");
-  t = await job(two, { answers: ["ask_again"], extra: { mode: "auto" } });
-  assert.equal(t.told("c1"), P.REJECTED);
-  t = await job(two, { answers: ["block"], extra: { mode: "auto" } });
-  assert.equal(t.told("c1"), P.REJECTED);
-  assert.deepEqual(t.events.filter((e) => e.type === "outsidereads").map((e) => e.answer), ["block"]);
-  t = await job(two, { answers: ["allow"], extra: { mode: "auto", outsideSeen: true } });
-  assert.equal(t.cards.length, 0, "answered \"keep allowing\" before");
-  assert.match(t.told("c1"), /^1\t/);
+  assert.match(String(t.told("c2")), /\/etc\/hostname/);
+  assert.match(String(t.told("c3")), /hostname/);
+  assert.equal(t.events.filter((e) => e.type === "outsidereads").length, 0);
   t = await job(two, { extra: { mode: "auto" } });
-  assert.equal(t.cards.length, 0, "no one to answer: read, as Claude Code's background sessions do");
+  assert.equal(t.cards.length, 0, "no one to answer: read too");
   assert.match(t.told("c1"), /^1\t/);
+  t = await job(two, { answers: ["yes"], extra: { mode: "auto", readBlock: true } });
+  assert.equal(t.cards.length, 0);
+  assert.match(t.told("c1"), /^error: \/etc\/hostname is outside .*; the CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES setting blocks reads outside the working directories/);
 });
 
-test("OR5 the answers kept in the owner's Settings by Coder's server (\"keep allowing\" its hasSeenAutoModeOutsideReadPrompt, \"block\" its permissions.blockReadsOutsideWorkingDirectories), given to every later job; the read block a Settings switch", async () => {
+test("OR5 the read block a Settings switch (Claude Code's permissions.blockReadsOutsideWorkingDirectories), given to every later job; nothing of the one-time question kept by Coder's server any more", async () => {
   const L = await import("../src/coder-live.mjs");
   const R = await import("../src/coder-routes.mjs");
-  const m = new Map();
-  const b = { get: async (k) => (m.has(k) ? { text: async () => m.get(k) } : null), put: async (k, v) => { m.set(k, v); } };
-  m.set("coder/u1/settings.json", JSON.stringify({ mode: "auto", denyInstead: false }));
-  assert.equal(await L.keepOutsideAnswers(b, "u1", [{ type: "text" }]), false);
-  assert.equal(await L.keepOutsideAnswers(b, "u1", [{ type: "outsidereads", answer: "allow" }]), true);
-  assert.deepEqual(JSON.parse(m.get("coder/u1/settings.json")), { mode: "auto", denyInstead: false, outsideReadsSeen: true });
-  await L.keepOutsideAnswers(b, "u1", [{ type: "outsidereads", answer: "block" }]);
-  const saved = JSON.parse(m.get("coder/u1/settings.json"));
-  assert.deepEqual([saved.outsideReadsSeen, saved.blockOutsideReads], [true, true]);
-  assert.deepEqual([R.prefsOf(saved).blockOutsideReads, R.prefsOf(saved).outsideReadsSeen], [true, true]);
-  assert.deepEqual([R.machinePrefs(saved).blockOutsideReads, R.machinePrefs(saved).outsideReadsSeen], [true, true]);
+  const saved = { mode: "auto", blockOutsideReads: true, outsideReadsSeen: true };
+  assert.equal(R.prefsOf(saved).blockOutsideReads, true);
+  assert.equal(R.machinePrefs(saved).blockOutsideReads, true);
+  assert.equal("outsideReadsSeen" in R.prefsOf(saved), false, "an answer kept before is not read any more");
+  assert.equal("outsideReadsSeen" in R.machinePrefs(saved), false);
   assert.equal(R.prefsChange(saved, { blockOutsideReads: false }).prefs.blockOutsideReads, false, "turned off in Settings");
   assert.equal(R.prefsChange(saved, { blockOutsideReads: "yes" }).error, "Blocking reads outside the working folders is on or off.");
+  assert.equal("outsideReadsSeen" in R.prefsChange(saved, { blockOutsideReads: true }).prefs, false);
+  assert.equal(L.keepOutsideAnswers, undefined);
   const server = readFileSync(HERE("container/server.mjs"), "utf8");
-  assert.match(server, /readBlock: varOn\(rawVars\.CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES\) \|\| repoSet\.blockReads \|\| PREFS\.blockOutsideReads === true, outsideSeen: PREFS\.outsideReadsSeen === true,/);
-  assert.match(server, /blockOutsideReads: x\.blockOutsideReads === true,\n    outsideReadsSeen: x\.outsideReadsSeen === true,/);
-  assert.match(readFileSync(HERE("src/coder-live.mjs"), "utf8"), /await keepOutsideAnswers\(bucket, uid, fresh\)\.catch\(\(\) => false\);/);
+  assert.match(server, /readBlock: varOn\(rawVars\.CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES\) \|\| repoSet\.blockReads \|\| PREFS\.blockOutsideReads === true, writeBlock: /);
+  assert.match(server, /blockOutsideReads: x\.blockOutsideReads === true,\n/);
+  assert.doesNotMatch(server, /outsideReadsSeen|outsideSeen/);
+  assert.doesNotMatch(readFileSync(HERE("src/coder-live.mjs"), "utf8"), /keepOutsideAnswers|outsidereads/);
 });
 
-test("OR6 the page: the one-time question's card (Claude Code's title, question, explanation and four answers) and how it ended; the Settings switch; the machine and a paused job take its answers", async () => {
+test("OR6 the page: no one-time question's card any more; the Settings switch stays; the machine and a paused job take only the usual answers", async () => {
   const js = readFileSync(HERE("public/coder.js"), "utf8");
-  assert.match(js, /if \(e\.outsideReads && Array\.isArray\(e\.options\)\) return e\.options\.filter/);
-  assert.match(js, /e\.outsideReads && e\.title \? esc\(e\.title\)/);
-  assert.match(js, /e\.outsideReads && e\.question \? esc\(e\.question\)/);
-  assert.match(js, /if \(c === 'block'\) return '<span class="cd-perm-no">✕ Not allowed<\/span> · reads outside the working folders are blocked from now on \(Settings\)';/);
-  assert.match(js, /\(e\.tool === 'web_fetch' \|\| e\.outsideReads \? '' : '<input type="text" class="cd-perm-note"/, "no note on it: its answers carry none in Claude Code");
+  assert.doesNotMatch(js, /outsideReads|allow_once|ask_again/);
+  assert.match(js, /\(e\.tool === 'web_fetch' \? '' : '<input type="text" class="cd-perm-note"/);
   assert.match(js, /id="cdSetBlockReads"[\s\S]{0,200}Block reads outside the working folders/);
   assert.match(js, /\$\('cdSetBlockReads'\)\.onchange = \(e\) => save\('blockOutsideReads', e\.currentTarget\.checked\);/);
-  assert.match(readFileSync(HERE("container/server.mjs"), "utf8"), /"approved", "refused", "allow", "block", "ask_again", "allow_once"\]\.includes\(choice\)/);
+  assert.match(readFileSync(HERE("container/server.mjs"), "utf8"), /\["yes", "always", "auto", "acceptEdits", "no", "saved", "answers", "skip", "approved", "refused"\]\.includes\(choice\)/);
   const { parkAnswer } = await import("../container/coder-park.mjs");
-  assert.deepEqual(["allow", "block", "ask_again", "allow_once"].map((c) => parkAnswer("permission", { choice: c }).choice), ["allow", "block", "ask_again", "allow_once"]);
+  assert.deepEqual(["allow", "block", "ask_again", "allow_once"].map((c) => parkAnswer("permission", { choice: c })), [null, null, null, null]);
+  assert.equal(parkAnswer("permission", { choice: "yes" }).choice, "yes");
 });

@@ -4,6 +4,26 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-18: Read, grep and glob now match Claude Code's own tools (your words: "match claude code")
+
+I tried the same cases on Claude Code's real tools in this session and matched all four differences:
+
+1. **No more first-time question in Auto.** Claude Code's cloud sessions read files outside the project without asking anything, so Coder does too. The question's card, its four answers and the saved "keep allowing" answer are gone. The Settings switch "Block reads outside the working folders" stays: Claude Code has the same setting.
+2. **A file that isn't there:** read now says Claude Code's words: "File does not exist. Note: your current working directory is …". Like Claude Code, it adds "Did you mean notes.md?" when a file with the same name and another ending is there.
+3. **A folder:** read now gives the raw system error, as Claude Code does: "EISDIR: illegal operation on a directory, read '/etc'". It even copies Claude Code's quirk: "/etc/" shows as '/etc//'.
+4. **The `.git` folder:** read, grep and glob can now look inside it, as Claude Code's can. Like Claude Code, grep still skips `.git` when it searches a whole folder, unless a filter such as "*" brings it back. Nothing writes to `.git`.
+
+I also found and matched one more: a path that goes through a file ("notes.md/x") now gets Claude Code's raw words, "ENOTDIR: not a directory, open '…'".
+
+Still different (tell me if you want these matched too):
+- A file path with a "/" at the end ("/etc/hosts/"): Claude Code reads the file. Coder says ENOTDIR.
+- Mac screenshot names: when "Screenshot … 9.41.03 AM.png" isn't found, Claude Code also tries the narrow space macOS puts before "AM". Coder doesn't.
+- Writing into `.git` (write and edit, outside these tools): Claude Code asks first. Coder refuses, as before.
+
+Gloopy is untouched: its read, grep and glob keep the old words and still stay out of `.git`.
+
+The docs page's Read part says all this now.
+
 ## 2026-11-18: Reading files outside the project works like Claude Code (your words: "Yes pls")
 
 Before, Coder's read, grep and glob refused any file outside the project and its working folders. Claude Code asks first. Now Coder does it Claude Code's way:
