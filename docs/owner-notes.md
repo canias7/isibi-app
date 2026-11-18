@@ -21,7 +21,7 @@ Unchanged: Coder still won't read a project's `.git` folder (Claude Code would).
 
 The docs page has a new part, "Files outside the project", under Read.
 
-Tests: OR1 to OR6 are new. Five older tests were updated for the new behavior. All 1,363 pass. On this chat's branch.
+Tests: OR1 to OR6 are new. Six older tests were updated for the new behavior. All 1,363 pass. On this chat's branch, deployed to coder2 (deploy 254). Not tried in a live chat with Grok yet (coder2's GitHub sign-in).
 
 ## 2026-11-18: send_user_file matches Claude Code everywhere, checked against its docs (your words: "Match Claude Code", "double check against the Claude Code docs")
 

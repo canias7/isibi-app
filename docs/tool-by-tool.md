@@ -980,4 +980,4 @@ inside the project; Gloopy is as it was ("Dont touch gloopy for now").
 
 **Tests:** OR1–OR6 (`coder/test/outside-reads.test.mjs`); R6R5 (a `~` path outside the project, read in Auto), CD392 and RS13
 (the machine's code), CD380 (Settings), CD248 (the docs page's new part) updated. WF20 (the card's note box, now left off this question too). The full suite: 1363 pass, 4 skipped,
-0 fail.
+0 fail. Deployed to coder2 (deploy 254); not tried in a live chat (coder2's GitHub sign-in).
