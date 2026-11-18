@@ -7528,7 +7528,8 @@ test("GL140 (2026-11-13) the Vault's cards and contact info on Coder's Worker (o
   assert.equal(sealed.length, 1);
   assert.ok(!sealed[0][1].includes("4242") && !sealed[0][1].includes("777"), "kept sealed");
   const page = JSON.stringify(await (await go("gloopy")).json()) + JSON.stringify(await (await go("projects/" + GLOOPY_ID + "/cards")).json());
-  assert.ok(!page.includes("424242424242") && !page.includes("555555555555") && !page.includes("777"), "the page never gets a number or a code");
+  // (The code alone, never inside a longer number: the page's timestamps can hold "777" by chance.)
+  assert.ok(!page.includes("424242424242") && !page.includes("555555555555") && !/(?<![0-9])777(?![0-9])/.test(page), "the page never gets a number or a code");
 
   // 2. A CARD FROM A PHOTO: read once, its words back to the owner's own page; nothing kept.
   d = await (await post("cards", { scan: { type: "image/jpeg", data: "AAAABBBB" } })).json();

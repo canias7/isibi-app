@@ -4,6 +4,16 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-18: A setup longer than about 5 minutes isn't saved as a copy, like Claude Code
+
+You said "match pls". Claude Code's docs: "When setup completes within roughly five minutes, Anthropic snapshots the filesystem", and "When setup takes longer than that, the environment isn't cached." Coder saved the copy however long the setup took. Now it only saves one when the setup finished within about 5 minutes. A longer setup runs in every new chat, as in Claude Code.
+
+The Setup script editor now says so: "Keep it under about 5 minutes. Then Coder saves a copy of what it set up, and new chats start from that copy without running it again. A longer one runs in every new chat."
+
+Tests: CD153b in `coder/test/setup-copy.test.mjs`.
+
+Also: the Gloopy test GL140 sometimes failed by chance. It checked that the page never shows a card's security code ("777"), but the page's timestamps can contain 777 too. Now it only looks for 777 on its own.
+
 ## 2026-11-18: Why new chats never started from env-test's saved copy, and the fix
 
 Three new chats in env-test each ran the setup script, and none started from the environment's saved copy. The cause:

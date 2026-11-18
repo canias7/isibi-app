@@ -467,3 +467,32 @@ test("CD152b a new chat's machine started early (/warm) asks Fly.io about a copy
   await E.writeEnvCache(bucket, UID, "default", { ...r0, key: "f".repeat(64) });
   assert.deepEqual([await warm(), asked], [without, []]);
 });
+
+test("CD153b a setup that took longer than about five minutes is not saved as the environment's copy, as Claude Code's (the owner, 2026-11-18: \"match pls\"; its docs: \"When setup takes longer than that, the environment isn't cached\"): the job runs as usual, and the next new chat runs the setup itself; one within the limit is saved", async () => {
+  const S = await import("../container/server.mjs");
+  assert.equal(S.COPY_SETUP_MAX_MS, 5 * 60 * 1000, "about five minutes");
+  // (The limit made small here: a setup taking ~0.4 s is "too long" against 100 ms.)
+  const slow = await diskMachine({ holdMs: 60_000, copySetupMaxMs: 100 });
+  try {
+    assert.deepEqual(await slow.turn("shop-slo1", { setup: { script: "sleep 0.4; echo setup-ran" }, cache: { make: true } }), { ok: true });
+    const s = await slow.done("shop-slo1");
+    assert.equal(s.result.status, "done");
+    assert.ok(s.events.some((e) => e.tool === "setup"), "the setup ran");
+    assert.equal(s.result.copy, undefined, "not saved");
+    assert.equal(existsSync(join(slow.data, S.COPY_NOTE)), false);
+  } finally { await slow.close(); }
+  // Within the limit: saved, as before.
+  const quick = await diskMachine({ holdMs: 60_000, copySetupMaxMs: 60_000 });
+  try {
+    await quick.turn("shop-qck1", { setup: { script: "echo setup-ran" }, cache: { make: true } });
+    assert.equal((await quick.done("shop-qck1")).result.copy, true);
+  } finally { await quick.close(); }
+  // The rule in the machine's own words.
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync(new URL("../container/server.mjs", import.meta.url), "utf8");
+  assert.ok(src.includes('copyInfo !== "late" && setupTook >= 0 && setupTook <= copySetupMaxMs);'));
+  // Said where the script is written, as Claude Code's docs say it ("keep the script's total runtime under roughly five
+  // minutes so the environment cache can build").
+  const page = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
+  assert.ok(page.includes("Keep it under about 5 minutes. Then Coder saves a copy of what it set up, and new chats start from that copy without running it again. A longer one runs in every new chat."));
+});

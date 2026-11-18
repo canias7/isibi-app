@@ -3113,6 +3113,12 @@ export const USED_NOTE = ".coder-used";
 /** How long a job waits for the Worker's go while its disk is saved; then it goes on by itself. */
 export const HOLD_MS = 2 * 60 * 1000;
 /**
+ * A SETUP THAT TOOK LONGER IS NOT SAVED AS THE ENVIRONMENT'S COPY (the owner, 2026-11-18: "match pls"; Claude Code's cloud
+ * environments docs: "When setup completes within roughly five minutes, Anthropic snapshots the filesystem", and "When setup
+ * takes longer than that, the environment isn't cached"): new chats then run the setup themselves, as before.
+ */
+export const COPY_SETUP_MAX_MS = 5 * 60 * 1000;
+/**
  * THE COPY'S NOTE, WRITTEN AT THE TURN'S END (2026-11-15; before, the job waited for the copy before it began): root's own
  * file on the kept disk, then all of it written out (sync, at most 20 seconds, never blocking this machine). True when written.
  */
@@ -3666,7 +3672,7 @@ export function wakeStarters(jobs, { cont = (pid) => { try { process.kill(pid, "
 /** Why the gate didn't start when the environment's CODER_TEST_NETWORK_GATE_FAIL switch is on (a test of its failing closed). */
 export const GATE_TEST_FAIL = "switched off for a test: the environment sets CODER_TEST_NETWORK_GATE_FAIL";
 
-export function createApp({ kept = null, gitVia = false, modelVia = false, liveFetch = null, setupRoot = null, keepaliveMs = KEEPALIVE_MS, streamMs = SCREEN_STREAM_MS, root = PROJECT_ROOT, env = process.env, send = null, remote = DEFAULT_REMOTE, gitRoot = GIT_ROOT, memRoot = MEM_ROOT, bgRoot = BG_DIR, proxyDir = "/srv/coder-proxy", proxyOpts = {}, apt = null, home = null, room = false, sandbox = false, data = null, image = "", holdMs = HOLD_MS, parkMs = 0, copyNeedsBox = true, checker = false, hookQuietMs = 10_000, browserRoot = null, vaultFetch = null, filesFetch = null } = {}) {
+export function createApp({ kept = null, gitVia = false, modelVia = false, liveFetch = null, setupRoot = null, keepaliveMs = KEEPALIVE_MS, streamMs = SCREEN_STREAM_MS, root = PROJECT_ROOT, env = process.env, send = null, remote = DEFAULT_REMOTE, gitRoot = GIT_ROOT, memRoot = MEM_ROOT, bgRoot = BG_DIR, proxyDir = "/srv/coder-proxy", proxyOpts = {}, apt = null, home = null, room = false, sandbox = false, data = null, image = "", holdMs = HOLD_MS, copySetupMaxMs = COPY_SETUP_MAX_MS, parkMs = 0, copyNeedsBox = true, checker = false, hookQuietMs = 10_000, browserRoot = null, vaultFetch = null, filesFetch = null } = {}) {
   // The setup script's packages are installed as root (this service's own user), never as `dev`.
   const aptRun = apt || ((dir, command, timeoutS, o) => execIn(dir, command, timeoutS, { ...o, uid: null, gid: null, kill: true, extraEnv: { DEBIAN_FRONTEND: "noninteractive" } }));
   const sendFn = send || coderSend(env);
@@ -4540,7 +4546,9 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     // stuck. The job starts at once; the copy's note is written when the turn ENDS, the disk synced, and the Worker then has
     // Fly.io save the disk, in the background: copyAtEnd.)
     // (Not when a finished copy of this setup was offered too late for this disk: "late". That copy stays the environment's.)
-    const copyWanted = !!(data && body.cache && body.cache.make === true && fresh && setupRan && !setupFailed && (t.box || !copyNeedsBox) && copyInfo !== "late");
+    // (Nor when the setup took longer than about five minutes, as Claude Code's: COPY_SETUP_MAX_MS.)
+    const setupTook = Number(t.timing.setupEnd) - Number(t.timing.setupStart);
+    const copyWanted = !!(data && body.cache && body.cache.make === true && fresh && setupRan && !setupFailed && (t.box || !copyNeedsBox) && copyInfo !== "late" && setupTook >= 0 && setupTook <= copySetupMaxMs);
     if (copyWanted) t.copyWanted = { sha: setupSha(script, net) };
     t.timing.ready = Date.now();
     setPhase(t, "ready");
