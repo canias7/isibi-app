@@ -16,6 +16,8 @@ Gloopy is untouched.
 
 Still different (tell me if you want it matched): in Plan mode, Coder asks you before every write. When Claude Code's checker is reviewing during planning, it sends a write to a protected folder to the checker instead (other writes still ask).
 
+The docs page says this under Write and Edit. Tests: PW1 to PW6 are new; four older tests were updated. All 1,378 pass. On this chat's branch, deployed to coder2 (deploy 260). Not tried in a live chat with Grok yet (coder2's GitHub sign-in).
+
 ## 2026-11-18: The three leftover differences, matched (your word: "match")
 
 I checked each one on Claude Code's real tools and in its program first, then matched it:

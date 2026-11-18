@@ -1064,4 +1064,5 @@ during planning (its docs' table: "routed to the classifier when auto mode is av
 Coder's Plan asks for every write, as before.
 
 **Tests:** PW1–PW6 (`coder/test/protected-writes.test.mjs`) new; RM1, CD36, CD377 and RS1 (the places a check's block is
-handled, one more) updated.
+handled, one more) updated. The full suite: 1378 pass, 4 skipped, 0 fail. Deployed to coder2 (deploy 260): its docs page has
+the new words. Not tried in a live chat (coder2's GitHub sign-in).
