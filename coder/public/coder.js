@@ -1831,7 +1831,7 @@
       S.ending = S.running && (!!r.data.ending || !!S.ending);
       syncEntry();
       draw(fresh.length > 0);
-      if (justEnded && S.project && S.project.id === id && marksOff()) reloadChat(id);
+      if (justEnded && S.project && S.project.id === id && marksOff()) reloadChat(id, { ended: true });
     }
     // (The answer shown, the turn now being saved: looked at again at once. 2026-11-15.)
     // (And while the answer is still coming in: new text from Coder, looked at again 300 ms later. 2026-11-16.)
@@ -1840,9 +1840,13 @@
 
   // SAVED ELSEWHERE (another tab, or Coder's every-minute run while no tab was
   // open): the saved chat is loaded, with the save's own lines.
-  async function reloadChat(id) {
+  // (`ended`: the page already saw this job end, so a chat still being saved is not a running one: only its steps and
+  // marks are taken, and the page does not wait on it again. Live, 2026-11-17: taken as running, the page sat for 5 minutes.)
+  async function reloadChat(id, { ended = false, tries = 0 } = {}) {
     const r = await call('/projects/' + encodeURIComponent(id));
     if (r.status !== 200 || !r.data || !r.data.project || !S.project || S.project.id !== id) return;
+    if (ended && S.running) return;
+    if (ended && r.data.project.status === 'running') { if (tries < 5) setTimeout(() => reloadChat(id, { ended: true, tries: tries + 1 }), 3000); return; }
     S.project = r.data.project; S.events = r.data.events || []; S.queue = r.data.queue || []; if (Array.isArray(r.data.shellHistory)) S.shellHist = r.data.shellHistory;
     if (GLOOPY) S.sched = null;
     S.running = S.project.status === 'running';

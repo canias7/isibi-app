@@ -10,6 +10,8 @@ Group 2 retest: after several jobs in one open chat, the Undo button under the b
 
 Tests: `coder/test/undo-button-reload.test.mjs`.
 
+The first live run after this fix found a side effect: the page sometimes reloaded the chat while Coder's save was still finishing, took it as still running, and sat busy for 5 minutes after a one-line answer. The rewind menu also closed under the test's click. Now the reload never makes the page wait again: if the save is still finishing, it looks again 3 seconds later (up to 5 times), and it is skipped if a new job has begun. The Undo button itself worked in that run.
+
 ## 2026-11-17: Groups 1-3 retested with the new push; one fix
 
 Groups 1 and 3 passed with the push inside the job. In group 2, the first push of a new chat took 37 seconds (GitHub was busy, so it was retried) and was then reported as "nothing new to push", although it had gone through. Coder believed the push had failed, tried git by hand and went off track for 9 minutes. A push of a new commit is now reported as pushed even when it only got through on a retry. Running the undo steps again on their own worked: undo ✓ and the file was back as before.

@@ -133,7 +133,7 @@ test("CD114 wiring: every minute the Worker runs the watch list beside @coder's 
   const page = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
   assert.match(page, /'Gloopy is working… you can close this tab' : 'Enter to send, Ctrl\+Enter to queue for later'/);
   assert.match(page, /if \(r\.data\.reload\) \{ if \(r\.data\.project\) S\.project = r\.data\.project; S\.running = false; syncEntry\(\); draw\(\); reloadChat\(id\); return false; \}/, "shown as done at once, then the saved chat");
-  assert.match(page, /async function reloadChat\(id\) \{\n\s+const r = await call\('\/projects\/' \+ encodeURIComponent\(id\)\);/);
+  assert.match(page, /async function reloadChat\(id, \{ ended = false, tries = 0 \} = \{\}\) \{\n\s+const r = await call\('\/projects\/' \+ encodeURIComponent\(id\)\);/);
 });
 
 test("CD115 never asleep with work on it, the old builder's way (owner: \"we had something like that on the previous builder\"): the machine says whether a job is working or waiting to be saved, and only that keeps it awake, for a limited time", async () => {
