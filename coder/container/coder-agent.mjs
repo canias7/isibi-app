@@ -65,7 +65,7 @@ import { psDescription, psCommand, psSleepWhat } from "./coder-ps.mjs";
 import { psParseResult, psParseFail, psExitOf, PS_PARSE_RETRYABLE, psCommands, psFileRedirections, psCmdlet, psWriteTargets } from "./coder-psparse.mjs";
 import { posix as pathPosix } from "node:path";
 import { checkAction, actionShown, autoDenied, checkUnavailable, blockedShown, limitWhy, checkerState, countBlock, countAllowed, resume, droppedInAuto, NO_VERDICT, NO_VERDICT_STOP, NOT_RUN_ROW, STOPPED_NO_VERDICT, noVerdictTold, noVerdictStopTold, NO_VERDICT_STOP_SHOWN, noVerdictWait, rmUnanswered, rmAnswered, noPromptDenied } from "./coder-checker.mjs";
-import { psDecision, psPlanFile, toolGlob, MODES, MODE_NAMES, normMode, bashDecision, MONITOR_SETTINGS, namedForMonitor, fetchDecision, fileToolDecision, fileRuleHit, readCommand, fileCommandTargets, parseRule, allowRuleCovers, readBlockWhy, sensitiveWhy, linkOutWhy, ruleAskWhy, askedWhy, hookAskWhy, hookAskTold, planWriteWhy, planCallWhy, ccPath, RULE_MAX, REJECTED, REJECTED_SAID, NOT_NOW, PLAN_NOTE, PLAN_EXITED, AUTO_NOTE, AUTO_EXITED, planApproved, wholeReadOnly, movesWorkTree, monitorRules, partsAllowedByRules, discardsWork, wsDecision, wsProblem, wsAskText, wholeRule, MONITOR_BASH_DENIED, toolSearchParamRule, toolSearchParamDenied, resourceParamRule, paramDenied, outsideReadWhy, outsideReadRule } from "./coder-perms.mjs";
+import { psDecision, psPlanFile, toolGlob, MODES, MODE_NAMES, normMode, bashDecision, MONITOR_SETTINGS, namedForMonitor, fetchDecision, fileToolDecision, fileRuleHit, readCommand, fileCommandTargets, parseRule, allowRuleCovers, readBlockWhy, sensitiveWhy, sensitiveViaWhy, linkOutWhy, ruleAskWhy, askedWhy, hookAskWhy, hookAskTold, planWriteWhy, planCallWhy, ccPath, RULE_MAX, REJECTED, REJECTED_SAID, NOT_NOW, PLAN_NOTE, PLAN_EXITED, AUTO_NOTE, AUTO_EXITED, planApproved, wholeReadOnly, movesWorkTree, monitorRules, partsAllowedByRules, discardsWork, wsDecision, wsProblem, wsAskText, wholeRule, MONITOR_BASH_DENIED, toolSearchParamRule, toolSearchParamDenied, resourceParamRule, paramDenied, outsideReadWhy, outsideReadRule } from "./coder-perms.mjs";
 // (Claude Code's plan mode and ExitPlanMode, with its plan file: the owner, 2026-11-14, "Do all the talk to you tools execpt
 // for the notify one".)
 import { EXIT_PLAN_TOOL, EXIT_PLAN_TOOL_NO_FILE, planModeNote, planModeSparse, planKind, planReminderDue, planExitOwed, autoNoteOwed, autoExitOwed, planExitedNote, planReentryNote, planInput, checkPlanInput, NOT_IN_PLAN_MODE, PLAN_SHOW_MAX, PLAN_WITHHELD, ENTER_PLAN_TOOL, ENTERED_PLAN, ENTERED_PLAN_TEXT, ENTERED_PLAN_SHOWN, checkEnterPlanInput, planFileReference } from "./coder-plan.mjs";
@@ -2997,6 +2997,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
    */
   const CC_NAMES = new Set(["read", "grep", "glob", "write", "edit", "notebook_edit"]);
   const ccWays = (name) => (!offered && CC_NAMES.has(name) ? { cc: true } : {});
+  /** A full path as the chat's working folder that holds it names it ("." for the folder), or "" outside them all. */
+  const inWorkdirs = (p) => { if (typeof p !== "string" || !p) return ""; const w = workdirs.find((d) => p === d || p.startsWith(d.replace(/\/+$/, "") + "/")); return w === undefined ? "" : p === w ? "." : p.slice(w.replace(/\/+$/, "").length + 1); };
   /** Whether one of the owner's Read allow rules covers a path (Claude Code's mMt, after the working folders). */
   const readAllows = (full) => !!fileRuleHit(ownRules.allow, "Read", full, "allow", { sources: ownRules.sources, root: deps.root || "/", cwd: ruleCwd(), home: deps.home || "", real: (y) => realPath(y), roots: workdirs.slice(1) });
   const sendFiles = async (files) => {
@@ -4692,7 +4694,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       // (notebook_edit's: its notebook, the cell and the kind of edit, for Claude Code's checks of them; it is always read first.)
       const checked = name === "notebook_edit" ? { notebook_path: a.notebook_path, ...(a.cell_id !== undefined ? { cell_id: a.cell_id } : {}), ...(a.cell_type !== undefined ? { cell_type: a.cell_type } : {}), ...(a.edit_mode !== undefined ? { edit_mode: a.edit_mode } : {}) }
         : name === "write" ? { path: p } : { path: p, old_string: typeof a.old_string === "string" ? a.old_string : a.old_str, new_string: typeof a.new_string === "string" ? a.new_string : a.new_str, replace_all: a.replace_all };
-      const req = { tool: "file_check", args: { tool: name, args: checked, ...(guard ? { guard: true } : {}) } };
+      // (With Claude Code's ways, `cc`: these checks run only in Coder's own chats, fileFirst. coder-tools.mjs writePath.)
+      const req = { tool: "file_check", args: { tool: name, args: checked, ...(guard ? { guard: true } : {}) }, ctx: { cc: true } };
       const b64 = Buffer.from(JSON.stringify(req)).toString("base64");
       let r;
       try { r = await deps.exec({ command: "node --no-warnings " + TOOLS_SCRIPT + " " + (b64.length > 100_000 ? "@REQUEST" : b64), timeoutS: 60, tool: true, here: true, ...(b64.length > 100_000 ? { payload: JSON.stringify(req) } : {}) }); } catch { return ""; }
@@ -6777,7 +6780,17 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // protected paths; permission-modes: ".claude, with a few exceptions, such as: … The current session's own plan files
         // in ~/.claude/plans/, or in the plansDirectory you set". Only this chat's file. D3, round 4, 2026-11-14.)
         const ownPlanFile = !!guarded && !!planPath() && targetFor(c.name, args) === planPath();
-        const why = guarded && !ownPlanFile ? protectedFile(guarded) : "";
+        const whyOwn = guarded && !ownPlanFile ? protectedFile(guarded) : "";
+        // A WRITE THAT REACHES A PROTECTED FOLDER ONLY THROUGH A LINK (Claude Code 2.1.327's symlink check: such a write "prompts
+        // you when the path Claude requested isn't itself protected", in every mode, never by its classifier; its words, "… which
+        // is a sensitive file. <path> resolves through a symlink to <where it leads>."; the owner, 2026-11-18: "match"): where
+        // the path really leads, as the chat's working folders name it, is protected. Coder's own chats (Gloopy's as they were).
+        const fullW = writes && typeof pathArg === "string" && pathArg && !ownPlanFile ? targetFor(c.name, args) : "";
+        const leadsW = !offered && fullW && !whyOwn ? leadsTo(fullW, workdirs, (x) => realPath(x)) : "";
+        const viaW = leadsW && leadsW !== fullW && protectedFile(inWorkdirs(leadsW)) ? leadsW : "";
+        const why = whyOwn || (viaW ? protectedFile(inWorkdirs(viaW)) : "");
+        // (Its words, Claude Code's Write's and Edit's, by the path in full; through a link, where it leads too.)
+        const protWhy = () => (viaW ? sensitiveViaWhy(ccPath(fullW), ccPath(viaW)) : sensitiveWhy(ccPath(targetFor(c.name, args))));
         // What a write or an edit would do, for its card: a write's lines; an edit's old lines taken out and new ones put in.
         // A Windows line ending is not part of the line shown (live test, 2026-11-09: a hidden "\r" on each line).
         // A LONG LINE SHOWS IT WAS CUT (the owner, 2026-11-09: "Ok yea fix that"; Claude Code: "Fixed the file edit permission
@@ -6810,7 +6823,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
             // (Told in Claude Code's words since round 6, the ask itself, as its run with no one to answer returns it: Write's and
             // Edit's check of a protected path, "Coder requested permissions to edit <path> which is a sensitive file." (a .claude
             // folder's settings file: "… to write to <path>, but you haven't granted it yet."), by the path in full.)
-            const m = sensitiveWhy(ccPath(targetFor(c.name, args)));
+            const m = protWhy();
             emit({ type: "bash", id: c.id, tool: c.name, verb: spec.verb, command: shownPath }); emit({ type: "result", id: c.id, code: 1, ran: false, output: m }); reply(m); continue;
           }
           // (A machine that cannot wait for an answer asks as Coder did before the modes: the turn ends with the card.)
@@ -6933,10 +6946,43 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
             }
           }
         }
+        // PROTECTED-PATH WRITES IN AUTO (Claude Code's protected paths, its docs' table: auto "Routed to the classifier, which
+        // decides", for its Write, Edit and NotebookEdit as for commands, an allow rule or not; the owner, 2026-11-18: "match"):
+        // the checker judges a write, an edit or a notebook edit of a protected file, as it judges a command that writes one,
+        // shown it as Claude Code shows its classifier one (coder-checker.mjs actionShown). One reached only through a link still
+        // asks (viaW), and so does one an ask rule or hook asks about, one in a job from GitHub (refused above) and one with no
+        // checker; at auto mode's limit of blocks, or with the mode switched while it was judged, the card. Coder's own chats.
+        let writeLimit = null, writeSwitched = false, writeChecked = false;
+        const checkStW = checkerState(...checkKey());
+        if (!c.rerun && checker && !offered && writes && whyOwn && !viaW && !github && !ruleAsk && !emailNo && modeT === "auto" && !ownerAllowed(convo, guarded)) {
+          const writeAction = actionShown(c.name, args);
+          const writeKey = c.name + "\n" + JSON.stringify(args);
+          if (declinedAgain(c, writeKey, c.name, reply)) continue;
+          await pauseMs(noVerdictWait(noVerdictRow));
+          const v = await checkAction(deps, { model, convo, skipId: c.id, context, notes: checkerNotes, action: writeAction, mode: "auto", repo: (checkWhere && checkWhere.repo) || "", branch: (checkWhere && checkWhere.branch) || "", workdir: deps.root || "", auto: autoMode });
+          if (v.usage) usage.push(v.usage);
+          const modeAfterW = modeNow();
+          if (modeAfterW !== modeT && !modeChecks(modeAfterW)) writeSwitched = true;
+          else if (v.error) {
+            if (await noVerdict(c, v, c.name, writeKey, reply)) return stopNoVerdict(i);
+            continue;
+          } else {
+            noVerdictRow = 0;
+            if (v.decision === "block") {
+              const lim = countBlock(checkStW), why0 = "[" + v.rule + "]" + (v.reason ? " " + v.reason : "");
+              if (!lim) { emit({ type: "result", id: c.id, code: -1, ran: false, output: blockedShown(v.rule, v.reason) }); refusedReply(c, reply, autoDenied(why0) + await deniedHooks(c, why0)); continue; }
+              refusedAtLimit(c, reply, v);
+              writeLimit = { st: checkStW, why: limitWhy(lim, why0, "tool") };
+            } else {
+              countAllowed(checkStW);
+              writeChecked = true;
+            }
+          }
+        }
         // (In Plan, the chat's plan file is the one file written without asking: Claude Code's plan mode, "NOTE that this is the
         // only file you are allowed to edit". The owner, 2026-11-14.)
         const toPlanFile = writes && !!planPath() && targetOf() === planPath();
-        const fileAsk = !c.rerun && writes && !github && ((why && !ownerAllowed(convo, guarded)) || (modeT === "plan" && !toPlanFile));
+        const fileAsk = !c.rerun && writes && !github && ((why && !ownerAllowed(convo, guarded) && !writeChecked) || (modeT === "plan" && !toPlanFile));
         let approval = null;
         // (A hook's allow skips a page fetch's question, never a rule's.)
         // (Nor one Plan's checker approved: it is not asked about again.)
@@ -6947,7 +6993,6 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           // "Coder requested permissions to edit <path> which is a sensitive file." (sensitiveWhy), and plan mode's, "Cannot write
           // to <path> while in plan mode."; a PreToolUse hook's with no reason of its own, its dialog's "Hook PreToolUse:Write
           // requires confirmation for this edit.", Coder told "Hook PreToolUse:Write asked for confirmation for this tool".)
-          const fullFile = writes ? ccPath(targetFor(c.name, args)) : "";
           const ccName = ccTool(c.name), hookWhat = writes ? "edit" : "tool";
           // (A PreToolUse hook's ask: its line, whatever else would ask, as Claude Code's card shows its hook's ask. Round 6.)
           const hookAsks = !!(c.hook && c.hook.decision === "ask" && !github && !c.rerun);
@@ -6957,7 +7002,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           const ccFetch = fetchLimit || fetchSwitched ? fetchDecision(String(args.url || ""), { mode: "acceptEdits", rules: ownRules }) : null;
           await notebookBefore();
           const card = fileAsk
-            ? { tool: c.name, id: c.id, path: shownPath, change: changeShown(), why: why ? sensitiveWhy(fullFile) : planWriteWhy(targetFor(c.name, args)), ...(hookLine || {}) }
+            ? { tool: c.name, id: c.id, path: shownPath, change: changeShown(), why: why ? (writeLimit ? writeLimit.why : protWhy()) : planWriteWhy(targetFor(c.name, args)), ...(hookLine || {}) }
             : ruleAsk
             ? { tool: c.name, id: c.id, ...(c.name === "web_fetch" ? { url: scrub(String(args.url || "")).slice(0, 500) } : { path: shownPath }), ...(writes ? { change: changeShown() } : {}), ...(outsideAsk && !(fileDec && fileDec.verdict === "ask") ? { rules: outsideAsk.rules } : {}), why: fileDec && fileDec.verdict === "ask" ? fileDec.why : outsideAsk ? outsideAsk.why : "", ...(hookLine || {}), byRule: !(outsideAsk && !(fileDec && fileDec.verdict === "ask")) }
             : { tool: "web_fetch", id: c.id, url: scrub(String(args.url || "")).slice(0, 500), why: fetchLimit ? fetchLimit.why : fetchSwitched ? ccFetch.why : fetchDec.why, ...((ccFetch ? ccFetch.suggest : fetchDec && fetchDec.suggest) ? { rules: ccFetch ? ccFetch.suggest : fetchDec.suggest } : {}), ...(fetchLimit ? { told: "Coder requested permissions to use WebFetch, but you haven't granted it yet." } : {}) };
@@ -6974,6 +7019,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           if (o === "no") { emit({ type: "result", id: c.id, code: -1, ran: false, output: "Not run: you said no." }); reply(REJECTED); return noEnd(i, "stopped: the owner said no"); }
           if (approval.choice === "always") for (const r of card.rules || []) addRule(r);
           if (fetchLimit) resume(fetchLimit.st);
+          if (writeLimit) resume(writeLimit.st);
           // (A PermissionRequest hook's changed input: the call goes through again with it, Bash docs pass 8.)
           if (approval.updatedInput && !c.rerun) { const ni = toolInputFromHook(c.name, approval.updatedInput); if (ni) { c.args = ni; c.rerun = true; postFor = null; i--; continue; } }
         }

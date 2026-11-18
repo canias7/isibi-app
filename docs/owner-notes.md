@@ -4,6 +4,18 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-18: Protected folders, links and a "/" at the end, matched for write and edit (your word: "match")
+
+Again, I checked each one on Claude Code's real tools and in its program first:
+
+1. **Protected folders in Auto:** a write or an edit to `.git`, `.husky`, `.vscode` and the other protected folders now goes to the checker in Auto, as Claude Code's does, instead of asking you. The checker sees it the way Claude Code shows it ("<file>: <new text>"). If the checker blocks it, Coder is told why. After 3 blocks in a row it falls back to asking you, as for commands. In Accept edits, with one of your Ask rules, or in a job started from GitHub, nothing changes.
+2. **A link into a protected folder:** a write through a shortcut folder that points into `.git` (or any protected folder) now asks you first, in every mode, even in Auto. It uses Claude Code's words: "Coder requested permissions to edit …/gl/info/exclude which is a sensitive file. …/gl/info/exclude resolves through a symlink to …/.git/info/exclude." Before, it went through without a card.
+3. **A "/" at the end, for write and edit:** a path that goes through a file ("notes.md/x"), or an existing file's path with a "/" at its end, now gets the raw "ENOTDIR: not a directory, stat '…'" error. As in Claude Code, this comes before any card. A new file's path with a "/" at its end is written without the "/".
+
+Gloopy is untouched.
+
+Still different (tell me if you want it matched): in Plan mode, Coder asks you before every write. When Claude Code's checker is reviewing during planning, it sends a write to a protected folder to the checker instead (other writes still ask).
+
 ## 2026-11-18: The three leftover differences, matched (your word: "match")
 
 I checked each one on Claude Code's real tools and in its program first, then matched it:

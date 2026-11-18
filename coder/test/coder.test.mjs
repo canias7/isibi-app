@@ -955,7 +955,8 @@ test("CD36 the loop runs a file tool like a command (as dev, in the project) and
   assert.equal(r.status, "done");
   // (Its own checks first, round 6: Claude Code's Edit validateInput, made before its hooks; then the edit.)
   assert.equal(runs.length, 2);
-  assert.deepEqual(JSON.parse(Buffer.from(runs[0].command.split(" ")[3], "base64").toString()), { tool: "file_check", args: { tool: "edit", args: { path: "a.js", old_string: "1", new_string: "2" } } });
+  // (Its check before the hooks with Claude Code's ways, `cc`, as it runs only in Coder's own chats. 2026-11-18.)
+  assert.deepEqual(JSON.parse(Buffer.from(runs[0].command.split(" ")[3], "base64").toString()), { tool: "file_check", args: { tool: "edit", args: { path: "a.js", old_string: "1", new_string: "2" } }, ctx: { cc: true } });
   assert.match(runs[1].command, /^node --no-warnings \S+coder-tools\.mjs [A-Za-z0-9+/=]+$/);
   assert.equal(runs[1].tool, true);
   // Edit, as write, asks for its change for the chat and the language server's new problems (edit, tool 3, 2026-11-09), and

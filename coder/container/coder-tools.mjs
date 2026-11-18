@@ -121,10 +121,11 @@ export const OUTSIDE_TOOLS = new Set(["read", "grep", "glob", "lsp", "lsp_file"]
  * "Dont touch gloopy for now").
  * AND FOR WRITE, EDIT AND NOTEBOOK_EDIT (the owner, 2026-11-18: "match"): the .git folder, a protected folder Coder's loop asks
  * the owner about first, as Claude Code asks ("Claude requested permissions to edit … which is a sensitive file."); Coder's
- * tools had refused it whatever the answer. Nothing else of theirs changes.
+ * tools had refused it whatever the answer. And their path as Claude Code's Write and Edit take it (writePath), in their run
+ * and in their checks before the hooks ("file_check", which Coder's loop makes only in Coder's own chats).
  */
 let CC_WAYS = false;
-export const CC_TOOLS = new Set(["read", "grep", "glob", "write", "edit", "notebook_edit"]);
+export const CC_TOOLS = new Set(["read", "grep", "glob", "write", "edit", "notebook_edit", "file_check"]);
 /** A path that isn't there, refused in the tool's own words; `missing` keeps its full path, for read's words (readFailed). */
 const failMissing = (m, abs) => { const e = new ToolError(m); e.missing = abs; throw e; };
 async function inside(p, { mustExist = false, tool = "", output = false } = {}) {
@@ -1190,8 +1191,24 @@ function writeInputs(args) {
  * read), then one changed since it was read), each in the words write's run gave it. A new file, a link, or a path refused
  * after the hooks (outside the project, .git) is left to the run.
  */
+/**
+ * THE PATH CLAUDE CODE'S WRITE AND EDIT WRITE, in Coder's own chats (Claude Code 2.1.327, its tools tried on scratch files,
+ * 2026-11-18; the owner: "match"): they look at the path as given, a full one keeping a "/" at its end (toolPath). One that
+ * isn't there is made without its "/" ("/…/new.txt/" makes new.txt, "/…/sub/new.txt/" its folder too); one that leads through
+ * a file, or a file's full path with a "/" at its end, is the system's error, "ENOTDIR: not a directory, stat '<path>'"; a
+ * folder's, their words for a folder. Other paths, and Gloopy's chats, as before.
+ */
+async function writePath(p) {
+  if (!CC_WAYS || typeof p !== "string") return p;
+  const full = toolPath(p);
+  try { await stat(full); } catch (e) {
+    if (e && e.code === "ENOTDIR") fail("ENOTDIR: not a directory, stat '" + full + "'");
+    if (e && e.code === "ENOENT" && full.length > 1 && full.endsWith("/")) return full.replace(/\/+$/, "");
+  }
+  return p;
+}
 async function writeFirst(args, { guard = false } = {}) {
-  const { path } = writeInputs(args);
+  const path = await writePath(writeInputs(args).path);
   let where;
   try { where = await inside(path, { tool: "write" }); } catch (e) { if (e instanceof ToolError) return; throw e; }
   const abs = where.abs, rel = abs === ROOT || abs.startsWith(ROOT + sep) ? where.rel : abs;
@@ -1217,10 +1234,12 @@ async function writeFirst(args, { guard = false } = {}) {
   if (seen && (st.mtimeMs !== seen.mtime || st.size !== seen.size) && (st.size !== seen.size || st.size > READ_WHOLE_MAX || fingerprint(await readFile(abs)) !== seen.hash)) fail(rel + " " + WRITE_CHANGED + ".");
 }
 export async function toolWrite(args) {
-  const { path, content, note: namesNote } = writeInputs(args);
+  const { path: given, content, note: namesNote } = writeInputs(args);
   // (Claude Code's checks before its hooks first, in its order, as Coder's loop made them already: fileInputProblem.)
   { const first = fileInputProblem("write", args); if (first) fail(first); }
   await writeFirst(args);
+  // (A path as Claude Code's Write takes it, in Coder's own chats: writePath.)
+  const path = await writePath(given);
   // (`check`: true or "sync", the file's new text for its language server; what it reports is taken at Coder's next step, and
   // told only to an agent with a shell, as Claude Code tells it: coder-agent.mjs.)
   const show_change = !!(args && args.show_change === true), check = args && (args.check === true || args.check === "sync") ? args.check : false;
@@ -1380,7 +1399,8 @@ const changedSince = (seen, st, buf) => !!seen && (seen.stale === true || ((st.m
  * → { buf } when it read the file (for the run, so it is read once), else null.
  */
 async function editFirst(a, { guard = false } = {}) {
-  const path = typeof a.path === "string" ? a.path : a.file_path;
+  // (A path as Claude Code's Edit takes it, in Coder's own chats: writePath.)
+  const path = await writePath(typeof a.path === "string" ? a.path : a.file_path);
   const old_string = typeof a.old_string === "string" ? a.old_string : a.old_str;
   const new_string = typeof a.new_string === "string" ? a.new_string : a.new_str;
   if (typeof old_string !== "string" || typeof new_string !== "string") return null;
@@ -1436,7 +1456,7 @@ export async function toolEdit(args) {
   // (Claude Code's checks before its hooks first, in its order, as Coder's loop made them already: fileInputProblem.)
   { const first = fileInputProblem("edit", a); if (first) fail(first); }
   const held = await editFirst(a);
-  const { abs, rel: inRel } = await inside(path, { tool: "edit" });
+  const { abs, rel: inRel } = await inside(await writePath(path), { tool: "edit" });
   // Named in full outside the project's own folder, as write's answers (Claude Code 2.1.304).
   const rel = abs === ROOT || abs.startsWith(ROOT + sep) ? inRel : abs;
   if (typeof old_string !== "string") fail("give old_string: the exact text to replace");

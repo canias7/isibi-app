@@ -1047,3 +1047,21 @@ makes new.txt, "File created successfully at: …/new.txt/"), not yet compared.
 flag), RM9 (through the loop: the card, Yes, No, a job from GitHub, Gloopy) new; RM1, RM3 and CD36 updated. The full suite: 1372
 pass, 4 skipped, 0 fail. Deployed to coder2 (deploy 258): its docs page has the new words. Not tried in a live chat (coder2's
 GitHub sign-in).
+
+**The three found on the way, matched** (the owner, 2026-11-18: "match"; Claude Code 2.1.327's docs, program and own tools; in
+Coder's own chats, never Gloopy's):
+
+| | Claude Code | Coder before | Coder now |
+|---|---|---|---|
+| A protected-path write (Write, Edit, NotebookEdit) in Auto | "Routed to the classifier, which decides" (permission-modes, Protected paths; its safety check's classifierApprovable), even when an allow rule matches; shown as its toAutoClassifierInput: "<file_path>: <content>", "<file_path>: <new_string>", "<notebook_path> <edit_mode>: <new_source>" | the card | the checker, shown the same; a block refused in its words (autoDenied), at auto mode's limit the card; an ask rule or hook, a job from GitHub (refused) or no checker: as before |
+| A write that reaches a protected folder only through a link | "prompts you when the path Claude requested isn't itself protected", in every mode (its personOnly: not classifier-approvable); "Claude requested permissions to edit <path> which is a sensitive file. <path> resolves through a symlink to <landing>." | no card (only the path as written was checked) | the card, in its words; refused in those words in a job from GitHub; the landing judged as the chat's working folder names it |
+| Write and Edit: a file's full path with "/" at its end, or a path through a file | "Error calling tool (Edit): ENOTDIR: not a directory, stat '<path>'" (the path as given, a full one keeping its "/"), from its validateInput, before the prompt | "File does not exist …", "EISDIR … open", "EEXIST … mkdir" | "ENOTDIR: not a directory, stat '<path>'", from the check before the hooks (file_check, now with `cc`) and the run |
+| Write and Edit: a new file's full path with "/" at its end | made without the "/" ("/…/new.txt/" makes new.txt, its folders too; Edit with no old text the same) | "EISDIR … open" | the same as Claude Code; named as the project names it, as every write is |
+
+Not changed, for the owner: Plan mode with its checker on. Claude Code's safety check of a protected path comes before plan
+mode's own "Cannot write to <path> while in plan mode." in its program, so its classifier can approve a protected write
+during planning (its docs' table: "routed to the classifier when auto mode is available during planning"); other writes ask.
+Coder's Plan asks for every write, as before.
+
+**Tests:** PW1–PW6 (`coder/test/protected-writes.test.mjs`) new; RM1, CD36, CD377 and RS1 (the places a check's block is
+handled, one more) updated.

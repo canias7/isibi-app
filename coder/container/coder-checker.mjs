@@ -256,6 +256,12 @@ export function actionShown(name, args) {
   // (A web search: its query, as Claude Code's auto mode classifier is given one, WebSearch's toAutoClassifierInput: the
   // owner, 2026-11-14, "start fixing and filling in gaps on those tools".)
   if (name === "web_search") return "web_search: " + clip(a.query, 2000);
+  // (A write, an edit or a notebook edit of a protected file, as Claude Code 2.1.327 shows its classifier one, their
+  // toAutoClassifierInput: "<file_path>: <content>", "<file_path>: <new_string>", "<notebook_path> <edit_mode>: <new_source>";
+  // the owner, 2026-11-18: "match".)
+  if (name === "write") return "write: " + clip(a.path ?? a.file_path, 2000) + ": " + clip(a.content, 6000);
+  if (name === "edit") return "edit: " + clip(a.path ?? a.file_path, 2000) + ": " + clip(a.new_string ?? a.new_str, 6000);
+  if (name === "notebook_edit") return "notebook_edit: " + clip(a.notebook_path, 2000) + " " + (typeof a.edit_mode === "string" && a.edit_mode ? a.edit_mode : "replace") + ": " + clip(a.new_source, 6000);
   return name + ": " + clip(JSON.stringify(a), 3000);
 }
 

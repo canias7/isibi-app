@@ -2168,6 +2168,12 @@ export const inputUnsureWhy = (raw) => "Input redirection from '" + raw + "' req
  */
 export const settingsFileOf = (target) => /(^|\/)\.claude(\/settings(\.local)?\.json)?\/?$/i.test(String(target ?? ""));
 export const sensitiveWhy = (target, from = "") => (settingsFileOf(target) ? "Coder requested permissions to write to " + target + ", but you haven't granted it yet." : "Coder requested permissions to edit " + target + " which is a sensitive file.") + (from ? " " + from + " resolves through a symlink to " + target + "." : "");
+/**
+ * A WRITE, AN EDIT OR A NOTEBOOK EDIT THAT REACHES A PROTECTED FOLDER ONLY THROUGH A LINK (Claude Code 2.1.327's Write and Edit:
+ * its safety check's words for the path asked for, then its symlink sentence, "<path> resolves through a symlink to <where it
+ * leads>"; the owner, 2026-11-18: "match"). "Claude" is Coder here.
+ */
+export const sensitiveViaWhy = (asked, landing) => sensitiveWhy(asked) + " " + asked + " resolves through a symlink to " + landing + ".";
 /** A wildcard before a `..` (Claude Code: "A glob before the '..' in '…' is expanded by the shell before the path is opened, so the target cannot be checked …"). */
 export const globDotDotWhy = (p, against) => "A glob before the '..' in '" + p + "' is expanded by the shell before the path is opened, so the target cannot be checked" + against + ". Spell the path without the glob.";
 export const linkOutWhy = (from, to) => from + " resolves through a symlink to " + to + ", which is outside the allowed working directories";

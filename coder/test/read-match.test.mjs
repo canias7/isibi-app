@@ -60,7 +60,7 @@ test("RM1 read's words in Coder's own chats (ctx.cc), Claude Code's Read's: a fi
   assert.equal(old({ path: "/etc/no-such-file-here" }, { outside: true }), "error: no such file: /etc/no-such-file-here. Note: your current working directory is " + dir + ".");
   // (Only for read, grep and glob, and write, edit and notebook_edit for the .git folder, RM8: another tool given the flag keeps
   // its ways.)
-  assert.deepEqual([...T.CC_TOOLS].sort(), ["edit", "glob", "grep", "notebook_edit", "read", "write"]);
+  assert.deepEqual([...T.CC_TOOLS].sort(), ["edit", "file_check", "glob", "grep", "notebook_edit", "read", "write"]);
   assert.equal(T.readFolder("/etc"), "EISDIR: illegal operation on a directory, read '/etc'");
   assert.equal(T.readFolder("/etc/"), "EISDIR: illegal operation on a directory, read '/etc//'");
   assert.equal(T.readFolder("/"), "EISDIR: illegal operation on a directory, read '/'");
