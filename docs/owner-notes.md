@@ -4,6 +4,12 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-18: Coder asks to watch a pull request it just opened
+
+Your group 3 Claude Code recording ended with "Should I watch it for new comments, reviews and CI results?". Coder had a line asking for this in its instructions, but Grok skipped it in the live run. Claude Code's own instructions say "After creating a PR, ask the user if they'd like you to watch it". Now the message Coder gets right after opening a pull request also reminds it to end by asking that. If you say yes, Coder turns on Auto-fix for that pull request. It doesn't ask for a pull request that only got updated, or for jobs started from GitHub.
+
+Tests: PN9 in `coder/test/push-now.test.mjs`.
+
 ## 2026-11-17: The Undo under an answer was sometimes missing
 
 Group 2 retest: after several jobs in one open chat, the Undo button under the b.txt answer never appeared. The button finds its message by its place in the chat. When a job is saved, Coder's own lines ("Pushed to the branch…", "Undid the last job…") go into the saved chat, so the saved places and the places on the open page drifted apart, and the button could not find its message. Opening the chat again fixed it, which is how this was found. Now, when a job ends and the page's copy has drifted, the page loads the saved chat, as it already does for a job saved in another tab.

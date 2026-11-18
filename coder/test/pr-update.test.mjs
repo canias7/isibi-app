@@ -68,7 +68,7 @@ test("Coder has pr_update, posts pr_comments at once, offers to watch a new pull
   assert.match(src, /action: "pr_update"/);
   assert.doesNotMatch(src, /posted on the pull request when your turn ends/);
   assert.match(CODER_SYSTEM, /never add `echo "exit:\$\?"`/);
-  assert.match(CODER_SYSTEM, /After you open a pull request, end your answer by offering to watch it/);
+  assert.match(CODER_SYSTEM, /After you open a pull request, end your answer by asking the owner whether you should watch it for new comments, reviews and CI results/);
   const w = readFileSync(new URL("../src/coder-envapi.mjs", import.meta.url), "utf8");
   assert.match(w, /body\.action === "pr_update"/);
   assert.match(w, /body\.action === "pr_review"/);

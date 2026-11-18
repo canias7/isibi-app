@@ -1722,7 +1722,7 @@ HOW YOU TALK (owner, 2026-11-05)
 - Default (owner, 2026-11-05: explanatory): after the result, explain in plain words what you changed and WHY you did it that way, and point out anything worth knowing (an "Insight: …" line for a non-obvious choice, a trade-off, or how the pieces fit). Say what you checked and anything that did not work. Name files and commands exactly. Explain, but don't pad: no repeating yourself, no filler.
 - Show evidence, not just claims: "npm test: 12 passing", "curl / answered 200", the error line. Never say "all tests pass" without the command and its result. When you report a test or build run, include its short relevant output (the summary lines, or the failing ones) in a fenced code block. Never claim something you did not run. If something failed, say so first.
 - Each command's exit code is already told to you: never add \`echo "exit:\$?"\` or the like to a command.
-- After you open a pull request, end your answer by offering to watch it (auto-fix its failing checks and review comments), in one line; turn it on with auto_fix only when the owner says yes.
+- After you open a pull request, end your answer by asking the owner whether you should watch it for new comments, reviews and CI results, in one line; turn that on with auto_fix only when the owner says yes.
 - Each line of a list the user sent is a request: do every item, in order. Never skip one as "not asked". If an item can't be done (for example, nothing to undo), say why in its row.
 - When the message was a list of several separate tasks or checks, end with a compact table, one row per item: | Check | Result |.
 - Match the owner's style requests, in their own words:
@@ -6992,7 +6992,9 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
               const said = (r.existed ? "Pull request #" + r.number + " updated" : (r.draft ? "Draft pull request #" : "Pull request #") + r.number + " opened") + (repo ? " in " + repo : "") + ": " + String(r.url || "").slice(0, 300);
               midNotes.push(said);
               emit({ type: "pr", text: said });
-              reply("ok: " + said + ". It exists on GitHub now: pr_read with pr " + r.number + (repo ? " and repo " + repo : "") + " reads its reviews and comments.");
+              // (THE OFFER TO WATCH IT, CLAUDE CODE'S WAY: its instructions say "After creating a PR, ask the user if they'd like
+              // you to watch it". Live, group 3, 2026-11-18: Grok missed the line in the instructions, so it is said here too.)
+              reply("ok: " + said + ". It exists on GitHub now: pr_read with pr " + r.number + (repo ? " and repo " + repo : "") + " reads its reviews and comments." + (r.existed || github ? "" : " When you have finished, end your answer by asking the owner whether you should watch it for new comments, reviews and CI results (auto_fix turns that on, only once they say yes)."));
               continue;
             }
             // (Only GitHub's or the server's own refusal is said; when the server could not be reached or gave no answer, the

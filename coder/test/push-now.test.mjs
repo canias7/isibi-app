@@ -143,3 +143,13 @@ test("PN6 the turn's end after a push made mid-turn: its commit kept for Undo (n
   const texts = JSON.parse(m.get("coder/" + UID + "/" + id + "/events.json")).filter((e) => e.type === "github").map((e) => e.text);
   assert.deepEqual(texts, ["Pushed to the branch coder/" + id, "Draft pull request #12 opened: https://github.com/ana/shop/pull/12"]);
 });
+
+test("PN9 a pull request just opened: its result asks Coder to end by asking the owner whether to watch it (Claude Code: \"After creating a PR, ask the user if they'd like you to watch it\"); not for one updated, nor from GitHub", async () => {
+  const run = async (r, opts = {}) => {
+    const s = script([say("", [call("pull_request", { title: "T", body: "" })]), say("done")]);
+    await runCoder({ send: s.send, exec: async () => ({ code: 0, output: "" }), pushNow: async () => ({ ok: true, pushed: true, changed: true, sha: "1234567abc" }), envApi: async (b) => (b.action === "pull_request" ? r : {}) }, { text: "pr", ...opts });
+    return lastTool(s.seen);
+  };
+  assert.match(await run({ number: 7, url: "https://github.com/o/r/pull/7", draft: true }), /end your answer by asking the owner whether you should watch it for new comments, reviews and CI results \(auto_fix turns that on, only once they say yes\)/);
+  assert.doesNotMatch(await run({ number: 7, url: "https://github.com/o/r/pull/7", existed: true }), /watch it/);
+});
