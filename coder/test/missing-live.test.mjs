@@ -50,3 +50,29 @@ test("CD560 the environment's CODER_TEST_NETWORK_GATE_FAIL makes the network gat
   assert.match(src, /const varsGiven = ownerCoderVars\(body\.setup && body\.setup\.vars && typeof body\.setup\.vars === "object" \? body\.setup\.vars : \{\}\);/);
   assert.match(src, /if \(t\.gateTestFail && \(list\.length \|\| net\.limited\)\) throw new Error\(GATE_TEST_FAIL\);\n\s+if \(list\.length \|\| net\.limited\) \{\n\s+const px = await proxyFor\(\);/);
 });
+
+test("CD560b a tighter network that cannot be applied mid-job fails closed: the answer is not 'applied' and the chat says commands have no internet (L-machine-21)", async () => {
+  const S = await import("../container/server.mjs");
+  const r = { root: await dir("root"), gitRoot: await dir("git"), memRoot: await dir("mem"), bgRoot: await dir("bg"), home: await dir("home"), proxyDir: await dir("proxy") };
+  const project = "missing-mid-" + Math.random().toString(36).slice(2, 8);
+  let release; const held = new Promise((ok) => { release = ok; });
+  const app = S.createApp({ ...r, send: async () => { await held; return say("Done."); } });
+  const srv = http.createServer(app);
+  await new Promise((ok) => srv.listen(0, "127.0.0.1", ok));
+  const base = "http://127.0.0.1:" + srv.address().port;
+  try {
+    const sent = await fetch(base + "/turn", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project, text: "work", messages: [], mode: "acceptEdits", setup: { network: { mode: "full" }, vars: { CODER_TEST_NETWORK_GATE_FAIL: "1" } } }) });
+    assert.equal(sent.status, 200);
+    let st;
+    for (let i = 0; i < 200; i++) { st = await (await fetch(base + "/state?project=" + project + "&since=0")).json(); if (st.running) break; await new Promise((ok) => setTimeout(ok, 25)); }
+    const nw = await fetch(base + "/network", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project, setup: { network: { mode: "trusted" } }, secrets: [] }) });
+    const ans = await nw.json();
+    assert.equal(nw.ok, false);
+    assert.deepEqual([ans.ok, ans.applied], [false, false]);
+    st = await (await fetch(base + "/state?project=" + project + "&since=0")).json();
+    assert.ok((st.events || []).some((e) => e.type === "error" && /new network setting could not be applied.*no internet/.test(e.text)), JSON.stringify(st.events));
+  } finally { release(); srv.close(); }
+  // The room cuts its open link before it makes the pipe to the gate.
+  const src = await readFile(new URL("../container/server.mjs", import.meta.url), "utf8");
+  assert.match(src, /if \(limited && !\(await roomInternet\(false\)\)\) return false; return \(!px \|\| await roomGate\(px\.port\)\) && await roomInternet\(!limited\);/);
+});

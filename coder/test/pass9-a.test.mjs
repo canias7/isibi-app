@@ -209,7 +209,7 @@ test("CD450 the network gate fails closed: with a limited network and no gate, t
   assert.match(part, /t\.room = await enterRoom\(null, true\)/);
   assert.match(part, /commands have no internet in this message/);
   // (enterRoom with no gate and a limited network: the room without its internet link.)
-  assert.match(src, /const enterRoom = async \(px, limited\) => \{[\s\S]{0,200}return \(!px \|\| await roomGate\(px\.port\)\) && await roomInternet\(!limited\);/);
+  assert.match(src, /const enterRoom = async \(px, limited\) => \{[\s\S]{0,400}return \(!px \|\| await roomGate\(px\.port\)\) && await roomInternet\(!limited\);/);
 });
 
 const call = (name, args, id) => ({ id, type: "function", function: { name, arguments: JSON.stringify(args) } });

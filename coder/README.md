@@ -2391,7 +2391,7 @@ Code's security-guidance check on each file edit, with no model call:
 deserialization (`pickle`, `yaml.load` without SafeLoader), DOM injection
 (`dangerouslySetInnerHTML`, `.innerHTML =`, `document.write`), queries built from
 text, private keys, and any edit to `.github/workflows/`. A match adds a warning
-to that tool's answer, once a job for each rule and file, and Coder fixes it or
+to that tool's answer, once a chat for each rule and file (kept between its jobs), and Coder fixes it or
 says why it is safe; nothing is blocked. A repo adds its own rules in
 `.coder/security-patterns.json`, `.yaml` or `.yml`, with Claude Code's fields
 (`rule_name`, `regex` or `substrings`, `paths`, `exclude_paths`, `reminder` up

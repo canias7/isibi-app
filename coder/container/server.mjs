@@ -2466,7 +2466,7 @@ export async function pushRepo({ dir, repo, branch, token, headers = [], message
   }
   // NOTHING OF CODER'S OWN TO SEND (a job like "hi" on a fresh branch): no push at all.
   if (!committed) {
-    const own = await gitIn(dir, ["rev-list", "--count", "HEAD", "--not", "--remotes=origin"], o);
+    const own = await gitIn(dir, ["rev-list", "--count", "HEAD", "--not", "--remotes=origin", "--"], o);
     if (own.code === 0 && String(own.stdout ?? own.output).trim() === "0") return { ok: true, pushed: false, changed: false, ...told };
     // An empty repository with nothing made yet: no commit at all, nothing to send.
     if ((await gitIn(dir, ["rev-parse", "--verify", "-q", "HEAD"], o)).code !== 0) return { ok: true, pushed: false, changed: false, ...told };
@@ -2533,9 +2533,26 @@ export async function treeDirty(dirs, gitRoot = GIT_ROOT, root = PROJECT_ROOT) {
 /** How many of the copy's commits GitHub does not have yet (none of origin's branches holds them); 0 when git cannot say. */
 export async function unpushedCount(dir, o) {
   if ((await gitIn(dir, ["rev-parse", "--verify", "-q", "HEAD"], o)).code !== 0) return 0;
-  const r = await gitIn(dir, ["rev-list", "--count", "HEAD", "--not", "--remotes=origin"], o);
+  const r = await gitIn(dir, ["rev-list", "--count", "HEAD", "--not", "--remotes=origin", "--"], o);
   const n = Number(String(r.stdout ?? r.output).trim());
   return r.code === 0 && Number.isInteger(n) && n >= 0 ? n : 0;
+}
+/** The most "rule file" keys a chat keeps for the per-edit security check (M-a-17). */
+export const SHOWN_SEC_MAX = 4000;
+/** The chat's already-given security warnings, from its kept file (never through a link); a fresh chat starts empty. */
+export async function loadShownSec(file, fresh = false) {
+  if (fresh) { await rm(file, { force: true }).catch(() => {}); return new Set(); }
+  try {
+    const h = await open(file, constants.O_RDONLY | constants.O_NOFOLLOW);
+    try { const st = await h.stat(); if (!st.isFile() || st.size > 1_000_000) return new Set(); const v = JSON.parse(await h.readFile("utf8")); return new Set(Array.isArray(v) ? v.filter((x) => typeof x === "string").slice(-SHOWN_SEC_MAX) : []); } finally { await h.close(); }
+  } catch { return new Set(); }
+}
+/** Saves the chat's given warnings (the newest SHOWN_SEC_MAX), never through a link. */
+export function saveShownSec(file, shown) {
+  try {
+    const fd = openSync(file, constants.O_WRONLY | constants.O_CREAT | constants.O_TRUNC | constants.O_NOFOLLOW, 0o600);
+    try { writeSync(fd, JSON.stringify([...shown].slice(-SHOWN_SEC_MAX))); } finally { closeSync(fd); }
+  } catch { /* a check that cannot be saved still ran */ }
 }
 /** The most paths commitFiles names. */
 export const COMMIT_FILES_MAX = 1000;
@@ -2545,8 +2562,8 @@ export const COMMIT_FILES_MAX = 1000;
  * as Claude Code's: "Under each prompt, the rewind menu counts changes to files Claude had already edited, whatever made
  * them").
  */
-async function commitFiles(dir, o, rev = "HEAD") {
-  const r = await gitIn(dir, ["diff-tree", "--root", "--no-commit-id", "--no-renames", "--name-only", "-r", "-z", rev], o);
+export async function commitFiles(dir, o, rev = "HEAD") {
+  const r = await gitIn(dir, ["diff-tree", "--root", "--no-commit-id", "--no-renames", "--name-only", "-r", "-z", rev, "--"], o);
   if (r.code !== 0) return {};
   const all = String(r.stdout ?? "").split("\0").filter(Boolean);
   return { files: all.slice(0, COMMIT_FILES_MAX), ...(all.length > COMMIT_FILES_MAX ? { filesCut: true } : {}) };
@@ -2818,7 +2835,7 @@ export function mdExcluded(excludes, dir, rel) {
     return globAny([p], rel);
   });
 }
-export async function repoInstructions(dir, { excludes = [] } = {}) {
+export async function repoInstructions(dir, { excludes = [], extra = false } = {}) {
   const notes = [], later = [];
   let left = NOTES_MAX;
   // Read with room for the comments that are left out (they cost Coder nothing, as in Claude Code). A file the settings'
@@ -2835,7 +2852,8 @@ export async function repoInstructions(dir, { excludes = [] } = {}) {
   const coder = ["CODER.md", ".coder/CODER.md"];
   let found = false;
   for (const f of coder) found = now(f, await load(f, NOTES_MAX + 1)) || found;
-  if (!found) for (const f of ["AGENTS.md", ".coder/AGENTS.md"]) now(f, await load(f, NOTES_MAX + 1));
+  // (An added folder never loads its AGENTS.md: memory.md, "Their `AGENTS.md` doesn't load". M-f-16.)
+  if (!found && !extra) for (const f of ["AGENTS.md", ".coder/AGENTS.md"]) now(f, await load(f, NOTES_MAX + 1));
   // .coder/rules/, every .md file in it and its folders.
   const rules = [];
   const walkRules = async (rel, depth) => {
@@ -2852,7 +2870,7 @@ export async function repoInstructions(dir, { excludes = [] } = {}) {
     if (loaded === null) continue;
     const cut = loaded.text.length > NOTE_ONE_MAX, text = loaded.text.slice(0, NOTE_ONE_MAX);
     const { globs, body } = ruleParts(text);
-    if (globs.length) later.push({ name: r, globs, text: body, ...(cut ? { cut: true, from: lineAfter(loaded, text) } : {}) });
+    if (globs.length) { if (!extra) later.push({ name: r, globs, text: body, ...(cut ? { cut: true, from: lineAfter(loaded, text) } : {}) }); }
     else now(r, { text: body + (cut ? "\n[" + r + " goes on past " + NOTE_ONE_MAX.toLocaleString("en-US") + " characters: read the rest of it with the read tool, from line " + lineAfter(loaded, text) + "]" : ""), lines: [] });
   }
   // A subfolder's own instructions (searched, not read into the start).
@@ -2874,7 +2892,8 @@ export async function repoInstructions(dir, { excludes = [] } = {}) {
       await walk(rel ? rel + "/" + e.name : e.name, depth + 1);
     }
   };
-  await walk("", 0);
+  // (An added folder: only its own top files, as memory.md lists them.)
+  if (!extra) await walk("", 0);
   return { notes, later };
 }
 /** The instruction files read at the start of a job (repoInstructions' `notes`). */
@@ -2886,15 +2905,16 @@ export async function repoNotes(dir) {
  * CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: "Set to 1 to load memory files from directories specified with --add-dir.
  * Loads CLAUDE.md, .claude/CLAUDE.md, .claude/rules/*.md, and CLAUDE.local.md. By default, additional directories do not
  * load memory files"), here the environment's CODER_ADDITIONAL_DIRECTORIES_CODER_MD: each folder's files as the project's
- * are read (CODER.md, else AGENTS.md; .coder/CODER.md; .coder/rules; a subfolder's own file once Coder reads or changes a
- * file under it), named by their full path, in what is left of the project's budget (`have`: the notes already loaded).
+ * only the files memory.md lists are read ("the additional directory's `CLAUDE.md`, `.claude/CLAUDE.md`, `CLAUDE.local.md`,
+ * and `.claude/rules/*.md` files except rules that set a `paths` field"; "Their `AGENTS.md` doesn't load"): CODER.md,
+ * .coder/CODER.md and the rules with no paths, M-f-16), named by their full path, in what is left of the project's budget (`have`: the notes already loaded).
  */
 export async function extraInstructions(dirs, have = []) {
   const notes = [], later = [];
   let left = NOTES_MAX - (Array.isArray(have) ? have : []).reduce((n, x) => n + String((x && x.text) || "").length, 0);
   for (const d of Array.isArray(dirs) ? dirs : []) {
     if (typeof d !== "string" || !isAbsolute(d)) continue;
-    const ins = await repoInstructions(d);
+    const ins = await repoInstructions(d, { extra: true });
     for (const n of ins.notes) {
       const name = d.replace(/\/+$/, "") + "/" + n.name;
       if (left <= 0) { notes.push({ name, text: "[Not loaded here: the instructions already come to " + NOTES_MAX.toLocaleString("en-US") + " characters. Read " + name + " with the read tool.]" }); continue; }
@@ -3177,6 +3197,25 @@ export async function localPatch({ dir, base, gitRoot = GIT_ROOT, root = PROJECT
 export function readOnlyNote(body) {
   if (!body || body.readOnly !== true || typeof body.repo !== "string") return "";
   return "\n\nREAD-ONLY REPOSITORY: the owner can read " + body.repo + " on GitHub but cannot push to it. Work as usual: when your turn ends your changes are committed to this chat's branch HERE, on this machine, and never sent to GitHub, so no pull request can be opened (do not use pull_request or auto_fix, and never try to push). The owner sees the changes with See changes and can download them as a patch file. gh may only read this repository.";
+}
+/** The most lines of `git status --short` the git snapshot shows (M-f-25). */
+export const GIT_SNAP_STATUS_MAX = 40;
+/**
+ * THE GIT SNAPSHOT (M-f-25; Claude Code's start of a conversation: "Your git state. Current branch, uncommitted changes, and
+ * recent commit history", taken once and read fresh after a summary): the branch, `git status --short` and the last five
+ * commits. "" when it is not a repository or git fails.
+ */
+export async function gitSnapshot(dir, o = {}) {
+  const run = async (args) => { const r = await gitIn(dir, args, { timeoutS: 10, ...o }); return r.code === 0 ? String(r.stdout ?? r.output ?? "") : null; };
+  const branch = await run(["rev-parse", "--abbrev-ref", "HEAD", "--"]);
+  if (branch === null) return "";
+  // (Nested repositories kept out, and never into a submodule, as every status of root's: keepOut.)
+  const k = await keepOut(dir, { timeoutS: 10, ...o });
+  const status = k.ok ? ((await nestedAway(dir, o.gitDir, () => run(["status", "--short", "--ignore-submodules=all", ...k.pathspec]), () => null)) ?? "") : "";
+  const log = (await run(["log", "--oneline", "-5", "--"])) ?? "";
+  const lines = status.split("\n").filter(Boolean);
+  const shown = lines.slice(0, GIT_SNAP_STATUS_MAX).concat(lines.length > GIT_SNAP_STATUS_MAX ? ["... and " + (lines.length - GIT_SNAP_STATUS_MAX) + " more"] : []);
+  return "GIT STATUS (a snapshot taken at the start of this chat's work; it does not update as you work):\nCurrent branch: " + branch.trim().split("\n")[0] + "\n\nStatus:\n" + (shown.length ? shown.join("\n") : "(clean)") + "\n\nRecent commits:\n" + (log.trim() || "(none)") + "\n\n";
 }
 export function gitNote(body) {
   const ok = (b) => typeof b === "string" && /^[\w./-]{1,200}$/.test(b) && !b.startsWith("-") && !b.includes("..");
@@ -3988,7 +4027,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
   // before) when this machine cannot have the room.
   const enterRoom = async (px, limited) => {
     if (!room || !Number.isInteger(RUN_UID) || !makeRoom()) return false;
-    try { return (!px || await roomGate(px.port)) && await roomInternet(!limited); } catch { return false; }
+    // (Limited: the open link is cut FIRST, so a pipe to the gate that fails never leaves it up. L-machine-21.)
+    try { if (limited && !(await roomInternet(false))) return false; return (!px || await roomGate(px.port)) && await roomInternet(!limited); } catch { return false; }
   };
   // THE JOB'S ADMIN SANDBOX (owner, 2026-11-07: "finish this"; coder-sandbox.mjs), in the room: the
   // machine image under its own layer on the chat's kept disk (`data`, one per tools image `tools`, else per Coder version `image`),
@@ -4245,7 +4285,10 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     const repoRules = await repoSecurityRules(dir);
     const secRules = [...BUILTIN_RULES, ...repoRules];
     if (repoRules.skipped && repoRules.skipped.length) t.events.push({ at: Date.now(), type: "note", text: "Security check: skipped " + repoRules.skipped.length + " of this repository's rules whose pattern could run too long (" + repoRules.skipped.slice(0, 5).join(", ") + ")." });
-    const shownSec = new Set();
+    // (Once a chat, not once a job: kept beside the memory, as Claude Code's warning fires "once per pattern per file per
+    // session". M-a-17. A chat's first message starts it fresh.)
+    const shownSecFile = join(memRoot, project + ".security-shown.json");
+    const shownSec = await loadShownSec(shownSecFile, !Array.isArray(body.messages) || body.messages.length <= 1);
     const memDir = join(memRoot, project);
     const memFile = join(memDir, "MEMORY.md");
     // THE FILES CODER READ OR CHANGED, each with its time, size and fingerprint (the `changed` tool: a command that changes
@@ -4672,6 +4715,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       // (Those still running that look stuck on a typed question: watchStall.)
       return { notices, lost, stalls: stallNews(project) };
     };
+    // (Left out with CODER_DISABLE_GIT_INSTRUCTIONS, Claude Code's CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS.)
+    const gitSnap = body.repo && !varOn(rawVars.CODER_DISABLE_GIT_INSTRUCTIONS) ? await gitSnapshot(dir, { gitDir: gitDirFor(dir, gitRoot), root }).catch(() => "") : "";
     const contextFor = (notesNow, memoryNow, laterNow) => {
       const styleLines = String(memoryNow || "").split("\n").map((l) => l.trim()).filter((l) => /^style:/i.test(l)).slice(-3);
       const style = styleLines.length ? "THE OWNER'S STYLE (saved earlier; follow it in every answer unless they ask otherwise now):\n" + styleLines.map((l) => "- " + l.replace(/^style:\s*/i, "")).join("\n") + "\n\n" : "";
@@ -4683,6 +4728,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         piece("i:THE OWNER'S STYLE", style),
         piece("e:THE OWNER IS COMING BACK AFTER A BREAK", awayH ? "THE OWNER IS COMING BACK AFTER A BREAK of about " + awayH + " hour" + (awayH === 1 ? "" : "s") + ": start your answer with a one-line recap of where this chat stands.\n\n" : ""),
         ...contextTextPieces(notesNow, memFile, memoryNow, laterNow),
+        piece("i:GIT STATUS", gitSnap),
         piece("s:THIS CHAT'S OTHER REPOSITORIES", extrasNote(extras)),
         piece("s:GIT", gitNote(body)),
         piece("s:READ-ONLY REPOSITORY", readOnlyNote(body)),
@@ -5238,7 +5284,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         seen: true,
         afterFile: ({ tool, args }) => {
           const rel = projectRel(dir, args && args.path), text = editedText(tool, args);
-          return [laterNotes(later, dir, args && args.path, shownNotes, tool), rel && text !== null ? checkEdit(rel, text, secRules, shownSec) : ""].filter(Boolean).join("\n\n");
+          return [laterNotes(later, dir, args && args.path, shownNotes, tool), rel && text !== null ? checkEdit(rel, text, secRules, shownSec, () => saveShownSec(shownSecFile, shownSec)) : ""].filter(Boolean).join("\n\n");
         },
         // THE ANSWER SHOWN ENDS THE WAIT (the owner, 2026-11-18: "do it claude code way"; a one-line answer kept the chat busy
         // ~12 s more while the next-message suggestion was asked for; Claude Code makes it "a short background request"):
@@ -5482,8 +5528,19 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
             const gate = list.length || net.limited ? await proxyFor() : null;
             t.room = await enterRoom(gate, net.limited);
             gateForApt(net.limited && gate ? "http://127.0.0.1:" + gate.port : "");
+            if (net.limited && !t.room) throw new Error("the sealed room could not take the new setting");
           }
-        } catch (e) { return send(500, { ok: false, why: String((e && e.message) || e).slice(0, 200) }); }
+        } catch (e) {
+          const why = String((e && e.message) || e).slice(0, 200);
+          // A TIGHTER NETWORK THAT COULD NOT BE APPLIED fails closed, as a job's start does: the room's open link is cut, and
+          // the chat says so instead of "changed" (L-machine-21).
+          if (net.limited) {
+            if (room && Number.isInteger(RUN_UID)) t.room = await enterRoom(null, true).catch(() => false);
+            if (!fwOn) { try { fwOn = firewall(true, RUN_UID); } catch { /* the room's cut stands */ } }
+            t.events.push({ at: Date.now(), type: "error", text: "The new network setting could not be applied on this machine (" + why + "); commands have no internet for the rest of this message." });
+          }
+          return send(500, { ok: false, applied: false, why });
+        }
         // SAID ONLY WHEN SOMETHING CHANGED (owner, 2026-11-16, the one-message live test: "network Limited" was said twice
         // after cards that changed nothing, as Claude Code never does): the network and the keys as last applied to this job.
         const sig = netSigOf(nn, list);
@@ -5761,7 +5818,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         if (tr) await gitIn(dir, ["commit", "--amend", "-q", "--no-edit", "--no-verify", "--trailer", tr], o);
         // (The files the undo put back, for the chat's line: "Undid the last job: a.txt is back as it was.")
         // (With --name-status: a file the job had made is removed by the undo, and the line says so: the owner, 2026-11-17.)
-        const nm = await gitIn(dir, ["show", "--name-status", "--no-renames", "--format=", "HEAD"], o);
+        const nm = await gitIn(dir, ["show", "--name-status", "--no-renames", "--format=", "HEAD", "--"], o);
         const rows = nm.code === 0 ? String(nm.output).split("\n").map((x) => /^([A-Z])\t(.+)$/.exec(x.trim())).filter(Boolean).slice(0, 50) : [];
         const undoneFiles = rows.map((m) => m[2]), removedFiles = rows.filter((m) => m[1] === "D").map((m) => m[2]);
         const p = await pushRepo({ dir, repo: String(body.repo || ""), branch: String(body.branch || "coder/" + project), message: "", ...gitFrom(body, { via: gitVia, remote }), gitRoot, root, noPush });

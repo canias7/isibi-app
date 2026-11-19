@@ -138,7 +138,12 @@
     $('gfForm').addEventListener('submit', submit);
     $('gfResend').addEventListener('click', resend);
     $('gfBack').addEventListener('click', () => { if (busy) return; step = 1; $('gfCode').value = ''; say(''); draw(); $('gfMail').focus(); });
-    $('gfOut').addEventListener('click', async () => { await window.Auth.signOut(); location.href = '/'; });
+    $('gfOut').addEventListener('click', async () => {
+      const done = await window.Auth.signOut();
+      // (Not confirmed by the server: signed out here, and told so, as Claude Code's /logout says where to revoke it.)
+      if (done === false) { try { sessionStorage.setItem('gf_out_note', '1'); } catch (e) {} }
+      location.href = '/';
+    });
     // NOTIFICATIONS (owner item 8): Coder's screen opens its panel.
     // PERMISSION RULES in the gear menu (2026-11-15: out of the mode menu, which /permissions opens, as in Claude Code).
     $('gfRules').addEventListener('click', () => { $('gfMenu').hidden = true; window.dispatchEvent(new CustomEvent('gf:side', { detail: false })); window.dispatchEvent(new CustomEvent('gf:rules')); });
@@ -151,6 +156,10 @@
       showGate();
       // THE SESSION ENDED (the audit, 2026-11-06): straight to the sign-in card.
       if (window.Auth.justEnded()) { step = 1; openSignin(); say('Sign in again.'); }
+      // A SIGN-OUT THE SERVER DID NOT CONFIRM (L-server-16): said on the sign-in card, once.
+      let outNote = null;
+      try { outNote = sessionStorage.getItem('gf_out_note'); sessionStorage.removeItem('gf_out_note'); } catch (e) {}
+      if (outNote) { step = 1; openSignin(); say('You are signed out on this device, but your other devices could not be signed out. Sign in and press Sign out again.'); }
     }
   });
 })();

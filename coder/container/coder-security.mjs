@@ -162,10 +162,10 @@ function forFile(rule, rel) {
 
 /**
  * THE CHECK OF ONE EDIT: `rel` the file (project-relative), `text` what went in. Each rule's warning
- * once a job for each file (`shown`). A rule with only `paths` (a workflow file) fires on any edit
- * there. Answers the text for Coder, or "".
+ * once a chat for each file (`shown`, kept between the chat's jobs; `onShown` saves it). A rule with only `paths` (a
+ * workflow file) fires on any edit there. Answers the text for Coder, or "".
  */
-export function checkEdit(rel, text, rules, shown) {
+export function checkEdit(rel, text, rules, shown, onShown = null) {
   if (typeof text !== "string" || !rel) return "";
   const hits = [];
   for (const r of rules) {
@@ -176,5 +176,6 @@ export function checkEdit(rel, text, rules, shown) {
     shown.add(key);
     hits.push("- " + r.rule_name + ": " + r.reminder);
   }
+  if (hits.length && onShown) onShown();
   return hits.length ? "SECURITY CHECK of this edit to " + rel + " (Coder's check on each edit; it blocks nothing):\n" + hits.join("\n") + "\nFix it now unless it is safe here; if it is, say why in your answer." : "";
 }

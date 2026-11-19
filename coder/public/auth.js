@@ -70,10 +70,18 @@ const Auth = (() => {
     if (!session.expires_at || Date.now() > session.expires_at - 60000) await refresh();
     return session ? session.access_token : null;
   }
+  // (L-server-16: an old token is renewed first, so the logout really ends the session; the answer is read and tried
+  // again once. Answers false when the server did not confirm, so the page can say so.)
   async function signOut() {
-    const token = session && session.access_token, proof = session && session.proof;
+    let token = null;
+    try { token = await accessToken(); } catch (e) { token = session && session.access_token; }
+    const proof = session && session.proof;
     save(null);
-    if (token) { try { await post('logout', {}, token, proof); } catch (e) {} }
+    if (!token) return true;
+    for (let i = 0; i < 2; i++) {
+      try { const d = await post('logout', {}, token, proof); if (d && d.revoked !== false) return true; } catch (e) {}
+    }
+    return false;
   }
 
   // THE SESSION ENDED ON THE SERVER (the audit, 2026-11-06: the page stayed

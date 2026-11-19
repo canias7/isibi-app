@@ -255,7 +255,7 @@ test("CD390 the write block (outside Bash; Claude Code's permissions.blockWrites
   assert.match(server, /ownDirs: \[bgDir, outDir\],\n[^\n]*\n\s+memFile,\n/);
 });
 
-test("CD391 the working folders' own instructions (Claude Code's CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD, here CODER_ADDITIONAL_DIRECTORIES_CODER_MD): each folder's CODER.md, .coder/CODER.md and .coder/rules load as the project's do, named by full path; its path rules and subfolders' files load when Coder works on a file there; off by default", async () => {
+test("CD391 the working folders' own instructions (Claude Code's CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD, here CODER_ADDITIONAL_DIRECTORIES_CODER_MD): each folder's CODER.md, .coder/CODER.md and its rules with no paths load, named by full path; never its AGENTS.md, path rules or subfolders' files; off by default", async () => {
   const { mkdtempSync, mkdirSync, writeFileSync, realpathSync, readFileSync } = await import("node:fs");
   const { tmpdir } = await import("node:os");
   const { join } = await import("node:path");
@@ -270,14 +270,16 @@ test("CD391 the working folders' own instructions (Claude Code's CLAUDE_CODE_ADD
   const more = await S.extraInstructions([d], [{ name: "CODER.md", text: "x".repeat(10) }]);
   assert.deepEqual(more.notes.map((n) => n.name), [d + "/CODER.md", d + "/.coder/rules/style.md"]);
   assert.equal(more.notes[0].text.trim(), "Notes repo: keep one file per day.", "comments left out, as the project's");
-  assert.deepEqual(more.later.map((x) => [x.name, x.root]), [[d + "/.coder/rules/sql.md", d], [d + "/api/CODER.md", d]]);
-  // Loaded when Coder works on a file there (a full path), once.
-  const shown = new Set();
-  assert.match(S.laterNotes(more.later, "/work/shop", d + "/q/report.sql", shown), /Use lowercase SQL\./);
-  assert.match(S.laterNotes(more.later, "/work/shop", d + "/api/x.json", shown), /never edit it/);
-  assert.equal(S.laterNotes(more.later, "/work/shop", d + "/api/y.json", shown), "", "once");
-  // A short path is the project's, never a working folder's.
-  assert.equal(S.laterNotes(more.later, "/work/shop", "q/report.sql", new Set()), "");
+  // (M-f-16: an added folder loads only the files memory.md lists: no path rules and no subfolders' files, ever.)
+  assert.deepEqual(more.later, []);
+  assert.equal(S.laterNotes(more.later, "/work/shop", d + "/q/report.sql", new Set()), "");
+  // ITS AGENTS.md never loads ("Their `AGENTS.md` doesn't load"); the project's own folder still gets AGENTS.md and path rules.
+  const a = realpathSync(mkdtempSync(join(tmpdir(), "coder-p6ag-")));
+  writeFileSync(join(a, "AGENTS.md"), "Agents notes.\n");
+  assert.deepEqual((await S.extraInstructions([a], [])).notes, []);
+  const own = await S.repoInstructions(a);
+  assert.deepEqual(own.notes.map((n) => n.name), ["AGENTS.md"]);
+  assert.deepEqual((await S.repoInstructions(d)).later.map((x) => x.name), [".coder/rules/sql.md", "api/CODER.md"]);
   // The budget: what the project's instructions left.
   const full = await S.extraInstructions([d], [{ name: "CODER.md", text: "x".repeat(S.NOTES_MAX) }]);
   assert.match(full.notes[0].text, /^\[Not loaded here: the instructions already come to 100,000 characters\. Read .*\/CODER\.md with the read tool\.\]$/);

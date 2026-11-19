@@ -703,3 +703,30 @@ test("CD89 (the audit, 2026-11-06) the page keeps the ticket of the code sent (a
   // No password anywhere on the page.
   assert.doesNotMatch(readFileSync(HERE("public/index.html"), "utf8"), /type="password"|gfPw|Create an account/);
 });
+
+test("CD89b sign-out (L-server-16): an old token is renewed before the logout; the Worker returns Supabase's real answer, tried again once when it is down; an unconfirmed logout is said, a confirmed one is not", async () => {
+  const user = { id: "u1", email: "me@example.com" };
+  // THE PAGE: the stored token is old, so it is renewed first, and the renewed one is sent.
+  const stored = { access_token: "A1", refresh_token: "R1", expires_at: Date.now() - 1000, user, proof: "P1" };
+  const ok = runAuth({ stored, answers: { refresh: [200, { ok: true, session: { access_token: "A2", refresh_token: "R2", expires_at: Date.now() + 3600e3, user }, proof: "P1" }], logout: [200, { ok: true }] } });
+  assert.equal(await ok.Auth.signOut(), true);
+  assert.equal(ok.sent.at(-1).headers.authorization, "Bearer A2");
+  assert.equal(ok.local.getItem("gf_session_v1"), null);
+  // Not confirmed: tried again once, signed out here all the same, and false for the page's line.
+  const no = runAuth({ stored: { ...stored, expires_at: Date.now() + 3600e3 }, answers: { logout: [200, { ok: true, revoked: false, status: 500 }] } });
+  assert.equal(await no.Auth.signOut(), false);
+  assert.equal(no.sent.filter((x) => x.url === "/api/auth/logout").length, 2);
+  assert.equal(no.local.getItem("gf_session_v1"), null);
+  const appSrc = readFileSync(HERE("public/app.js"), "utf8");
+  assert.match(appSrc, /if \(done === false\) \{ try \{ sessionStorage\.setItem\('gf_out_note', '1'\)/);
+  assert.match(appSrc, /if \(outNote\) \{[^\n]*say\('You are signed out on this device, but your other devices could not be signed out/);
+  // THE WORKER: Supabase down twice → revoked false; a session already gone counts as signed out.
+  const env = envFor();
+  for (const [codes, want] of [[[500, 500], { ok: true, revoked: false, status: 500 }], [[503, 204], { ok: true }], [[204], { ok: true }], [[401], { ok: true }]]) {
+    let i = 0;
+    const sb = { fetchFn: async () => new Response(null, { status: codes[Math.min(i++, codes.length - 1)] }) };
+    const r = await handleSignin(new Request("https://gofarther.dev/api/auth/logout", { method: "POST", headers: { authorization: "Bearer tok" }, body: "{}" }), env, sb);
+    assert.deepEqual(await r.json(), want, String(codes));
+    assert.equal(i, codes.length, "tried " + codes.length + " time(s)");
+  }
+});

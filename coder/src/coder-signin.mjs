@@ -118,8 +118,14 @@ export async function handleSignin(request, env, { fetchFn = fetch } = {}) {
     if (action === "logout") {
       const h = request.headers.get("authorization") || "";
       const token = h.startsWith("Bearer ") ? h.slice(7).trim() : "";
-      if (token) await gotrue("logout", {}, token).catch(() => null);
-      return json({ ok: true });
+      // SUPABASE'S REAL ANSWER (L-server-16; Claude Code's /logout "retr[ies] revoking the login, and ... say[s] where to
+      // revoke it if the server doesn't confirm"): tried again once when it is down or out of reach; a session already gone
+      // (401/403/404) counts as signed out.
+      if (!token) return json({ ok: true });
+      let r = await gotrue("logout", {}, token).catch(() => null);
+      if (!r || r.status >= 500) r = await gotrue("logout", {}, token).catch(() => null);
+      if (r && (r.ok || r.status === 401 || r.status === 403 || r.status === 404)) return json({ ok: true });
+      return json({ ok: true, revoked: false, status: r ? r.status : 0 });
     }
   } catch {
     return json({ error: "Sign-in could not be reached. Try again." }, 502);

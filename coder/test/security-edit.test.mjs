@@ -126,3 +126,18 @@ test("CD162 in a real job: after Coder writes a file with eval( and the repo's o
     assert.doesNotMatch(tools[1].content, /SECURITY CHECK/, "a clean file: nothing");
   } finally { await new Promise((r) => srv.close(r)); }
 });
+
+test("CD160b the same warning for the same file is not given again in a later job of the same chat, but is in a new chat (M-a-17)", async () => {
+  const S = await import("../container/server.mjs");
+  const { mkdtemp } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const file = join(await mkdtemp(join(tmpdir(), "coder-sec-")), "p.security-shown.json");
+  const job1 = await S.loadShownSec(file, true);
+  assert.notEqual(C.checkEdit("a.js", "eval(x)", C.BUILTIN_RULES, job1, () => S.saveShownSec(file, job1)), "");
+  const job2 = await S.loadShownSec(file, false);
+  assert.equal(C.checkEdit("a.js", "eval(y)", C.BUILTIN_RULES, job2), "", "the chat's second job: already given");
+  assert.notEqual(C.checkEdit("b.js", "eval(y)", C.BUILTIN_RULES, job2), "", "another file still warns");
+  const fresh = await S.loadShownSec(file, true);
+  assert.notEqual(C.checkEdit("a.js", "eval(y)", C.BUILTIN_RULES, fresh), "", "a new chat warns again");
+});

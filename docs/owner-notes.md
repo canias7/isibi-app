@@ -4,6 +4,16 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-19: Claude Code fixes, batch 16
+
+- Six of the ten audit items in this batch fixed, each with a test; four skipped. Three wait for your word: reading only the first 200 lines of the memory file, whether a repository may raise the web-search limit you pay for, and what to do about a read-only chat's work when you remove it. The fourth, opening chat links outside the desktop and phone apps, needs Coder's GitHub App name built into those apps first. Gloopy, connectors and MCP were not touched. Not deployed or merged yet, so none of it has been tried live in the browser.
+- **Network changed mid-job:** a tighter network setting that cannot be applied to a running job now fails closed, as a job's start already did. The chat says so, and no longer says the change went through.
+- **Security warnings on edits:** each warning now comes once per file for the whole chat, not again after every message, as in Claude Code.
+- **A file named HEAD in a repository:** counting unsent commits, listing a job's changed files and Undo's list of files no longer break on such a repository.
+- **Extra working folders:** like Claude Code, Coder now loads only their main instruction files and their general rules. It no longer loads their AGENTS.md, file-specific rules or subfolders' files.
+- **Git snapshot:** at the start of a chat (and after a summary), Coder now sees its branch, its uncommitted files and the last five commits, as Claude Code does. `CODER_DISABLE_GIT_INSTRUCTIONS=1` turns this off.
+- **Sign out:** signing out now renews an old login first and checks that the server really ended the session, trying again once. If it could not, the page tells you your other devices may still be signed in.
+
 ## 2026-11-19: Claude Code fixes, batch 15
 
 - Six of the ten audit items in this batch fixed (one only in part), each with a test; four skipped (below). Gloopy, connectors and MCP were not touched. Not deployed and not merged yet, so none of it is tried live in the browser yet.
