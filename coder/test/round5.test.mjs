@@ -336,7 +336,7 @@ test("CD532 the owner's /compact runs on the chat's machine with its hooks, as C
   const run = async ({ hooks = {}, hookRun = () => ({}), answer = "THE SUMMARY", focus = "keep the API notes", messages = history } = {}) => {
     const events = [], seen = [], hookCalls = [];
     const r = await runCoder({
-      send: async (req) => { seen.push(req); if (answer === null) throw new Error("down"); return { message: { role: "assistant", content: answer }, usage: { in: 5, out: 3 } }; },
+      send: async (req) => { seen.push(req); if (answer === null) throw new Error("down"); return { message: { role: "assistant", content: K.isCompactRequest(req) && answer ? "<summary>" + answer + "</summary>" : answer }, usage: { in: 5, out: 3 } }; },
       exec: async (x) => {
         const mark = /<<coder-hook-stderr-[a-z0-9]+>>/.exec(String(x.command));
         if (mark && x.hook === true) { const input = JSON.parse(x.payload); hookCalls.push(input); const a = (await hookRun(input)) || {}; return { code: Number.isInteger(a.code) ? a.code : 0, output: String(a.stdout || "") + "\n" + mark[0] + "\n" + String(a.stderr || "") }; }

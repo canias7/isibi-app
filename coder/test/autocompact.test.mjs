@@ -37,7 +37,7 @@ function chat({ summary = () => "THE SUMMARY of what came before." } = {}) {
       send: async (req) => {
         const sys = String((req.messages[0] && req.messages[0].content) || "");
         // (A summary's request: Claude Code's compact request, the conversation with its prompt last; or Coder's own, the fallback.)
-        if (K.isCompactRequest(req) || sys === K.SUMMARY_SYSTEM) { sums.push(JSON.parse(JSON.stringify({ messages: req.messages, tools: req.tools }))); const s = summary(sums.length, req); if (s instanceof Error) throw s; return { message: { role: "assistant", content: s }, usage: { in: 100, out: 50 } }; }
+        if (K.isCompactRequest(req) || sys === K.SUMMARY_SYSTEM) { sums.push(JSON.parse(JSON.stringify({ messages: req.messages, tools: req.tools }))); let s = summary(sums.length, req); if (s instanceof Error) throw s; if (K.isCompactRequest(req) && typeof s === "string" && s && !s.includes("<summary>")) s = "<summary>" + s + "</summary>"; return { message: { role: "assistant", content: s }, usage: { in: 100, out: 50 } }; }
         if (sys === A.PAGE_READER || /safety checker/.test(sys)) return { message: { role: "assistant", content: "{}" }, usage: { in: 1, out: 1 } };
         sent.push(JSON.parse(JSON.stringify({ messages: req.messages, tools: req.tools })));
         if (fail) { const e = fail(sent.length); if (e) throw e; }
@@ -281,6 +281,7 @@ test("AC9 Claude Code's compact request (its compactConversation, the coordinato
   // Its pieces.
   assert.equal(K.summaryText("<analysis>\nthinking\n</analysis>\n\n<summary>\n1. Asked: fix it.\n\n\n2. Done.\n</summary>"), "1. Asked: fix it.\n\n2. Done.");
   assert.equal(K.summaryText("Plain words."), "Plain words.");
+  assert.equal(K.hasSummary("Plain words."), false);
   assert.equal(K.tokenGap(new Error("prompt is too long: 210000 tokens > 200000 maximum")), 10_000);
   assert.equal(K.tokenGap(new Error("This model's maximum prompt length is 500000 but the request contains 512000 tokens.")), 12_000);
   assert.equal(K.tokenGap(new Error("the prompt is too long")), undefined);

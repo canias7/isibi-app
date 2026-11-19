@@ -4,6 +4,16 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-19: Claude Code fixes, batch 7
+
+- All ten audit items in this batch fixed, each with a test. Gloopy, connectors and MCP were not touched. Not deployed and not merged yet.
+- **Auto mode's safety check** now sees a long command and its whole list of extra sites, and the permission card lists every site (in a box that scrolls). Its answer is read more carefully, so a mixed answer counts as a block.
+- **Auto mode sets aside more wide allow rules**, as Claude Code 2.1.327 does (rules starting with a wildcard, under your home folder, behind a wrapper like `timeout`, or naming a program by its path or version). Narrow rules such as `npm test` stay.
+- **Commands are no longer refused just for containing a word** like shutdown, reboot or mkfs (for example in a grep or a commit message). If such a program is really run, it asks, or goes to the safety check in Auto, like any other command.
+- **Long output shown in the chat** is never cut through the middle of an emoji.
+- **Summaries:** when a summary request has to be shortened, the earlier summary is kept. A reply that is not really a summary is asked for again instead of replacing the chat.
+- **Rule file patterns:** brace patterns are expanded once, with Claude Code's budget, so a crafted rules file can no longer freeze the chat's machine. Square brackets like `[abc]` now work as in Claude Code.
+
 ## 2026-11-19: Claude Code fixes, batch 6
 
 - Eight of ten audit items fixed, each with a test. Gloopy, connectors and MCP were not touched. Not deployed and not merged yet.

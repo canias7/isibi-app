@@ -263,6 +263,8 @@ export function compactPrompt(custom = "") {
 /** Is this request to Grok a compact request (its last message the compact prompt)? */
 export const isCompactRequest = (req) => { const last = req && Array.isArray(req.messages) ? req.messages.at(-1) : null; return !!last && last.role === "user" && typeof last.content === "string" && last.content.startsWith(COMPACT_PROMPT_HEAD); };
 /** The summary in a reply (its oTs): the <analysis> left out, the <summary> block's text when there is one, else all of it. */
+/** Does a reply hold a <summary> block (Claude Code asks once more when its reply has none)? */
+export const hasSummary = (reply) => /<summary>[\s\S]*?<\/summary>/.test(String(reply || "").replace(/<analysis>[\s\S]*?<\/analysis>/, ""));
 export function summaryText(reply) {
   const t = String(reply || "").replace(/<analysis>[\s\S]*?<\/analysis>/, "");
   const m = /<summary>([\s\S]*?)<\/summary>/.exec(t);
@@ -292,7 +294,11 @@ export function tokenGap(e) {
  */
 export function dropOldestRounds(messages, gap) {
   const list = (Array.isArray(messages) ? messages : []).filter(Boolean);
-  const from = list[0] && list[0].role === "user" && list[0].content === COMPACT_TRUNCATED ? list.slice(1) : list;
+  let from = list[0] && list[0].role === "user" && list[0].content === COMPACT_TRUNCATED ? list.slice(1) : list;
+  // (An earlier summary at the front is kept, and the oldest rounds after it are left out, as Claude Code keeps a very long
+  // conversation's earlier summary when it shortens its own request.)
+  let kept = null;
+  if (isSummary(from[0])) { kept = from[0]; from = from.slice(1); if (from[0] && from[0].role === "user" && from[0].content === COMPACT_TRUNCATED) from = from.slice(1); }
   const rounds = [];
   for (const m of from) { if (m.role === "assistant" && rounds.length && rounds.at(-1).length) rounds.push([m]); else if (!rounds.length) rounds.push([m]); else rounds.at(-1).push(m); }
   if (rounds.length < 2) return null;
@@ -302,6 +308,7 @@ export function dropOldestRounds(messages, gap) {
   n = Math.min(n, rounds.length - 1);
   if (n < 1) return null;
   const left = rounds.slice(n).flat();
+  if (kept) return [kept, { role: "user", content: COMPACT_TRUNCATED }, ...left];
   return left[0] && left[0].role === "assistant" ? [{ role: "user", content: COMPACT_TRUNCATED }, ...left] : left;
 }
 
@@ -324,8 +331,13 @@ export function transcriptText(messages, max = TRANSCRIPT_MAX) {
       }
     } else if (m.role === "tool") lines.push("RESULT: " + cut(text, 1500));
   }
+  // (The earlier summaries at the head are kept when it is cut; what follows them is cut from its oldest.)
+  let h = 0; while (h < lines.length && lines[h].startsWith("EARLIER SUMMARY: ")) h++;
   const all = lines.join("\n\n");
-  return all.length > max ? TRANSCRIPT_CUT + "\n" + all.slice(-max) : all;
+  if (all.length <= max) return all;
+  const head = lines.slice(0, h).join("\n\n"), rest = lines.slice(h).join("\n\n");
+  if (!head || head.length >= max) return TRANSCRIPT_CUT + "\n" + all.slice(-max);
+  return head + "\n\n" + TRANSCRIPT_CUT + "\n" + rest.slice(-(max - head.length));
 }
 
 /** What transcriptText puts first when it had to leave the oldest part out. */

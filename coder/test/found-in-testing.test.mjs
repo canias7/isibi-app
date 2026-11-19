@@ -944,7 +944,7 @@ test("CD225 the second review (2026-11-08), Coder's loop: a long chat's job no l
   let k = 0, summaries = 0, most = 0;
   await runCoder({
     send: async (q) => {
-      if (isSumReq(q)) { summaries++; return say("SUMMARY"); }
+      if (isSumReq(q)) { summaries++; return say(isCompactReq(q) ? "<summary>SUMMARY</summary>" : "SUMMARY"); }
       const size = JSON.stringify(q.messages).length;
       most = Math.max(most, size);
       k++;
@@ -964,7 +964,7 @@ test("CD225 the second review (2026-11-08), Coder's loop: a long chat's job no l
       get compactAt() { return n === 12 && !done ? 30_000 : 10_000_000; },
       send: async (q) => {
         // (The steps summarized: since 2026-11-14 the request is the conversation itself, Claude Code's compact request.)
-        if (isSumReq(q)) { done = true; summarized = q.messages.filter((m) => m.role === "assistant" && Array.isArray(m.tool_calls)).length; return say("SUMMARY"); }
+        if (isSumReq(q)) { done = true; summarized = q.messages.filter((m) => m.role === "assistant" && Array.isArray(m.tool_calls)).length; return say(isCompactReq(q) ? "<summary>SUMMARY</summary>" : "SUMMARY"); }
         n++;
         return n <= 12 ? say("", [call(n === 11 ? "read" : "bash", n === 11 ? { path: "shot.png" } : { command: "echo " + n }, "c" + n)]) : say("Done.");
       },

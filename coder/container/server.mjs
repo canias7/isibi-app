@@ -48,7 +48,7 @@ import { startProxy, okHost, firewall, blockedNote } from "./coder-proxy.mjs";
 import { makeRoom, roomArgs, roomGate, roomInternet, gateForApt, NSENTER, SETPRIV } from "./coder-room.mjs";
 import { sandboxBase, makeLower, makeUpper, startSandbox, sandboxArgs, sandboxWhy, SBX_BASE, SBX_RANGE, TOOLS_REF } from "./coder-sandbox.mjs";
 import { pauseAI, endOthers, resumeAI, aiProcesses, markOf, TASK_MARK } from "./coder-freeze.mjs";
-import { globMatch } from "./coder-globs.mjs";
+import { globMatch, globAny, expandBraces } from "./coder-globs.mjs";
 import { searchSettingsFrom } from "./coder-search.mjs";
 import { keeperCommand } from "./coder-lsp.mjs";
 // (The chat's task list, Claude Code's TaskCreate, TaskGet, TaskList and TaskUpdate: the owner, 2026-11-14.)
@@ -60,7 +60,7 @@ import { contentFrom } from "./coder-elicit.mjs";
 // (The chat's context as pieces, told in the conversation: coder-context.mjs, fix round 4.)
 import { piece } from "./coder-context.mjs";
 import { BUILTIN_RULES, parseRulesFile, checkEdit, editedText } from "./coder-security.mjs";
-export { globMatch };
+export { globMatch, globAny, expandBraces };
 import { normNetwork, okPattern, netWalled, VAR_DROPPED_RE } from "./coder-secrets.mjs";
 
 const RAW_OUTPUT_MAX = 1024 * 1024;
@@ -2841,7 +2841,7 @@ export function laterNotes(later, dir, path, shown) {
     // (One from a working folder, extraInstructions: a full path inside that folder.)
     const rel = x.root ? (String(path || "").startsWith(String(x.root).replace(/\/+$/, "") + "/") ? projectRel(x.root, path) : "") : projectRel(dir, path);
     if (!rel) continue;
-    const hit = x.globs ? x.globs.some((g) => globMatch(g, rel)) : rel.startsWith(x.dir + "/");
+    const hit = x.globs ? globAny(x.globs, rel) : rel.startsWith(x.dir + "/");
     if (!hit) continue;
     shown.add(x.name);
     out.push("— " + x.name + ":\n" + x.text.trim() + (x.cut ? "\n[" + x.name + " goes on past " + NOTE_ONE_MAX.toLocaleString("en-US") + " characters: read the rest of it with the read tool, from line " + (x.from || x.text.split("\n").length) + "]" : ""));

@@ -7,7 +7,7 @@
 // It never blocks a write. A repo adds its own rules in .coder/security-patterns.json, .yaml or .yml
 // (Claude Code's .claude/security-patterns.yaml, with the same fields), up to 50.
 
-import { globMatch } from "./coder-globs.mjs";
+import { globAny } from "./coder-globs.mjs";
 
 export const RULES_MAX = 50;
 export const REMINDER_MAX = 1024;
@@ -156,8 +156,8 @@ function yamlPatterns(text) {
 
 /** Does a rule apply to this file (project-relative path)? */
 function forFile(rule, rel) {
-  if (rule.exclude_paths && rule.exclude_paths.some((g) => globMatch(g, rel))) return false;
-  return !rule.paths || rule.paths.some((g) => globMatch(g, rel));
+  if (rule.exclude_paths && globAny(rule.exclude_paths, rel)) return false;
+  return !rule.paths || globAny(rule.paths, rel);
 }
 
 /**

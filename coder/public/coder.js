@@ -3941,7 +3941,7 @@
       const lines = Array.isArray(e.lines) ? e.lines.filter((l) => typeof l === 'string').slice(0, 40) : [];
       body = (e.desc ? '<p class="cd-perm-desc">' + esc(e.desc) + '</p>' : '') + '<pre class="cd-perm-pre">' + esc(lines.join('\n')) + (Number(e.more) > 0 ? '\n… ' + Number(e.more) + ' more line' + (Number(e.more) === 1 ? '' : 's') : '') + '</pre>' +
         // (Its own hosts, Claude Code's allowed_domains: approving covers them too.)
-        (Array.isArray(e.hosts) && e.hosts.length ? '<p class="cd-perm-desc">Also opens, for this command only: ' + e.hosts.map((h) => '<code>' + esc(h) + '</code>').join(', ') + '</p>' : '');
+        (Array.isArray(e.hosts) && e.hosts.length ? '<p class="cd-perm-desc cd-perm-hosts" style="max-height:9em;overflow:auto">Also opens, for this command only: ' + e.hosts.map((h) => '<code>' + esc(h) + '</code>').join(', ') + '</p>' : '');
     } else if (e.tool === 'write' || e.tool === 'edit') {
       // What the write or edit would do, as under each write's and edit's step.
       const lines = e.change && Array.isArray(e.change.lines) ? e.change.lines.filter((l) => typeof l === 'string').slice(0, 40) : [];

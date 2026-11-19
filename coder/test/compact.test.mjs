@@ -67,7 +67,7 @@ test("CD166 a long job is summarized as it goes (Claude Code's auto-compact, sin
   const r = await runCoder({
     compactAt: 6000,
     send: async (q) => {
-      if (isSumReq(q)) { asked.push(q); return { message: { role: "assistant", content: "SUMMARY " + asked.length }, usage: { in: 1, out: 1 } }; }
+      if (isSumReq(q)) { asked.push(q); return { message: { role: "assistant", content: (isCompactReq(q) ? "<summary>SUMMARY " + asked.length + "</summary>" : "SUMMARY " + asked.length) }, usage: { in: 1, out: 1 } }; }
       n++;
       return n <= 14 ? { message: { role: "assistant", content: "", tool_calls: [call("bash", { command: "echo " + n }, "b" + n)] } } : { message: { role: "assistant", content: "All done." } };
     },

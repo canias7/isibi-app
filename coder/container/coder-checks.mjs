@@ -34,18 +34,16 @@ export const SETUP_SCRIPT_MAX = 65536;
 
 // Each: [pattern, why]. Read against the command as typed.
 const REFUSED = [
+  // (No single word refuses a command any more: shutdown, reboot, mkfs, su and the like, even in a grep or a commit message,
+  // were refused before. Run for real, they go the normal way: a card, or the checker in Auto, as in Claude Code.)
   // Removals are read as Claude Code reads them (coder-bashcheck.mjs, dangerousRm), with its words.
   [/:\(\)\s*\{\s*:\|:&\s*\};:/, "it is a fork bomb"],
-  [/\b(mkfs|fdisk|parted)\b/, "it formats disks"],
   [/\bdd\s+[^|;&]*of=\/dev\//, "it writes straight to a device"],
-  [/\b(shutdown|reboot|halt|poweroff)\b/, "it stops the machine"],
   [/\/proc\/[0-9a-z]+\/environ\b/, "it reads another process's secrets"],
   // (`pkill node` was refused here too, from before the commands' own sandbox: they can't see Coder's service, and Claude
   // Code refuses only a pkill pattern that matches its own process. Bash docs pass 5.)
   [/\bkill\s+-9\s+1\b|\bkill\s+(-[A-Z0-9]+\s+)?-1\b/, "it would stop Coder itself"],
   [/\b(chmod|chown)\s+(-R\s+)?[^ ]*\s+\/(\s|$)/, "it changes the whole machine's permissions"],
-  // `sudo` reaches only the master key's checked jobs (step 4, tools/sudo); `su` stays refused.
-  [/\bsu\s/, "commands already run with the rights they need"],
 ];
 
 /** Why this command may not run ("" when it may). */
@@ -359,7 +357,9 @@ export function capOutput(text, max = MAX_OUTPUT_CHARS) {
   const t = scrub(text);
   if (t.length <= max) return t;
   const head = Math.floor(max * 0.6), tail = max - head;
-  return t.slice(0, head) + "\n… [" + (t.length - head - tail) + " characters not shown] …\n" + t.slice(t.length - tail);
+  // (Never through the middle of an emoji: headChars and tailChars keep a letter's two halves together.)
+  const a = headChars(t, head), b = tailChars(t, tail);
+  return a + "\n… [" + (t.length - a.length - b.length) + " characters not shown] …\n" + b;
 }
 
 /** A project id: lowercase letters, digits and dashes. */

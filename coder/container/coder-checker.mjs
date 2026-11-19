@@ -243,7 +243,7 @@ export function checkerTranscript(convo, { maxChars = 14000, skipId = "", notes 
 /** The pending action as the checker is shown it. */
 export function actionShown(name, args) {
   const a = args && typeof args === "object" ? args : {};
-  if (name === "bash" || name === "powershell") return name + ": " + clip(a.command, 6000) + (a.run_in_background ? "\n(run in the background)" : "") + (a.description ? "\n(Coder's description: " + clip(a.description, 200) + ")" : "") + (Array.isArray(a.allowed_domains) && a.allowed_domains.length ? "\n(allowed_domains: the hosts this command asks to reach beyond the chat's network list, for this command alone: " + clip(a.allowed_domains.slice(0, 100).join(", "), 3000) + ")" : "");
+  if (name === "bash" || name === "powershell") return name + ": " + asText(a.command) + (a.run_in_background ? "\n(run in the background)" : "") + (a.description ? "\n(Coder's description: " + clip(a.description, 200) + ")" : "") + (Array.isArray(a.allowed_domains) && a.allowed_domains.length ? "\n(allowed_domains: the hosts this command asks to reach beyond the chat's network list, for this command alone: " + a.allowed_domains.map(String).join(", ") + ")" : "");
   // (A page fetch as Claude Code shows its classifier one, "<url>: <prompt>", or the url alone: the owner, 2026-11-14.)
   if (name === "web_fetch") return "web_fetch: " + clip(a.url, 2000) + (a.prompt ? ": " + clip(a.prompt, 500) : "");
   // (A web search: its query, as Claude Code's auto mode classifier is given one, WebSearch's toAutoClassifierInput: the
@@ -254,18 +254,24 @@ export function actionShown(name, args) {
 
 /** The checker's answer read as `{ decision, rule, reason }`, or null when it can't be read. */
 export function parseVerdict(text) {
+  // (Every verdict in the answer is read: one block wins, a lone allow passes, none is no verdict. Before, the first one
+  // anywhere was taken, so a quoted allow ahead of the real block let the action through. Claude Code blocks an answer it
+  // cannot read.)
   const t = String(text || "");
+  let allow = false, block = null;
   for (let i = t.indexOf("{"); i >= 0; i = t.indexOf("{", i + 1)) {
-    for (let j = t.lastIndexOf("}"); j > i; j = t.lastIndexOf("}", j - 1)) {
+    for (let j = t.indexOf("}", i + 1); j > i; j = t.indexOf("}", j + 1)) {
       let v = null;
       try { v = JSON.parse(t.slice(i, j + 1)); } catch { continue; }
-      if (!v || typeof v !== "object") continue;
+      if (!v || typeof v !== "object") break;
       const d = String(v.decision || "").toLowerCase();
-      if (d === "allow") return { decision: "allow", rule: "", reason: "" };
-      if (d === "block") return { decision: "block", rule: String(v.rule || "").replace(/^\[|\]$/g, "").trim().slice(0, 80) || "Blocked", reason: String(v.reason || "").replace(/\s+/g, " ").trim().slice(0, 300) };
+      if (d === "allow") allow = true;
+      if (d === "block" && !block) block = { decision: "block", rule: String(v.rule || "").replace(/^\[|\]$/g, "").trim().slice(0, 80) || "Blocked", reason: String(v.reason || "").replace(/\s+/g, " ").trim().slice(0, 300) };
+      i = j; break;
     }
   }
-  return null;
+  if (block) return block;
+  return allow ? { decision: "allow", rule: "", reason: "" } : null;
 }
 
 /**
@@ -413,16 +419,39 @@ export function resume(st) { st.row = 0; keepState(st); }
 /**
  * ALLOW RULES AUTO MODE DROPS (Claude Code: "On entering auto mode, broad allow rules that grant arbitrary code execution
  * are dropped: Blanket Bash(*) or PowerShell(*), Wildcarded interpreters like Bash(python*), Package-manager run commands";
- * Bash docs pass 8: its own lists and checks, 2.1.322). Narrow rules like Bash(npm test) stay. With the owner's
+ * Bash docs pass 8: its own lists and checks, 2.1.322, and the wider ones of 2.1.327). Narrow rules like Bash(npm test) stay. With the owner's
  * classifyAllShell, every Bash and PowerShell allow rule is dropped ("suspend every Bash and PowerShell allow rule").
  */
-const AUTO_RISKY = ["python", "python3", "python2", "node", "deno", "tsx", "ruby", "perl", "php", "lua", "npx", "bunx", "npm run", "yarn run", "pnpm run", "bun run", "bash", "sh", "ssh"];
+const AUTO_RISKY = ["python", "python3", "python2", "node", "deno", "tsx", "ruby", "perl", "php", "lua", "npx", "bunx", "npm run", "yarn run", "pnpm run", "bun run", "pnpm dlx", "yarn dlx", "npm exec", "bun x", "pnpx", "bash", "sh", "ssh"];
+// (Claude Code 2.1.327: also a rule that starts with a wildcard or names no program, one under $HOME or ~ with a wildcard, a
+// stripped wrapper followed only by a wildcard, and a program named by its path or version, /usr/bin/npm run:* or python3.11 *.)
+const AUTO_WRAPPERS = ["timeout", "time", "nice", "nohup", "stdbuf", "command", "builtin", "noglob"];
+/** The rule's first word as a plain program: the last part of a path, without a version (python3.11 -> python3, node22 -> node). */
+function plainProgram(n) {
+  const m = /^(\S+)([\s\S]*)$/.exec(n);
+  if (!m) return n;
+  let w = m[1].replace(/:\*$/, ""), rest = m[1].endsWith(":*") ? ":*" + m[2] : m[2];
+  w = w.split(/[\\/]/).pop();
+  const ex = /\.exe$/.test(w); if (ex) w = w.slice(0, -4);
+  const v = /^(python[23]?|node|ruby|perl|php|lua|deno|bun|pip[23]?)[\d.]*\d$/.exec(w);
+  if (v) w = v[1] === "python" && /^python3/.test(w) ? "python3" : v[1] === "python" && /^python2/.test(w) ? "python2" : v[1];
+  return w + (ex ? ".exe" : "") + rest;
+}
+/** The wide shapes of 2.1.327, for either shell. */
+function wideShape(n, ps) {
+  if (n.startsWith("*") || /^[\s:*]+/.test(n) || /^-/.test(n)) return true;
+  if (/^(\$home|\$\{home\}|~)/.test(n) && n.includes("*")) return true;
+  if (ps && /^([a-z]:)?[\\/][^\s]*\.exe\s+\*$/.test(n)) return true;
+  for (const w of AUTO_WRAPPERS) if (n === w + " *" || n === w + ":*" || n === w + "*") return true;
+  return false;
+}
 const AUTO_RISKY_BASH = [...AUTO_RISKY, "zsh", "fish", "eval", "exec", "env", "xargs", "sudo"];
 const AUTO_RISKY_PS = [...AUTO_RISKY, "pwsh", "powershell", "cmd", "wsl", "iex", "invoke-expression", "icm", "invoke-command", "start-process", "saps", "start", "start-job", "sajb", "start-threadjob", "invoke-wmimethod", "iwmi", "invoke-cimmethod", "icim", "wmic", "register-objectevent", "register-engineevent", "register-wmievent", "register-scheduledjob", "new-pssession", "nsn", "enter-pssession", "etsn", "add-type", "new-object"];
 /** Claude Code's check of a Bash rule's content: the program alone, with any `*` after it, or with an option before a `*`. */
 function riskyBash(content) {
-  const n = String(content).trim().toLowerCase();
-  if (n === "*") return true;
+  const raw = String(content).trim().toLowerCase();
+  if (raw === "*" || wideShape(raw, false)) return true;
+  const n = plainProgram(raw);
   for (const s of AUTO_RISKY_BASH) {
     if (n === s || n === s + ":*" || n === s + " *" || n === s + "*") return true;
     if (n.startsWith(s + " ") && n.endsWith("*")) {
@@ -435,8 +464,9 @@ function riskyBash(content) {
 }
 /** Its check of a PowerShell rule's content: the same, each program also with .exe. */
 function riskyPs(content) {
-  const n = String(content).trim().toLowerCase();
-  if (n === "*") return true;
+  const raw = String(content).trim().toLowerCase();
+  if (raw === "*" || wideShape(raw, true)) return true;
+  const n = plainProgram(raw);
   for (const s of AUTO_RISKY_PS) {
     const sp = s.indexOf(" "), exe = sp === -1 ? s + ".exe" : s.slice(0, sp) + ".exe" + s.slice(sp);
     for (const w of [s, exe]) {

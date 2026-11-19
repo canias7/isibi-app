@@ -20,7 +20,7 @@
 // The conversation is kept in the OpenAI chat shape (`messages`, with
 // `tool_calls` and `tool` answers), which Grok speaks natively; the next
 // message continues from the same messages.
-import { summaryRequest, summaryMessage, cutPoint, isSummary, viewedFile, filesTouched, compactSettings, compactLimits, compactLevel, conversationTokens, COMPACT_FAILURES_MAX, REFILL_TURNS, REFILL_TIMES, PRECOMPACT_OUTPUT_MAX, CHARS_PER_TOKEN, COMPACTED_SHOWN, THRASHING, contextLimitShown, compactPrompt, summaryText, dropOldestRounds, tokenGap, COMPACT_PTL_RETRIES, COMPACT_TOO_LONG, tooShortToCompact, TOO_SHORT_TO_COMPACT } from "./coder-compact.mjs";
+import { summaryRequest, summaryMessage, cutPoint, isSummary, viewedFile, filesTouched, compactSettings, compactLimits, compactLevel, conversationTokens, COMPACT_FAILURES_MAX, REFILL_TURNS, REFILL_TIMES, PRECOMPACT_OUTPUT_MAX, CHARS_PER_TOKEN, COMPACTED_SHOWN, THRASHING, contextLimitShown, compactPrompt, summaryText, hasSummary, dropOldestRounds, tokenGap, COMPACT_PTL_RETRIES, COMPACT_TOO_LONG, tooShortToCompact, TOO_SHORT_TO_COMPACT } from "./coder-compact.mjs";
 // A command that views one file counts as reading it (moved to coder-compact.mjs, which the Worker uses too).
 export { viewedFile };
 import { retryLine, apiErrorText, modelWindow } from "./coder-model.mjs";
@@ -3667,14 +3667,19 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     let tools0 = lastSentTools;
     if (!tools0) { const m = modeNow(); tools0 = roundTools(m, m === "plan" || toldMode === "plan" ? await planNow() : null).sending.tools; }
     const prompt = compactPrompt(custom);
-    let msgs = part, headCut = false, tries = 0, why = "";
+    let msgs = part, headCut = false, tries = 0, why = "", asked = 0;
     const whyOf = (e) => scrub(String((e && e.message) || e)).replace(/\s+/g, " ").slice(0, 220);
     while (true) {
       let r = null, err = null;
       try { r = await deps.send({ model, ...(effort ? { effort } : {}), messages: [{ role: "system", content: systemText() }, ...wordsAfterResults(msgs), { role: "user", content: prompt }], tools: tools0, tool_choice: "auto" }); } catch (e) { err = e; }
       if (r && r.usage) usage.push(r.usage);
-      const text = r ? summaryText(r.message && r.message.content) : "";
-      if (text) return { text, headCut };
+      const said = r && r.message ? r.message.content : "";
+      const text = r ? summaryText(said) : "";
+      // (A reply with words but no <summary> block is not taken as the summary: asked once more, as Claude Code does; still
+      // none, Coder's plain request below, so the conversation is never replaced by a reply that is not a summary.)
+      if (text && hasSummary(said)) return { text, headCut };
+      if (text && !err && ++asked < 2) continue;
+      if (text) break;
       if (err && tooLongError(err)) {
         const cut = tries < COMPACT_PTL_RETRIES ? dropOldestRounds(msgs, tokenGap(err)) : null;
         if (!cut) return { text: "", headCut, tooLong: true };
@@ -5354,7 +5359,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           // (`told`: Claude Code's message for a rule's or a hook's ask, or at the limit of blocks, where it differs from the card's
           // line: round 6.)
           const told = rmWhy || ask ? "" : limitCard ? limitCard.told : dec.told || "";
-          const card = { tool: c.ps ? "powershell" : "bash", id: c.id, ...(rmTimed && rmWhy ? { blockAt: now() + RM_PROMPT_MS } : {}), ...cardLines(command), ...(hostsFor ? { hosts: hostsFor.slice(0, 20) } : {}), ...(desc ? { desc } : {}), why: String((rmWhy && rmCardReason(rmWhy)) || rmWhy || (ask ? ask.why : limitCard ? limitCard.why : dec.why)).slice(0, 800), ...(!once && suggested ? { rules: suggested } : {}), ...(!once && !limitCard && !c.ps && modeB === "acceptEdits" && autoOff !== true ? { toAuto: true } : {}), ...(told ? { told: String(told).slice(0, 800) } : {}) };
+          const card = { tool: c.ps ? "powershell" : "bash", id: c.id, ...(rmTimed && rmWhy ? { blockAt: now() + RM_PROMPT_MS } : {}), ...cardLines(command), ...(hostsFor ? { hosts: hostsFor.slice() } : {}), ...(desc ? { desc } : {}), why: String((rmWhy && rmCardReason(rmWhy)) || rmWhy || (ask ? ask.why : limitCard ? limitCard.why : dec.why)).slice(0, 800), ...(!once && suggested ? { rules: suggested } : {}), ...(!once && !limitCard && !c.ps && modeB === "acceptEdits" && autoOff !== true ? { toAuto: true } : {}), ...(told ? { told: String(told).slice(0, 800) } : {}) };
           approval = hookAnswer || await askOwner(card, { hooks: !c.rerun });
           // (Auto's 2-minute card: no answer by then blocks the removal, and Coder goes on, as in Claude Code; an answer, Yes
           // or No, starts the count of unanswered ones again.)

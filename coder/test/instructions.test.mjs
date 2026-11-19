@@ -50,7 +50,7 @@ test("CD157 which instruction files load at the start and which later: CODER.md 
 });
 
 test("CD158 a rule's paths, as Claude Code's docs give them: *.md anywhere, /*.md only at the top, src/**/* and src/components/*.tsx from the top, {ts,tsx} either; its front matter as a list, a [list] or one pattern", () => {
-  const m = S.globMatch;
+  const m = (p, f) => S.globAny([p], f);
   for (const [p, yes, no] of [
     ["**/*.ts", ["a.ts", "src/x/a.ts"], ["a.tsx", "a.js"]],
     ["src/**/*", ["src/a.ts", "src/x/y/z.md"], ["lib/a.ts", "a.ts"]],
