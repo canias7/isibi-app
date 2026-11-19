@@ -472,3 +472,14 @@ test("CD290 (docs check: Claude Code's errors page) a command with a raw control
   assert.equal(r.messages.find((m) => m.tool_call_id === "c1").content, CONTROL_REFUSED);
   assert.equal(execs.filter((x) => !x.tool).length, 0, "never run");
 });
+
+test("L-machine-57: the command whose exit code decides is read from the whole command, so a here-document or a comment is never taken for it", async () => {
+  const { exitMeaning } = await import("../container/coder-bashcheck.mjs");
+  for (const c of ["grep -q foo <<EOF\nx\nEOF", "cat <<EOF | grep foo\nbar\nEOF", "grep foo f # a; b", "grep foo f\n# note"]) {
+    const m = exitMeaning(c, 1);
+    assert.equal(m.isError, false, c);
+    assert.equal(m.message, "No matches found", c);
+  }
+  assert.equal(exitMeaning("ls nope", 1).isError, true);
+  assert.equal(exitMeaning("grep a f; ls x", 1).isError, true);
+});

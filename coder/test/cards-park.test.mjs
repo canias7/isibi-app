@@ -638,3 +638,13 @@ test("CP13 fix round 3 (T3): the owner's words with a Yes go to Grok exactly as 
   // Gloopy's own sentence stays as it was (Gloopy is unchanged).
   assert.match(readFileSync(HERE("container/coder-agent.mjs"), "utf8"), /if \(offered\) return "\\n\\n\(The owner approved this with a note: " \+ a\.comment \+ "\)";/);
 });
+
+test("CP-held (L-machine-09): a turn taken up again whose round then ends early (a second card's No, or Stop) keeps the news held for Coder, such as a background command's end, in the saved conversation", async () => {
+  const first = await loop([say("x", [call("bash", { command: "npm install left-pad" }, "b1"), call("bash", { command: "npm publish" }, "b2")])]);
+  assert.equal(first.r.status, "parked");
+  for (const answer of [{ choice: "no" }, { choice: "stop" }]) {
+    const back = await loop([say("never")], { text: "", messages: first.r.messages, resumed: true, notices: [{ id: "job1", desc: "the server", command: "npm start", log: "/tmp/x.log", code: 3 }], takeUp: { ...first.r.parked, answer: { choice: "yes" } } }, { ask: async () => answer });
+    const all = back.r.messages.map((m) => String(m.content)).join("\n");
+    assert.match(all, /background command/i, "the news is in the saved conversation after " + answer.choice);
+  }
+});

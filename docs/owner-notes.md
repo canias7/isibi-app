@@ -4,6 +4,18 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-19: Claude Code fixes, batch 6
+
+- Eight of ten audit items fixed, each with a test. Gloopy, connectors and MCP were not touched. Not deployed and not merged yet.
+- **An answer that mentions the old hidden suggestion tag** is now shown whole. Only an old saved suggestion on the very last line is hidden. The unused instruction for it was removed.
+- **News for Coder, like a background command that failed,** is no longer lost when a resumed turn ends with No or Stop.
+- **Old pictures are dropped in batches** (past 24, down to 16), like Claude Code, so screenshot-heavy chats have fewer slow, full-price turns.
+- **A search with no matches** is no longer called a failure when the command has inline text or a comment after it.
+- **The dangerous-delete check** was made more accurate: it follows a folder change made inside brackets, and harmless deletes inside the project no longer get the card.
+- **The dangerous-delete card** gives Claude Code's short one-line reason for mounted drives.
+- **A harmless command Coder can't read** (for example one with an unclosed quote) is no longer called a dangerous delete; Coder is told it may send it again written plainly, in Claude Code's words.
+- Left for the owner: a warning before a chat is summarized (how it should look is the owner's call), and whether rules a repository's own hooks add should last for one chat only.
+
 ## 2026-11-19: Claude Code fixes, batch 5
 
 - Five of ten audit items fixed, each with a test. Gloopy, connectors and MCP were not touched. Not deployed and not merged yet.

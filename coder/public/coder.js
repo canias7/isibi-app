@@ -1997,7 +1997,7 @@
     return out.map((x) => (typeof x === 'object' ? '<ol' + (x.start === 1 ? '' : ' start="' + x.start + '"') + '>' + x.items.map((i) => '<li>' + i + '</li>').join('') + '</ol>' : x)).join('');
   }
   function prose(t) {
-    t = String(t == null ? '' : t).replace(/\n?<next-prompt>[\s\S]*?(?:<\/next-prompt>|$)/gi, ''); // (a suggestion never shows in an answer)
+    t = String(t == null ? '' : t).replace(/(^|\n)[ \t]*<next-prompt>[^\n]*?<\/next-prompt>\s*$/i, ''); // (an old saved suggestion, a complete tag on the last line, never shows)
     const parts = noColor(t).split(/```[a-zA-Z0-9_-]*\n?/);
     return parts.map((p, i) => i % 2 ? '<pre class="cd-pre">' + esc(p.replace(/\n$/, '')) + '</pre>' : (p.trim() ? blocks(p) : '')).join('');
   }

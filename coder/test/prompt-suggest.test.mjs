@@ -64,7 +64,17 @@ const openPage = (o = {}) => openPage0(o.browser, o);
 test("splitSuggest takes the hidden line off the answer", () => {
   assert.deepEqual(A.splitSuggest("Fixed both.\n<next-prompt>now fix both bugs and rerun the tests</next-prompt>"), { text: "Fixed both.", next: "now fix both bugs and rerun the tests" });
   assert.deepEqual(A.splitSuggest("Hi!"), { text: "Hi!", next: "" });
-  assert.deepEqual(A.splitSuggest("Done.\n<next-prompt>open a pull request"), { text: "Done.", next: "open a pull request" });
+  assert.deepEqual(A.splitSuggest("Done.\n<next-prompt>open a pull request"), { text: "Done.\n<next-prompt>open a pull request", next: "" });
+});
+test("an answer that mentions <next-prompt> mid-text is shown whole", () => {
+  const t = "The old tag was <next-prompt> and it went at the end.\nMore text after it.";
+  assert.deepEqual(A.splitSuggest(t), { text: t, next: "" });
+  const page = readFileSync(PUB + "coder.js", "utf8");
+  const src = String.raw`/(^|\n)[ \t]*<next-prompt>[^\n]*?<\/next-prompt>\s*$/i`;
+  assert.ok(page.includes(src), "the page uses the last-line rule");
+  const re = /(^|\n)[ \t]*<next-prompt>[^\n]*?<\/next-prompt>\s*$/i;
+  assert.equal(t.replace(re, ""), t, "the page keeps it too");
+  assert.equal("Hi\n<next-prompt>go</next-prompt>".replace(re, ""), "Hi");
 });
 
 const say = (content) => ({ message: { role: "assistant", content }, usage: { in: 1, out: 1 } });

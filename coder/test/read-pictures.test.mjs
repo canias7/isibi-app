@@ -210,24 +210,37 @@ test("CD196 the agent shows read's pictures to Grok: the read's answer is its te
   convo.push(read3(0), read3(1, 4));
   for (let i = 2; i < 9; i++) convo.push(read3(i));
   keepPics(convo);
-  assert.deepEqual(convo.map((m) => (m.images || []).length), [1, 0, 3, 3, 3, 3, 3, 3, 3, 3], "the owner's own picture stays; reads keep their newest 24");
+  assert.deepEqual(convo.map((m) => (m.images || []).length), [1, 0, 0, 0, 1, 3, 3, 3, 3, 3], "the owner's own picture stays; past 24, reads keep their newest 16 (a batch)");
   assert.match(convo[1].content, / \[No longer attached: read the file again to see it\.\]$/);
-  assert.match(convo[2].content, / \[Only the last 3 of them are still attached\.\]$/);
+  assert.match(convo[4].content, / \[Only the last 1 of them are still attached\.\]$/);
   keepPics(convo);
-  assert.equal(convo[2].content.match(/Only the last/g).length, 1, "said once");
+  assert.equal(convo[4].content.match(/Only the last/g).length, 1, "said once");
   // BY SIZE TOO: pictures of 5,000,000 characters each, so only 3 fit in 18,000,000.
   const big = [read3("a", 2, 5_000_000), read3("b", 2, 5_000_000)];
   keepPics(big);
-  assert.deepEqual(big.map((m) => (m.images || []).length), [1, 2], "the newest that fit, by size");
+  assert.deepEqual(big.map((m) => (m.images || []).length), [0, 2], "past 18 MB, the newest that fit in 12 MB");
   // IN CODER'S CHATS, whose saved chat keeps every picture (since 2026-11-14): the owner's pictures count too, an earlier
   // message's let go like a read's once newer ones need the room; this message's own (from `from` on) always stay.
   const chat = [{ role: "user", content: "old ask", images: ["o0", "o1", "o2", "o3"] }, { role: "assistant", content: "ok" }];
   for (let i = 0; i < 8; i++) chat.push(read3("c" + i));
   chat.push({ role: "user", content: "new ask", images: ["n0", "n1"] });
   keepPics(chat, { from: chat.length - 1 });
-  assert.deepEqual(chat.map((m) => (m.images || []).length), [0, 0, 1, 3, 3, 3, 3, 3, 3, 3, 2]);
+  assert.deepEqual(chat.map((m) => (m.images || []).length), [0, 0, 0, 0, 0, 2, 3, 3, 3, 3, 2]);
   assert.equal(chat[0].content, "old ask [No longer attached: read the file again to see it.]");
   assert.equal("images" in chat[0], false);
+  // IN BATCHES (M-f-26): 24 kept as they are; the 25th trims to 16; the next 8 change no older message.
+  const { PICS_KEEP_AFTER } = await import("../container/coder-agent.mjs");
+  assert.equal(PICS_KEEP_AFTER, 16);
+  const one = (i) => ({ role: "user", content: "r" + i, images: ["q" + i], readPics: true });
+  const b = Array.from({ length: 24 }, (_, i) => one(i));
+  keepPics(b);
+  assert.equal(b.filter((m) => m.images).length, 24, "24: nothing dropped");
+  b.push(one(24)); keepPics(b);
+  assert.equal(b.filter((m) => m.images).length, 16, "the 25th: down to 16");
+  const before = b.slice();
+  for (let i = 25; i < 33; i++) { b.push(one(i)); keepPics(b); }
+  assert.equal(b.filter((m) => m.images).length, 24);
+  before.forEach((m, i) => assert.equal(b[i], m, "no older message changed"));
   const mine = [{ role: "user", content: "huge ask", images: Array.from({ length: 4 }, (_, j) => "h" + j + "x".repeat(5_000_000)) }];
   keepPics(mine, { from: 0 });
   assert.equal(mine[0].images.length, 4, "this message's own stay, whatever the room");

@@ -11,7 +11,7 @@ test("L-machine-44 1,500 nested $( is unreadable and asks; a normal nested comma
   assert.equal(parseShell(deep).ok, false);
   assert.ok(Date.now() - t0 < 2000);
   assert.notEqual(bashDecision(deep, { mode: "acceptEdits", rules: {}, cwd: "/tmp" }).verdict, "allow");
-  assert.equal(dangerousRm(deep, { cwd: "/tmp" }), RM_UNCHECKED);
+  assert.match(dangerousRm(deep, { cwd: "/tmp" }), /can't rule out a dangerous removal/); // (no rm in it: M-a-19)
   const sub = "( ".repeat(1500) + "ls" + " )".repeat(1500);
   assert.equal(parseShell(sub).ok, false);
   const ok = parseShell("echo $(cat $(ls a) | wc -l)");

@@ -27,8 +27,10 @@ export function gitSubcommand(words) {
 /** `{ isError, message }` for a command's exit code, as Claude Code reads it. */
 export function exitMeaning(command, code) {
   if (!Number.isInteger(code)) return { isError: true, message: "" };
-  const last = topTexts(command).at(-1) || String(command || "");
-  const words = unwrapped(parseShell(last).commands.find((c) => c.top === 0)?.words || []).map((w) => w.text);
+  // (The whole command read at once, so a here-document's lines and a comment are never taken for the last command.)
+  const cmds = (parseShell(String(command || "")).commands || []).filter((c) => !c.inScript);
+  const lastTop = cmds.reduce((n, c) => Math.max(n, c.top), 0);
+  const words = unwrapped(cmds.find((c) => c.top === lastTop)?.words || []).map((w) => w.text);
   const prog = basename(words[0] || "");
   let meaning = BENIGN_ONE.get(prog);
   if (prog === "git") { const sub = gitSubcommand(words); meaning = sub === "diff" ? "Files differ" : sub === "grep" ? "No matches found" : undefined; }
@@ -155,6 +157,9 @@ export function leadsTo(full, workdirs = [], real = realPath) {
 // for an rmdir, as Claude Code 2.1.325's raw program has them (2026-11-14, round 3).
 const NEEDS = " This requires explicit approval and cannot be auto-allowed by permission rules.";
 export const RM_UNCHECKED = "This command could not be checked for dangerous rm operations: the shell may read it differently than it was parsed. This requires explicit approval.";
+// (A command with no rm in it that the check cannot read: Claude Code 2.1.327's refusal, from its program (2.1.328), with
+// Coder's name and "the owner"; a harmless one may be sent again in plain syntax. M-a-19.)
+export const RM_UNCHECKED_NO_RM = "Coder can't be sure it read this command the way the shell will, so it can't rule out a dangerous removal. This requires explicit approval. A command that deletes nothing can be sent again in plain syntax that bash and zsh both read, and that is not a workaround. A command that deletes anything, by rm or any other means, needs the owner: do not send that part again.";
 const SYSTEM_WHY = "This command would remove a critical system directory.";
 const WORKSPACE_WHY = "This command would remove a workspace directory (the working directory, an additional working directory, or one of their parent directories).";
 const MOUNT_WHY = "This command would remove a mounted drive, the folder that holds mounted drives, or a file or folder at the top level of a drive.";
@@ -313,14 +318,18 @@ export function dangerousRm(command, { cwd = "/", home = "/home/dev", workdirs =
   const r = parseShell(src);
   // (Any command the shell may read differently, rm in it or not: Claude Code's docs, "a removal could sit in an unchecked
   // part, even with no rm present". Bash docs pass 9: Coder said so only when the text named rm.)
-  if (!r.ok) return RM_UNCHECKED;
+  if (!r.ok) return /(^|[^A-Za-z0-9_-])rm(dir)?([^A-Za-z0-9_-]|$)/.test(src) ? RM_UNCHECKED : RM_UNCHECKED_NO_RM;
   const work = workdirs.filter((d) => typeof d === "string" && d.startsWith("/")).map((d) => posix.normalize(d).replace(/\/$/, "") || "/");
   const primary = work[0] || "";
   // Variables the command itself sets: to a folder-printing substitution (never safe), or to something else.
   // (Each with what it was set from and what that is, in Claude Code 2.1.325's words: folderValue.)
   const fromDirSubst = new Map(), assigned = new Set();
   // Where the command's own `cd`s take it: a literal folder, or unknown.
-  let here = posix.normalize(cwd || "/"), hereKnown = true, cdSeen = false;
+  // (Per bracket group too: a cd inside ( ), { }, $( ) or a bash -c script moves only the commands of that group, as the
+  // shell does; each group starts from where its enclosing part was. M-r2-03, L-machine-27.)
+  const topAt = { here: posix.normalize(cwd || "/"), known: true, cdSeen: false };
+  const groupAt = new Map();
+  const atFor = (c) => { let at = topAt; for (const g of c.groups || []) { if (!groupAt.has(g)) groupAt.set(g, { ...at }); at = groupAt.get(g); } return at; };
   const homeDir = posix.normalize(home || "/home/dev");
   // (Bash docs pass 9, Claude Code 2.1.281: "a variable derived from the working directory" too: one set from $PWD, after
   // export, local, declare, typeset or readonly, or a copy of one: `D=$PWD; rm -rf "$D"` was not caught.)
@@ -344,25 +353,26 @@ export function dangerousRm(command, { cwd = "/", home = "/home/dev", workdirs =
   for (const c of r.commands) {
     const w = unwrapped(c.words);
     const prog = w[0] ? basename(w[0].text) : "";
+    const at = atFor(c);
     if (prog === "cd" || prog === "pushd" || prog === "chdir") {
-      cdSeen = true;
+      at.cdSeen = true;
       const t = w.find((x, k) => k > 0 && !x.text.startsWith("-"));
-      if (c.top >= 0 && t && !t.expand && !t.glob && !t.subst) { here = t.text.startsWith("/") ? posix.normalize(t.text) : t.tilde ? posix.normalize(homeDir + t.text.slice(1)) : posix.join(here, t.text); }
-      else hereKnown = false;
+      if (t && !t.expand && !t.glob && !t.subst) { at.here = t.text.startsWith("/") ? posix.normalize(t.text) : t.tilde ? posix.normalize(homeDir + t.text.slice(1)) : posix.join(at.here, t.text); }
+      else at.known = false;
       continue;
     }
-    if (prog === "popd") { hereKnown = false; cdSeen = true; continue; }
+    if (prog === "popd") { at.known = false; at.cdSeen = true; continue; }
     // (Read the wide way too, as Claude Code 2.1.323 reads commands for deny and ask rules (unwrapSteps): settings written
     // together whose last letter takes a value. The owner, 2026-11-13, "Yes all 7": `sudo -nu root rm -rf /` and
     // `env -iu FOO rm -rf ~` were read as running `root` and `FOO`, so this check never saw the rm, and in Auto they ran.)
     const ww = unwrapped(c.words, { wide: true });
     for (const v of ww.length !== w.length || ww.some((x, k) => x !== w[k]) ? [w, ww] : [w]) {
-      const why = rmWhy(v, c);
+      const why = rmWhy(v, c, at);
       if (why) return why;
     }
   }
   return "";
-  function rmWhy(w, c) {
+  function rmWhy(w, c, at) {
     const prog = w[0] ? basename(w[0].text) : "";
     if (prog !== "rm" && prog !== "rmdir") return "";
     const args = [];
@@ -375,7 +385,7 @@ export function dangerousRm(command, { cwd = "/", home = "/home/dev", workdirs =
       args.push(a);
     }
     for (const a of args) {
-      const why = targetDanger(a, { c, prog, words: w, recursive, here, hereKnown: hereKnown && c.top >= 0, cdSeen, homeDir, work, primary, fromDirSubst, assigned, positionalGiven, off: off || {} });
+      const why = targetDanger(a, { c, prog, words: w, recursive, here: at.here, hereKnown: at.known, cdSeen: at.cdSeen, homeDir, work, primary, fromDirSubst, assigned, positionalGiven, off: off || {} });
       if (why) return why;
     }
     return "";
@@ -416,13 +426,17 @@ function targetDanger(a, { c, prog = "rm", words = [a], recursive, here, hereKno
   // folder); a relative target counts from where the command is.
   let path = text.replace(/^\$\{?HOME\}?(?=\/|$)/, homeDir);
   if (a.tilde) path = path.replace(/^~(?=\/|$)/, homeDir);
-  if (/\$\(|`/.test(path)) path = path.replace(/\$\([^]*\)|`[^`]*`/g, "");
+  // (Only a TRAILING one: a target that starts with a substitution and goes on, "$(pwd)/dist", is an expansion this check
+  // cannot read, not flagged, as Claude Code's list has it. L-machine-27.)
+  if (/\$\(|`/.test(path)) { path = path.replace(/(\$\([^]*\)|`[^`]*`)$/, ""); if (/\$\(|`/.test(path)) return ""; }
   if (/\$/.test(path)) return ""; // another variable: not known before it runs, and none of the cases above
   const relative = !path.startsWith("/");
   // A RELATIVE GLOB AFTER A cd IN THE SAME COMMAND (Claude Code's example: "cd logs && rm -rf a/*").
-  if (relative && a.glob && cdSeen) return say(raw, CD_GLOB_WHY, prog);
+  // (Only one that ends in /* or /*/, or a bare *: "cd sub && rm -f *.o" is not. L-machine-27.)
+  if (relative && a.glob && cdSeen && /(^|\/)\*\/?$/.test(path)) return say(raw, CD_GLOB_WHY, prog);
   if (relative) {
-    if (!hereKnown) return /^\.\.?(\/|$)/.test(path) ? say(raw, "This command's removal target cannot be statically resolved to a directory.", prog) : "";
+    // (With the folder unknown, only "." and ".." themselves and a path that climbs out with "..": not "./x". L-machine-27.)
+    if (!hereKnown) { const n = posix.normalize(path).replace(/\/$/, ""); return n === "." || n === ".." || n.startsWith("../") ? say(raw, "This command's removal target cannot be statically resolved to a directory.", prog) : ""; }
     path = posix.join(here, path);
   }
   let target = posix.normalize(path).replace(/\/$/, "") || "/", whole = false;
@@ -432,7 +446,10 @@ function targetDanger(a, { c, prog = "rm", words = [a], recursive, here, hereKno
     if (trailing) parts.pop();
     const firstGlob = parts.findIndex((x) => /[*?[]/.test(x));
     // Through folders it cannot list first ("rm -rf logs/*/*", "rm -rf logs/*/").
-    if (firstGlob < parts.length - 1 || trailing) return say(raw, GLOB_DEEP_WHY, prog);
+    // (Only a target that ends in /* or /*/: a glob in the middle, "packages/*/dist", names no folder it could empty. L-machine-27.)
+    const lastGlob = /^\*$/.test(parts[parts.length - 1]);
+    if (lastGlob && (firstGlob < parts.length - 1 || trailing)) return say(raw, GLOB_DEEP_WHY, prog);
+    if (firstGlob < parts.length - 1) return "";
     // Only a glob that takes a folder's whole contents counts as removing that folder ("rm -rf <dir>/*"); "*.log" does not.
     if (!/^(\*|\.\*|\*\.\*|\.\[!.\]\*|\{\*,\.\*\}|\.\?\*)$/.test(parts[parts.length - 1])) return "";
     target = posix.normalize(parts.slice(0, -1).join("/") || "/").replace(/\/$/, "") || "/";
@@ -448,6 +465,19 @@ function targetDanger(a, { c, prog = "rm", words = [a], recursive, here, hereKno
   // (Claude Code 2.1.325: "Dangerous rm operation detected: '<the path, as resolved>'", then its advice; "on mounted drive
   // path: …" is only its reason's line.)
   if (!off.mounted && (recursive || whole) && mountShape(target)) return say(path, MOUNT_WHY, prog, MOUNT_THEN);
+  return "";
+}
+/**
+ * THE CARD'S ONE-LINE REASON for a dangerous delete, in Claude Code's words (M-r2-31): "Dangerous rm operation on mounted
+ * drive path: <path>" for a mounted drive; "Dangerous rm operation on critical path: <path>" for /mnt, /media, /run/media or
+ * /Volumes themselves. '' for any other kind (its card keeps the long text). Grok is always told the long text.
+ */
+export function rmCardReason(why) {
+  const m = /^Dangerous (rm|rmdir) operation detected: '([^]*?)'\n\n/.exec(String(why || ""));
+  if (!m) return "";
+  const p = posix.normalize(m[2]).replace(/(.)\/$/, "$1");
+  if (String(why).includes(MOUNT_WHY)) return "Dangerous " + m[1] + " operation on mounted drive path: " + p;
+  if (["/mnt", "/media", "/run/media", "/Volumes"].includes(p) && String(why).includes(SYSTEM_WHY)) return "Dangerous " + m[1] + " operation on critical path: " + p;
   return "";
 }
 function mountShape(p) {

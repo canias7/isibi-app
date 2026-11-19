@@ -126,7 +126,7 @@ test("CD518 echo <1-3>: the card names Claude Code's check of the whole text, no
   const b = await job("auto");
   assert.equal(b.cards.length, 1);
   assert.ok(b.cards[0].blockAt > 0);
-  assert.match(b.cards[0].why, /could not be checked for dangerous rm operations/);
+  assert.match(b.cards[0].why, /can't be sure it read this command the way the shell will/); // (no rm in it: Claude Code 2.1.327's words, M-a-19)
   assert.deepEqual(SH.textReasons("echo <1-3>"), ["Contains zsh <N-M> numeric-range glob"]);
 });
 

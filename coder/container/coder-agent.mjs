@@ -25,7 +25,7 @@ import { summaryRequest, summaryMessage, cutPoint, isSummary, viewedFile, filesT
 export { viewedFile };
 import { retryLine, apiErrorText, modelWindow } from "./coder-model.mjs";
 import { commandProblem, capOutput, readTimeout, scrub, splitSetup, MAX_OUTPUT_CHARS, MAX_COMMAND_CHARS, MAX_TIMEOUT_S, DEFAULT_TIMEOUT_S, bashResultText, BASH_INLINE_MAX, BASH_READ_BACK, ccDuration, secretVar } from "./coder-checks.mjs";
-import { SLEEP_BLOCK_S, exitMeaning, sleepBlocked, leadsWithSleep, writeTargets, dangerousRm, realPath, leadsTo, pathExists, RM_UNCHECKED } from "./coder-bashcheck.mjs";
+import { SLEEP_BLOCK_S, exitMeaning, sleepBlocked, leadsWithSleep, writeTargets, dangerousRm, realPath, leadsTo, pathExists, RM_UNCHECKED, RM_UNCHECKED_NO_RM, rmCardReason } from "./coder-bashcheck.mjs";
 import { textReasons } from "./coder-shell.mjs";
 import { accountEmailRefused, emailRefused, refusedNow, REMOTE_TOOLS } from "./coder-privacy.mjs";
 import { createHash, randomUUID } from "node:crypto";
@@ -205,6 +205,10 @@ export function forSaving(m) {
 export const PICS_PER_READ = 20, PICS_KEEP = 24; // 20: a PDF read's pages (like Claude Code's); 24: a whole read and a few more
 /** And at most this much of them (base64): a request to Grok through Coder's server is at most 30 MB (MODEL_BODY_MAX). */
 export const PICS_KEEP_BYTES = 18_000_000;
+// IN BATCHES, as Claude Code removes them ("removes a batch of the oldest images ... which leaves room for more before it needs to
+// remove any again"): only past PICS_KEEP or PICS_KEEP_BYTES are pictures let go, and then down to these lower marks, so the
+// next several fit without changing an older message (one full-price turn per batch). Coder's own numbers; the docs give none.
+export const PICS_KEEP_AFTER = 16, PICS_KEEP_BYTES_AFTER = 12_000_000;
 
 /**
  * Lets go of all but the newest PICS_KEEP pictures that reads opened (pictures the owner sent stay). `owner` (Coder's chats since
@@ -212,8 +216,14 @@ export const PICS_KEEP_BYTES = 18_000_000;
  * read's once newer ones fill the room; those of the messages from `owner.from` on (this message's) always stay.
  */
 export function keepPics(convo, owner = null) {
-  let kept = 0, bytes = 0;
+  let kept = 0, bytes = 0, all = 0, allBytes = 0;
   const from = owner && Number.isInteger(owner.from) ? owner.from : Infinity;
+  for (const m of convo) {
+    if (!m || !Array.isArray(m.images) || !m.images.length) continue;
+    if (m.readPics !== true && !(owner && m.role === "user")) continue;
+    all += m.images.length; for (const x of m.images) allBytes += String(x).length;
+  }
+  if (all <= PICS_KEEP && allBytes <= PICS_KEEP_BYTES) return;
   for (let i = convo.length - 1; i >= 0; i--) {
     const m = convo[i];
     if (!m || !Array.isArray(m.images) || !m.images.length) continue;
@@ -223,7 +233,7 @@ export function keepPics(convo, owner = null) {
     let room = 0;
     for (let j = m.images.length - 1; j >= 0; j--) {
       const len = String(m.images[j]).length;
-      if (!(theirs && i >= from) && (kept + room + 1 > PICS_KEEP || bytes + len > PICS_KEEP_BYTES)) break;
+      if (!(theirs && i >= from) && (kept + room + 1 > PICS_KEEP_AFTER || bytes + len > PICS_KEEP_BYTES_AFTER)) break;
       bytes += len; room++;
     }
     if (room === m.images.length) { kept += room; continue; }
@@ -631,7 +641,7 @@ const RM_HEAD = "Permission for this command was denied by a built-in Coder safe
 const RM_TAIL = "The command was NOT run; do not claim it succeeded. Do not work around the check by splitting, scripting, or re-issuing the removal through another tool or shell: the check exists because a removal like this can destroy the owner's data, and getting past it would not make it safe. If the text below suggests a safe rewrite, run that instead; it goes through the same check. Otherwise finish the rest of the task without this removal, tell the owner what you wanted to delete and why, and leave the removal to them. What was flagged: ";
 export const RM_REFUSED = RM_HEAD + RM_TAIL;
 /** The refusal of a dangerous removal; `unanswered`: how many of its questions in a row went unanswered, when none was shown for that. */
-export const rmDenied = (why, unanswered) => RM_HEAD + (unanswered !== undefined ? "The prompt for such removals has already gone unanswered " + unanswered + " times in this session, so it was not shown again. " : "") + RM_TAIL + why;
+export const rmDenied = (why, unanswered) => why === RM_UNCHECKED_NO_RM ? (unanswered !== undefined ? "The prompt for such commands has already gone unanswered " + unanswered + " times in this session, so it was not shown again. " : "") + why : RM_HEAD + (unanswered !== undefined ? "The prompt for such removals has already gone unanswered " + unanswered + " times in this session, so it was not shown again. " : "") + RM_TAIL + why;
 /**
  * AUTO'S QUESTION FOR A DANGEROUS REMOVAL (Claude Code 2.1.281, kept in 2.1.323: "Changed the dangerous rm prompt in
  * --dangerously-skip-permissions and auto mode to wait 2 minutes for an answer, then deny the command with a rewrite hint so
@@ -1677,13 +1687,6 @@ export const MACHINE_ADMIN = MACHINE_TOOLS
 // (Its line on URLs is Claude Code's own too, word for word but for "the owner" (its "the user"), where Claude Code's
 // system prompt has it: the last line of its opening, before its other parts. 2.1.325; 2026-11-14.)
 export const CODER_URLS_LINE = "IMPORTANT: You must NEVER generate or guess URLs for the owner unless you are confident that the URLs are for helping the owner with programming. You may use URLs provided by the owner in their messages or local files.";
-/**
- * PROMPT SUGGESTIONS (Claude Code's: "After Claude responds, Claude Code can suggest your next prompt based on your
- * conversation history"; Tab or Right arrow takes it, typing dismisses it; promptSuggestionEnabled turns it off). Claude Code
- * makes each with "a short background request to the same model", "mostly cache reads plus a few output tokens"; Coder asks
- * its final answer for the same few tokens instead, a hidden last line the page never shows, so it needs no request at all.
- */
-export const SUGGEST_LINE = "\n\nPROMPT SUGGESTION: when you finish a turn with your answer in words, end it with one last line <next-prompt>…</next-prompt> holding the message the owner would most likely send you next, in their voice, under 12 words (e.g. <next-prompt>now fix both bugs and rerun the tests</next-prompt>). Base it on this chat: a next step of their request, or the natural follow-up. Leave the line out when there is no clear next step. The owner never sees this line; never mention it.";
 /** What the commit title's request asks (Claude Code's commits: a short imperative summary line). */
 export const COMMIT_ASK = "(Note from Coder's app, not the owner: do not answer or use any tool. Write only a git commit title for the file changes you made in this turn: imperative mood, at most 60 characters, no period, no quotes, e.g. Fix sum to add instead of subtract.)";
 /** One commit title from its request (`ask`), cleaned: '' when none, too slow, or unusable. */
@@ -1719,11 +1722,11 @@ export function commandEnds(c, max = 1000) {
 /** A final answer with its hidden suggestion taken off: `{ text, next }`. */
 export function splitSuggest(said) {
   const s = String(said || "");
-  const re = /<next-prompt>([\s\S]*?)(?:<\/next-prompt>|$)/gi;
-  let next = "", m;
-  while ((m = re.exec(s))) next = m[1];
-  next = next.replace(/\s+/g, " ").trim().replace(/^["“]|["”]$/g, "").slice(0, 200);
-  return { text: s.replace(re, "").replace(/\s+$/, ""), next };
+  // Only one complete tag that is the answer's last line (answers saved before 2026-11-17); a tag quoted mid-answer stays.
+  const m = /(^|\n)[ \t]*<next-prompt>([^\n]*?)<\/next-prompt>\s*$/i.exec(s);
+  if (!m) return { text: s.replace(/\s+$/, ""), next: "" };
+  const next = m[2].replace(/\s+/g, " ").trim().replace(/^["“]|["”]$/g, "").slice(0, 200);
+  return { text: s.slice(0, m.index).replace(/\s+$/, ""), next };
 }
 export const CODER_SYSTEM = `You are Coder, the owner's assistant. You help with whatever they ask: questions, ideas, writing, research, planning and hands-on work. You also have your own Linux machine with the owner's project, so you can read and change files, run commands, browse the web and build things.
 The project lives in the folder your commands start in (WHERE YOUR COMMANDS RUN, when given below, names it and where your commands are now). When the work is code, work like a developer at a terminal: look first (ls, cat, grep), then change files, then run and test what you changed.
@@ -4043,16 +4046,20 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     return end("parked", { parked: rec, summary: lastSaid || PARKED_SUMMARY });
   };
   /** THE JOB'S END FOR A ROUND THAT ENDED EARLY (round 5): a pause as a card left open pauses it; a Stop; a No. */
+  // (What a taken-up round held back for Coder, background news included, is never lost when the job ends early: the machine
+  // already counts it as told. L-machine-09; Claude Code keeps queued notifications.)
+  const flushHeld = () => { if (held) { convo.push(...held); held = null; } };
   const closedEnd = () => {
     if (closing.why === "park") return parkEnd(closing.p);
     // (The auto mode checker's denial ended the turn, round 6: the owner's line, Claude Code's, and no mark of an interrupted turn.)
     // (Or the 20th refusal in a row under denyInsteadOfPrompting: its own line, closing.summary.)
-    if (closing.why === "checker") { const line = closing.summary || NO_VERDICT_STOP_SHOWN; emit({ type: "error", text: line }); return end("done", { summary: lastSaid || line }); }
+    if (closing.why === "checker") { flushHeld(); const line = closing.summary || NO_VERDICT_STOP_SHOWN; emit({ type: "error", text: line }); return end("done", { summary: lastSaid || line }); }
     // CLAUDE CODE'S MARK OF THE INTERRUPTED TURN (round 6; the owner, 2026-11-14: "do what claude code does";
     // coder-parallel.mjs): after the round's results, its own message, "[Request interrupted by the owner for tool use]"; for a
     // Stop that came while Grok was still answering, "[Request interrupted by the owner]", as Claude Code's when its model's
     // answer was cut.
     convo.push(interruptedNote(!(closing.why === "stop" && closing.at < answeredAt)));
+    flushHeld();
     if (closing.why === "stop") { emit({ type: "stopped" }); return end("stopped"); }
     return end("done", { summary: lastSaid || closing.summary });
   };
@@ -5147,7 +5154,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // (One that Claude Code's checks of the whole text catch, `echo <1-3>`: the owner is asked with their reason, as those
         // run before Claude Code reads the command; tried in its command-line version, 2026-11-11, the owner: "yes copy all of
         // them". Where no one is asked, Auto, it is still refused as one that can't be checked.)
-        if (rmWhy === RM_UNCHECKED && !rmAuto && canAsk() && textReasons(command).length) rmWhy = "";
+        if ((rmWhy === RM_UNCHECKED || rmWhy === RM_UNCHECKED_NO_RM) && !rmAuto && canAsk() && textReasons(command).length) rmWhy = "";
         // (In Auto: the owner's own Ask rule on the command asks them instead, with no time limit (Claude Code: "If an
         // explicit ask rule matches the command, Claude Code asks you instead, even in auto mode"); with the environment's
         // CODER_DISABLE_DANGEROUS_RM_TIMEOUT the checker decides (Claude Code: "auto: the classifier decides").)
@@ -5347,7 +5354,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           // (`told`: Claude Code's message for a rule's or a hook's ask, or at the limit of blocks, where it differs from the card's
           // line: round 6.)
           const told = rmWhy || ask ? "" : limitCard ? limitCard.told : dec.told || "";
-          const card = { tool: c.ps ? "powershell" : "bash", id: c.id, ...(rmTimed && rmWhy ? { blockAt: now() + RM_PROMPT_MS } : {}), ...cardLines(command), ...(hostsFor ? { hosts: hostsFor.slice(0, 20) } : {}), ...(desc ? { desc } : {}), why: String(rmWhy || (ask ? ask.why : limitCard ? limitCard.why : dec.why)).slice(0, 800), ...(!once && suggested ? { rules: suggested } : {}), ...(!once && !limitCard && !c.ps && modeB === "acceptEdits" && autoOff !== true ? { toAuto: true } : {}), ...(told ? { told: String(told).slice(0, 800) } : {}) };
+          const card = { tool: c.ps ? "powershell" : "bash", id: c.id, ...(rmTimed && rmWhy ? { blockAt: now() + RM_PROMPT_MS } : {}), ...cardLines(command), ...(hostsFor ? { hosts: hostsFor.slice(0, 20) } : {}), ...(desc ? { desc } : {}), why: String((rmWhy && rmCardReason(rmWhy)) || rmWhy || (ask ? ask.why : limitCard ? limitCard.why : dec.why)).slice(0, 800), ...(!once && suggested ? { rules: suggested } : {}), ...(!once && !limitCard && !c.ps && modeB === "acceptEdits" && autoOff !== true ? { toAuto: true } : {}), ...(told ? { told: String(told).slice(0, 800) } : {}) };
           approval = hookAnswer || await askOwner(card, { hooks: !c.rerun });
           // (Auto's 2-minute card: no answer by then blocks the removal, and Coder goes on, as in Claude Code; an answer, Yes
           // or No, starts the count of unanswered ones again.)
@@ -7290,9 +7297,9 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     // (A round that ended early: the job ends as its No, Stop or pause ends it, every call of the round answered or, for a
     // pause, left for the job that takes it up again. Round 5.)
     if (closing) return closedEnd();
-    if (hookStop) return stopByHook(hookStop);
-    if (hookEnd) return endByHook(hookEnd);
-    if (deniedRow >= DENY_INSTEAD_MAX) { const m = deniedRow + " calls in a row refused under permissions.denyInsteadOfPrompting, ending the turn"; emit({ type: "note", text: m, denied: true }); return end("done", { summary: lastSaid || m }); }
+    if (hookStop) { flushHeld(); return stopByHook(hookStop); }
+    if (hookEnd) { flushHeld(); return endByHook(hookEnd); }
+    if (deniedRow >= DENY_INSTEAD_MAX) { flushHeld(); const m = deniedRow + " calls in a row refused under permissions.denyInsteadOfPrompting, ending the turn"; emit({ type: "note", text: m, denied: true }); return end("done", { summary: lastSaid || m }); }
     // POSTTOOLBATCH HOOKS (Claude Code: "Runs after a full batch of parallel tool calls resolves, before the next model
     // call"): the round's calls and their results; what they add goes to Coder; one that blocks (decision "block", exit 2)
     // or says "continue": false ends the turn, its reason a warning that stays in the chat.
@@ -7312,6 +7319,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       if (b && (b.stop || b.decision === "block")) {
         const why = (b.stop && b.stop.reason) || b.blocks.join("\n") || b.reason || "A PostToolBatch hook stopped Coder.";
         if (!b.endTurn) emit({ type: "note", text: scrub(why).slice(0, 2000), hook: "PostToolBatch", warn: true });
+        flushHeld();
         return endByHook(why);
       }
     }
