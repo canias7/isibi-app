@@ -1321,10 +1321,10 @@ export const CODER_TOOLS = Object.freeze([
     parameters: { type: "object", properties: { title: { type: "string" }, body: { type: "string" }, draft: { type: "boolean" }, repo: { type: "string" } }, required: ["title", "body"] },
   } },
   // PUSH AT A STOPPING POINT (owner, 2026-11-16; Claude Code's cloud session: "when Claude reaches a stopping point, it pushes
-  // its branch to GitHub"): each turn's work is committed on Coder's machine only; Coder says when it is time to send it.
+  // its branch to GitHub"): since 2026-11-17 a turn that changed files is pushed at its end; this tool pushes earlier.
   { type: "function", function: {
     name: "push_branch",
-    description: "Commit and push this chat's branch to GitHub now (it is on GitHub when this returns). Each turn's changes are otherwise committed on your machine only; call this when the work is at a stopping point (a feature or fix finished and checked), or when the owner asks to push. Not needed before pull_request (that pushes first). message: the commit's title (optional).",
+    description: "Commit and push this chat's branch to GitHub now (it is on GitHub when this returns). Your changes are committed and pushed to the chat's branch for you at the end of a turn that changed files (in a read-only chat the work stays on Coder's machine). Call this only to push earlier in the turn (for example before something reads the branch on GitHub) or when the owner asks. Not needed before pull_request (that pushes first). message: the commit's title (optional).",
     parameters: { type: "object", properties: { message: { type: "string" } }, required: [] },
   } },
   // A NOTIFICATION ON THE OWNER'S PHONE OR COMPUTER (owner item 8, like Claude Code's pushes: "You can also
@@ -1625,7 +1625,7 @@ export const GITHUB_NOTE = "THIS JOB WAS STARTED FROM GITHUB. Some things work o
 // installed and how to use it, like a developer who knows their machine. The
 // small image (Cloudflare's backup machines) says nothing of these.
 export const MACHINE_TOOLS = `THIS MACHINE: Ubuntu 24.04 with the same tools as Claude Code's machine (check-tools lists them with their versions).
-- Python 3.12 with pip, uv, poetry, pytest, mypy, black, ruff, conan. Node 22 (Node 24 is in /opt/node24/bin; any other: . /opt/nvm/nvm.sh && nvm install 20) with npm, yarn, pnpm, bun, eslint, prettier, TypeScript. Ruby 3.3 through rbenv (also 3.1.6 and 3.2.6: rbenv local 3.2.6), with gem and bundler. PHP 8.3 with Composer. Java 21 with Maven and Gradle. Go. Rust with cargo, rustfmt and clippy. C and C++: gcc, clang, cmake, ninja. git, git-lfs, gh (it uses the owner's GitHub login, added by Coder's server, for this chat's own repositories only, like Claude Code's: gh api repos/OWNER/REPO/... and other REST calls work; gh pr and gh issue use GitHub's GraphQL, which is refused, so use gh api repos/OWNER/REPO/pulls and .../issues instead), jq, yq, ripgrep, sqlite3, tmux, vim, nano.
+- Python 3.12 with pip, uv, poetry, pytest, mypy, black, ruff, conan. Node 22 (Node 20, 21 and 24 are in /opt/node20/bin, /opt/node21/bin and /opt/node24/bin: put that bin first on the PATH; any other: . /opt/nvm/nvm.sh && nvm install 18) with npm, yarn, pnpm, bun, eslint, prettier, TypeScript. Ruby 3.3 through rbenv (also 3.1.6 and 3.2.6: rbenv local 3.2.6), with gem and bundler. PHP 8.3 with Composer. Java 21 with Maven and Gradle. Go. Rust with cargo, rustfmt and clippy. C and C++: gcc, clang, cmake, ninja. git, git-lfs, gh (it uses the owner's GitHub login, added by Coder's server, for this chat's own repositories only, like Claude Code's: gh api repos/OWNER/REPO/... and other REST calls work; gh pr and gh issue use GitHub's GraphQL, which is refused, so use gh api repos/OWNER/REPO/pulls and .../issues instead), jq, yq, ripgrep, sqlite3, tmux, vim, nano.
 - What you install for yourself (npm install -g, pip install, gem install, cargo install, go install) goes in your home folder, never in the project.
 - PostgreSQL 16 and Redis 7 are installed but not running: start them with service postgresql start and service redis-server start. Connect as yourself, no password: psql -d postgres, createdb myapp, redis-cli.
 - The master key's jobs are yours: install any Ubuntu package yourself, mid-job (apt-get install -y NAME, or sudo apt-get install -y NAME), and start, stop or restart any installed service (service NAME start). Ports 80 and 443 work. Nothing else needs it here: everything else runs as you.
@@ -4460,7 +4460,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       if (movesFolder(x)) return false;
       const here = typeof deps.here === "function" ? String(deps.here() || "") : "";
       if (commandAsk(cmd, deps, here, { real: (q) => realPath(q), allowed: () => false })) return false;
-      if (readBlock && readBlockWhy(cmd, { cwd: here || deps.root || "/", workdirs: readBlockDirs(), home: deps.home || "", real: (q) => realPath(q), ownDirs: [...(Array.isArray(deps.ownDirs) ? deps.ownDirs : []), SCRATCH, ...(planPath() ? [planPath()] : [])], exists: (q) => pathExists(q) })) return false;
+      if (readBlock && readBlockWhy(cmd, { cwd: here || deps.root || "/", workdirs: readBlockDirs(), home: deps.home || "", real: (q) => realPath(q), ownDirs: [...(Array.isArray(deps.ownDirs) ? deps.ownDirs : []), SCRATCH, ...(planPath() ? [planPath()] : []), ...(typeof deps.memFile === "string" && deps.memFile ? [deps.memFile] : [])], exists: (q) => pathExists(q) })) return false;
       return bashDecision(cmd, { mode: "plan", rules: ownRules, cwd: here || deps.root || "/", workdirs, isProtected: isProt, real: (q) => realPath(q), home: deps.home || "", ownDirs: Array.isArray(deps.ownDirs) ? deps.ownDirs : [], scratch: [SCRATCH], planFile: planPath() }).verdict === "allow";
     };
     const startAhead = (x) => {
@@ -5143,7 +5143,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // permissions.blockReadsOutsideWorkingDirectories): a command that reads outside the project, or can't be traced, is
         // asked about in every mode (Claude Code: they "prompt even in auto mode"; no rule approves one).
         if (!ask && readBlock && !c.ps) {
-          const rb = readBlockWhy(command, { cwd: where0 || deps.root || "/", workdirs: readBlockDirs(), home: deps.home || "", real: (p) => realPath(p), ownDirs: [...(Array.isArray(deps.ownDirs) ? deps.ownDirs : []), SCRATCH, ...(planPath() ? [planPath()] : [])], exists: (p) => pathExists(p) });
+          const rb = readBlockWhy(command, { cwd: where0 || deps.root || "/", workdirs: readBlockDirs(), home: deps.home || "", real: (p) => realPath(p), ownDirs: [...(Array.isArray(deps.ownDirs) ? deps.ownDirs : []), SCRATCH, ...(planPath() ? [planPath()] : []), ...(typeof deps.memFile === "string" && deps.memFile ? [deps.memFile] : [])], exists: (p) => pathExists(p) });
           if (rb) { const w = rb.charAt(0).toLowerCase() + rb.slice(1).replace(/\.$/, ""); ask = { kind: "readblock", paths: [], allow: [allowRunText(command)], why: rb, note: w, github: w }; }
         }
         if (ask && ask.allow.every((a) => ownerSaid(convo, a))) ask = null;
@@ -6539,7 +6539,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // (The file or folder a file tool works on, in full: targetFor, above.)
         const targetOf = () => targetFor(c.name, args);
         // (The chat's plan file stays readable: Claude Code's "Plan files for current session are allowed for reading". 2026-11-14.)
-        if (readBlock && READ_TOOLS.has(c.name) && !(planPath() && targetOf() === planPath())) {
+        // (And Coder's own memory file, as Claude Code keeps its own memory files readable under the block. 2026-11-19.)
+        if (readBlock && READ_TOOLS.has(c.name) && !(planPath() && targetOf() === planPath()) && !(typeof deps.memFile === "string" && deps.memFile && targetOf() === deps.memFile)) {
           const full = targetOf();
           // (A folder only the repository's settings add doesn't count, as for the write block: Bash docs pass 9, Claude Code's
           // settings reference lets one through either block only from "your user or managed settings" or /add-dir.)

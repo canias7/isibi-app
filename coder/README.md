@@ -599,15 +599,17 @@ code in **each user's own GitHub**.
    `otherDaemon` is Claude Code's full list of flags that point Docker at another
    machine). And Claude Code's optional read block
    (`permissions.blockReadsOutsideWorkingDirectories`), here the environment's
-   `CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES`: with it on, a command that reads
-   outside the project (links followed), or one whose reads can't be traced (a
+   `CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES`: with it on, a bash command (Claude
+   Code: a recognized file-reading Bash command) that reads outside the project (links followed), or one whose reads can't be traced (a
    second `cd`, a subshell, a computed or wildcard path, inline or stdin code, a
    setting in front, an unsafe `sed` script), asks in every mode (card kind
    `readblock`, `readBlockWhy` in `container/coder-perms.mjs`, with each command's own
    rule for which words are paths, `READ_PATHS`); and `read`, `grep`, `glob` and
    `lsp` outside the project are refused (`READ_BLOCKED`). Coder's own folders (the
-   background logs and saved long outputs, `ownDirs`) stay readable. Tests:
-   `test/bash-pass4.test.mjs`.
+   background logs and saved long outputs, `ownDirs`) and Coder's memory file stay
+   readable. As in Claude Code, PowerShell commands are not covered by the block:
+   their reads outside the project still ask in Plan and Accept edits, and go to the
+   checker in Auto. Tests: `test/bash-pass4.test.mjs`, `test/readblock-memory.test.mjs`.
 
    A fifth pass (owner, 2026-11-10: "go check again trhe docs", then "so?"), from
    what Claude Code 2.1.321 does before each command and its docs' error reference.
@@ -807,7 +809,7 @@ tools we need?"). The machine is Ubuntu 24.04 on x86_64, like Claude Code's.
 itself needs (Cloudflare's backup machines, whose limit is 8 GB an image and
 50 GB in all), and `full` (`--build-arg CODER_IMAGE=full`, Fly.io's machines)
 with the tools Claude Code's machine comes with: Python with uv, poetry,
-pytest, mypy, black, ruff and conan; Node 22 and 24, nvm, npm, yarn, pnpm,
+pytest, mypy, black, ruff and conan; Node 22 (and 20, 21 and 24 in /opt), nvm, npm, yarn, pnpm,
 bun, eslint and prettier; Ruby 3.1, 3.2 and 3.3 with rbenv (built from
 ruby-lang.org's source by `tools/build-ruby`); PHP 8.3 and Composer; Java 21,
 Maven and Gradle; Go; Rust; C and C++ (gcc, clang, cmake, ninja); Docker
@@ -976,17 +978,25 @@ tool_search load too) costs the whole prompt once. Tests:
 `test/cache-prefix.test.mjs`.
 
 **Settings** (owner, 2026-11-10: "the setting put it in setings"). Settings, in
-the account menu, keeps three choices on the account (`prefsOf`, `prefsChange` in
-`src/coder-routes.mjs`): the longest a background command may run (2 hours, as in
-Claude Code, or 4, 8, 12 or 24 hours, as Claude Code's `BASH_MAX_TIMEOUT_MS` raises
-it); whether Stop also ends what a command left running on its own, with `setsid`
-or `timeout` (on unless turned off); and the low-disk warning (Claude Code's
-`CLAUDE_CODE_WARN_DISK_FREE_GIB`: off, or 1, 2, 5, 10 or 20 GB; 2 GB unless
-changed): Coder is told once, in Claude Code's words, when the work disk has less
-free than that, and the chat shows it. Each message takes them to the machine
-(`machinePrefs`, then `prefsIn` and `usePrefs` in `container/server.mjs`), and the
-Worker keeps a chat's machine awake as long as its background limit allows
-(`watchBackground`'s `maxMs`). Tests: `test/settings.test.mjs`.
+the account menu, keeps nine choices on the account (`prefsOf`, `prefsChange` in
+`src/coder-routes.mjs`), each with its default:
+- `bgHours`: the longest a background command may run (2 hours, as in Claude Code,
+  or 4, 8, 12 or 24 hours, as Claude Code's `BASH_MAX_TIMEOUT_MS` raises it);
+- `endDetached`: whether Stop also ends what a command left running on its own,
+  with `setsid` or `timeout` (on unless turned off);
+- `diskWarnGib`: the low-disk warning (Claude Code's `CLAUDE_CODE_WARN_DISK_FREE_GIB`:
+  1, 2, 5, 10 or 20 GB; off unless chosen, as in Claude Code): Coder is told once,
+  in Claude Code's words, when the work disk has less free than that;
+- `memWarnGib`: the low-memory warning (Claude Code's `CLAUDE_CODE_WARN_MEMORY_FREE_GIB`:
+  1, 2, 4 or 8 GB; off unless chosen);
+- `hooks`: the owner's own hooks, as JSON in Claude Code's shape (none by default);
+- `autoMode`: the owner's rules for Auto mode's checker (none by default);
+- `denyInstead`: refuse a step that would ask, instead of asking (off);
+- `autoOff`: Auto mode turned off (off);
+- `suggestOff`: prompt suggestions turned off (off, so suggestions are on).
+Each message takes them to the machine (`machinePrefs`, then `prefsIn` and
+`usePrefs` in `container/server.mjs`), and the Worker keeps a chat's machine awake
+as long as its background limit allows (`watchBackground`'s `maxMs`). Tests: `test/settings.test.mjs`.
 
 **The monitor** (Claude Code's Monitor tool; owner, 2026-11-10: "yea do all 4").
 `monitor` runs a command in the background the bash way (the same checks, rules
@@ -2603,9 +2613,35 @@ charged. `CODER_ON` `"off"` makes every `/api/coder/` address answer 404.
 
 ## The GitHub App
 
-Registered: **gofarther-coder** (Client ID `Iv23li7CSEGqBSxEqQU7`), callback
-`https://coder.gofarther.dev/api/coder/github/callback`, permissions Contents and
-Pull requests (read and write) and Metadata (read), installable by any account.
+Registered: **gofarther-coder** (Client ID `Iv23li7CSEGqBSxEqQU7`), installable by
+any account. To make it again (names only; the values are typed in by the owner):
+
+1. **Register the app.** Callback URL
+   `https://coder.gofarther.dev/api/coder/github/callback`. Webhook **on**, URL
+   `https://coder.gofarther.dev/api/coder/github/webhook`, with a webhook secret,
+   saved as the `CODER_GITHUB_WEBHOOK_SECRET` GitHub secret.
+2. **Repository permissions**, each with what needs it:
+
+   | Permission | Access | Needed for |
+   |---|---|---|
+   | Contents | read and write | cloning and pushing the chat's branch |
+   | Pull requests | read and write | opening pull requests, reviews, auto-fix |
+   | Issues | read and write | answering @coder on a plain issue |
+   | Checks | read and write | the Coder Review check run |
+   | Actions | read | a failed check's log, for auto-fix |
+   | Metadata | read | required by GitHub |
+
+3. **Events to tick**, each with what needs it: **Issue comment** (@coder in a
+   comment), **Pull request** (automatic code reviews), **Pull request review**
+   and **Pull request review comment** (auto-fix on the owner's review, @coder in
+   a review comment), **Check run** (auto-fix on a failed check).
+4. **Generate a private key**, saved as the `CODER_GITHUB_APP_PRIVATE_KEY` GitHub
+   secret, and put the App ID in `wrangler.jsonc`'s `CODER_GITHUB_APP_ID`; the
+   client secret goes in `CODER_GITHUB_CLIENT_SECRET`.
+5. **Install the app** on the accounts and repositories Coder works on.
+
+Without Pull request events and Checks, comment commands and the review itself
+still work, but automatic reviews and the check run do not.
 
 **@coder in a comment, and auto-fix** (`src/coder-mentions.mjs`). GitHub's call
 is answered at once, with "On it" posted as the app, and the job's record is
@@ -2667,15 +2703,25 @@ last one, posts no nits or pre-existing findings (and says how many), resolves
 the threads of findings it judges fixed (GitHub's GraphQL, as the app), and
 answers a person's reply once; a push that changes no lines keeps the earlier
 result ("skipped — no new changes", or "not repeated — earlier findings still
-open"). Needs, in the app's GitHub settings: **Pull request** events (for
-automatic reviews) and **Checks: read and write** (for the check run); without
-them, comment commands and the review itself still work.
+open"). Its permissions and events are in the steps under "The GitHub App".
 
 ## Deploy
 
 The **deploy coder** button (`.github/workflows/deploy-coder.yml`), pressed by
-the owner. It needs these GitHub secrets: `CLOUDFLARE_API_TOKEN`,
-`CLOUDFLARE_ACCOUNT_ID`, `XAI_API_KEY`, `CODER_GITHUB_CLIENT_SECRET`. The token
+the owner, or by Claude when the owner says deploy. It reads these GitHub secrets
+(names only):
+
+| Secret | Needed for |
+|---|---|
+| `CLOUDFLARE_API_TOKEN` | deploying the Worker (required) |
+| `CLOUDFLARE_ACCOUNT_ID` | deploying the Worker (required) |
+| `XAI_API_KEY` | Grok, Coder's model (required) |
+| `CODER_GITHUB_CLIENT_SECRET` | GitHub sign-in and the token key (required) |
+| `CODER_GITHUB_WEBHOOK_SECRET` | checking GitHub's webhook calls (required) |
+| `CODER_GITHUB_APP_PRIVATE_KEY` | acting as the GitHub App (required) |
+| `FLY_API_TOKEN` | optional: chats run on Fly.io with it, on Cloudflare's backup machines without it |
+
+The first six stop the deploy when missing. The token
 key is derived from the client secret during the deploy. It also signs the
 sign-in proofs, so a new client secret means everyone connects GitHub and signs
 in again.

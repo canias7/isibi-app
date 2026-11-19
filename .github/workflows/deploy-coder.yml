@@ -2,11 +2,16 @@ name: deploy coder
 
 # CODER'S DEPLOY (2026-11-05, the owner chose a button to press, not a
 # terminal). It touches only `coder/`, and a push starts nothing: the owner
-# presses it.
+# presses it, or Claude when the owner says deploy.
 #
-# Secrets it reads (GitHub → Settings → Secrets → Actions):
-#   CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID, XAI_API_KEY  (already there)
-#   CODER_GITHUB_CLIENT_SECRET  (new: the GitHub App's client secret)
+# Secrets it reads (GitHub → Settings → Secrets → Actions), names only:
+#   CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID  (deploying the Worker)
+#   XAI_API_KEY  (Grok)
+#   CODER_GITHUB_CLIENT_SECRET  (the GitHub App's client secret)
+#   CODER_GITHUB_WEBHOOK_SECRET  (checking GitHub's webhook calls)
+#   CODER_GITHUB_APP_PRIVATE_KEY  (acting as the GitHub App)
+#   These six stop the deploy when missing.
+#   FLY_API_TOKEN  (optional: Fly.io with it, Cloudflare's backup machines without)
 # CODER_TOKEN_KEY, the key that encrypts users' GitHub tokens, is derived here
 # from CODER_GITHUB_CLIENT_SECRET (HMAC, 32 bytes), so it is the same on every
 # deploy and nobody has to make one by hand. It is masked and never printed.

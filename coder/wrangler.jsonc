@@ -25,7 +25,7 @@
     // The page that may call this Worker from the browser.
     "APP_ORIGIN": "https://gofarther.dev",
     // GITHUB (2026-11-05): the code lives in each user's own GitHub. The owner
-    // registers a GitHub App (steps in README.md) and fills these two in; its
+    // registers a GitHub App (steps in README.md, "The GitHub App") and fills these two in; its
     // secret and the token key are secrets: GITHUB_APP_CLIENT_SECRET, CODER_TOKEN_KEY.
     "GITHUB_APP_CLIENT_ID": "Iv23li7CSEGqBSxEqQU7",
     "GITHUB_APP_SLUG": "gofarther-coder",

@@ -206,3 +206,11 @@ test("PL3 the Worker's routes: Push, Create PR and deleting a chat push its unpu
   const ro = await A.runCoder({ send: async () => steps[Math.min(i++, 1)], exec: async () => ({ code: 0, output: "" }) }, { text: "push it", readOnly: { main: true } });
   assert.equal(ro.push, undefined, "a read-only repository is never pushed");
 });
+
+test("PL-desc the push_branch tool's description agrees that a turn's changes are pushed at its end (audit L-machine-37)", async () => {
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync(new URL("../container/coder-agent.mjs", import.meta.url), "utf8");
+  const i = src.indexOf('name: "push_branch"'), desc = src.slice(i, src.indexOf("parameters", i));
+  assert.doesNotMatch(desc, /on your machine only/);
+  assert.match(desc, /pushed to the chat's branch for you at the end of a turn that changed files/);
+});

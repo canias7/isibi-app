@@ -25,6 +25,8 @@ show pytest pytest --version
 show conan conan --version
 section "JavaScript"
 show node node --version
+show "node 20" /opt/node20/bin/node --version
+show "node 21" /opt/node21/bin/node --version
 show "node 24" /opt/node24/bin/node --version
 show npm npm --version
 show yarn yarn --version

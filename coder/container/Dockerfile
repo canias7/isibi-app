@@ -39,6 +39,13 @@ RUN set -eu; cd /tmp; base=https://nodejs.org/dist/latest-v22.x; \
     f=$(awk '$2 ~ /^node-v[0-9.]+-linux-x64\.tar\.xz$/ {print $2}' SHASUMS256.txt); \
     curl -fsSLO --retry 5 --retry-delay 3 "$base/$f"; grep " $f\$" SHASUMS256.txt | sha256sum -c -; \
     mkdir -p /opt/node22; tar -xJf "$f" -C /opt/node22 --strip-components=1; rm -f "$f" SHASUMS256.txt
+# NODE 20 AND 21 beside 22, where Claude Code's cloud machine keeps them (/opt/node20, /opt/node21, not on the PATH:
+# "prepend that version's bin directory"), checked against nodejs.org's published sums (audit M-d-21, 2026-11-19).
+RUN set -eu; cd /tmp; for v in 20 21; do base=https://nodejs.org/dist/latest-v$v.x; \
+    curl -fsSL --retry 5 --retry-delay 3 "$base/SHASUMS256.txt" -o SHASUMS256.txt; \
+    f=$(awk '$2 ~ /^node-v[0-9.]+-linux-x64\.tar\.xz$/ {print $2}' SHASUMS256.txt); \
+    curl -fsSLO --retry 5 --retry-delay 3 "$base/$f"; grep " $f\$" SHASUMS256.txt | sha256sum -c -; \
+    mkdir -p /opt/node$v; tar -xJf "$f" -C /opt/node$v --strip-components=1; rm -f "$f" SHASUMS256.txt; done
 ENV PATH=/opt/node22/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 # Projects live in /work, one folder each. Each project's folder belongs to `dev`:
@@ -123,7 +130,7 @@ RUN set -eu; install -m 0755 -d /etc/apt/keyrings; \
     rm -f /etc/apt/sources.list.d/microsoft-prod.list; apt-get update; \
     pwsh -NoProfile -NonInteractive -Command '$PSVersionTable.PSVersion.ToString()'
 
-# Node 24 beside 22 (Claude Code's machine has both), nvm for any other version
+# Node 24 beside 22 (Claude Code's cloud machine has 20, 21 and 22; Node 24 is Coder's extra), nvm for any other version
 # (`. /opt/nvm/nvm.sh && nvm install 20`), and the JavaScript tools.
 RUN set -eu; cd /tmp; base=https://nodejs.org/dist/latest-v24.x; \
     curl -fsSL --retry 5 --retry-delay 3 "$base/SHASUMS256.txt" -o SHASUMS256.txt; \

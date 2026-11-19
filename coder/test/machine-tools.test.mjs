@@ -93,7 +93,7 @@ test("CD134 the image: Ubuntu 24.04 like Claude Code's machine; the small one by
   };
   for (const [what, re] of Object.entries(want)) assert.match(what === "ruby" || what === "node 22" ? D : full, re, what);
   // Each download is checked against its maker's sum (Chrome's has none published).
-  assert.equal((D.match(/sha256sum -c -/g) || []).length, 6, "Node 22, Node 24, Go, Rust, Gradle, Composer");
+  assert.equal((D.match(/sha256sum -c -/g) || []).length, 7, "Node 22, Node 20 and 21, Node 24, Go, Rust, Gradle, Composer");
   assert.equal((D.match(/sha512sum -c -/g) || []).length, 1, "Maven");
   assert.match(read("container/tools/build-ruby"), /echo "\$sum  ruby-\$v\.tar\.gz" \| sha256sum -c -/, "each Ruby");
   for (const f of [D, read("container/tools/build-ruby")]) assert.doesNotMatch(f, /curl -fsSLO? (?!--retry)/, "every download retries");
@@ -241,4 +241,13 @@ test("CD163 every module Coder's service loads, directly or through another, is 
   const missing = [...seen].filter((f) => !copied.has(f));
   assert.deepEqual(missing, [], "not in the image: " + missing.join(" "));
   assert.ok(seen.has("coder-security.mjs") && seen.has("coder-globs.mjs") && seen.has("coder-sandbox-init.sh"));
+});
+
+test("MT-node2021 Node 20 and 21 are on the machine at /opt/node20 and /opt/node21, as on Claude Code's cloud machine (audit M-d-21)", () => {
+  const D = readFileSync(new URL("../container/Dockerfile", import.meta.url), "utf8");
+  const C = readFileSync(new URL("../container/tools/check-tools", import.meta.url), "utf8");
+  assert.match(D, /for v in 20 21; do base=https:\/\/nodejs\.org\/dist\/latest-v\$v\.x/);
+  assert.match(D, /mkdir -p \/opt\/node\$v/);
+  assert.doesNotMatch(D, /Claude Code's machine has both/);
+  for (const v of ["20", "21"]) assert.match(C, new RegExp('show "node ' + v + '" /opt/node' + v + "/bin/node --version"));
 });

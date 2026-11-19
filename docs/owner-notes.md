@@ -4,6 +4,16 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-19: Claude Code fixes, batch 2
+
+- Seven of ten audit items fixed, each with a test. Gloopy, connectors and MCP were not touched. Not deployed and not merged yet.
+- **With the "block reads outside the project" setting on, Coder can read its own memory file again**, as Claude Code keeps its own files readable. Other files next to it are still refused.
+- **Node 20 and 21 are now on Coder's machine** (in /opt/node20 and /opt/node21), as on Claude Code's cloud machine. This needs the machine's tools to be rebuilt on the next deploy.
+- **The push tool's description no longer tells Grok that work stays on the machine**; it now says a turn's changes are pushed for it at the end.
+- **The setup notes (README) are up to date**: all seven deploy secrets in a table (names only), the GitHub App's setup as numbered steps with every permission and event, the nine Settings with today's defaults, and a sentence saying the read block covers bash commands only, as in Claude Code.
+- Not done in this batch: GitHub-started jobs applying your Deny and Ask rules, renaming a chat after an approved plan, and the "allow the whole .claude folder for this chat" choice. Each needs a bigger change and is left for the next batch.
+- Please check the GitHub App's ticked boxes against the steps in the README, since the live app's settings page can't be read from here.
+
 ## 2026-11-19: Nine fixes from the audit (batch 1), made the way Claude Code does it
 
 - Nine items from the 2026-11-18 audit fixed, each with its own test. Gloopy, connectors and MCP were not touched. Not deployed and not merged yet: it waits for your "deploy", then a live check with Grok.
