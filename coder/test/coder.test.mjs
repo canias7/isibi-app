@@ -118,12 +118,12 @@ test("CD6 there is no ask or done tool (the owner removed them): a call to eithe
   const r = await runCoder({ send: s.send, exec: async () => ({ code: 0, output: "" }) }, { text: "make a page" });
   assert.equal(r.status, "done");
   assert.equal("ask" in r, false);
-  assert.ok(s.seen[1].messages.some((m) => m.role === "tool" && /no such tool: ask \(the tools are bash, read, edit, write, grep, glob, lsp, web_fetch, web_search, monitor, stop_job, ask_user, enter_plan_mode, request_secret, get_environment, update_environment, create_environment, switch_environment, list_environments, review, pr_comments, pr_read, pr_update, suggest_connectors, undo_last_job, task_create, task_get, task_list, task_update, notify, rename_chat, push_branch and pull_request; to finish, answer in words\)/.test(m.content)));
+  assert.ok(s.seen[1].messages.some((m) => m.role === "tool" && /No such tool available: ask \(the tools are bash, read, edit, write, grep, glob, lsp, web_fetch, web_search, monitor, stop_job, ask_user, enter_plan_mode, request_secret, get_environment, update_environment, create_environment, switch_environment, list_environments, review, pr_comments, pr_read, pr_update, suggest_connectors, undo_last_job, task_create, task_get, task_list, task_update, notify, rename_chat, push_branch and pull_request; to finish, answer in words\)/.test(m.content)));
   const s2 = scripted([say("", [call("done", { summary: "x" })]), say("All set.", [])]);
   const r2 = await runCoder({ send: s2.send, exec: async () => ({ code: 0, output: "" }) }, { text: "go" });
   assert.equal(r2.status, "done");
   assert.equal(r2.summary, "All set.", "the words, not a done call, are the summary");
-  assert.ok(s2.seen[1].messages.some((m) => m.role === "tool" && /no such tool: done/.test(m.content)));
+  assert.ok(s2.seen[1].messages.some((m) => m.role === "tool" && /No such tool available: done/.test(m.content)));
   const ui = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
   assert.doesNotMatch(ui, /e\.type === 'ask'[^_]|cd-opt\b/, "the old ask tool's screen is gone (ask_user, added back on the owner's word, is its own)");
 });

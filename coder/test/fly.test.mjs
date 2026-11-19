@@ -282,6 +282,13 @@ test("CD127 every minute on Fly.io: an awake machine with nothing to do for 10 m
   assert.equal(F.shouldStop({ working: 0, unsaved: 0, idleMs: F.FLY_IDLE_MS }, {}, now), true);
   assert.equal(F.shouldStop({ working: 0, unsaved: 0, idleMs: F.FLY_IDLE_MS - 1 }, {}, now), false);
   assert.equal(F.shouldStop({ working: 1, workingMs: 3 * 3600e3, idleMs: F.FLY_IDLE_MS }, {}, now), true, "a stuck job past its 2 hours");
+  // I08: one missed check does not stop a machine that was working a minute ago.
+  assert.equal(F.shouldStop(null, { used: now - 25 * 60e3, active: now - 60e3 }, now), false, "woken 25 min ago, working a minute ago, one missed check: kept");
+  assert.equal(F.shouldStop(null, { used: now - 25 * 60e3, active: now - F.FLY_IDLE_MS }, now), true, "silent for 10 minutes: stopped");
+  assert.equal(F.shouldStop(null, { used: now - F.FLY_IDLE_MS }, now), true, "never answered: stopped 10 minutes after waking");
+  assert.equal(F.lastActive({ working: 1, workingMs: 60e3, idleMs: 0 }, now), now);
+  assert.equal(F.lastActive({ working: 0, unsaved: 0, idleMs: 120e3 }, now), now - 120e3);
+  assert.equal(F.lastActive(null, now), null);
   // Off: nothing.
   assert.deepEqual(await F.runFlyMachines(envWith(b, { CODER_MACHINES: "cloudflare" }), deps(w), now), { checked: 0, stopped: 0, removed: 0 });
   // A REMOVED CHAT takes its machine and disk.

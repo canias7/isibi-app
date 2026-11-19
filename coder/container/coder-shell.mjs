@@ -113,7 +113,9 @@ function arithNonLiteral(text) {
  * it is only one variable ("$DIR", ${DIR}). A redirect is `{ op, fd, target }` (a word; none for a here-document).
  * `top`: the command's place among the top level's commands (0, 1, …), or -1 inside something.
  */
-export function parseShell(source, { scriptDepth = 0 } = {}) {
+/** How deep brackets may nest before a command counts as one Coder cannot read (2026-11-19: deeper ran out of stack). */
+export const NEST_MAX = 50;
+export function parseShell(source, { scriptDepth = 0, nest = 0 } = {}) {
   const s = String(source == null ? "" : source);
   const out = [];
   let ok = true;
@@ -150,7 +152,8 @@ export function parseShell(source, { scriptDepth = 0 } = {}) {
   // (`subst`: the text is a $( … ), `…`, <( … ) or >( … ), whose commands are marked `inSubst`: Claude Code 2.1.325 says of a
   // dangerous removal found in one that it is "inside a command substitution"; coder-bashcheck.mjs. 2026-11-14, round 3.)
   function nested(text, depth, inScript = false, subst = false) {
-    const r = parseShell(text, { scriptDepth });
+    if (nest >= NEST_MAX) { fail(); return; }
+    const r = parseShell(text, { scriptDepth, nest: nest + 1 });
     if (!r.ok) fail();
     loopVars.push(...r.loopVars);
     for (const why of r.complex) noteComplex(why);
@@ -163,7 +166,8 @@ export function parseShell(source, { scriptDepth = 0 } = {}) {
   // <( … ) and >( … ), read as commands of their own (Bash docs pass 9: `(( $(rm -rf ~) ))` was read by nothing, so no
   // rule and no rm check saw it, and bash runs it). How many there were.
   function subsOf(text, depth) {
-    const r = parseShell(": " + text, { scriptDepth });
+    if (nest >= NEST_MAX) { fail(); return 0; }
+    const r = parseShell(": " + text, { scriptDepth, nest: nest + 1 });
     if (!r.ok) fail();
     loopVars.push(...r.loopVars);
     for (const why of r.complex) noteComplex(why);
@@ -306,7 +310,7 @@ export function parseShell(source, { scriptDepth = 0 } = {}) {
         const line = s.slice(i, end < 0 ? s.length : end);
         const cmp = h.strip ? line.replace(/^\t+/, "") : line;
         if (cmp === h.delim) { i = end < 0 ? s.length : end; found = true; break; }
-        if (!h.quoted && /\$\(|`/.test(line)) { const r = parseShell(line.replace(/^[^$`]*/, "").replace(/^([^$`]|\$[^(])+/, ""), { scriptDepth }); if (!r.ok) fail(); for (const c of r.commands) out.push({ ...c, depth: depth + 1, top: -1 }); }
+        if (!h.quoted && /\$\(|`/.test(line)) { const r = nest >= NEST_MAX ? { ok: false, commands: [] } : parseShell(line.replace(/^[^$`]*/, "").replace(/^([^$`]|\$[^(])+/, ""), { scriptDepth, nest: nest + 1 }); if (!r.ok) fail(); for (const c of r.commands) out.push({ ...c, depth: depth + 1, top: -1 }); }
         if (end < 0) { i = s.length; break; }
         i = end + 1;
       }
@@ -516,7 +520,7 @@ export function parseShell(source, { scriptDepth = 0 } = {}) {
       }
       const script = wantC ? w[k] : null;
       if (!script) continue;
-      const r = parseShell(script.text, { scriptDepth: scriptDepth + 1 });
+      const r = parseShell(script.text, { scriptDepth: scriptDepth + 1, nest: nest + 1 });
       if (!r.ok) ok = false;
       loopVars.push(...r.loopVars);
       for (const why of r.complex) noteComplex(why);

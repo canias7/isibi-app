@@ -21,6 +21,7 @@ import http from "node:http";
 import https from "node:https";
 import tls from "node:tls";
 import net, { isIP, BlockList } from "node:net";
+import { asText } from "./coder-text.mjs";
 
 // HOW MUCH ONE READ GIVES (tool-by-tool comparison with Claude Code, 2026-11-08: Coder's read gave 400 lines and
 // its answer was then cut to 12,000 characters, the middle dropped, so the middle of a long file could be missed;
@@ -568,6 +569,7 @@ const shq = (p) => "'" + String(p).replace(/'/g, "'\\''") + "'";
  */
 export function pagesProblem(pages) {
   if (pages === undefined || pages === null) return "";
+  if (typeof pages !== "string" && typeof pages !== "number") return "Invalid pages parameter: \"" + asText(pages).slice(0, 40) + "\". Use formats like \"1-5\", \"3\", or \"10-20\". Pages are 1-indexed.";
   const e = String(pages);
   if (!e.trim()) return "";
   const m = /^(\d{1,9})(?:\s*(-)\s*(\d{1,9})?)?$/.exec(e.trim());

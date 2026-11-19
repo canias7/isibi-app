@@ -541,7 +541,7 @@ export function wrongEvent(event, json) {
   const sp = json && json.hookSpecificOutput;
   if (!sp || typeof sp !== "object" || sp.hookEventName === event) return "";
   if (sp.hookEventName === undefined) return "Hook JSON output validation failed \u2014 hookSpecificOutput is missing required field \"hookEventName\"\n\nThe hook's output was: " + JSON.stringify(json, null, 2).slice(0, 4000) + "\n\nExpected schema:\n" + HOOK_SHAPE;
-  return "Hook returned incorrect event name: expected '" + event + "' but got '" + String(sp.hookEventName) + "'. Full stdout: " + JSON.stringify(json, null, 2).slice(0, 4000);
+  return "Hook returned incorrect event name: expected '" + event + "' but got '" + (typeof sp.hookEventName === "string" ? sp.hookEventName : JSON.stringify(sp.hookEventName)) + "'. Full stdout: " + JSON.stringify(json, null, 2).slice(0, 4000);
 }
 /** The shape Claude Code says it expects when a hook's answer fails its check (2.1.322, word for word). */
 export const HOOK_SHAPE = "{\n  \"continue\": \"boolean (optional)\",\n  \"suppressOutput\": \"boolean (optional)\",\n  \"stopReason\": \"string (optional)\",\n  \"decision\": \"\\\"approve\\\" | \\\"block\\\" (optional)\",\n  \"reason\": \"string (optional)\",\n  \"systemMessage\": \"string (optional)\",\n  \"terminalSequence\": \"string (optional)\",\n  \"hookSpecificOutput\": {\n    \"for PreToolUse\": {\n      \"hookEventName\": \"\\\"PreToolUse\\\"\",\n      \"permissionDecision\": \"\\\"allow\\\" | \\\"deny\\\" | \\\"ask\\\" | \\\"defer\\\" (optional)\",\n      \"permissionDecisionReason\": \"string (optional)\",\n      \"updatedInput\": \"object (optional) - Modified tool input to use\"\n    },\n    \"for PermissionRequest\": {\n      \"hookEventName\": \"\\\"PermissionRequest\\\"\",\n      \"decision\": {\n        \"to allow\": {\n          \"behavior\": \"\\\"allow\\\"\",\n          \"updatedInput\": \"object (optional) - Modified tool input to use\",\n          \"updatedPermissions\": \"array (optional) - Permission updates\"\n        },\n        \"to deny\": {\n          \"behavior\": \"\\\"deny\\\"\",\n          \"message\": \"string (optional)\",\n          \"interrupt\": \"boolean (optional)\"\n        }\n      }\n    },\n    \"for UserPromptSubmit\": {\n      \"hookEventName\": \"\\\"UserPromptSubmit\\\"\",\n      \"additionalContext\": \"string (optional)\"\n    },\n    \"for PostToolUse\": {\n      \"hookEventName\": \"\\\"PostToolUse\\\"\",\n      \"additionalContext\": \"string (optional)\"\n    },\n    \"for PostToolBatch\": {\n      \"hookEventName\": \"\\\"PostToolBatch\\\"\",\n      \"additionalContext\": \"string (optional)\"\n    },\n    \"for Stop / SubagentStop\": {\n      \"hookEventName\": \"\\\"Stop\\\" | \\\"SubagentStop\\\"\",\n      \"additionalContext\": \"string (optional) - Feedback for the model; the conversation continues so the model can act on it\"\n    }\n  }\n}";
@@ -567,6 +567,16 @@ export const QUIET_PARTIAL = "hook output opens a JSON payload that never comple
  * holding its output (`quiet`: Coder stopped waiting 10 seconds after it ended) is not believed when it grants, rewrites or
  * injects (QUIET_GRANT), or printed JSON cut short (QUIET_PARTIAL).
  */
+/**
+ * A HOOK'S ANSWER THAT COULD NOT EVEN BE READ (2026-11-19): a throw while reading it is that hook's error, as a hook that
+ * failed: a non-blocking error notice, or a block for a hook whose failure blocks; never the end of the job.
+ */
+export function hookResultSafe(event, run, hook = {}) {
+  try { return hookResult(event, run, hook); } catch (e) {
+    const why = "Hook output could not be read: " + String((e && e.message) || e).slice(0, 200);
+    try { return hookResult(event, { code: 1, stdout: "", stderr: why }, hook); } catch { return { kind: "error", json: null, text: "", reason: "", notice: why }; }
+  }
+}
 export function hookResult(event, run, hook = {}) {
   const blocks = hook.onFailure === "block" && event !== "Stop" && !hook.async && !hook.asyncRewake;
   const fail = (what, more = "") => blocks ? { kind: "block", json: null, text: "", reason: cap(what + "; " + BLOCK_FAIL + (more ? "\n" + more : "")), notice: "", failBlock: true } : null;

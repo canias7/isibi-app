@@ -4,6 +4,16 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-19: Nine fixes from the audit (batch 1), made the way Claude Code does it
+
+- Nine items from the 2026-11-18 audit fixed, each with its own test. Gloopy, connectors and MCP were not touched. Not deployed and not merged yet: it waits for your "deploy", then a live check with Grok.
+- **A machine in the middle of a long job is no longer stopped because one "are you busy?" check went unanswered.** It now counts 10 quiet minutes from the last time the machine said it was working, as Claude Code pauses a machine only after a few minutes without activity.
+- **A command stopped at its time limit always answers now**, even when it left a program running in the background that kept its output open. Such programs are ended too, and Stop ends them as well.
+- **A repository's own security-check rules skip patterns that could run for a very long time**, as Claude Code's do. A note at the start of the job says which rules were skipped.
+- **Several ways a single odd tool call could end the whole job now just give that call an error, and the turn goes on**, as in Claude Code. This covers commands Coder cannot fully read (they ask instead), tool input that is not in the expected shape, tool and program names that clash with names built into the programming language (these now ask, or get "No such tool available"), input values that cannot be turned into text (the safety checker's summary is covered too), and a hook whose answer cannot be read (it now shows a hook error notice).
+- **When Grok sends several commands at once and one of them changes folder, the ones after it wait for it**, so they run in the new folder, as in Claude Code 2.1.321.
+- **Skipped, waiting for you:** when you change an environment variable, Coder uses the new value from the chat's next message; Claude Code keeps the old value until the chat's machine has slept and woken again. You left this open on 2026-11-11. Do you want Coder to copy Claude Code here, or keep its quicker way?
+
 ## 2026-11-18: Fixed: a new chat's second message could empty its disk (audit T1)
 
 - Your words: "ok fix that one".

@@ -15,6 +15,7 @@
 // (A question as Claude Code's classifier is shown one: the owner, 2026-11-14, "Do all the talk to you tools execpt for the notify one".)
 import { askUserForChecker } from "./coder-askuser.mjs";
 import { isContextNote } from "./coder-context.mjs";
+import { asText } from "./coder-text.mjs";
 
 /** Claude Code's repeated-block thresholds: "if the classifier blocks an action 3 times in a row or 20 times total, auto mode pauses and Claude Code resumes prompting". */
 export const AUTO_LIMITS = { row: 3, total: 20 };
@@ -187,7 +188,7 @@ const appNote = (t) => /^\s*(\(Note from Coder's app|<local-command-caveat>|\(Th
 // (Nor ask_user since 2026-11-14: Claude Code's classifier is shown each question, and the owner's answers as their intent;
 // the owner: "Do all the talk to you tools execpt for the notify one".)
 const LOOKUPS = new Set(["read", "grep", "glob", "lsp", "todo", "review"]);
-const clip = (s, n) => { const t = String(s ?? ""); return t.length > n ? t.slice(0, n) + "…[" + (t.length - n) + " more characters]" : t; };
+const clip = (s, n) => { const t = asText(s); return t.length > n ? t.slice(0, n) + "…[" + (t.length - n) + " more characters]" : t; };
 
 /**
  * WHAT THE CHECKER IS SHOWN: the owner's messages and Coder's earlier actions in order (tool results and Coder's own words
@@ -213,7 +214,8 @@ export function checkerTranscript(convo, { maxChars = 14000, skipId = "", notes 
         try { args = typeof args === "string" ? JSON.parse(args) : args; } catch { /* as sent */ }
         // (A web search as Claude Code's classifier is shown one: its query, WebSearch's toAutoClassifierInput. 2026-11-14.)
         // (A question as Claude Code's classifier is shown one: its toAutoClassifierInput, coder-askuser.mjs.)
-        const shown = name === "ask_user" ? askUserForChecker(args) : name === "bash" && args && typeof args.command === "string" ? args.command : name === "web_search" && args && typeof args.query === "string" ? args.query : name === "write" && args ? JSON.stringify({ path: args.path, content: clip(args.content, 300) }) : name === "edit" && args ? JSON.stringify({ path: args.path, old_string: clip(args.old_string, 150), new_string: clip(args.new_string, 300) }) : typeof args === "string" ? args : JSON.stringify(args || {});
+        let shown;
+        try { shown = name === "ask_user" ? askUserForChecker(args) : name === "bash" && args && typeof args.command === "string" ? args.command : name === "web_search" && args && typeof args.query === "string" ? args.query : name === "write" && args ? JSON.stringify({ path: args.path, content: clip(args.content, 300) }) : name === "edit" && args ? JSON.stringify({ path: args.path, old_string: clip(args.old_string, 150), new_string: clip(args.new_string, 300) }) : typeof args === "string" ? args : JSON.stringify(args || {}); } catch { shown = asText(args); }
         lines.push("[Coder's action] " + name + ": " + clip(shown, 700));
         // (A hook's note about this action's result, Claude Code's classifierContext: the application's word, not the owner's.)
         const note = notes && typeof notes.get === "function" ? notes.get(c.id) : "";

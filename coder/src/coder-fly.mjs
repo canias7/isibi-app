@@ -878,12 +878,23 @@ export async function dropFlyMachine(env, name, deps0 = {}) {
  * SHOULD THIS AWAKE MACHINE BE STOPPED? Not while a job works or waits to be
  * saved (the same limits as the Cloudflare hold), nor within 10 minutes of the
  * Worker's last request; a machine that does not answer is given 10 minutes
- * from when it was woken.
+ * from its last activity seen by an earlier check (rec.active), or from when
+ * it was woken if no check ever had an answer (2026-11-19: one missed check no
+ * longer stops a machine in the middle of a long job).
  */
 export function shouldStop(busy, rec, now) {
   if (busy && holdDecision(busy).hold) return false;
   if (busy && typeof busy.idleMs === "number" && Number.isFinite(busy.idleMs) && busy.idleMs >= 0) return busy.idleMs >= FLY_IDLE_MS;
-  return now - Number((rec && (rec.used || rec.at)) || 0) >= FLY_IDLE_MS;
+  const since = Math.max(Number((rec && (rec.used || rec.at)) || 0), Number((rec && rec.active) || 0));
+  return now - since >= FLY_IDLE_MS;
+}
+
+/** When was this machine last active, by a good /busy answer? (null: no answer to go by.) */
+export function lastActive(busy, now) {
+  if (!busy) return null;
+  if (holdDecision(busy).hold) return now;
+  if (typeof busy.idleMs === "number" && Number.isFinite(busy.idleMs) && busy.idleMs >= 0) return now - busy.idleMs;
+  return null;
 }
 
 /**
@@ -930,6 +941,8 @@ export async function runFlyMachines(env, deps0 = {}, now = Date.now()) {
       out.checked++;
       const r = await viaFly(env, m.id, await locked(env, lockName, rec, new Request("http://coder/busy")), undefined, deps.fetchFn);
       const busy = r && r.ok ? await r.json().catch(() => null) : null;
+      const act = lastActive(busy, now);
+      if (act !== null && act - Number(rec.active || 0) > 30e3 && !shouldStop(busy, rec, now)) { rec.active = act; await writeRec(bucket, key, rec); }
       if (shouldStop(busy, rec, now)) {
         // GLOOPY'S IS SUSPENDED (2026-11-12): woken, it is as it was in under a second; if Fly won't, it is stopped.
         const sus = rec.gloopy ? await flyApi(env, "/apps/" + s.app + "/machines/" + m.id + "/suspend", { method: "POST", ...deps }) : null;

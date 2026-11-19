@@ -83,7 +83,7 @@ Note: LSP servers must be configured for the file type. If no server is availabl
   });
   assert.equal(A.RUN_TOOLS.lsp.verb, "Looked up");
   assert.equal(A.RUN_TOOLS.lsp.label({ operation: "findReferences", filePath: "src/a.py", line: 3, character: 5 }), "findReferences src/a.py:3:5");
-  assert.equal(A.RUN_TOOLS.lsp.label({ filePath: { x: 1 } }), " [object Object]", "any input is labelled without failing");
+  assert.equal(A.RUN_TOOLS.lsp.label({ filePath: { x: 1 } }), " {\"x\":1}", "any input is labelled without failing");
   // Its checks before any hook: the input (checkInput), then the file where the chat's files are (ctx.lspFile).
   assert.equal(I.inputCheckFor("lsp"), I.checkLsp);
   assert.deepEqual(I.checkLsp({ operation: "hover", filePath: "a.py", line: 1, character: 1 }), L.checkInput({ operation: "hover", filePath: "a.py", line: 1, character: 1 }), "with no file check given, the input's alone");

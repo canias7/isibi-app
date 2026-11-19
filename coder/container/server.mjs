@@ -1304,7 +1304,7 @@ export function execIn(dir, command, timeoutS = 120, opts = {}) {
   if (PAUSED && !(opts && opts.uid === null)) return PAUSED.done.then(() => execIn(dir, command, timeoutS, opts));
   return execNow(dir, command, timeoutS, opts);
 }
-function execNow(dir, command, timeoutS = 120, { uid = RUN_UID, gid = RUN_GID, kill = false, bgDir = BG_DIR, extraEnv = null, home = null, room = false, box = null, outMax = RAW_OUTPUT_MAX, start = null, follow = false, spillDir = null, spillAt = SPILL_AT, keep = READ_BACK_KEEP, stopAtTimeout = false, onStart = null, prefix = "", onMove = null, onProgress = null, outputKill = OUTPUT_KILL, memCg = "", shellPrefix = "", quietMs = 0, shell = "bash" , merge = false} = {}) {
+function execNow(dir, command, timeoutS = 120, { uid = RUN_UID, gid = RUN_GID, kill = false, bgDir = BG_DIR, extraEnv = null, home = null, room = false, box = null, outMax = RAW_OUTPUT_MAX, start = null, follow = false, spillDir = null, spillAt = SPILL_AT, keep = READ_BACK_KEEP, stopAtTimeout = false, onStart = null, prefix = "", onMove = null, onProgress = null, outputKill = OUTPUT_KILL, memCg = "", shellPrefix = "", quietMs = 0, shell = "bash" , merge = false, taskMark = ""} = {}) {
   // (`shell`: the owner's CODER_SHELL for the AI's commands, shellOf; bash otherwise.)
   const sh = typeof shell === "string" && (/^(bash|\/(usr\/(local\/)?)?bin\/(bash|zsh))$/.test(shell) || (/^\/[^\s'"`$;&|<>\\]*\/(bash|zsh)[^/\s'"`$;&|<>\\]*$/.test(shell))) ? shell : "bash";
   return new Promise((done) => {
@@ -1325,6 +1325,7 @@ function execNow(dir, command, timeoutS = 120, { uid = RUN_UID, gid = RUN_GID, k
     // (The owner's and the repository's variables win over the machine's presets, its JAVA_HOME, GOPATH or DOCKER_HOST
     // too, never over its PATH and HOME: Bash docs pass 9. Root's own commands keep root's presets first, as before.)
     const pre = uid === null ? cleanEnv(null, { root: true }) : cleanEnv(home || dir);
+    if (taskMark) extraEnv = { ...(extraEnv || {}), [TASK_MARK]: taskMark };
     const env = uid === null ? { ...(extraEnv || {}), ...pre, ...(box ? { CODER_SANDBOX: "1" } : {}) } : { ...pre, ...(extraEnv || {}), PATH: pre.PATH, HOME: pre.HOME, ...(box ? { CODER_SANDBOX: "1" } : {}) };
     const g = Number.isInteger(gid) ? gid : uid;
     const nonce = follow ? randomUUID().replace(/-/g, "").slice(0, 16) : "";
@@ -1462,8 +1463,22 @@ function execNow(dir, command, timeoutS = 120, { uid = RUN_UID, gid = RUN_GID, k
     const t = setTimeout(async () => {
       timedOut = true;
       if (kill || stopAtTimeout) {
+        // (2026-11-19: what it started in a session of its own, under setsid or as a daemon, is ended too by its mark, and if
+        // something still holds its output open 2 seconds after the group's end, it is answered anyway: Claude Code's
+        // "Command timed out".)
+        const tmark = extraEnv && typeof extraEnv[TASK_MARK] === "string" ? extraEnv[TASK_MARK] : "";
         try { process.kill(-p.pid, stopAtTimeout ? "SIGTERM" : "SIGKILL"); } catch { /* already gone */ }
-        if (stopAtTimeout) setTimeout(() => { try { process.kill(-p.pid, "SIGKILL"); } catch { /* gone */ } }, 2000).unref?.();
+        if (tmark) endMarked(tmark, stopAtTimeout ? "SIGTERM" : "SIGKILL", { skipGroup: p.pid });
+        setTimeout(() => {
+          try { process.kill(-p.pid, "SIGKILL"); } catch { /* gone */ }
+          if (tmark) endMarked(tmark, "SIGKILL");
+          setTimeout(() => {
+            if (answered) return;
+            try { p.stdout.destroy(); p.stderr.destroy(); } catch { /* closed */ }
+            const rest = leftover(); if (rest.length) out += rest.toString("utf8");
+            answer({ code: stopAtTimeout ? 143 : 137, output: "Command timed out after " + ccDuration(Math.max(1, timeoutS) * 1000) + (out ? "\n" + out : ""), timedOut: true, size: bytes });
+          }, 500).unref?.();
+        }, 2000).unref?.();
         return;
       }
       await toBackground(false);
@@ -2839,15 +2854,17 @@ export function laterNotes(later, dir, path, shown) {
  * Read by root like the instruction files (plainText).
  */
 export async function repoSecurityRules(dir) {
-  const out = [];
+  const out = [], skipped = [];
   // And Claude Code's own (the owner, 2026-11-09: "Go ahead and do those"; its security-guidance docs: ".claude/security-patterns.yaml
   // … also reads .claude/security-patterns.yml and .claude/security-patterns.json with the same schema"), so a repo set
   // up for Claude Code gets its checks here too. Up to 50 rules in all, as before.
   for (const [f, kind] of [[".coder/security-patterns.json", "json"], [".coder/security-patterns.yaml", "yaml"], [".coder/security-patterns.yml", "yaml"], [".claude/security-patterns.json", "json"], [".claude/security-patterns.yaml", "yaml"], [".claude/security-patterns.yml", "yaml"]]) {
     const text = await plainText(dir, f, 65536);
-    if (text !== null) out.push(...parseRulesFile(text, kind));
+    if (text !== null) { const got = parseRulesFile(text, kind); out.push(...got); skipped.push(...(got.skipped || [])); }
   }
-  return out.slice(0, 50);
+  const kept = out.slice(0, 50);
+  Object.defineProperty(kept, "skipped", { value: skipped });
+  return kept;
 }
 /**
  * TODAY'S DATE, AS CLAUDE CODE GIVES IT IN ITS CONTEXT ("Today's date is 2026-11-14."): the machine's own date, as Claude
@@ -3674,7 +3691,10 @@ export function keeperAlive(project) {
 /** THE TURN'S OWN COMMANDS still running (not its background ones), each with everything it started: ended (the owner's Stop). */
 function endForeground(t) {
   for (const pid of t.fg || []) { try { process.kill(-pid, "SIGKILL"); } catch { /* already gone */ } }
+  // (2026-11-19: and what they started under setsid, by their marks.)
+  for (const m of t.fgMarks || []) endMarked(m, "SIGKILL");
   if (t.fg) t.fg.clear();
+  if (t.fgMarks) t.fgMarks.clear();
 }
 /**
  * The chat's background-log folder, emptied but for the logs of the background commands this machine still keeps (`make`:
@@ -3969,6 +3989,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     // (`mode`: the chat's permission mode, which the owner may change while it runs, /mode; `answers`: the owner's answers
     // to its cards, /answer; `asking`: the card a step waits on.)
     const t = { running: true, stop: false, events: [], result: null, fg: new Set(), started: Date.now(), resume: null, queue: [], mode: normMode(body.mode), answers: new Map(), asking: "", writes: { check: null }, start };
+    t.fgMarks = new Set();
     // THE TURN'S STEP TIMES (2026-11-15: where a message's seconds go), handed to the Worker with the result: `timing`.
     t.timing = { got: t.started };
     // THE START-UP'S STEP NOW (2026-11-16, like Claude Code on the web's "Setting up a cloud container › Cloning repository ›
@@ -4076,7 +4097,9 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     // What loads later (path rules, a subfolder's own file), each once this job.
     const shownNotes = new Set();
     // THE CHECK ON EACH EDIT (item 12): Coder's rules and the repo's own, each once a job for each file.
-    const secRules = [...BUILTIN_RULES, ...(await repoSecurityRules(dir))];
+    const repoRules = await repoSecurityRules(dir);
+    const secRules = [...BUILTIN_RULES, ...repoRules];
+    if (repoRules.skipped && repoRules.skipped.length) t.events.push({ at: Date.now(), type: "note", text: "Security check: skipped " + repoRules.skipped.length + " of this repository's rules whose pattern could run too long (" + repoRules.skipped.slice(0, 5).join(", ") + ")." });
     const shownSec = new Set();
     const memDir = join(memRoot, project);
     const memFile = join(memDir, "MEMORY.md");
@@ -4422,7 +4445,9 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         if (r.code === 0 && !r.timedOut && userPart) {
           const left = Math.max(10, SETUP_MAX_S - Math.round((Date.now() - t0) / 1000));
           // (The owner's Stop ends it: it is one of the turn's own commands.)
-          const u = await execIn(scriptInRepo ? dir : root, userPart, left, { bgDir, kill: true, home, room: t.room, box: t.box, extraEnv: { GOFARTHER_CODER: "1", ...REMOTE_MARK, ...(net.limited ? proxyEnv : {}) }, onStart: (pid) => t.fg.add(pid) });
+          const smark = newMark(); t.fgMarks.add(smark);
+          const u = await execIn(scriptInRepo ? dir : root, userPart, left, { bgDir, kill: true, home, room: t.room, box: t.box, extraEnv: { GOFARTHER_CODER: "1", ...REMOTE_MARK, ...(net.limited ? proxyEnv : {}) }, taskMark: smark, onStart: (pid) => t.fg.add(pid) });
+          t.fgMarks.delete(smark);
           r = { code: u.code, timedOut: !!u.timedOut, output: (r.output ? r.output + "\n" : "") + String(u.output || "") };
         }
         if (px && secretList.length) px.setSecrets(secretList);
@@ -4836,6 +4861,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
           const onMove = (fn) => { t.movable = fn; mover = fn; (t.movers || (t.movers = new Set())).add(fn); };
           // ITS MARK (endMarked): what it starts carries it, so a stop ends that too, and the sweep keeps it while it runs.
           const mark = tool ? "" : newMark();
+          if (mark) t.fgMarks.add(mark);
           // A COMMAND'S OWN HOSTS (Bash docs pass 6; Claude Code's allowed_domains, approved: "An approved list opens those hosts
           // for that one command alone, for as long as it runs"): a pass of its own in its proxy address, which the gate knows.
           const pass = !tool && Array.isArray(hosts) && hosts.length && px ? randomBytes(16).toString("hex") : "";
@@ -4863,6 +4889,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
             const hmark = newMark();
             const r = await execIn(dir, command, 1, { bgDir, kill: false, home, room: t.room, box: t.box, onStart, prefix: "", ...(capped ? { memCg: t.memCgNow() } : {}), shellPrefix: noPrefix ? "" : t.shellPrefix || "", extraEnv: { ...(extraEnv || {}), CODER_MEMORY_FILE: memFile, CODER_OUTPUT_DIRS: bgDir + ":" + outDir, [TASK_MARK]: hmark, ...(moved ? { CODER_CWD: t.cwd } : {}), ...(hookEnvFile ? { CLAUDE_ENV_FILE: hookEnvFile } : {}) }, ...(moved ? { start: t.cwd } : {}) });
             if (leader) t.fg.delete(leader);
+            if (mark) t.fgMarks.delete(mark);
             if (r && r.background && r.pid) {
               const n = 1 + Math.max(0, ...[...JOBS.values()].filter((j) => j.project === project && j.hook).map((j) => Number(String(j.id).slice(4)) || 0));
               JOBS.set(r.pid, { project, id: "hook" + n, pid: r.pid, log: r.log, command: String(hookAsync.label || "hook").slice(0, 300), desc: "", cwd: startedIn, at: startedAt, mark: hmark, moved: false, deadline: Date.now() + (hookAsync.rewake ? Math.max(1, Number(timeoutS) || 600) * 1000 : t.tmo.bgMaxMs), box: !!r.inBox, end: null, told: false, stopping: "", noReap: t.noReap === true, hook: { event: String(hookAsync.event || ""), mark: String(hookAsync.mark || ""), rewake: hookAsync.rewake === true } });
@@ -4889,6 +4916,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
             if (note) r.diskNote = note;
           }
           if (leader) t.fg.delete(leader);
+          if (mark) t.fgMarks.delete(mark);
           t.movable = null; t.progress = null;
           if (mover && t.movers) t.movers.delete(mover);
           if (pass && !(r && r.background && r.pid)) px.closeFor(pass);

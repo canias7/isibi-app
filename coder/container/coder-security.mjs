@@ -38,6 +38,42 @@ export function editedText(tool, args) {
 }
 
 /** A rule as the repo wrote it, checked: { rule_name, regex | substrings, paths?, exclude_paths?, reminder }; else null. */
+/**
+ * MIGHT THIS EXPRESSION RUN AWAY? (2026-11-19; Claude Code's security check "skips regexes that look prone to catastrophic
+ * backtracking"): a back-reference, or a repeated group that itself holds a repeat, or a repeated group whose choices hold
+ * broad classes (\w, \d, \s, .) that can match the same text.
+ */
+export function riskyRegex(src) {
+  const s = String(src);
+  if (/\\[1-9]|\\k</.test(s)) return true;
+  const stack = [];
+  let inClass = false;
+  const repeatAt = (i) => s[i] === "+" || s[i] === "*" || (s[i] === "{" && /^\{\d*,\d*\}/.test(s.slice(i)) && !/^\{\d+\}/.test(s.slice(i)));
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (c === "\\") { if (!inClass && stack.length && /[wdsWDS]/.test(s[i + 1] || "")) stack[stack.length - 1].broad = true; i++; continue; }
+    if (inClass) { if (c === "]") inClass = false; continue; }
+    if (c === "[") { inClass = true; if (stack.length) stack[stack.length - 1].broad = true; continue; }
+    if (c === "(") { stack.push({ rep: false, alt: false, broad: false }); continue; }
+    const top = stack[stack.length - 1];
+    if (c === "|" && top) { top.alt = true; continue; }
+    if (c === "." && top) { top.broad = true; continue; }
+    if (c === ")") {
+      const g = stack.pop();
+      if (!g) continue;
+      const repeated = repeatAt(i + 1);
+      if (repeated && (g.rep || (g.alt && g.broad))) return true;
+      const up = stack[stack.length - 1];
+      if (up) { up.rep = up.rep || g.rep || repeated; up.broad = up.broad || g.broad; }
+      continue;
+    }
+    if (repeatAt(i) && top) top.rep = true;
+  }
+  return false;
+}
+/** How much of an edit each repository rule reads (the first 200 KB). */
+export const RULE_TEXT_MAX = 200 * 1024;
+
 export function cleanRule(r) {
   if (!r || typeof r !== "object") return null;
   const name = String(r.rule_name || "").trim().slice(0, 80);
@@ -47,6 +83,7 @@ export function cleanRule(r) {
   const out = { rule_name: "repo:" + name, reminder };
   if (typeof r.regex === "string" && r.regex) {
     if (r.regex.length > 500) return null;
+    if (riskyRegex(r.regex)) return { skipped: "repo:" + name };
     try { out.regex = new RegExp(r.regex.replace(/^\(\?i\)/, ""), /^\(\?i\)/.test(r.regex) ? "im" : "m"); } catch { return null; }
   } else {
     const subs = list(r.substrings);
@@ -69,7 +106,10 @@ export function parseRulesFile(text, kind) {
   if (kind === "json") {
     try { const j = JSON.parse(text); raw = Array.isArray(j) ? j : Array.isArray(j && j.patterns) ? j.patterns : []; } catch { raw = []; }
   } else raw = yamlPatterns(String(text));
-  return raw.map(cleanRule).filter(Boolean).slice(0, RULES_MAX);
+  const all = raw.map(cleanRule).filter(Boolean);
+  const out = all.filter((r) => !r.skipped).slice(0, RULES_MAX);
+  Object.defineProperty(out, "skipped", { value: all.filter((r) => r.skipped).map((r) => r.skipped) });
+  return out;
 }
 
 function scalar(v) {
@@ -131,7 +171,7 @@ export function checkEdit(rel, text, rules, shown) {
   for (const r of rules) {
     const key = r.rule_name + " " + rel;
     if (shown.has(key) || !forFile(r, rel)) continue;
-    const hit = r.regex ? r.regex.test(text) : r.substrings ? r.substrings.some((s) => text.includes(s)) : !!r.paths;
+    const hit = r.regex ? r.regex.test(r.rule_name.startsWith("repo:") && text.length > RULE_TEXT_MAX ? text.slice(0, RULE_TEXT_MAX) : text) : r.substrings ? r.substrings.some((s) => text.includes(s)) : !!r.paths;
     if (!hit) continue;
     shown.add(key);
     hits.push("- " + r.rule_name + ": " + r.reminder);

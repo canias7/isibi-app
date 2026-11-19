@@ -499,3 +499,12 @@ test("PA18 (round 5) the early starts' bookkeeping for a round that ends early: 
   assert.deepEqual(table, [["turn", "rejected", "rejected", "rejected"], ["turn", "stopped-running", "rejected", "rejected"], ["turn", "later", "later", "later"]]);
   assert.ok(new P.RoundClosing("no") instanceof P.RoundClosing);
 });
+
+test("PA11 (M-a-04, 2026-11-19, Claude Code 2.1.321) a cd among a reply's commands: those after it start only once it has run, in its turn, from the new folder", async () => {
+  const t = await job([say("", [call("bash", { command: "cd src" }, "c1"), call("bash", { command: "ls" }, "l1"), call("bash", { command: "cat a.txt" }, "k1")]), say("done")], { ms: (tag) => (tag === "bash:cd src" ? 120 : 30) });
+  assert.equal(t.r.status, "done");
+  assert.ok(t.when("end", "bash:cd src") >= 0, "the cd ran");
+  assert.ok(t.when("start", "bash:ls") >= t.when("end", "bash:cd src"), "ls waited for the cd");
+  assert.ok(t.when("start", "bash:cat a.txt") >= t.when("end", "bash:cd src"), "cat waited for the cd");
+  assert.deepEqual(t.order(), ["c1", "l1", "k1"]);
+});

@@ -182,6 +182,8 @@ const SAFE = {
   test: { ddash: false, flags: { "-b": "string", "-c": "string", "-d": "string", "-e": "string", "-f": "string", "-g": "string", "-G": "string", "-h": "string", "-k": "string", "-L": "string", "-N": "string", "-O": "string", "-p": "string", "-r": "string", "-s": "string", "-S": "string", "-t": "string", "-u": "string", "-w": "string", "-x": "string", "-z": "string", "-n": "string", "-eq": "string", "-ne": "string", "-lt": "string", "-le": "string", "-gt": "string", "-ge": "string", "-nt": "string", "-ot": "string", "-ef": "string" },
     danger: (a) => { if (a.some((x) => x === "-v" || x === "-R" || x === "-a" || x === "-o" || /\[/.test(x))) return true; for (let i = 0; i < a.length; i++) { if (["-eq", "-ne", "-lt", "-le", "-gt", "-ge"].includes(a[i])) { for (const s of [a[i - 1], a[i + 1]]) if (s !== undefined && !/^-?(0[xX][0-9a-fA-F]+|[0-9]+#[0-9a-zA-Z]+|[0-9]+)$/.test(s)) return true; } if (a[i] === "-t" && a[i + 1] !== undefined && !/^-?[0-9]+$/.test(a[i + 1])) return true; } return false; } },
 };
+// (2026-11-19: constructor, toString and the like are no read-only program.)
+Object.setPrototypeOf(SAFE, null);
 /** The targets xargs may run while staying read-only (Claude Code's). */
 const XARGS_TARGETS = ["echo", "printf", "wc", "grep", "egrep", "fgrep", "head", "tail"];
 /** Commands that read whatever their arguments (Claude Code's list), when no word has an expansion. */
@@ -472,7 +474,7 @@ export function commandReadOnly(cmd) {
   for (let n = Math.min(3, w.length); n >= 1; n--) {
     const key = w.slice(0, n).map((x) => x.text).join(" ");
     if (ANY_ARGS.has(key)) return true;
-    const spec = SAFE[key];
+    const spec = Object.hasOwn(SAFE, key) ? SAFE[key] : null;
     if (!spec) continue;
     const after = args.slice(n - 1);
     if (!optionsOk(after, spec, prog)) return false;
@@ -2059,7 +2061,7 @@ function exactWhy(c) { return semanticWhy(c); }
 export function pathArgs(c, { cwd = "/", home = "" } = {}) {
   const words = unwrapped(c.words);
   if (!words.length) return [];
-  const rule = READ_PATHS[basename(words[0].text)];
+  const rule = Object.hasOwn(READ_PATHS, basename(words[0].text)) ? READ_PATHS[basename(words[0].text)] : null;
   if (!rule) return [];
   const args = words.slice(1), dir = c.dir === undefined ? cwd : c.dir, out = [];
   // (A wildcard the shell expands is files wherever it stands, the pattern's place or an option's value too: Claude Code
@@ -2338,6 +2340,7 @@ const READ_PATHS = {
     return out;
   },
 };
+Object.setPrototypeOf(READ_PATHS, null);
 /**
  * PROGRAMS THAT RUN CODE GIVEN INLINE, and the option (or word) that gives it: Claude Code 2.1.322's own map (its nfn), the
  * name read without a version (python3.12 is python). Under the read block such code can't be checked, nor code on stdin.
@@ -2481,7 +2484,7 @@ export function readBlockWhy(command, { cwd = "/", workdirs = [], home = "", rea
       const fed = c.afterPipe || (c.redirects || []).some((x) => x.heredoc || x.op === "<<<");
       if (fed && !args.some((a) => !a.text.startsWith("-"))) return rbUnsure("code on stdin cannot be checked against the read block");
     }
-    const rule = READ_PATHS[prog];
+    const rule = Object.hasOwn(READ_PATHS, prog) ? READ_PATHS[prog] : null;
     if (!rule) { const w = namedWhy(prog, args, c); if (w) return w; continue; }
     if (prog === "sed" && !sedScriptsSafe(args.map((x) => x.text))) return RB_SED;
     const dir = c.dir === undefined ? cwd : c.dir;
