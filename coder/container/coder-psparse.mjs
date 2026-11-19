@@ -486,14 +486,18 @@ export function psCommandReadOnly(c, { nativeReadOnly = () => false } = {}) {
   }
   return true;
 }
-/** The paths a reading or removing cmdlet is given: its -Path/-LiteralPath values and its plain words (Select-String's first is its pattern). */
+/**
+ * The paths a reading or removing cmdlet is given: its -Path/-LiteralPath values and its plain words (Select-String's first
+ * is its pattern, unless the pattern was named with -Pattern, a shortening of it down to -pat, or -Pattern:x).
+ */
 export function psPathArgs(c) {
   const canon = psCmdlet(c.name), out = [], args = c.args || [], kinds = c.elementTypes || [];
-  let positional = 0;
+  let positional = 0, patternNamed = false;
   for (let a = 0; a < args.length; a++) {
     const t = args[a];
     if (isParam(t, kinds[a + 1])) {
       const n = paramName(t), i = t.indexOf(":");
+      if (canon === "select-string" && n.length >= 4 && "-pattern".startsWith(n)) patternNamed = true;
       const pathish = ["-path", "-literalpath", "-pspath", "-lp", "-childpath", "-additionalchildpath"].some((f) => f.startsWith(n) && n.length >= 3) || n === "-p";
       const valueTaking = !["-recurse", "-force", "-raw", "-name", "-file", "-directory", "-hidden", "-readonly", "-system", "-relative", "-quiet", "-list", "-simplematch", "-casesensitive", "-notmatch", "-allmatches", "-noemphasis", "-passthru", "-parent", "-leaf", "-leafbase", "-extension", "-isabsolute", "-qualifier", "-noqualifier", "-isvalid", "-whatif", "-confirm", "-verbose", "-debug"].some((f) => f.startsWith(n) && n.length >= 2);
       if (i > 0) { if (pathish) out.push(t.slice(i + 1)); continue; }
@@ -501,7 +505,7 @@ export function psPathArgs(c) {
       continue;
     }
     positional++;
-    if (canon === "select-string" && positional === 1) continue;
+    if (canon === "select-string" && positional === 1 && !patternNamed) continue;
     out.push(t);
   }
   return out.filter((p) => p !== "");

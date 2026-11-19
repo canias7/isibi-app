@@ -542,7 +542,7 @@ const FILE_OPTS = {
   rm: { none: /^-(?:[rRfvdI]+|-recursive|-force|-verbose|-dir)$/, value: new Set() },
   rmdir: { none: /^-(?:[pv]+|-parents|-verbose|-ignore-fail-on-non-empty)$/, value: new Set() },
   mv: { none: /^-(?:[fivnuT]+|-force|-interactive|-no-clobber|-verbose|-update|-no-target-directory)$/, value: new Set(["-t", "--target-directory"]) },
-  cp: { none: /^-(?:[fivnurRapTLPH]+|-force|-interactive|-no-clobber|-verbose|-update|-recursive|-archive|-parents|-no-target-directory|-dereference|-no-dereference|-preserve)$/, value: new Set(["-t", "--target-directory"]) },
+  cp: { none: /^-(?:[fivnurRapTLPH]+|-force|-interactive|-no-clobber|-verbose|-update|-recursive|-archive|-no-target-directory|-dereference|-no-dereference|-preserve)$/, value: new Set(["-t", "--target-directory"]) },
   sed: { none: /^-(?:[nErsuz]+|-quiet|-silent|-regexp-extended|-posix|-separate|-unbuffered|-zero-terminated|-debug)$/, value: new Set(["-e", "--expression", "-l", "--line-length"]) },
 };
 /**
@@ -575,7 +575,7 @@ export function fileCommandTargets(cmd, cwd) {
   }
   const opt = FILE_OPTS[prog];
   const paths = [];
-  let sure = true, operands = false, scriptTaken = prog !== "sed", intoDir = "";
+  let sure = true, operands = false, scriptTaken = prog !== "sed", intoDir = "", parents = false;
   const ops = [];
   for (let i = 0; i < rest.length; i++) {
     const x = rest[i], t = x.text;
@@ -590,6 +590,8 @@ export function fileCommandTargets(cmd, cwd) {
         continue;
       }
       if (prog === "sed" && /^-e./.test(t)) { scriptTaken = true; continue; }
+      // (cp --parents writes the source's whole path under the folder: docs/src/x.js for `cp --parents src/x.js docs/`.)
+      if (prog === "cp" && t === "--parents") { parents = true; continue; }
       if (!opt.none.test(t)) sure = false;
       continue;
     }
@@ -608,17 +610,27 @@ export function fileCommandTargets(cmd, cwd) {
   // to the file that a cp or mv into a directory writes"): the folder (-t, or the last name) and, in it, each source's
   // name (anything in it for a wildcard source). The last name may be a file or a folder: both are checked.
   const maybe = [];
+  let cpSources = null;
+  if (prog === "cp" && ops.length > 1) cpSources = (intoDir ? ops : ops.slice(0, -1)).map((o) => o.path);
+  else if (prog === "cp" && intoDir) cpSources = ops.map((o) => o.path);
   if ((prog === "cp" || prog === "mv") && ops.length) {
     const last = ops[ops.length - 1];
     const dest = intoDir || (ops.length > 1 ? last.path : "");
     const sources = intoDir ? ops : ops.slice(0, -1);
     // (A folder for sure: -t, two sources or more, or a name ending in / or being . or ..; one that may be either: the
     // files in it count for the owner's rules only, `maybe`.)
-    const clear = !!intoDir || sources.length > 1 || /\/$/.test(String(last.text || "")) || last.name === "." || last.name === "..";
+    const clear = parents || !!intoDir || sources.length > 1 || /\/$/.test(String(last.text || "")) || last.name === "." || last.name === "..";
     if (dest && !dest.endsWith("/*")) {
       // (Into a folder for sure: the files it writes there stand for it.)
       if (clear) { const di = paths.indexOf(dest); if (di >= 0) paths.splice(di, 1); }
-      for (const src of sources) { const q = src.glob || !src.name || src.name === "." || src.name === ".." ? dest.replace(/\/+$/, "") + "/*" : dest.replace(/\/+$/, "") + "/" + src.name; if (!paths.includes(q) && !maybe.includes(q)) (clear ? paths : maybe).push(q); }
+      if (parents) for (const src of sources) {
+        const typed = String(src.text || "");
+        if (src.glob || !typed || typed.startsWith("/") || /(^|\/)\.\.(\/|$)/.test(typed)) sure = false;
+        const rel = typed.replace(/\/+/g, "/").replace(/^(\.\/)+/, "").replace(/\/(\.\/)+/g, "/").replace(/\/+$/, "");
+        const q = src.glob || !rel || rel === "." || !sure ? dest.replace(/\/+$/, "") + "/*" : dest.replace(/\/+$/, "") + "/" + rel;
+        if (!paths.includes(q)) paths.push(q);
+      }
+      else for (const src of sources) { const q = src.glob || !src.name || src.name === "." || src.name === ".." ? dest.replace(/\/+$/, "") + "/*" : dest.replace(/\/+$/, "") + "/" + src.name; if (!paths.includes(q) && !maybe.includes(q)) (clear ? paths : maybe).push(q); }
     }
   }
   // SED'S BACKUP COPY (-iSUFFIX, -niSUFFIX, --in-place=SUFFIX): written beside each edited file (its path plus the suffix),
@@ -643,7 +655,11 @@ export function fileCommandTargets(cmd, cwd) {
     }
   }
   if (!paths.length) sure = false;
-  return maybe.length ? { paths, sure, maybe } : { paths, sure };
+  const out = maybe.length ? { paths, sure, maybe } : { paths, sure };
+  // (cp's sources, which it only reads: Claude Code 2.1.326, "Fixed cp of a file being refused when only its source was
+  // covered by an Edit deny rule".)
+  if (cpSources) out.sources = cpSources;
+  return out;
 }
 
 // ── THE WHOLE COMMAND ────────────────────────────────────────────────────────
@@ -722,7 +738,7 @@ export function movesWorkTree(command) {
 export function discardsWork(command) {
   const text = String(command || "");
   const r = parseShell(text);
-  if (!r.ok) return /\bgit\b[^\n;&|]*\b(reset\s+[^\n;&|]*--hard|checkout\s+(--|\.)|restore\b|clean\s+[^\n;&|]*-[a-z]*f|stash\s+(drop|clear))|\brm\s+[^\n;&|]*(-[a-z]*r[a-z]*f|-[a-z]*f[a-z]*r)/i.test(text);
+  if (!r.ok) return /\bgit\b[^\n;&|]*\b(reset\s+[^\n;&|]*--hard|checkout\s+(?!-b\b|-B\b|--orphan\b|--detach\b)[^\n;&|\s]|switch\s+[^\n;&|]*(-f\b|--force|--discard-changes)|restore\b|clean\s+[^\n;&|]*-[a-z]*f|stash\s+(drop|clear))|\brm\s+[^\n;&|]*(-[a-z]*r[a-z]*f|-[a-z]*f[a-z]*r)/i.test(text);
   return r.commands.some((c) => {
     const w = unwrapped(c.words).map((x) => x.text);
     const prog = basename(w[0] || "");
@@ -736,7 +752,9 @@ export function discardsWork(command) {
     while (k < w.length && w[k].startsWith("-") && w[k] !== "--") { if (GIT_TAKES_VALUE.has(w[k])) k++; k++; }
     const sub = w[k] || "", rest = w.slice(k + 1);
     if (sub === "reset") return rest.includes("--hard");
-    if (sub === "checkout") return rest.includes("--") || rest.includes(".") || rest.includes("-f") || rest.includes("--force");
+    // (Any operand: `git checkout b.txt` throws its changes away too. Not the branch-making forms or --detach.)
+    if (sub === "checkout") return !rest.some((x) => ["-b", "-B", "--orphan", "--detach"].includes(x) || /^--orphan=/.test(x)) && rest.some((x) => !x.startsWith("-") || x === "--");
+    if (sub === "switch") return rest.some((x) => x === "-f" || x === "--force" || x === "--discard-changes");
     if (sub === "restore") return !(rest.includes("--staged") || rest.includes("-S")) || rest.includes("--worktree") || rest.includes("-W");
     if (sub === "clean") return rest.some((x) => /^-[a-zA-Z]*f/.test(x) || x === "--force");
     if (sub === "stash") return rest[0] === "drop" || rest[0] === "clear";
@@ -1061,9 +1079,21 @@ export const wholeRule = (rules, kind, tool) => (Array.isArray(rules && rules[ki
  * approve it for you"): `strict`; a Monitor ask rule asks. Otherwise "Without a Monitor allow rule, you're prompted before
  * Claude opens a WebSocket; in auto mode the classifier decides instead" (`check`).
  */
-export function wsDecision({ rules = {}, mode = "auto" } = {}) {
+export function wsDecision({ rules = {}, mode = "auto", input = {} } = {}) {
   if (wholeRule(rules, "deny", "Bash")) return { verdict: "deny", why: MONITOR_BASH_DENIED };
   if (wholeRule(rules, "deny", "Monitor")) return { verdict: "deny", why: "Permission to use Monitor has been denied." };
+  // (A deny or ask rule on one of the watch's own inputs, Monitor(timeout_ms:*): Claude Code's "Match by input parameter" works
+  // on any built-in tool. Bash(param:…) rules stay off a WebSocket watch.)
+  const onInput = (k) => (Array.isArray(rules && rules[k]) ? rules[k] : []).find((r) => {
+    const x = parseRule(r);
+    if (!x || x.glob || x.tool !== "Monitor" || x.spec === null) return false;
+    const sp = settingSpec(x.spec, MONITOR_SETTINGS);
+    return !!sp && sp.name !== "command" && settingMatches(sp.value, input && input[sp.name]);
+  });
+  const inDeny = onInput("deny");
+  if (inDeny) return { verdict: "deny", rule: inDeny, why: "Permission to use Monitor has been denied." };
+  const inAsk = onInput("ask");
+  if (inAsk) return { verdict: "ask", byRule: true, rule: inAsk, why: ruleAskWhy(inAsk, normMode(mode), "tool") };
   // (A rule's ask on Claude Code's card for a watch, its Monitor dialog's for a WebSocket: "… requires confirmation for this
   // tool."; round 6. What Coder is told is the watch's own ask, in coder-agent.mjs: a rule adds nothing to it in Claude Code.)
   const bashAsk = wholeRule(rules, "ask", "Bash");
@@ -1147,7 +1177,9 @@ export function ruleProblem(text) {
   if (!tool.includes("_") && tool[0] !== tool[0].toUpperCase()) return say("Tool names must start with uppercase", 'Use "' + tool[0].toUpperCase() + tool.slice(1) + '"');
   if (tool === "Bash" && content === ":*") return say("Prefix cannot be empty before :*", "Specify a command prefix before :*", ["Bash(npm *)", "Bash(git *)"]);
   // (Claude Code, for its file tools: 'The ":*" syntax is only for Bash prefix rules'.)
-  if (FILE_RULE_TOOLS.has(tool) && content !== null && content.includes(":*")) return say('The ":*" syntax is only for Bash prefix rules', 'Use glob patterns like "*" or "**" for file matching', [tool + "(*.ts) - matches .ts files", tool + "(src/**) - matches all files in src", tool + "(**/*.test.ts) - matches test files"]);
+  // (Not on a rule written on a search tool's input, Grep(output_mode:*) or Glob(pattern:*.env): Claude Code's "Match by
+  // input parameter" lets its value use `*`.)
+  if (FILE_RULE_TOOLS.has(tool) && content !== null && content.includes(":*") && !searchParamSpec(tool, content)) return say('The ":*" syntax is only for Bash prefix rules', 'Use glob patterns like "*" or "**" for file matching', [tool + "(*.ts) - matches .ts files", tool + "(src/**) - matches all files in src", tool + "(**/*.test.ts) - matches test files"]);
   // (WebFetch's own, Claude Code's rule check: "WebFetch permissions use domain format, not URLs", 'WebFetch permissions must
   // use "domain:" prefix'; the owner, 2026-11-14: "start fixing and filling in gaps on those tools".)
   // (Not on `WebFetch(*)`: Claude Code reads it as the whole tool, so its check of the content never runs.)
@@ -1988,6 +2020,9 @@ export function fileToolDecision(tool, path, { rules = {}, root = "/", cwd = "",
   // project's own folder under Read(**) runs and finds nothing. Round 5, 2026-11-14: Coder had also tried a file inside it,
   // and refused that search.)
   const search = tool === "grep" || tool === "glob";
+  // (Where a link leads, for a read card: Claude Code's "Fixed file read permission prompts not showing where a symbolic link
+  // leads". Audit M-g-25.)
+  const leads = () => { const r = ctx.real ? ctx.real(p) : ""; return r && r !== p ? { leadsTo: r } : {}; };
   const rctx = pathOnly ? { ...ctx, pathOnly: true } : ctx;
   const hit = (list, t, kind) => fileRuleHit(list, t, p, kind, rctx);
   // DENY.
@@ -2019,7 +2054,7 @@ export function fileToolDecision(tool, path, { rules = {}, root = "/", cwd = "",
   // permissions to use Grep, but you haven't granted it yet."; "Claude" is Coder here.)
   if (search) {
     const ra = hit(rules.ask, "Read", "ask");
-    if (ra) return { verdict: "ask", rule: ra, why: "Coder requested permissions to read from " + ccPath(p) + ", but you haven't granted it yet." };
+    if (ra) return { verdict: "ask", rule: ra, why: "Coder requested permissions to read from " + ccPath(p) + ", but you haven't granted it yet.", ...leads() };
     const sa = whole("ask") || globWhole("ask") || paramHit("ask");
     return sa ? { verdict: "ask", rule: sa, why: "Coder requested permissions to use " + name + ", but you haven't granted it yet." } : { verdict: "", rule: "", why: "" };
   }
@@ -2030,7 +2065,7 @@ export function fileToolDecision(tool, path, { rules = {}, root = "/", cwd = "",
   // to read from <path>, but you haven't granted it yet." Round 3, 2026-11-14.)
   if (tool === "lsp") {
     const ra = hit(rules.ask, "Read", "ask");
-    if (ra) return { verdict: "ask", rule: ra, why: "Coder requested permissions to read from " + ccPath(p) + ", but you haven't granted it yet." };
+    if (ra) return { verdict: "ask", rule: ra, why: "Coder requested permissions to read from " + ccPath(p) + ", but you haven't granted it yet.", ...leads() };
     const la = whole("ask") || globWhole("ask") || paramHit("ask");
     return la ? { verdict: "ask", rule: la, why: "Coder requested permissions to use LSP, but you haven't granted it yet." } : { verdict: "", rule: "", why: "" };
   }
@@ -2042,7 +2077,7 @@ export function fileToolDecision(tool, path, { rules = {}, root = "/", cwd = "",
   // use Read, …" (Write, Edit); but in Auto, Write's and Edit's own check asks too, in its words, "… to write to <path> …".
   // "Claude" is Coder here.)
   const pa = fileRuleHit(rules.ask, edits ? "Edit" : "Read", p, "ask", { ...ctx, pathOnly: true });
-  if (pa) return { verdict: "ask", rule: pa, why: "Coder requested permissions to " + (edits ? "write to " : "read from ") + ccPath(p) + ", but you haven't granted it yet." };
+  if (pa) return { verdict: "ask", rule: pa, why: "Coder requested permissions to " + (edits ? "write to " : "read from ") + ccPath(p) + ", but you haven't granted it yet.", ...(edits ? {} : leads()) };
   const wa = (name !== "Read" && name !== "Edit" ? whole("ask") : "") || globWhole("ask") || hit(rules.ask, edits ? "Edit" : "Read", "ask");
   if (wa) return { verdict: "ask", rule: wa, why: edits && mode === "auto" ? "Coder requested permissions to write to " + ccPath(p) + ", but you haven't granted it yet." : "Coder requested permissions to use " + name + ", but you haven't granted it yet." };
   return { verdict: "", rule: "", why: "" };
@@ -2065,7 +2100,7 @@ export function commandFiles(read, { cwd = "/", home = "" } = {}) {
     for (const a of pathArgs(c, { cwd, home })) if (a.full) out.push({ tool: "Read", path: a.full, name, how: "cmd", glob: !!a.glob, raw: a.p });
     const fc = c.dir === false ? null : fileCommandTargets(c, c.dir === undefined ? cwd : c.dir);
     // (cp, mv and sed -i read what they change, so a Read rule on one of their files counts too.)
-    if (fc) for (const p of [...fc.paths, ...(fc.maybe || [])]) if (p) for (const tool of ["cp", "mv", "sed"].includes(name) ? ["Edit", "Read"] : ["Edit"]) out.push({ tool, path: p.replace(/\/\*$/, ""), name, how: "cmd", glob: /\/\*$/.test(p) });
+    if (fc) for (const p of [...fc.paths, ...(fc.maybe || [])]) if (p) for (const tool of name === "cp" && (fc.sources || []).includes(p) ? ["Read"] :  ["cp", "mv", "sed"].includes(name) ? ["Edit", "Read"] : ["Edit"]) out.push({ tool, path: p.replace(/\/\*$/, ""), name, how: "cmd", glob: /\/\*$/.test(p) });
   }
   for (const x of read.reads || []) if (x.path && !x.expand) out.push({ tool: "Read", path: x.path, name: "", how: "in", glob: !!x.glob });
   for (const x of read.writes || []) if (x.path && !x.expand) out.push({ tool: "Edit", path: x.path, name: x.via === "tee" ? "tee" : "", how: x.via === "tee" ? "tee" : "out", glob: !!x.glob });
@@ -2660,7 +2695,9 @@ export function psDecision(command, { mode = "auto", rules = {}, nativeReadOnly 
   if (ownRule && !p.valid && psNameType(cmd.split(/\s+/)[0] || "") !== "application" && !/(\\\\|\/\/)[^\\/\s]/.test(cmd)) return { verdict: "allow", why: "", suggest: null, readOnly: false, covered: true };
   // (Only a rule short enough to be kept, as Bash's cards: RULE_MAX.)
   const asks = (why, suggest = []) => { const keep = suggest.filter((r) => r.length <= RULE_MAX + 10); return auto ? { verdict: "allow", why, suggest: null, readOnly: false, covered: false } : { verdict: "ask", why, suggest: keep.length ? keep : null }; };
-  if (!p.valid) return asks("Command contains malformed syntax that cannot be parsed: " + ((p.errors[0] && p.errors[0].message) || "unknown error"));
+  // (A command PowerShell could not read asks in every mode, Auto too: Claude Code "doesn't auto-approve PowerShell commands
+  // flagged `could not fully check your permission rules`". Audit L-second-19.)
+  if (!p.valid) return { verdict: "ask", why: "Could not fully check your permission rules. Command contains malformed syntax that cannot be parsed: " + ((p.errors[0] && p.errors[0].message) || "unknown error"), suggest: null, readOnly: false };
   const safety = psSafetyWhy(p) || psProviderWhy(p);
   if (safety) return asks(safety, exact);
   const compound = psCompoundWhy(p);

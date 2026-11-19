@@ -181,10 +181,10 @@ test("CD400 the PowerShell decision from that parse (Claude Code's order): deny 
   assert.equal(ro("Set-Content .git/hooks/pre-commit x", "plan").why, "Command writes to .git/ — hooks or config planted there execute on the next git operation.");
   // A command PowerShell could not read (or no PowerShell): asked, in Claude Code's words; its pieces still meet deny rules.
   const bad = Q.psParseFail("Get-ChildItem (", "Missing closing ')' in expression.", "MissingEndParenthesisInExpression");
-  assert.equal(decide("Get-ChildItem (", bad, "plan").why, "Command contains malformed syntax that cannot be parsed: Missing closing ')' in expression.");
-  assert.equal(decide("Get-ChildItem (", bad, "auto").verdict, "allow", "Auto: the checker");
+  assert.equal(decide("Get-ChildItem (", bad, "plan").why, "Could not fully check your permission rules. Command contains malformed syntax that cannot be parsed: Missing closing ')' in expression.");
+  assert.equal(decide("Get-ChildItem (", bad, "auto").verdict, "ask", "Auto too: could not fully check");
   assert.equal(decide("rm -r build; (", Q.psParseFail("rm -r build; (", "x", "y"), "auto", { deny: ["PowerShell(Remove-Item *)"] }).verdict, "deny");
-  assert.equal(decide("Get-ChildItem", null, "plan").why, "Command contains malformed syntax that cannot be parsed: PowerShell is not available");
+  assert.equal(decide("Get-ChildItem", null, "plan").why, "Could not fully check your permission rules. Command contains malformed syntax that cannot be parsed: PowerShell is not available");
   // Accept edits: Claude Code's file commands (Set-Content, Add-Content, Remove-Item, Clear-Content) inside the working folders.
   assert.equal(ro("Set-Content notes.txt hello").verdict, "allow");
   assert.equal(ro("Remove-Item build -Recurse").verdict, "allow");

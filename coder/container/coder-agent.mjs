@@ -559,7 +559,10 @@ export function commandAsk(command, deps, where0 = "", { real = null, allowed = 
  * checks its plan files before its protected paths; coder-perms.mjs psPlanFile).
  */
 export function psProtectedAsk(parsed, deps, abs, plan = () => false, { named = null, allowed = null, command = "" } = {}) {
-  if (!parsed || !parsed.valid) return null;
+  // (A command PowerShell could not read: its raw words are still scanned for protected paths, so the card can name the
+  // file. Audit L-second-19.)
+  const unread = !parsed || !parsed.valid;
+  if (unread && !String(command || "").trim()) return null;
   const names = [], says = [], outs = [];
   let viaLink = false;
   // (WRITES THROUGH A LINK, as a bash command's (commandAsk's `through`; Claude Code's "Writes through a symlink", which names
@@ -588,8 +591,9 @@ export function psProtectedAsk(parsed, deps, abs, plan = () => false, { named = 
     if (viaHere) viaLink = true;
     if (!names.includes(shown)) { names.push(shown); says.push(viaHere ? sensitiveWhy(full, asNamed) : sensitiveWhy(full)); }
   };
-  for (const r of psFileRedirections(parsed)) check(r.target, true);
-  for (const c of psCommands(parsed)) {
+  if (unread) for (const w of String(command).split(/[\s;|&(){}<>,=]+/)) { const t = w.replace(/^['"]+|['"]+$/g, ""); if (t && !t.startsWith("-") && /[\\/.]/.test(t)) check(t, false); }
+  else for (const r of psFileRedirections(parsed)) check(r.target, true);
+  if (!unread) for (const c of psCommands(parsed)) {
     if (c.elementType !== "CommandAst") continue;
     const n = psCmdlet(c.name), told = n !== "remove-item" && n !== "clear-content";
     for (const w of psWriteTargets(c)) check(w, told);
@@ -2996,7 +3000,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     if (bad) { refuse("error: " + bad); return null; }
     if (Array.isArray(c.args.allowed_domains) && c.args.allowed_domains.length) { refuse("error: " + HOSTS_ONLY_COMMAND); return null; }
     const modeW = modeNow();
-    let dec = github ? { verdict: "check" } : wsDecision({ rules: ownRules, mode: modeW });
+    let dec = github ? { verdict: "check" } : wsDecision({ rules: ownRules, mode: modeW, input: c.args });
     if (dec.verdict === "deny") { refuse(dec.why); return null; }
     // (The account's email as a client's identity in its input: refused, as for any Monitor call; coder-privacy.mjs.)
     if (emailMark && await emailRefused("Monitor", c.args, emailMark)) { refuse(accountEmailRefused("Monitor")); return null; }
@@ -6760,6 +6764,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         const fetchAsk = !!(fetchDec && fetchDec.verdict === "ask") && !(c.hook && c.hook.decision === "allow" && !fetchDec.byRule) && !(c.rerun && !fetchDec.byRule) && !(fetchChecked && !fetchDec.byRule);
         if (fileAsk || ruleAsk || fetchAsk || fetchLimit || fetchSwitched) {
           const shownPath = guarded ? scrub(visibleChars(guarded)).slice(0, 300) : fileTarget ? scrub(visibleChars(projectPath(deps, fileTarget))).slice(0, 300) : "";
+          // (A read card on a link names where it leads, as the write cards do: audit M-g-25.)
+          const readLeads = !guarded && fileDec && fileDec.verdict === "ask" && fileDec.leadsTo ? " (which leads to " + scrub(visibleChars(projectPath(deps, fileDec.leadsTo) || fileDec.leadsTo)).slice(0, 300) + ")" : "";
           // (In Claude Code's words since round 6, Write's and Edit's own check, by the path in full: a protected path's ask,
           // "Coder requested permissions to edit <path> which is a sensitive file." (sensitiveWhy), and plan mode's, "Cannot write
           // to <path> while in plan mode."; a PreToolUse hook's with no reason of its own, its dialog's "Hook PreToolUse:Write
@@ -6775,7 +6781,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           const card = fileAsk
             ? { tool: c.name, id: c.id, path: shownPath, change: changeShown(), why: why ? (linkTo ? sensitiveWhy(linkTo, targetFor(c.name, args)) : sensitiveWhy(fullFile)) : planWriteWhy(targetFor(c.name, args)), ...(hookLine || {}) }
             : ruleAsk
-            ? { tool: c.name, id: c.id, ...(c.name === "web_fetch" ? { url: scrub(String(args.url || "")).slice(0, 500) } : { path: shownPath }), ...(c.name === "write" || c.name === "edit" ? { change: changeShown() } : {}), why: fileDec && fileDec.verdict === "ask" ? fileDec.why : "", ...(hookLine || {}), byRule: true }
+            ? { tool: c.name, id: c.id, ...(c.name === "web_fetch" ? { url: scrub(String(args.url || "")).slice(0, 500) } : { path: shownPath + readLeads }), ...(c.name === "write" || c.name === "edit" ? { change: changeShown() } : {}), why: fileDec && fileDec.verdict === "ask" ? fileDec.why : "", ...(hookLine || {}), byRule: true }
             : { tool: "web_fetch", id: c.id, url: scrub(String(args.url || "")).slice(0, 500), why: fetchLimit ? fetchLimit.why : fetchSwitched ? ccFetch.why : fetchDec.why, ...((ccFetch ? ccFetch.suggest : fetchDec && fetchDec.suggest) ? { rules: ccFetch ? ccFetch.suggest : fetchDec.suggest } : {}), ...(fetchLimit ? { told: "Coder requested permissions to use WebFetch, but you haven't granted it yet." } : {}) };
           // (Claude Code's words for a page fetch no one can approve, with nothing in front of them; its PermissionRequest hooks
           // decide first: noOneHooks, fix round 4, D5.)

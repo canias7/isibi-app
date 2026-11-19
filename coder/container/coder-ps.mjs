@@ -25,6 +25,14 @@ export const PS_ALIASES = Object.freeze({
   ac: "add-content", clc: "clear-content", cls: "clear-host", clear: "clear-host", h: "get-history", history: "get-history",
   irm: "invoke-restmethod", iwr: "invoke-webrequest", man: "get-help", help: "get-help", diff: "compare-object",
   compare: "compare-object", tee: "tee-object", sleep: "start-sleep",
+  // (The rest of the decision code's list, PS_CC_ALIASES in coder-psparse.mjs, so a rule on the cmdlet covers every short name
+  // Coder knows: audit L-machine-19. A test keeps the two lists the same.)
+  pushd: "push-location", popd: "pop-location", mkdir: "new-item", md: "new-item", ci: "copy-item", si: "set-item",
+  rni: "rename-item", ren: "rename-item", sajb: "start-job", ipmo: "import-module", gsv: "get-service", gv: "get-variable",
+  sv: "set-variable", ii: "invoke-item", iwmi: "invoke-wmimethod", icim: "invoke-cimmethod", nsn: "new-pssession",
+  etsn: "enter-pssession", exsn: "exit-pssession", gsn: "get-pssession", rsn: "remove-pssession", fw: "format-wide",
+  oh: "out-host", ogv: "out-gridview", epcsv: "export-csv", sp: "set-itemproperty", rp: "remove-itemproperty",
+  cli: "clear-item", epal: "export-alias",
 });
 /** A command word as a rule sees it: its cmdlet's name for an alias, lowercase. */
 export const psCanon = (w) => { const x = String(w || "").toLowerCase(); return PS_ALIASES[x] || x; };

@@ -4,6 +4,15 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-19: Claude Code fixes, batch 10
+
+- Nine of the ten audit items in this batch fixed, each with a test; one skipped (below). Gloopy, connectors and MCP were not touched. Not deployed and not merged yet, so none of it is tried live in the browser yet.
+- **Permission rules:** a rule on a search tool's input with a star after the colon, such as `Glob(pattern:*.env)`, can now be saved. Deny and ask rules on a Monitor's own inputs now also apply to monitors that listen to a web address.
+- **Safety checks on commands:** several gaps were closed in how Coder works out which files a copy really reads and writes, and in how PowerShell commands are checked (short command names, text searches, and commands PowerShell itself cannot read, which now always ask you first, Auto included). Copying a file that only has an edit-deny rule on it is no longer refused, as in Claude Code.
+- **Auto's checker** is now shown your uncommitted work before two more everyday git commands that can throw it away.
+- **Read cards** on a link now say which file the link leads to.
+- **Skipped:** refusing PowerShell commands that define a function named like a built-in command. Claude Code only says it refuses "some" of them, without the list or its wording, so this waits until its real behaviour can be checked.
+
 ## 2026-11-19: Claude Code fixes, batch 9
 
 - Eight of the ten audit items in this batch fixed, each with a test; two skipped (below). Gloopy, connectors and MCP were not touched. Not deployed and not merged yet, so none of it is tried live in the browser yet.
