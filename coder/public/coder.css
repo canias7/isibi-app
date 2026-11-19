@@ -822,6 +822,7 @@
 /* A step auto mode's check gave no usable answer for: a dim row, not an error (Claude Code's "Not run"). */
 .cd-notrun { margin: -2px 0 8px 30px; font: 13px/1.45 Inter, system-ui, sans-serif; color: #9ca3af; }
 .cd-st-notrun { color: #9ca3af; font-weight: 500; }
+.cd-st-gone { color: #9ca3af; font-weight: 500; }
 .cd-progress { margin: 0 0 8px 30px; padding: 6px 10px; background: #f7f5f1; border: 1px solid #eee9e1; border-radius: 8px; font: 12px "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace; color: #374151; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 8.5em; overflow: hidden; }
 
 /* MESSAGES WAITING FOR CODER (Claude Code's queue): grey, at the end of the chat, each with ✕ to take it back. */
@@ -1374,6 +1375,7 @@ button.cd-vault-tab:hover:not(.is-on){background:#f6f6f6}
 #gfApp .cd-wait-dots i:nth-child(2) { animation-delay: .15s; }
 #gfApp .cd-wait-dots i:nth-child(3) { animation-delay: .3s; }
 #gfApp .cd-init { margin: 2px 0; }
+#gfApp .cd-init-out { max-height: 240px; overflow: auto; white-space: pre-wrap; font: 12px monospace; margin: 2px 0 6px; }
 #gfApp .cd-init-head, #gfApp .cd-fold1 > .cd-group-head { background: none; border: 0; padding: 4px 2px; color: #8a8f98; font: inherit; font-size: 13px; cursor: pointer; display: inline-flex; gap: 6px; align-items: baseline; }
 #gfApp .cd-init-head:hover, #gfApp .cd-fold1 > .cd-group-head:hover { color: #5f646b; }
 #gfApp .cd-init.is-open .cd-chev, #gfApp .cd-fold1.is-open .cd-chev { display: inline-block; transform: rotate(90deg); }

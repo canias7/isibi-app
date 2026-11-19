@@ -6,7 +6,7 @@ const read = (f) => readFileSync(new URL("../public/" + f, import.meta.url), "ut
 
 test("LK1 /permissions opens the mode menu (Claude Code's way), nothing is sent; Coder's mode menu has no rules line; the rules are in the gear menu", () => {
   const ui = read("coder.js"), html = read("index.html"), app = read("app.js");
-  assert.match(ui, /if \(!GLOOPY && \/\^\\\/permissions\$\/i\.test\(text\)\) \{[^\n]*S\.modeMenu = true; draw\(\); return; \}/);
+  assert.match(ui, /if \(!GLOOPY && \/\^\\\/\(permissions\|allowed-tools\)\$\/i\.test\(text\)\) \{[^\n]*S\.modeMenu = true; draw\(\); return; \}/);
   assert.match(ui, /\(GLOOPY \? '<div class="cd-modes-sep"><\/div><button type="button" class="cd-mode-rules" data-rules-open>Permission rules…<\/button>' : ''\)/);
   assert.match(html, /<button type="button" role="menuitem" id="gfRules">Permission rules<\/button>/);
   assert.match(app, /\$\('gfRules'\)\.addEventListener\('click'[^\n]*gf:rules/);
@@ -32,7 +32,7 @@ test("LK3 connectors show their apps' own logos (Simple Icons, CC0), served from
 
 test("LK4 /rewind (Claude Code's): no Rewind link above each message; /rewind opens a Rewind window listing your messages, newest first; picking one goes on to the usual rewind choices", () => {
   const ui = read("coder.js");
-  assert.match(ui, /if \(!GLOOPY && \/\^\\\/rewind\$\/i\.test\(text\)\) \{[^\n]*rewindPicker\(\); return; \}/);
+  assert.match(ui, /if \(!GLOOPY && \/\^\\\/\(rewind\|checkpoint\|undo\)\$\/i\.test\(text\)\) \{[^\n]*rewindPicker\(\); return; \}/);
   assert.match(ui, /'<div class="cd-user">' \+ \(mark && !GLOOPY && S\.rewindPick \? /);
   assert.doesNotMatch(ui, /S\.rewindPick = (true|!S\.rewindPick)/, "the links never come back");
   assert.match(ui, /await askPick\('Rewind', 'Restore the session to an earlier message\.', list\.reverse\(\)\);\n    if \(pick\) rewind\(Number\(pick\)\);/);
@@ -40,7 +40,7 @@ test("LK4 /rewind (Claude Code's): no Rewind link above each message; /rewind op
 
 test("LK5 typing / lists Coder's commands (Claude Code's list): /compact, /permissions, /rewind with a line each; ↑↓, Enter or Tab, a click, Esc", () => {
   const ui = read("coder.js");
-  assert.match(ui, /const SLASH = \[\['\/compact', [^\]]+\], \['\/permissions', [^\]]+\], \['\/rewind', [^\]]+\]\];/);
+  assert.match(ui, /const SLASH = \[\['\/compact', [^\]]+\], \['\/permissions', [^\]]+\]\], \['\/rewind', [^\]]+\]\]\];/);
   assert.match(ui, /bgHTML\(\) \+ slashHTML\(\) \+ bangHTML\(\) \+ mentionHTML\(\) \+/);
   assert.match(ui, /if \(sl\.length && \(e\.key === 'Enter' \|\| e\.key === 'Tab'\)[^\n]*pickSlash\(/);
   assert.match(ui, /if \(sl\.length && e\.key === 'Escape'\) \{ S\.slashOff = true;/);

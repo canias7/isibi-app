@@ -58,21 +58,21 @@ test("CD203 each chat keeps its own message box: what was typed, its pictures an
   const end = ui.indexOf("\n  }\n", start) + 4;
   const { keepDraft } = new Function(ui.slice(start, end) + "\nreturn { keepDraft };")();
   const S = { drafts: {}, draft: "The landing page's ask", pics: [], comments: [], mention: null };
-  keepDraft(S, null, "a");
+  keepDraft(S, "a");
   assert.equal(S.draft, "The landing page's ask", "the first chat opened gets the landing page's ask");
   S.draft = "Fix the cart total"; S.pics = [{ name: "shot.png" }]; S.comments = [{ path: "cart.js", line: 3, text: "here" }]; S.mention = { at: 2 };
-  keepDraft(S, "a", "b");
+  keepDraft(S, "b");
   assert.deepEqual([S.draft, S.pics, S.comments, S.mention], ["", [], [], null], "another chat starts empty");
   S.draft = "Something for b";
-  keepDraft(S, "b", "a");
+  keepDraft(S, "a");
   assert.deepEqual([S.draft, S.pics, S.comments], ["Fix the cart total", [{ name: "shot.png" }], [{ path: "cart.js", line: 3, text: "here" }]], "chat a's box is back");
-  keepDraft(S, "a", "a");
+  keepDraft(S, "a");
   assert.equal(S.draft, "Fix the cart total", "opening the same chat again changes nothing");
-  keepDraft(S, "a", "b");
+  keepDraft(S, "b");
   assert.equal(S.draft, "Something for b");
   assert.deepEqual(Object.keys(S.drafts), ["a"], "only the chats not open are kept aside");
   // Wired in: opening a chat goes through it, and a removed chat's box is dropped.
-  assert.match(ui, /async function openProject\(id\) \{\n    stopPoll\(\);\n    keepDraft\(S, S\.project && S\.project\.id, id\);/);
+  assert.match(ui, /async function openProject\(id\) \{\n    stopPoll\(\);\n    keepDraft\(S, id\);/);
   assert.match(ui, /delete S\.drafts\[id\];/);
 });
 

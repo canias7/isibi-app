@@ -4,6 +4,19 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-19: Claude Code fixes, batch 17
+
+- Nine of the ten audit items in this batch fixed, each with a test; one skipped: what a step waiting for your answer should say instead of "Ran" or "Wrote" is your choice of words, as Claude Code's exact words are not written down. Gloopy, connectors and MCP were not touched. Not deployed or merged yet, so none of it has been tried live in the browser.
+- **Your typed message stays with its own chat**, even if you switch chats while one is still loading or fails to open.
+- **A message sent just as Coder finishes** no longer says "not sent" when it did go out.
+- **Text typed on the landing page** is now waiting in the box right after you sign in, not later.
+- **When a message cannot go out** the red line says "Connection lost" or "Server error", as Claude Code does, and that your message is back in the box.
+- **A picture that cannot be opened** now says so and suggests re-saving it as PNG or JPEG, instead of "too big".
+- **See changes:** the "No newline at end of file" line is no longer counted, so a comment on a line after it carries the right line number.
+- **/ commands:** /undo and /checkpoint open Rewind, /allowed-tools opens the mode menu, a word inside a name matches, and "No commands match" shows when nothing does.
+- **A step cut off when the chat's machine stopped** now says "no result was recorded", stands on its own row, and opens to show what it was going to run.
+- **Initialized session ›** now shows what the setup script printed, in a small scrolling box under "Ran setup script".
+
 ## 2026-11-19: Claude Code fixes, batch 16
 
 - Six of the ten audit items in this batch fixed, each with a test; four skipped. Three wait for your word: reading only the first 200 lines of the memory file, whether a repository may raise the web-search limit you pay for, and what to do about a read-only chat's work when you remove it. The fourth, opening chat links outside the desktop and phone apps, needs Coder's GitHub App name built into those apps first. Gloopy, connectors and MCP were not touched. Not deployed or merged yet, so none of it has been tried live in the browser.

@@ -1535,24 +1535,37 @@
     const r = await call('/projects/' + encodeURIComponent(id), { method: 'DELETE' });
     if (r.status !== 200) { S.error = (r.data && r.data.error) || 'The chat could not be removed.'; return draw(); }
     S.projects = S.projects.filter((p) => p.id !== id);
-    if (S.project && S.project.id === id) { stopPoll(); S.project = null; S.draft = ''; S.pics = []; S.comments = []; return S.projects.length ? openProject(S.projects[0].id) : showPicker('new'); }
-    delete S.drafts[id];
+    if (S.project && S.project.id === id) { stopPoll(); S.project = null; S.draft = ''; S.pics = []; S.comments = []; S.draftOf = null; return S.projects.length ? openProject(S.projects[0].id) : showPicker('new'); }
+    delete S.drafts[id]; if (S.draftOf === id) S.draftOf = null;
     draw();
   }
 
   // EACH CHAT ITS OWN MESSAGE BOX (live test, 2026-11-08: a message that failed to send in one chat was still
   // in the box in the next one, with its pictures and line comments, and went there). What was typed,
   // attached or commented stays with its chat; a new chat starts empty. The landing page's ask goes to the first.
-  function keepDraft(st, was, id) {
+  // (Filed under the chat whose draft is in the box, st.draftOf, not the open chat, which is empty while one loads or after
+  // a failed open: so a draft never moves into another chat. Claude Code never carries unsent text to another session.)
+  function keepDraft(st, id) {
+    const was = st.draftOf || null;
     if (was === id) return;
+    st.draftOf = id;
     if (was) st.drafts[was] = { draft: st.draft, pics: st.pics, comments: st.comments };
     const kept = st.drafts[id]; delete st.drafts[id];
     if (was || kept) { st.draft = kept ? kept.draft : ''; st.pics = kept ? kept.pics : []; st.comments = kept ? kept.comments : []; st.mention = null; }
   }
 
+  // A MESSAGE THAT COULD NOT GO OUT, in Claude Code's words: "Connection lost" (nothing answered) or "Server error".
+  function sendFailText(r, back) {
+    const own = (r && r.data && r.data.error) || '';
+    const tail = back ? ' Your message is back in the box.' : ' Your message is still in the box.';
+    if (!r || !r.status) return 'Connection lost: check your internet connection and any VPN or proxy you use, then send your message again.' + tail;
+    if (r.status >= 500) return 'Server error: wait a moment, then send your message again.' + tail + (own ? ' (' + own + ')' : '');
+    return (own || 'The message was not sent.') + tail;
+  }
+
   async function openProject(id) {
     stopPoll();
-    keepDraft(S, S.project && S.project.id, id);
+    keepDraft(S, id);
     S.opening = id;
     stopBgWatch(); stopBgOut(); S.bgOut = null; S.bgUntold = 0;
     S.phase = 'chat'; S.project = null; S.events = []; S.next = 0; S.error = ''; S.showChanges = false; S.changes = null; S.compareAgainst = ''; S.compareBranches = null; window.dispatchEvent(new CustomEvent('gf:side', { detail: false })); draw();
@@ -1583,8 +1596,8 @@
     // /permissions OPENS THE MODE MENU, as in Claude Code (the owner, 2026-11-15, with its screenshot): nothing is sent.
     // /rewind, AS IN CLAUDE CODE (the owner, 2026-11-15: "put rewind as a model call or a / please", then its screenshot):
     // no Rewind link above every message; /rewind opens a small Rewind window listing your messages to pick from.
-    if (!GLOOPY && /^\/rewind$/i.test(text)) { S.draft = ''; const box = document.getElementById('cdIn'); if (box) box.value = ''; draw(); rewindPicker(); return; }
-    if (!GLOOPY && /^\/permissions$/i.test(text)) { S.draft = ''; const box = document.getElementById('cdIn'); if (box) box.value = ''; S.modeMenu = true; draw(); return; }
+    if (!GLOOPY && /^\/(rewind|checkpoint|undo)$/i.test(text)) { S.draft = ''; const box = document.getElementById('cdIn'); if (box) box.value = ''; draw(); rewindPicker(); return; }
+    if (!GLOOPY && /^\/(permissions|allowed-tools)$/i.test(text)) { S.draft = ''; const box = document.getElementById('cdIn'); if (box) box.value = ''; S.modeMenu = true; draw(); return; }
     if (/^!\s*\S/.test(text)) rememberShell(text);
     // COMMENTS ON THE CHANGES go with the message; the server writes them in.
     const comments = S.comments.map((c) => ({ file: c.file, line: c.line, quote: c.quote, text: c.text }));
@@ -1614,7 +1627,9 @@
       if (q.status === 200 && q.data && q.data.queued) { S.queue = q.data.queue || []; S.draft = ''; return draw(true); }
       // (The save had just ended, so it went out at once as the next message: the chat is loaded to follow it.)
       if (q.status === 200 && q.data && q.data.reload && q.data.project) { S.draft = ''; stopPoll(); S.project = q.data.project; S.running = false; syncEntry(); return reloadChat(id); }
-      S.error = (q.data && q.data.error) || 'The message was not sent.';
+      // (The job had just ended, so the server started this message as a new job: it was sent, and the chat is followed.)
+      if (q.status === 200 && q.data && q.data.ok && q.data.project && !q.data.error) { S.draft = ''; S.error = ''; stopPoll(); S.project = q.data.project; syncEntry(); return reloadChat(id); }
+      S.error = sendFailText(q, false);
       return draw();
     }
     if (GLOOPY) desktopRouteKick();
@@ -1647,7 +1662,7 @@
     if (r.status !== 200) {
       S.events = S.events.slice(0, base).concat(closed);
       S.draft = text; S.pics = pics; S.attach = att;
-      S.error = (r.data && r.data.error) || 'The message was not sent.';
+      S.error = sendFailText(r, true);
       if (r.data && r.data.connect) S.phase = 'connect';
       return draw();
     }
@@ -2136,13 +2151,16 @@
       : state === 'bg' ? '<span class="cd-st cd-st-bg"><i></i>running</span>'
       : state === 'bgend' ? (/^(exit|ended)/.test(String((S.bgEnded[r.job] || {}).label || '')) ? '<span class="cd-st cd-st-bad">✕ ' + esc(S.bgEnded[r.job].label) + '</span>' : '<span class="cd-st cd-st-stopped">' + esc((S.bgEnded[r.job] || {}).label || 'stopped') + '</span>')
       : state === 'ok' ? '<span class="cd-st cd-st-ok" aria-label="done">✓</span>'
-      : state === 'wait' ? '<span class="cd-st cd-st-wait">waiting for you</span>' : '';
+      : state === 'wait' ? '<span class="cd-st cd-st-wait">waiting for you</span>'
+      // (Cut off when the chat's machine stopped: no result, said so, and its input shown when opened; as Claude Code.)
+      : state === 'gone' && !GLOOPY ? '<span class="cd-st cd-st-gone">no result was recorded</span>' : '';
+    const lost = state === 'gone' && !r && !GLOOPY;
     // A COMMAND'S DESCRIPTION (tool 4, like Claude Code's app: "Run the test suite" in place of the command); the command
     // itself when the step is opened. A step with none (from before, or Grok gave none) shows its command as before.
     const desc = !e.tool && typeof e.desc === 'string' && e.desc.trim() ? e.desc.trim() : '';
     const table = open && r ? envTableOf(e, r) : null;
     return '<div class="cd-cmd is-' + state + (open ? ' is-open' : '') + '">' +
-      '<button type="button" class="cd-cmd-row" data-step="' + esc(key) + '"' + (r ? '' : ' disabled') + '>' +
+      '<button type="button" class="cd-cmd-row" data-step="' + esc(key) + '"' + (r || lost ? '' : ' disabled') + '>' +
         stepIcon(e) + (desc ? '<span class="cd-cmd-desc">' + esc(desc) + '</span>' : '<span class="cd-cmd-verb">' + (said ? '<span class="cd-cmd-said" title="' + esc(said) + '">' + esc(said) + '</span>' : (who ? esc(who[0]) : '') + verb) + '</span>' + (said || !what ? '' : ' <code class="cd-cmd-text">' + esc(what.split('\n')[0]) + '</code>')) +
         changeCounts(r) + tail +
       '</button>' +
@@ -2162,6 +2180,7 @@
       stepFiles(r, key) +
       // THE NEW PROBLEMS IT MADE, by the language server (Claude Code: "Found N new diagnostic issues in M files").
       stepProblems(r, key) +
+      (open && lost ? '<pre class="cd-cmd-in">' + esc(String(e.command || '')) + '</pre>' : '') +
       (open && r ? (desc ? '<pre class="cd-cmd-in">$ ' + esc(e.command) + '</pre>' : '') + (table ? envTableHtml(table, key) : '<pre class="cd-out">' + esc(noColor(r.output) || '(no output)') + '</pre>') : '') +
     '</div>';
   }
@@ -2491,7 +2510,7 @@
         // A STEP THAT NEVER RAN (refused by a rule, auto mode's checker, a hook, Coder's own checks or your answer) stands
         // on its own row, out of the group and out of its count, so "Ran 2 commands" counts only commands that ran: Claude
         // Code takes a step that needs its own row out of its group the same way (Bash docs pass 9, part F).
-        if (neverRan(results[e.id])) { flush(); group.push([e, i]); flush(); return; }
+        if (neverRan(results[e.id]) || (!GLOOPY && stateOf(e, i) === 'gone')) { flush(); group.push([e, i]); flush(); return; }
         group.push([e, i]);
         return;
       }
@@ -2818,7 +2837,7 @@
       else if (e.type === 'note') out.push(e.monitor && typeof e.monitor === 'object' ? monitorHTML(e.monitor) : '<div class="cd-localnote' + (e.warn === true || e.denied === true ? ' cd-note-warn' : e.hookStatus === true ? ' cd-note-status' : '') + '">' + esc(noColor(e.text)) + '</div>');
       else if (e.type === 'expired') return;
       // CODER'S START-UP, DONE (2026-11-16): one quiet "Initialized session ›" line; › shows its steps and their times.
-      else if (e.type === 'startup') { if (!GLOOPY) out.push(startupHTML(e, i)); }
+      else if (e.type === 'startup') { if (!GLOOPY) out.push(startupHTML(e, i, results)); }
       // WHAT THE LANGUAGE SERVERS REPORTED, as Claude Code's row (diagnosticsHTML).
       else if (e.type === 'diagnostics') out.push(diagnosticsHTML(e, i));
       else if (e.type === 'notify') out.push('<div class="cd-localnote">Notified you: ' + esc(e.text) + '</div>');
@@ -2973,15 +2992,23 @@
   }
   // "Initialized session ›", folded; open, each start-up step and how long it took. (The Worker's own part, getting the machine
   // from the message's sending, is counted in "Set up a cloud container" when this page saw the message sent.)
-  function startupHTML(e, i) {
+  function startupHTML(e, i, results) {
     const k = 'init' + i, open = !!S.open[k];
-    let u = null;
-    for (let j = i - 1; j >= 0; j--) if (S.events[j].type === 'user') { u = S.events[j]; break; }
+    let u = null, ui = -1;
+    for (let j = i - 1; j >= 0; j--) if (S.events[j].type === 'user') { u = S.events[j]; ui = j; break; }
+    // WHAT THE SETUP SCRIPT PRINTED, in a scrolling box under "Ran setup script" (Claude Code's start checklist).
+    let setupOut = '';
+    if (open && results) {
+      for (let j = ui + 1; j < S.events.length && (j <= i || S.events[j].type !== 'user'); j++) {
+        const x = S.events[j];
+        if (x.type === 'bash' && x.tool === 'setup' && results[x.id]) { setupOut = noColor(String(results[x.id].output || '')).trim(); break; }
+      }
+    }
     const extra = u && Number(u.at) > 0 && Number(e.got) > Number(u.at) && Number(e.got) - Number(u.at) < 600000 ? Number(e.got) - Number(u.at) : 0;
     // (A step with no time of its own, the saved copy's, is named without one.)
     const steps = (Array.isArray(e.steps) ? e.steps : []).filter((x) => x && BOOT_DONE[x.k]).map((x) => ({ k: x.k, ms: typeof x.ms === 'number' ? x.ms + (x.k === 'container' ? extra : 0) : null }));
     return '<div class="cd-init' + (open ? ' is-open' : '') + '"><button type="button" class="cd-init-head" data-init="' + k + '" aria-expanded="' + open + '">Initialized session <span class="cd-chev" aria-hidden="true">›</span></button>' +
-      (open ? '<ul class="cd-init-list">' + steps.map((x) => '<li><span>' + BOOT_DONE[x.k] + '</span>' + (x.ms === null ? '' : '<b>' + secsWords(x.ms / 1000) + '</b>') + '</li>').join('') + '</ul>' : '') + '</div>';
+      (open ? '<ul class="cd-init-list">' + steps.map((x) => '<li><span>' + BOOT_DONE[x.k] + '</span>' + (x.ms === null ? '' : '<b>' + secsWords(x.ms / 1000) + '</b>') + '</li>' + (x.k === 'setup' && setupOut ? '<li class="cd-init-outi"><pre class="cd-init-out">' + esc(setupOut) + '</pre></li>' : '')).join('') + '</ul>' : '') + '</div>';
   }
   // (The counter and the times tick on their own, between redraws.)
   function metaTick() {
@@ -3538,6 +3565,8 @@
     return String(f.patch || '').split('\n').map((l, i) => {
       const h = /^@@ -\d+(?:,\d+)? \+(\d+)/.exec(l);
       if (h) { n = Number(h[1]); return '<span class="cd-dl-hunk">' + esc(l) + '</span>'; }
+      // ("\ No newline at end of file" is not a line of code: it is not numbered, as in Claude Code.)
+      if (l[0] === '\\') return '<span class="cd-dl cd-dl-nonl">' + esc(l) + '</span>';
       const line = l[0] === '-' ? 0 : n++;
       const cls = l[0] === '+' ? 'cd-dl-add' : l[0] === '-' ? 'cd-dl-del' : '';
       const c = S.commenting;
@@ -3570,11 +3599,11 @@
         let type = file.type === 'image/png' ? 'image/png' : 'image/jpeg';
         let url = c.toDataURL(type, 0.85);
         if (url.length > 1_900_000) { type = 'image/jpeg'; url = c.toDataURL(type, 0.7); }
-        done(url.length > 1_990_000 ? null : { type, url, data: url.split(',')[1] });
+        done(url.length > 1_990_000 ? { error: 'size' } : { type, url, data: url.split(',')[1] });
       };
-      img.onerror = () => done(null);
+      img.onerror = () => done({ error: 'decode' });
       fr.onload = () => { img.src = String(fr.result || ''); };
-      fr.onerror = () => done(null);
+      fr.onerror = () => done({ error: 'decode' });
       fr.readAsDataURL(file);
     });
   }
@@ -3598,13 +3627,18 @@
     if (!S.attach || !S.attach.length) return '';
     return '<div class="cd-attach-list">' + S.attach.map((f, i) => '<span class="cd-file-chip' + (f.up ? ' is-up' : '') + '">' + ICON.doc + '<span class="cd-file-n">' + esc(f.name) + '</span><small>' + (f.up ? 'attaching…' : sizeWords(f.size)) + '</small>' + (f.up ? '' : '<button type="button" data-unattach="' + i + '" aria-label="Remove ' + esc(f.name) + '">×</button>') + '</span>').join('') + '</div>';
   }
+  // Why a picture could not be added, in Claude Code's words.
+  function picFailText(p) {
+    if (p && p.error === 'decode') return 'Unable to resize image — its pixels could not be decoded (the file may be damaged, or use an encoding Coder cannot read). Re-save it as a PNG or JPEG and try again.';
+    return 'Unable to resize image. The image exceeds the size limit and compression failed. Please resize the image manually or use a smaller image.';
+  }
   async function addPics(files) {
     S.pics = S.pics || [];
     if (GLOOPY && S.project) { const docs = [...files].filter((f) => !/^image\/(png|jpeg|webp|gif)$/.test(f.type)); if (docs.length) addFiles(docs); }
     for (const f of [...files].filter((f) => /^image\//.test(f.type))) {
       if (S.pics.length >= 4) { note('At most 4 pictures a message.'); break; }
       const p = await shrink(f);
-      if (p) S.pics.push(p); else note('That picture is too big.');
+      if (p && !p.error) S.pics.push(p); else note(picFailText(p));
     }
     draw();
   }
@@ -3630,11 +3664,18 @@
   }
   // THE "/" LIST, LIKE CLAUDE CODE'S (the owner, 2026-11-15: "make sure the list comes up when i press it"): typing / at the
   // start of the box lists Coder's commands with a line each; ↑↓ to move, Enter or Tab or a click to pick, Esc to close.
-  const SLASH = [['/compact', 'Shrink this chat into a short summary (add what to keep after it)'], ['/permissions', 'Choose the mode: Auto, Accept edits or Plan'], ['/rewind', 'Go back to an earlier message']];
-  function slashMatches() { if (GLOOPY || S.slashOff || !/^\/[\w-]*$/.test(S.draft || '')) return []; const q = S.draft.toLowerCase(); return SLASH.filter(([c]) => c.startsWith(q)); }
+  const SLASH = [['/compact', 'Shrink this chat into a short summary (add what to keep after it)'], ['/permissions', 'Choose the mode: Auto, Accept edits or Plan', ['allowed-tools']], ['/rewind', 'Go back to an earlier message', ['checkpoint', 'undo']]];
+  // As Claude Code's / list: from the start of a name, of a word inside it, or of one of its other names; '-', '_' and ':' ignored.
+  function slashMatches() {
+    if (GLOOPY || S.slashOff || !/^\/[\w:-]*$/.test(S.draft || '')) return [];
+    const flat = (t) => t.toLowerCase().replace(/[-_:]/g, '');
+    const q = flat(S.draft.slice(1));
+    const hit = (name) => flat(name).startsWith(q) || name.toLowerCase().split(/[-_:]/).slice(1).some((w) => w.startsWith(q));
+    return SLASH.filter(([c, , other]) => hit(c.slice(1)) || (other || []).some(hit));
+  }
   function slashHTML() {
     const list = slashMatches();
-    if (!list.length) return '';
+    if (!list.length) return !GLOOPY && !S.slashOff && /^\/[\w:-]+$/.test(S.draft || '') ? '<div class="cd-mention cd-slash cd-slash-none" role="note">No commands match "' + esc(S.draft) + '"</div>' : '';
     const sel = Math.min(S.slashSel || 0, list.length - 1);
     return '<div class="cd-mention cd-slash" role="listbox">' + list.map(([c, d], i) => '<button type="button" class="cd-mention-i' + (i === sel ? ' on' : '') + '" data-slash="' + esc(c) + '" role="option"><b>' + esc(c) + '</b><span>' + esc(d) + '</span></button>').join('') + '</div>';
   }
@@ -5153,11 +5194,11 @@
         const m = GLOOPY ? null : /(^|\s)@([\w./-]*)$/.exec(before);
         // In the ! box, a word with a / in it lists the paths that fit (Claude Code's "live file path autocomplete").
         const sp = !m && /^!/.test(input.value) ? /(^!\s*|\s)([\w.~@+-]*\/[\w./~@+-]*)$/.exec(before) : null;
-        const had = mentionMatches().length + slashMatches().length + (bangHTML() ? 1 : 0);
+        const had = mentionMatches().length + (slashHTML() ? 1 : 0) + (bangHTML() ? 1 : 0);
         S.slashOff = false; S.slashSel = 0;
         S.mention = m ? { at: before.length - m[2].length - 1, q: m[2] } : sp ? { at: before.length - sp[2].length, q: sp[2], shell: true } : null; S.mentionSel = 0;
         if (S.mention) await loadFiles();
-        if (had || mentionMatches().length || slashMatches().length || bangHTML()) { const pos = input.selectionStart; draw(); const i = S.root.querySelector('#cdIn'); if (i) { i.focus(); i.setSelectionRange(pos, pos); } }
+        if (had || mentionMatches().length || slashHTML() || bangHTML()) { const pos = input.selectionStart; draw(); const i = S.root.querySelector('#cdIn'); if (i) { i.focus(); i.setSelectionRange(pos, pos); } }
       });
       input.addEventListener('paste', (e) => { const files = [...(e.clipboardData && e.clipboardData.files || [])]; if (files.some((f) => /^image\//.test(f.type)) || (GLOOPY && files.length)) { e.preventDefault(); addPics(files); } });
       input.addEventListener('keydown', (e) => {
@@ -5226,6 +5267,8 @@
         if (g !== 'connected') S.error = g === 'failed' ? 'GitHub did not connect. Try again.' : 'GitHub is not set up for Coder yet.';
         return load();
       }
+      // THE LANDING PAGE'S ASK, waiting in the box when Coder first shows after sign-in (sign-in does not reload the page).
+      if (first && !GLOOPY) { try { const a = sessionStorage.getItem('gf_ask') || ''; sessionStorage.removeItem('gf_ask'); if (a && !S.draft) S.draft = a.slice(0, 4000); } catch (e) {} }
       if (first) return load();
       draw();
     },
