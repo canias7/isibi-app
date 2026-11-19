@@ -25,6 +25,8 @@ export const TOOL_EVENTS = new Set(["PreToolUse", "PermissionRequest", "PostTool
 const NO_MATCHER = new Set(["UserPromptSubmit", "Stop", "PostToolBatch", "CwdChanged", "TaskCreated", "TaskCompleted"]);
 /** The task list's events (Claude Code: "TaskCreated hooks don't support matchers and fire on every occurrence"; TaskCompleted's the same). */
 export const TASK_EVENTS = new Set(["TaskCreated", "TaskCompleted"]);
+/** The events whose examples on Claude Code's hooks page carry no permission_mode ("Not all events receive this field"). */
+export const NO_MODE_EVENTS = new Set(["SessionStart", "Notification", "StopFailure", "CwdChanged", "FileChanged", "PreCompact", "PostCompact", "SessionEnd", "Elicitation", "ElicitationResult", "TaskCreated"]);
 /** "FileChanged and StopFailure use a narrower exact-match set of letters, digits, _, and | only." */
 const NARROW = new Set(["FileChanged", "StopFailure"]);
 /** The events whose hooks can block or change an action (never under the memory cap: Claude Code's "Permission-gating hooks"). */
@@ -636,7 +638,7 @@ export function hookResult(event, run, hook = {}) {
     if (!json && String(stdout).trim().startsWith("{")) return { kind: "block", json: null, text: "", reason: QUIET_PARTIAL, notice: "" };
   }
   const text = json || bad ? "" : stdout;
-  const firstErr = stderr.split("\n").map((l) => l.trim()).find(Boolean) || "";
+  const firstErr = crashLine(stderr) + (event === "PreToolUse" && code === 127 ? " (the hook's command was not found, so its check may not have run)" : "");
   // (Stop and TaskCompleted: exit 2, nothing on stdout and a missing file in stderr is a hook that never ran: non-blocking.)
   if (code === 2 && (event === "Stop" || event === "TaskCompleted") && !stdout.trim() && /No such file or directory/i.test(stderr)) return { kind: "error", json: null, text: "", reason: "", notice: "Failed with non-blocking status code: " + firstErr };
   if (code === 2) return { kind: "block", json, text: "", reason: cap(stderr.trim()), notice: "" };
@@ -984,9 +986,17 @@ export async function runMcpToolHook(h, hookIn, { call = null } = {}) {
     return run(r);
   } finally { clearTimeout(timer); }
 }
+/** The line a failed hook's notice shows: a Node crash's error line, a Python traceback's last line, else the first line. */
+export function crashLine(stderr) {
+  const lines = String(stderr || "").split("\n").map((l) => l.trim()).filter(Boolean);
+  if (!lines.length) return "";
+  if (/^Traceback \(most recent call last\):/.test(lines[0])) return lines[lines.length - 1];
+  if (/^\S+:\d+$/.test(lines[0])) { const e = lines.find((l) => /^(?:[A-Za-z_$][\w$]*Error|Error)(?: \[\w+\])?:/.test(l)); if (e) return e; }
+  return lines[0];
+}
 /** The input every hook gets (Claude Code's common fields), with the event's own. */
 export function hookInput(event, { session = "", cwd = "", mode = "auto", effort = "", promptId = "", scratch = "/tmp/coder-scratch" } = {}, extra = {}) {
   // (`scratchpad_dir`: the chat's scratch folder, as Claude Code's common fields give it: Bash docs pass 9.)
-  // (No permission_mode on TaskCreated and TaskCompleted: Claude Code's TaskCreate and TaskUpdate give their hooks none. 2026-11-14.)
-  return { session_id: String(session), ...(promptId ? { prompt_id: String(promptId) } : {}), cwd: String(cwd), ...(scratch ? { scratchpad_dir: String(scratch) } : {}), ...(TASK_EVENTS.has(event) ? {} : { permission_mode: String(mode) }), hook_event_name: event, ...(effort ? { effort: { level: String(effort) } } : {}), ...extra };
+  // (No permission_mode for the events whose examples on Claude Code's hooks page have none; TaskCompleted's has one. 2026-11-19.)
+  return { session_id: String(session), ...(promptId ? { prompt_id: String(promptId) } : {}), cwd: String(cwd), ...(scratch ? { scratchpad_dir: String(scratch) } : {}), ...(NO_MODE_EVENTS.has(event) ? {} : { permission_mode: String(mode) }), hook_event_name: event, ...(effort ? { effort: { level: String(effort) } } : {}), ...extra };
 }

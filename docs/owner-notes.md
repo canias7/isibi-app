@@ -4,6 +4,14 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-19: Claude Code fixes, batch 9
+
+- Eight of the ten audit items in this batch fixed, each with a test; two skipped (below). Gloopy, connectors and MCP were not touched. Not deployed and not merged yet, so none of it is tried live in the browser yet.
+- **Safety checks on commands:** three gaps in how Coder decides whether a command only reads were closed, around sed (including its backup copies) and running git in a folder that is not the project. These now ask you first, as Claude Code does.
+- **Hooks:** the mode is now sent only to the hook events Claude Code sends it to; a crashed Node or Python hook's notice shows the real error line, and a PreToolUse hook whose command is missing says its check may not have run.
+- **Talking to Grok:** a call now waits up to 10 minutes (was 4) and is tried again if it runs out of time, like Claude Code; the retry line names a rate limit or a lost connection from the first try; an answer Grok cut off at its length limit keeps its words, runs none of its steps, and ends with an error so you can say "continue". Worth a live try with a request that forces a very long answer. Note: a retry is another paid Grok call.
+- **Skipped:** rules for helper agents (Coder has no helpers yet; to do with that work), the "[settings]" label on a hook's question card (a design change for you to direct).
+
 ## 2026-11-19: Claude Code fixes, batch 8
 
 - All ten audit items in this batch fixed, each with a test. All are about hooks (your own scripts that run at set moments). Gloopy, connectors and MCP were not touched. Not deployed and not merged yet.

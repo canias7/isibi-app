@@ -34,7 +34,9 @@ import { hooksFrom, hooksFor, hookInput, hookShell, splitHookOut, asyncHookTexts
 import { autoModeSetting } from "./coder-checker.mjs";
 /** The owner's auto mode rules as the Worker sent them, checked again here (autoModeSetting), or null. */
 export const autoModeIn = (v) => { if (!v || typeof v !== "object" || Array.isArray(v)) return null; const a = autoModeSetting(JSON.stringify(v)); return a.ok && a.value ? a.value : null; };
-import { normMode, MODES, ruleSaved } from "./coder-perms.mjs";
+import { normMode, MODES, ruleSaved, gitRepoTop, setRepoOf } from "./coder-perms.mjs";
+// (Read-only git asks in a repository that is not the project's: git's folder found on this machine. 2026-11-19.)
+setRepoOf((d) => gitRepoTop(d, existsSync));
 import { webFetchSettings } from "./coder-webfetch.mjs";
 import { scrubVars, scriptCapsIn } from "./coder-scrub.mjs";
 import { GLOOPY_SYSTEM, GLOOPY_TOOLS, GLOOPY_HELD_BACK, BROWSER_TOOL_NAMES, HELPER_SYSTEM, HELPER_TOOLS, HELPER_BROWSER_TOOL, gloopyContextPieces } from "./gloopy-agent.mjs";

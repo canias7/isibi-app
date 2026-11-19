@@ -345,7 +345,26 @@ function sedScriptSafe(script) {
     if (c === "s" || c === "y") {
       const d = s[i++];
       if (!d || /[\s\\\n]/.test(d)) return false;
-      for (let part = 0; part < 2; part++) { while (i < s.length && s[i] !== d) { if (s[i] === "\\") i++; i++; } if (i >= s.length) return false; i++; }
+      for (let part = 0; part < 2; part++) {
+        while (i < s.length && s[i] !== d) {
+          if (s[i] === "\\") { i += 2; continue; }
+          // (A bracket expression in s's pattern, as GNU sed reads it: the separator does not end the pattern inside it. One
+          // holding the separator is not sure, so the command asks: Claude Code's "can't fully parse, so ask".)
+          if (c === "s" && part === 0 && s[i] === "[") {
+            let j = i + 1;
+            if (s[j] === "^") j++;
+            if (s[j] === "]") j++;
+            while (j < s.length && s[j] !== "]") {
+              if (s[j] === "[" && /[:=.]/.test(s[j + 1] || "")) { const close = s.indexOf(s[j + 1] + "]", j + 2); if (close < 0) return false; j = close + 2; continue; }
+              j++;
+            }
+            if (j >= s.length || s.slice(i, j + 1).includes(d)) return false;
+            i = j + 1; continue;
+          }
+          i++;
+        }
+        if (i >= s.length) return false; i++;
+      }
       if (c === "s") { const flags = /^[gpiImM0-9]*/.exec(s.slice(i))[0]; i += flags.length; if (/[we]/i.test(s[i] || "") && s[i] !== "i" && s[i] !== "I") return false; }
       continue;
     }
@@ -600,6 +619,27 @@ export function fileCommandTargets(cmd, cwd) {
       // (Into a folder for sure: the files it writes there stand for it.)
       if (clear) { const di = paths.indexOf(dest); if (di >= 0) paths.splice(di, 1); }
       for (const src of sources) { const q = src.glob || !src.name || src.name === "." || src.name === ".." ? dest.replace(/\/+$/, "") + "/*" : dest.replace(/\/+$/, "") + "/" + src.name; if (!paths.includes(q) && !maybe.includes(q)) (clear ? paths : maybe).push(q); }
+    }
+  }
+  // SED'S BACKUP COPY (-iSUFFIX, -niSUFFIX, --in-place=SUFFIX): written beside each edited file (its path plus the suffix),
+  // or, with a * in the suffix, where the suffix says (each * the file's name as typed); checked like the file it copies.
+  if (prog === "sed") {
+    let suffix = "";
+    for (const x of rest) {
+      const t = x.text;
+      if (t === "--") break;
+      const m = /^--in-place=(.*)$/.exec(t) || (!t.startsWith("--") ? /^-[nErsuz]*i(.+)$/.exec(t) : null);
+      if (m) suffix = m[1];
+    }
+    if (suffix) {
+      const edited = ops.filter((o) => !o.glob);
+      if (ops.some((o) => o.glob) || /[$`~{}?\[\\]/.test(suffix)) sure = false;
+      for (const o of edited) {
+        const typed = String(o.text || "");
+        const backup = suffix.includes("*") ? (suffix.includes("/") ? suffix.replace(/\*/g, typed.split("/").pop()) : (typed.includes("/") ? typed.slice(0, typed.lastIndexOf("/") + 1) : "") + suffix.replace(/\*/g, typed.split("/").pop())) : typed + suffix;
+        const p = fullPath({ text: backup }, cwd);
+        if (p) { if (!paths.includes(p)) paths.push(p); } else sure = false;
+      }
     }
   }
   if (!paths.length) sure = false;
@@ -1582,7 +1622,7 @@ export function suggestFor(cmd) {
  * on a setting). Coder's own checks (control characters, long sleeps, dangerous removals, protected files, very long
  * commands, writes through a link) come first, in coder-agent.mjs.
  */
-export function bashDecision(command, { mode = "auto", rules = {}, cwd = "/", workdirs = [], isProtected = () => "", real = null, input = null, home = "", ownDirs = [], byCommand = true, scratch = [], settings = BASH_SETTINGS, planFile = "" } = {}) {
+export function bashDecision(command, { mode = "auto", rules = {}, cwd = "/", workdirs = [], isProtected = () => "", real = null, input = null, home = "", ownDirs = [], byCommand = true, scratch = [], settings = BASH_SETTINGS, planFile = "", repoOf = machineRepoOf } = {}) {
   const read = readCommand(command, { cwd, home });
   // (For deny and ask rules, the command read a second time with the variables it sets put in: readCommand's `vars`.)
   const shadow = readCommand(command, { cwd, home, vars: true });
@@ -1802,7 +1842,7 @@ export function bashDecision(command, { mode = "auto", rules = {}, cwd = "/", wo
       if (!to || !insideWork(to, workdirs)) { partWhy.set(c, to ? blockedWhy("cd", to, workdirs) : cw.slice(1).some(tildeOther) ? TILDE_WHY : VAR_UNCHECKED); parts.push(c); continue; }
       continue;
     }
-    if (ro && name === "git" && (read.cdAway || c.dir !== cwd)) { gitAfterCd = true; partWhy.set(c, GIT_AFTER_CD); parts.push(c); continue; }
+    if (ro && name === "git" && (read.cdAway || c.dir !== cwd || foreignRepo(repoOf, c.dir === undefined ? cwd : c.dir, workdirs))) { gitAfterCd = true; partWhy.set(c, GIT_AFTER_CD); parts.push(c); continue; }
     // A FILE COMMAND (mkdir, touch, rm, rmdir, mv, cp, sed -i): Claude Code checks each path it changes before any rule (its
     // JJo), so an allow rule for the command never approves a path outside the project, one worked out when it runs, a
     // ~user, or a write in a command that also changes folder (Bash docs pass 9: with Bash(touch *), `touch /etc/x` ran).
@@ -2101,6 +2141,31 @@ export const MULTI_CD = "Multiple directory changes in one command require appro
 export const PARSE_ERROR = "Parse error";
 export const VAR_UNCHECKED = "A variable in this command can't be checked before it runs";
 export const SHELL_EXPANSION = "Shell expansion syntax in paths requires manual approval";
+/**
+ * THE REPOSITORY GIT WOULD USE FROM A FOLDER (Claude Code: "read-only git commands ask first in a repository that isn't the
+ * project's"): walking up, the first folder holding .git, or one that is a repository itself (HEAD beside objects/ and refs/,
+ * or a commondir). "" when none is found.
+ */
+export function gitRepoTop(dir, exists) {
+  if (typeof exists !== "function") return "";
+  let d = normalPath(String(dir || "/")) || "/";
+  for (;;) {
+    if (exists(d.replace(/\/$/, "") + "/.git")) return d;
+    const at = (x) => exists((d === "/" ? "" : d) + "/" + x);
+    if ((at("HEAD") && at("objects") && at("refs")) || at("commondir")) return d;
+    if (d === "/" || !d) return "";
+    d = d.slice(0, d.lastIndexOf("/")) || "/";
+  }
+}
+/** The machine's own finder of a folder's repository (set by Coder's service; none in the Worker). */
+let machineRepoOf = null;
+export function setRepoOf(fn) { machineRepoOf = typeof fn === "function" ? fn : null; }
+/** A git command whose repository (from `repoOf(folder)`) is not the project's own top folder nor an extra repository's. */
+function foreignRepo(repoOf, dir, workdirs) {
+  if (typeof repoOf !== "function" || typeof dir !== "string") return false;
+  const top = repoOf(dir);
+  return !!top && !(workdirs || []).some((w) => normalPath(w) === normalPath(top));
+}
 export const GIT_AFTER_CD = "This command changes directory before running a version-control command, which can pick up untrusted hooks or repository configuration from the target directory. Approve only if you trust it.";
 export const MULTI_PARTS = "This Bash command contains multiple operations. The following parts require approval: ";
 export const loopVarWhy = (name) => name + " as loop variable bypasses assignment validation";

@@ -170,11 +170,11 @@ test("CD545 a chat's SessionEnd hooks are told its mode as its message's hooks w
   };
   try {
     // Accept edits, the repository setting nothing: both are told "default".
-    assert.deepEqual(await turn(), ["default", "default"]);
+    assert.deepEqual(await turn(), ["default", undefined]); // (SessionEnd hooks get no permission_mode, as on Claude Code's hooks page: 2026-11-19)
     // The repository's own settings start chats in Accept edits (permissions.defaultMode): both are told "acceptEdits".
     await mkdir(join(r.root, project, ".claude"), { recursive: true });
     await writeFile(join(r.root, project, ".claude", "settings.json"), JSON.stringify({ permissions: { defaultMode: "acceptEdits" } }));
-    assert.deepEqual(await turn(), ["acceptEdits", "acceptEdits"]);
+    assert.deepEqual(await turn(), ["acceptEdits", undefined]);
   } finally { srv.close(); }
   // The machine's side uses the same rule, with what the message's hooks were given.
   const server = read("container/server.mjs");

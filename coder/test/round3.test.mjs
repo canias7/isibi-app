@@ -86,7 +86,7 @@ test("CD511 a failed Grok call is tried again as Claude Code does (the owner: \"
   assert.equal((await run([404])).calls, 1);
   assert.equal((await run([new TypeError("fetch failed"), "ok"])).calls, 2);
   const late = Object.assign(new Error("The operation was aborted due to timeout"), { name: "TimeoutError" });
-  assert.equal((await run([late, "ok"])).calls, 1);
+  assert.equal((await run([late, "ok"])).calls, 2); // (a call past its own time limit is tried again, as Claude Code retries request timeouts: 2026-11-19)
   // The wait: retry-after first; else 500 ms doubling to 32 s, plus up to a quarter more at random.
   assert.deepEqual([1, 2, 3, 7, 10].map((a) => retryWaitMs(a, null, () => 0)), [500, 1000, 2000, 32000, 32000]);
   assert.equal(retryWaitMs(1, null, () => 1), 625);

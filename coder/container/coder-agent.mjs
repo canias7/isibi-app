@@ -23,7 +23,7 @@
 import { summaryRequest, summaryMessage, cutPoint, isSummary, viewedFile, filesTouched, compactSettings, compactLimits, compactLevel, conversationTokens, COMPACT_FAILURES_MAX, REFILL_TURNS, REFILL_TIMES, PRECOMPACT_OUTPUT_MAX, CHARS_PER_TOKEN, COMPACTED_SHOWN, THRASHING, contextLimitShown, compactPrompt, summaryText, hasSummary, dropOldestRounds, tokenGap, COMPACT_PTL_RETRIES, COMPACT_TOO_LONG, tooShortToCompact, TOO_SHORT_TO_COMPACT } from "./coder-compact.mjs";
 // A command that views one file counts as reading it (moved to coder-compact.mjs, which the Worker uses too).
 export { viewedFile };
-import { retryLine, apiErrorText, modelWindow } from "./coder-model.mjs";
+import { retryLine, apiErrorText, modelWindow, CUT_OFF_ERROR } from "./coder-model.mjs";
 import { commandProblem, capOutput, readTimeout, scrub, splitSetup, MAX_OUTPUT_CHARS, MAX_COMMAND_CHARS, MAX_TIMEOUT_S, DEFAULT_TIMEOUT_S, bashResultText, BASH_INLINE_MAX, BASH_READ_BACK, ccDuration, secretVar } from "./coder-checks.mjs";
 import { SLEEP_BLOCK_S, exitMeaning, sleepBlocked, leadsWithSleep, writeTargets, dangerousRm, realPath, leadsTo, pathExists, RM_UNCHECKED, RM_UNCHECKED_NO_RM, rmCardReason } from "./coder-bashcheck.mjs";
 import { textReasons } from "./coder-shell.mjs";
@@ -4405,6 +4405,15 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     // (Grok searches only through its web_search tool since 2026-11-14, each search a step of its own: no search of Grok's own
     // comes with its answer any more.)
     // (A round taken up again: Grok's answer is in the chat already, and was said then.)
+    // AN ANSWER CUT OFF AT GROK'S OUTPUT LIMIT: its words are kept, none of its calls run (they may be half-written), and the
+    // turn ends with Claude Code's error, so the owner can reply "continue".
+    if (!back && answer && answer.cutOff && answer.message) {
+      const cutSaid = typeof answer.message.content === "string" ? answer.message.content : "";
+      convo.push({ role: "assistant", content: cutSaid, ...(tsUpfrontNew ? { toolsDeclared: tsUpfrontNew } : {}), ...(tsLocksNew ? { toolLocks: tsLocksNew, toolLocksV: TOOLS_V } : {}) });
+      if (cutSaid.trim()) { emit({ type: "text", text: scrub(cutSaid.trim()) }); lastSaid = scrub(cutSaid.trim()).slice(0, 4000); }
+      emit({ type: "error", text: CUT_OFF_ERROR });
+      return end("send", { why: "output token maximum" });
+    }
     const msg = back ? back.msg : answer && answer.message ? answer.message : null;
     if (!msg) { emit({ type: "error", text: "The AI gave no answer." }); return end("no-tool"); }
     const said = back ? "" : typeof msg.content === "string" ? msg.content.trim() : "";

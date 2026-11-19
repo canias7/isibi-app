@@ -181,7 +181,7 @@ test("CD313 the files a command writes and Accept edits' file commands, read lik
   assert.equal(t("cp --backup a b").sure, false);
   assert.equal(t("npm test"), null);
   assert.equal(t("sed 's/a/b/' f"), null); // (sed changes files only with -i)
-  assert.deepEqual(t("sed -i.bak -e 's/a/b/' f.js"), { paths: [ROOT + "/f.js"], sure: true });
+  assert.deepEqual(t("sed -i.bak -e 's/a/b/' f.js"), { paths: [ROOT + "/f.js", ROOT + "/f.js.bak"], sure: true }); // (its backup copy counts too: 2026-11-19)
 });
 
 // ── CODER'S LOOP: THE CARD WAITS FOR THE OWNER'S ANSWER, IN THE TURN ─────────

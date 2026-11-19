@@ -9,7 +9,7 @@
 // a key in the environment, still calls xAI itself.
 export const CODER_ENDPOINT = "https://api.x.ai/v1/responses";
 export const CODER_DEFAULT_MODEL = "grok-4.7";
-export const CODER_CALL_MS = 4 * 60 * 1000;
+export const CODER_CALL_MS = 10 * 60 * 1000; // (Claude Code's default request time limit, 10 minutes. 2026-11-19.)
 
 // THE MODEL PICKER (owner, 2026-11-05: "put the model picker, put grok 4.7
 // attached to its effort levels"). Each model with the effort levels it takes;
@@ -101,6 +101,7 @@ export function fromResponsesOutput(j) {
  * 500 ms doubling each time up to 32 seconds, with up to a quarter more at random. While it waits, the chat says so in its
  * words: "API error · Retrying in 1s · attempt 1/10", the error itself from the third try on.
  */
+export const CUT_OFF_ERROR = "API Error: Grok's response exceeded the output token maximum. Reply continue to ask for the rest.";
 export const MAX_RETRIES = 10, MAX_RETRIES_CLAMP = 15, RETRY_BASE_MS = 500, RETRY_MAX_MS = 32_000;
 export const retryable = (status) => status === 408 || status === 409 || status === 429 || status >= 500;
 export function maxRetriesOf(env) {
@@ -127,7 +128,7 @@ export function apiErrorText(e, clean = (x) => x) {
   return "The AI could not be reached: " + msg.slice(0, 220);
 }
 export const retryLine = ({ attempt, maxRetries, waitMs, error }) =>
-  (attempt >= Math.min(3, maxRetries) ? String(error || "API error").replace(/\s+/g, " ").slice(0, 300) : "API error") +
+  (attempt >= Math.min(3, maxRetries) || /^(?:AI call failed: 429|Connection error)/.test(String(error || "")) ? String(error || "API error").replace(/\s+/g, " ").slice(0, 300) : "API error") +
   " · Retrying in " + Math.max(1, Math.ceil((Number(waitMs) || 0) / 1000)) + "s · attempt " + attempt + "/" + maxRetries;
 
 /**
@@ -171,9 +172,11 @@ export function coderSend(env, { fetchFn = fetch, wait = (ms) => new Promise((r)
           signal: req.signal ? AbortSignal.any([AbortSignal.timeout(CODER_CALL_MS), req.signal]) : AbortSignal.timeout(CODER_CALL_MS),
         });
       } catch (e) {
-        // A connection that failed is tried again; a call that ran past its own time limit is not.
+        // A connection that failed, or a call that ran past its own time limit before any answer came, is tried again (Claude
+        // Code retries its request timeouts); the owner's Stop is not.
+        stopIfAborted();
         const timedOut = e && (e.name === "TimeoutError" || e.name === "AbortError");
-        if (!timedOut && attempt < maxRetries) { await again(retryWaitMs(attempt + 1, null, rand), "Connection error: " + String((e && e.message) || e).slice(0, 200)); continue; }
+        if (attempt < maxRetries) { await again(retryWaitMs(attempt + 1, null, rand), timedOut ? "Request timed out" : "Connection error: " + String((e && e.message) || e).slice(0, 200)); continue; }
         throw e;
       }
       if (retryable(r.status) && attempt < maxRetries) {
@@ -195,7 +198,9 @@ export function coderSend(env, { fetchFn = fetch, wait = (ms) => new Promise((r)
       let j;
       try { j = await r.json(); }
       catch (e) {
+        stopIfAborted();
         const stopped = e && (e.name === "TimeoutError" || e.name === "AbortError");
+        if (stopped && attempt < maxRetries) { await again(retryWaitMs(attempt + 1, null, rand), "Request timed out"); continue; }
         if (!stopped && attempt < maxRetries) { await again(retryWaitMs(attempt + 1, null, rand), "Connection error: the answer was cut off (" + String((e && e.message) || e).slice(0, 120) + ")"); continue; }
         throw e;
       }
@@ -211,7 +216,10 @@ export function coderSend(env, { fetchFn = fetch, wait = (ms) => new Promise((r)
       const num = (x) => (Number.isFinite(Number(x)) && Number(x) > 0 ? Math.round(Number(x)) : 0);
       const said = j.reasoning && typeof j.reasoning.effort === "string" ? j.reasoning.effort.slice(0, 20) : "";
       // (xAI's own items too, in order, for a web search's result: its words before and after each search, coder-websearch.mjs.)
-      return { message, searches, output: Array.isArray(j.output) ? j.output : [], usage: { in: u.input_tokens || 0, out: u.output_tokens || 0, searches: web || 0, cost_ticks: u.cost_in_usd_ticks || 0, cached: num(u.input_tokens_details && u.input_tokens_details.cached_tokens), reasoning: num(u.output_tokens_details && u.output_tokens_details.reasoning_tokens), effort: withEffort ? String(req.effort) : "", ...(said ? { effortSaid: said } : {}) } };
+      // AN ANSWER CUT OFF AT THE OUTPUT LIMIT (Claude Code: "Claude's reply reached the largest number of output tokens the
+      // request allowed and was cut off there"): marked, so the loop keeps its words, runs none of its calls and ends the turn.
+      const cutOff = j.status === "incomplete" && !!j.incomplete_details && j.incomplete_details.reason === "max_output_tokens";
+      return { ...(cutOff ? { cutOff: true } : {}), message, searches, output: Array.isArray(j.output) ? j.output : [], usage: { in: u.input_tokens || 0, out: u.output_tokens || 0, searches: web || 0, cost_ticks: u.cost_in_usd_ticks || 0, cached: num(u.input_tokens_details && u.input_tokens_details.cached_tokens), reasoning: num(u.output_tokens_details && u.output_tokens_details.reasoning_tokens), effort: withEffort ? String(req.effort) : "", ...(said ? { effortSaid: said } : {}) } };
     }
   };
 }

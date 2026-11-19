@@ -251,7 +251,7 @@ test("TK5 hooks see the calls as Claude Code's: TaskCreate and the rest by name,
   const created = t.hookCalls.find((h) => h.hook_event_name === "TaskCreated");
   assert.deepEqual([created.task_id, created.task_subject, created.task_description, "permission_mode" in created, created.session_id], ["1", "Add tests", "d", false, "shop-tk"]);
   const done = t.hookCalls.find((h) => h.hook_event_name === "TaskCompleted");
-  assert.deepEqual([done.task_id, done.task_subject, done.task_description, "permission_mode" in done], ["2", "[T-1] Add tests", "d", false]);
+  assert.deepEqual([done.task_id, done.task_subject, done.task_description, "permission_mode" in done], ["2", "[T-1] Add tests", "d", true]);
   const failed = t.hookCalls.filter((h) => h.hook_event_name === "PostToolUseFailure");
   assert.deepEqual(failed.map((h) => [h.tool_name, h.tool_use_id, h.error]), [["TaskCreate", "c1", "error: TaskCreated hook feedback:\n[command hook]: Task subject must start with a ticket number, e.g. '[TICKET-123] Add feature'"]]);
   assert.deepEqual(t.hookCalls.filter((h) => h.hook_event_name === "PostToolUse").map((h) => h.tool_use_id), ["c2"], "the rolled-back call is a failure, not a success");
