@@ -4,6 +4,16 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-19: Claude Code fixes, batch 15
+
+- Six of the ten audit items in this batch fixed (one only in part), each with a test; four skipped (below). Gloopy, connectors and MCP were not touched. Not deployed and not merged yet, so none of it is tried live in the browser yet.
+- **Settings files:** a special file put where a repository's settings file goes can no longer freeze the chat's machine; it is skipped at once, as in Claude Code.
+- **Saved outputs:** clearing old saved outputs no longer deletes the output of a background command that is still running.
+- **Rule files:** a rule's `paths` written on one line with commas now works, and a pattern like `src/**/*.{ts,tsx}` in a `[list]` is kept whole, as in Claude Code.
+- **Memory:** the memory file's header block and hidden HTML comments no longer reach Grok. (They still count toward the file's stored size limit; changing that limit is your call.) Coder is now told, in Claude Code's terms, what to remember and to skip what the code, git history or CODER.md already show.
+- **Speed:** the shell's startup file is read once per machine start (and again after the setup script runs), not before every message, as in Claude Code.
+- **Skipped:** switching a running job to Full (already fixed in batch 14); a command approved after a restart whose folder is gone (needs changes in how a paused card is taken up, left for its own batch); the two setup-script items (where the "setup already ran" notes are kept after a deploy, and keeping the chat's own new files out of the setup's ignore list), which change the admin sandbox's disk layout and need a live deploy check, so they are left for their own batch.
+
 ## 2026-11-19: Claude Code fixes, batch 14
 
 - Eight of the ten audit items in this batch fixed, each with a test; two skipped (below). Gloopy, connectors and MCP were not touched. Not deployed and not merged yet, so none of it is tried live in the browser yet.

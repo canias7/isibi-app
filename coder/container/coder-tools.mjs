@@ -1007,6 +1007,26 @@ async function writeChange(oldText, newText, got = null) {
  * Grok is asked to keep under, so a note (Claude Code also drops the lines past 200: outside write, the owner's call).
  */
 export const MEMORY_READ_MAX = 25_000, MEMORY_LINES_MAX = 200;
+/**
+ * WHAT OF THE MEMORY FILE LOADS (M-r2-33; Claude Code: "YAML frontmatter and block-level HTML comments are stripped before
+ * the index is loaded, so they're excluded from the measurement"): a leading `---` block, and `<!-- -->` blocks outside code
+ * fences, taken out before the memory reaches Grok. (The stored file is still capped at its raw size, which the Worker
+ * also keeps; changing that cap is left for the owner.)
+ */
+export function memoryLoaded(text) {
+  const src = String(text).replace(/^---\r?\n[\s\S]*?\r?\n---[ \t]*(?:\r?\n|$)/, "").split("\n"), out = [];
+  let fence = "", open = false;
+  for (const l of src) {
+    if (open) { if (l.includes("-->")) open = false; continue; }
+    const f = /^ {0,3}(`{3,}|~{3,})/.exec(l);
+    if (fence) { if (f && f[1][0] === fence[0] && f[1].length >= fence.length) fence = ""; out.push(l); continue; }
+    if (f) { fence = f[1]; out.push(l); continue; }
+    const c = /^ {0,3}<!--/.exec(l);
+    if (c) { if (!l.slice(c[0].length).includes("-->")) open = true; continue; }
+    out.push(l);
+  }
+  return out.join("\n");
+}
 export function memoryNote(buf) {
   const size = buf.length, lines = textLines(buf.toString("utf8")).length;
   const keep = "keep one line per entry, and merge or drop stale entries.";
