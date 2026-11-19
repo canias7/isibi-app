@@ -4,6 +4,19 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-19: Claude Code fixes, batch 8
+
+- All ten audit items in this batch fixed, each with a test. All are about hooks (your own scripts that run at set moments). Gloopy, connectors and MCP were not touched. Not deployed and not merged yet.
+- **A broken hook on a finished task** (one that cannot start, crashes or times out) now only shows an error, and the task is still ticked off, even when the hook is set to block on failure.
+- **An end-of-answer or finished-task hook whose script file is missing** no longer keeps Coder working round after round; it shows an error instead.
+- **When a blocking hook gives its reason two ways**, Coder now uses the reason in its structured answer, as Claude Code does.
+- **A hook that blocks your message** can now keep your typed text out of the block note (suppressOriginalPrompt).
+- **Hooks before and after a summary** can no longer show a line in the chat or stop /compact by asking to stop; they can still block it the normal way. A long hook output before a summary now reaches the summary up to 10,000 characters, not 2,000.
+- **Folder-change and file-change hooks** that report a problem now show it in the chat.
+- **Agent hooks** can no longer end Coder's turn by calling the work impossible; only prompt hooks can, as in Claude Code.
+- **When a chat ends**, a hook without its own time limit keeps the short 1.5-second limit, even if another hook has a longer one.
+- **When Grok is overloaded**, hooks are told "server_error", Claude Code's word for it today.
+
 ## 2026-11-19: Claude Code fixes, batch 7
 
 - All ten audit items in this batch fixed, each with a test. Gloopy, connectors and MCP were not touched. Not deployed and not merged yet.

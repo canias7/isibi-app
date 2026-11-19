@@ -41,8 +41,8 @@ test("CD514 a hook's block in Claude Code's words: PreToolUse \"hook error: <rea
   assert.equal(pre({ decision: "block", reason: "r39 legacy block" }).reason, "PreToolUse:Bash hook error: r39 legacy block");
   assert.equal(run("PreToolUse", { code: 2, stdout: "", stderr: "r39 exit two says no\n" }).reason, "PreToolUse:Bash hook error: [command hook]: r39 exit two says no");
   assert.equal(run("PreToolUse", { code: 2, stdout: "", stderr: "" }).reason, "PreToolUse:Bash hook error: [command hook]: No stderr output");
-  // (Exit 2 reads no JSON, as in Claude Code.)
-  assert.equal(run("PreToolUse", { code: 2, stdout: J({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: "json" } }), stderr: "from stderr" }).reason, "PreToolUse:Bash hook error: [command hook]: from stderr");
+  // (Exit 2 with JSON that denies with a reason: that reason, as Claude Code's hooks reference says.)
+  assert.equal(run("PreToolUse", { code: 2, stdout: J({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: "json" } }), stderr: "from stderr" }).reason, "PreToolUse:Bash hook error: json");
   assert.deepEqual(run("PostToolUse", { code: 0, stdout: J({ decision: "block", reason: "r39 post says no" }), stderr: "" }).blocks, ['PostToolUse:Bash hook blocking error from command: "command hook": r39 post says no']);
   assert.deepEqual(run("PostToolUse", { code: 2, stdout: "", stderr: "r39 post exit two\n" }).blocks, ['PostToolUse:Bash hook blocking error from command: "command hook": [command hook]: r39 post exit two']);
   assert.deepEqual(run("PostToolUse", { code: 2, stdout: "", stderr: "" }).blocks, ['PostToolUse:Bash hook blocking error from command: "command hook": [command hook]: No stderr output']);

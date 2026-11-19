@@ -30,7 +30,7 @@ import { runCoder, connectorTools, connectorCaller, connectorHookCaller, MACHINE
 // (Each chat's plan file, kept here beside its memory: Claude Code's plan mode with a disk; the owner, 2026-11-14.)
 import { planStore, plansDirectoryFor, plansDirWarning } from "./coder-plan-file.mjs";
 import { envCaller } from "./coder-envtools.mjs";
-import { hooksFrom, hooksFor, hookInput, hookShell, splitHookOut, asyncHookTexts, sessionEndBudget, httpUrlAllowed, runMcpToolHook, stopCapOf } from "./coder-hooks.mjs";
+import { hooksFrom, hooksFor, hookInput, hookShell, splitHookOut, asyncHookTexts, sessionEndBudget, sessionEndHookLimit, httpUrlAllowed, runMcpToolHook, stopCapOf } from "./coder-hooks.mjs";
 import { autoModeSetting } from "./coder-checker.mjs";
 /** The owner's auto mode rules as the Worker sent them, checked again here (autoModeSetting), or null. */
 export const autoModeIn = (v) => { if (!v || typeof v !== "object" || Array.isArray(v)) return null; const a = autoModeSetting(JSON.stringify(v)); return a.ok && a.value ? a.value : null; };
@@ -5205,14 +5205,16 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       for (const h of list) {
         if (h.type === "http" && !httpUrlAllowed(h.url, h.urlsAllowed)) continue;
         const mark = "<<coder-hook-stderr-" + randomUUID().replace(/-/g, "").slice(0, 10) + ">>";
+        // (Each hook's own limit: a hook without its own timeout keeps 1.5 seconds, Claude Code's "still keeps the default".)
+        const lim = sessionEndHookLimit(h, budget, t.sessionEndMs);
         const allowed = (Array.isArray(h.allowedEnvVars) ? h.allowedEnvVars : []).filter((v) => !Array.isArray(h.envAllowed) || h.envAllowed.includes(v));
         const one = h.type === "http"
-          ? { command: "node --no-warnings " + TOOLS_SCRIPT + " @REQUEST", payload: JSON.stringify({ tool: "http_hook", args: { url: h.url, headers: h.headers || {}, allowed, body: JSON.stringify(input), timeoutMs: Math.round(budget * 1000) } }) }
+          ? { command: "node --no-warnings " + TOOLS_SCRIPT + " @REQUEST", payload: JSON.stringify({ tool: "http_hook", args: { url: h.url, headers: h.headers || {}, allowed, body: JSON.stringify(input), timeoutMs: Math.round(lim * 1000) } }) }
           : h.type === "mcp_tool" ? null : { command: hookShell(h, mark, String(t.home0 || "")), payload: JSON.stringify(input) };
         // (What each did, for the record below.)
         const name = String((h.type === "http" ? h.url : h.type === "mcp_tool" ? h.server + " " + h.tool : h.command) || "").slice(0, 80);
         let over = false;
-        const ran = Promise.resolve(one ? t.turnDeps.exec({ ...one, timeoutS: budget, tool: true, here: true, hook: true, noPrefix: h.type === "command" && (Array.isArray(h.args) || h.shell === "powershell") }) : runMcpToolHook({ ...h, timeout: budget }, input, { call: typeof t.turnDeps.mcpHook === "function" ? t.turnDeps.mcpHook : null }).then((m) => ({ code: m.code, ...(m.timedOut ? { timedOut: true } : {}), output: m.stdout || m.stderr }))).then(
+        const ran = Promise.resolve(one ? t.turnDeps.exec({ ...one, timeoutS: lim, tool: true, here: true, hook: true, noPrefix: h.type === "command" && (Array.isArray(h.args) || h.shell === "powershell") }) : runMcpToolHook({ ...h, timeout: budget }, input, { call: typeof t.turnDeps.mcpHook === "function" ? t.turnDeps.mcpHook : null }).then((m) => ({ code: m.code, ...(m.timedOut ? { timedOut: true } : {}), output: m.stdout || m.stderr }))).then(
           (r) => { over = true; said.push({ chat: project, hook: name, ms: Date.now() - t0, code: r && typeof r.code === "number" ? r.code : null, ...(r && r.timedOut ? { timedOut: true } : {}), out: scrub(String((r && r.output) || "")).slice(0, 300) }); },
           (e) => { over = true; said.push({ chat: project, hook: name, ms: Date.now() - t0, error: scrub(String((e && e.message) || e)).slice(0, 200) }); });
         runs.push(Promise.race([ran, new Promise((ok) => { const w = setTimeout(() => { if (!over) said.push({ chat: project, hook: name, ms: Date.now() - t0, late: true }); ok(); }, Math.round(budget * 1000) + 250); if (typeof w.unref === "function") w.unref(); })]));

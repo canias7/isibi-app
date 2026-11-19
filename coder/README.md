@@ -1046,7 +1046,9 @@ writes, `@REQUEST`), their stderr kept apart from their stdout, with
 first message, and after a summary), UserPromptSubmit, PreToolUse,
 PermissionRequest, PostToolUse, PostToolUseFailure, Notification (a card that
 waits), Stop (after 8 blocks in a row the next is overridden and the turn ends with a note; CODER_STOP_HOOK_BLOCK_CAP changes the 8, 0 for no limit; a PreToolUse "continue": false lets its call run, then stops), PreCompact and PostCompact. Matchers,
-`if`, deduplication, the exit-code table (0, 2, other), JSON decisions
+`if`, deduplication, the exit-code table (0, 2, other), JSON decisions (batch 8, 2026-11-19: on exit 2 a JSON block's own reason wins over stderr; a Stop or TaskCompleted hook
+that exits 2 with no stdout and "No such file or directory" is a non-blocking error; a blocked message's note leaves out
+the typed text when `suppressOriginalPrompt` is true; PreCompact and PostCompact `systemMessage` and `continue` are ignored)
 (`permissionDecision`, `updatedInput`, `additionalContext`, `decision: "block"`,
 `continue: false`, `systemMessage`, `updatedToolOutput`) and the words Coder is
 given ("PreToolUse:Bash hook error: [cmd]: …") are Claude Code's

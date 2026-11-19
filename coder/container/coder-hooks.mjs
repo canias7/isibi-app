@@ -73,6 +73,12 @@ export function sessionEndBudget(hooks, envMs) {
   const own = (Array.isArray(hooks) ? hooks : []).filter((h) => h && h.event === "SessionEnd" && h.ownTimeout).map((h) => h.timeout);
   return Math.min(60, Math.max(1.5, ...own));
 }
+/** ONE SESSIONEND HOOK'S LIMIT, in seconds: its own timeout, else 1.5 (or the budget when the variable set it), never past the budget. */
+export function sessionEndHookLimit(h, budget, envMs) {
+  const set = Number(envMs);
+  const own = h && h.ownTimeout ? Number(h.timeout) : Number.isFinite(set) && set > 0 ? budget : 1.5;
+  return Math.min(budget, own);
+}
 /** "A hook's additionalContext, systemMessage, and initialUserMessage strings, and its plain stdout, are capped at 10,000 characters." */
 export const HOOK_TEXT_MAX = 10_000;
 /**
@@ -566,7 +572,8 @@ export const QUIET_PARTIAL = "hook output opens a JSON payload that never comple
  * "error", json, text, reason, notice, verdict?, failBlock? }`. Exit 2 blocks, its stderr the reason; another code with valid
  * JSON is a success, with plain text a non-blocking error ("Failed with non-blocking status code: <first line of stderr>"); a
  * hook that timed out says nothing. `hook.onFailure` "block": a failure does what exit 2 does (`failBlock`), in Claude Code's
- * words ("failed; blocking because onFailure is "block"", "timed out; …"), except on Stop. A hook that left a program
+ * words ("failed; blocking because onFailure is "block"", "timed out; …"), except on Stop and TaskCompleted (Claude
+ * Code: "Claude can't repair a hook that won't run"). A hook that left a program
  * holding its output (`quiet`: Coder stopped waiting 10 seconds after it ended) is not believed when it grants, rewrites or
  * injects (QUIET_GRANT), or printed JSON cut short (QUIET_PARTIAL).
  */
@@ -581,7 +588,7 @@ export function hookResultSafe(event, run, hook = {}) {
   }
 }
 export function hookResult(event, run, hook = {}) {
-  const blocks = hook.onFailure === "block" && event !== "Stop" && !hook.async && !hook.asyncRewake;
+  const blocks = hook.onFailure === "block" && event !== "Stop" && event !== "TaskCompleted" && !hook.async && !hook.asyncRewake;
   const fail = (what, more = "") => blocks ? { kind: "block", json: null, text: "", reason: cap(what + "; " + BLOCK_FAIL + (more ? "\n" + more : "")), notice: "", failBlock: true } : null;
   // A hook that was not run (an HTTP hook to an address allowedHttpHookUrls leaves out).
   if (run && typeof run.notRun === "string") return { kind: "error", json: null, text: "", reason: "", notice: run.notRun };
@@ -589,7 +596,7 @@ export function hookResult(event, run, hook = {}) {
   if (hook.type === "prompt" || hook.type === "agent") {
     if (run.timedOut) return { kind: "error", json: null, text: "", reason: "", notice: "Timed out" };
     if (!run || !run.verdict) return { kind: "error", json: null, text: "", reason: "", notice: String((run && run.error) || "The model gave no answer").slice(0, 300) };
-    return { kind: "ok", json: null, text: "", reason: "", notice: "", verdict: { ok: run.verdict.ok === true, reason: cap(String(run.verdict.reason || "")), impossible: run.verdict.impossible === true } };
+    return { kind: "ok", json: null, text: "", reason: "", notice: "", verdict: { ok: run.verdict.ok === true, reason: cap(String(run.verdict.reason || "")), impossible: hook.type === "prompt" && run.verdict.impossible === true } };
   }
   // AN MCP_TOOL HOOK (runMcpToolHook's run; Claude Code: "The tool's text output is treated like command-hook stdout", "If
   // the tool returns isError: true, the hook produces a non-blocking error and execution continues"): one that could not
@@ -630,13 +637,15 @@ export function hookResult(event, run, hook = {}) {
   }
   const text = json || bad ? "" : stdout;
   const firstErr = stderr.split("\n").map((l) => l.trim()).find(Boolean) || "";
+  // (Stop and TaskCompleted: exit 2, nothing on stdout and a missing file in stderr is a hook that never ran: non-blocking.)
+  if (code === 2 && (event === "Stop" || event === "TaskCompleted") && !stdout.trim() && /No such file or directory/i.test(stderr)) return { kind: "error", json: null, text: "", reason: "", notice: "Failed with non-blocking status code: " + firstErr };
   if (code === 2) return { kind: "block", json, text: "", reason: cap(stderr.trim()), notice: "" };
   if (bad) return fail("failed", notJson(bad)) || { kind: "error", json: null, text: "", reason: "", notice: notJson(bad) };
   // (An answer naming another event is no answer: Claude Code's hookEventName check.)
   const wrong = wrongEvent(event, json);
   if (wrong) return fail("failed", wrong) || { kind: "error", json: null, text: "", reason: "", notice: wrong };
   if (code !== 0) { const f = fail("failed", stderr.trim()); if (f) return f; }
-  if (code === 0 || json) return { kind: "ok", json, text: cap(text), reason: "", notice: "" };
+  if (code === 0 || json) return { kind: "ok", json, text: event === "PreCompact" ? text : cap(text), reason: "", notice: "" };
   return { kind: "error", json: null, text: "", reason: "", notice: "Failed with non-blocking status code: " + firstErr };
 }
 
@@ -679,7 +688,7 @@ export function plainOutputText(tool, v) {
 export const plainRewrite = (tool, value, opts = {}) => checkRewrite(tool, value, { ...opts, textOf: plainOutputText });
 export function hooksOutcome(event, runs, { tool = "", rewrite = null } = {}) {
   const label = event + (tool && TOOL_EVENTS.has(event) ? ":" + tool : "");
-  const out = { stop: null, decision: "", reason: "", endTurn: "", updatedInput: null, updatedInputs: [], updatedOutput: undefined, context: [], messages: [], notices: [], blocks: [], watchPaths: null, sessionTitle: "", retry: false, classifierContext: "" };
+  const out = { stop: null, decision: "", reason: "", endTurn: "", updatedInput: null, updatedInputs: [], updatedOutput: undefined, context: [], messages: [], notices: [], blocks: [], watchPaths: null, sessionTitle: "", suppressPrompt: false, retry: false, classifierContext: "" };
   const notes = [];
   let rewrites = 0, lastValue;
   // (StopFailure and SessionEnd: "Claude Code ignores the hook's output and exit code"; "discards their JSON output fields".)
@@ -702,7 +711,7 @@ export function hooksOutcome(event, runs, { tool = "", rewrite = null } = {}) {
       const err = hook.type === "agent" ? "Agent hook condition was not met: " + why : "[" + prompt + "]: " + why;
       const fromCommand = label + " hook blocking error from command: \"" + prompt + "\": " + err;
       const line = event === "PreToolUse" ? label + " hook error: " + err : event === "Stop" ? "Stop hook feedback:\n" + err : fromCommand;
-      if (event === "Stop") { if (!v.impossible) { out.decision = "block"; out.blocks.push(line); out.reason = out.reason || why; } }
+      if (event === "Stop") { if (!v.impossible || hook.type === "agent") { out.decision = "block"; out.blocks.push(line); out.reason = out.reason || why; } }
       else if (event === "PreToolUse") { out.decision = "deny"; out.reason = line; out.blocks.push(line); if (!goOn) out.endTurn = out.endTurn || why; }
       else if (event === "PostToolUse") { if (goOn) { out.decision = "block"; out.blocks.push(line); out.reason = out.reason || why; } else out.endTurn = out.endTurn || why; }
       else if (event === "PostToolUseFailure") { out.decision = "block"; out.blocks.push(line); out.reason = out.reason || why; }
@@ -716,22 +725,24 @@ export function hooksOutcome(event, runs, { tool = "", rewrite = null } = {}) {
     const spec = j.hookSpecificOutput && typeof j.hookSpecificOutput === "object" ? j.hookSpecificOutput : {};
     // (CwdChanged and FileChanged: "Claude Code reads watchPaths and systemMessage from their JSON output and discards continue".)
     const observe = event === "CwdChanged" || event === "FileChanged";
-    if (j.continue === false && !observe && event !== "Notification") out.stop = out.stop || { reason: typeof j.stopReason === "string" ? cap(j.stopReason) : "" };
-    if (typeof j.systemMessage === "string" && j.systemMessage.trim() && event !== "Notification") out.messages.push(cap(j.systemMessage));
+    const compact = event === "PreCompact" || event === "PostCompact";
+    if (j.continue === false && !observe && !compact && event !== "Notification") out.stop = out.stop || { reason: typeof j.stopReason === "string" ? cap(j.stopReason) : "" };
+    if (typeof j.systemMessage === "string" && j.systemMessage.trim() && !compact && event !== "Notification") out.messages.push(cap(j.systemMessage));
     const wp = Array.isArray(spec.watchPaths) ? spec.watchPaths : Array.isArray(j.watchPaths) ? j.watchPaths : null;
     if (wp && (event === "SessionStart" || observe)) out.watchPaths = [...(out.watchPaths || []), ...wp.filter((p) => typeof p === "string" && p.startsWith("/") && p.length < 4096)].slice(0, 200);
+    if (observe && result.kind === "block") { out.notices.push(label + " hook error: " + hookName(hook) + ": " + (result.reason || "No stderr output")); continue; }
     if (observe) continue;
     if (typeof spec.sessionTitle === "string" && spec.sessionTitle.trim() && (event === "SessionStart" || event === "UserPromptSubmit")) out.sessionTitle = spec.sessionTitle.trim().slice(0, 200);
     if (typeof spec.additionalContext === "string" && spec.additionalContext.trim()) out.context.push(cap(spec.additionalContext));
-    if (result.text && result.text.trim() && (event === "UserPromptSubmit" || event === "SessionStart" || event === "PreCompact")) out.context.push(cap(result.text.trim()));
+    if (result.text && result.text.trim() && (event === "UserPromptSubmit" || event === "SessionStart" || event === "PreCompact")) out.context.push(event === "PreCompact" ? result.text.trim() : cap(result.text.trim()));
     // A BLOCK IN CLAUDE CODE'S WORDS (2.1.322, tried in its command-line version on 2026-11-11, the owner: "yes copy all of
     // them"): its reason is the hook's own, "Blocked by hook" when it gave none; a block by exit 2 is "[command hook]: " and
     // the hook's stderr, "No stderr output" when it printed none. A PreToolUse block is "PreToolUse:Bash hook error: …";
     // another event's is "PostToolUse:Bash hook blocking error from command: "command hook": …"; a Stop hook's is "Stop hook
     // feedback:" and a new line, then for a JSON block that other line too, as Claude Code gives the model both.
     // (An mcp_tool hook that could not run on PreToolUse, `bare`: its words alone, as Claude Code gives them.)
-    const blockBy = (why) => {
-      const byExit = result.kind === "block" && result.bare !== true;
+    const blockBy = (why, byJson = false) => {
+      const byExit = result.kind === "block" && result.bare !== true && !byJson;
       const text = byExit ? hookName(hook) + ": " + (why || "No stderr output") : why || "Blocked by hook";
       const fromCommand = label + " hook blocking error from command: \"" + hookKind(hook) + "\": " + text;
       // (TaskCreated and TaskCompleted: "TaskCreated hook feedback:" and a new line, then the same words. 2026-11-14.)
@@ -745,8 +756,9 @@ export function hooksOutcome(event, runs, { tool = "", rewrite = null } = {}) {
       if (d === "defer") d = "";
       if (result.kind === "block") d = "deny";
       const why = typeof spec.permissionDecisionReason === "string" ? spec.permissionDecisionReason : typeof j.reason === "string" ? j.reason : "";
-      // (Exit 2: its stderr alone, as Claude Code, which reads no JSON from a hook that exits 2.)
-      if (d === "deny") blockBy(result.kind === "block" ? result.reason : why);
+      // (Exit 2: its stderr, unless its JSON also denies with a reason: Claude Code then "uses that decision's reason instead".)
+      const jsonDeny = result.kind === "block" && (spec.permissionDecision === "deny" || j.decision === "block") && why.trim() !== "";
+      if (d === "deny") blockBy(result.kind === "block" && !jsonDeny ? result.reason : jsonDeny ? cap(why) : why, jsonDeny);
       if (rank[d] !== undefined && rank[d] > rank[out.decision]) { out.decision = d; out.reason = d === "deny" ? out.blocks[out.blocks.length - 1] : cap(why); }
       // (Each hook's new input, checked in turn by Coder's loop as Claude Code checks one, coder-hookcheck.mjs; the last one is
       // the input. None with "deny"; none with "defer" either: Claude Code's "For "defer", ignored".)
@@ -778,11 +790,15 @@ export function hooksOutcome(event, runs, { tool = "", rewrite = null } = {}) {
     if (event === "PostToolUse" && typeof spec.classifierContext === "string" && spec.classifierContext.trim()) notes.push({ text: spec.classifierContext.trim(), rewrite });
     // A BLOCK: exit 2, or decision "block" (UserPromptSubmit, PostToolUse, PostToolUseFailure, PostToolBatch, Stop, PreCompact).
     if (result.kind === "block" || j.decision === "block") {
-      const why = result.kind === "block" ? result.reason : typeof j.reason === "string" && j.reason.trim() ? cap(j.reason) : result.reason;
+      if (event === "UserPromptSubmit" && spec.suppressOriginalPrompt === true) out.suppressPrompt = true;
+      // (A JSON block's own reason wins over exit 2's stderr: Claude Code's "If your hook also printed JSON that makes a
+      // blocking decision, Claude Code uses that decision's reason instead".)
+      const jsonWhy = j.decision === "block" && typeof j.reason === "string" && j.reason.trim() ? cap(j.reason) : "";
+      const why = jsonWhy ? jsonWhy : result.kind === "block" ? result.reason : typeof j.reason === "string" && j.reason.trim() ? cap(j.reason) : result.reason;
       if (event === "SessionStart" || event === "PostCompact") { if (result.kind === "block") out.notices.push(label + " hook error: " + hookName(hook) + ": " + (result.reason || "No stderr output")); continue; }
       if (event === "Notification") continue;
       out.decision = "block";
-      blockBy(why);
+      blockBy(why, !!jsonWhy);
       out.reason = out.reason || why;
     }
   }
@@ -833,7 +849,9 @@ export function hookPrompt(prompt, input) {
   return used ? out : out + "\n\n" + json;
 }
 /** The instructions a prompt or agent hook's model answers by (Claude Code's response schema). */
-export const HOOK_JUDGE = "You check one moment of an AI coding agent's work for its owner, by the owner's rule below. Answer with one JSON object and nothing else: {\"ok\": true} when the rule allows it or the condition holds, or {\"ok\": false, \"reason\": \"<one or two sentences>\"} when it does not" + ", adding \"impossible\": true when the condition can never be met.";
+export const HOOK_JUDGE_AGENT = "You check one moment of an AI coding agent's work for its owner, by the owner's rule below. Answer with one JSON object and nothing else: {\"ok\": true} when the rule allows it or the condition holds, or {\"ok\": false, \"reason\": \"<one or two sentences>\"} when it does not.";
+/** (Only a prompt hook may answer "impossible": Claude Code's "Agent hooks and other events ignore it".) */
+export const HOOK_JUDGE = HOOK_JUDGE_AGENT.slice(0, -1) + ", adding \"impossible\": true when the condition can never be met.";
 /** A prompt or agent hook's answer read: `{ ok, reason, impossible }`, or null when it isn't one. */
 export function parseHookVerdict(text) {
   const t = String(text || "");
@@ -853,13 +871,13 @@ export function httpUrlAllowed(url, patterns) {
 }
 
 /**
- * A MODEL ERROR'S KIND, as StopFailure hooks match it (Claude Code: "rate_limit, overloaded, authentication_failed,
- * billing_error, invalid_request, model_not_found, server_error, max_output_tokens, unknown"), from its HTTP status.
+ * A MODEL ERROR'S KIND, as StopFailure hooks match it (Claude Code: "rate_limit, authentication_failed, …,
+ * billing_error, invalid_request, model_not_found, server_error, max_output_tokens, … unknown"; "For an HTTP 529 overloaded
+ * response, the value is server_error"), from its HTTP status.
  */
 export function stopFailureKind(e) {
   const st = Number(e && e.status) || Number((/\b(\d{3})\b/.exec(String((e && e.message) || "")) || [])[1]) || 0;
   if (st === 429) return "rate_limit";
-  if (st === 529 || st === 503) return "overloaded";
   if (st === 401 || st === 403) return "authentication_failed";
   if (st === 402) return "billing_error";
   if (st === 404) return "model_not_found";

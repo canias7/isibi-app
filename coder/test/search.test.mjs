@@ -399,7 +399,7 @@ test("SR11 an agent hook's own grep and glob (read, grep and glob only, under th
   const r = await A.runCoder({
     send: async (req) => {
       const sys = String((req.messages[0] && req.messages[0].content) || "");
-      if (sys.startsWith(H.HOOK_JUDGE)) { judged.push(req); return judged.length === 1 ? say("", [call("grep", { pattern: "TODO" }, "h1"), call("glob", { pattern: "**/*.md" }, "h2")]) : say('{"ok": true}'); }
+      if (sys.startsWith(H.HOOK_JUDGE) || sys.startsWith(H.HOOK_JUDGE_AGENT)) { judged.push(req); return judged.length === 1 ? say("", [call("grep", { pattern: "TODO" }, "h1"), call("glob", { pattern: "**/*.md" }, "h2")]) : say('{"ok": true}'); }
       return steps[Math.min(n++, steps.length - 1)];
     },
     exec: async (x) => {

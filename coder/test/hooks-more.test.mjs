@@ -104,7 +104,7 @@ test("CD384 Claude Code's other hook kinds and fields, as it reads them: http, p
   // ALLOWEDHTTPHOOKURLS: * a wildcard, the host's case and its final dot ignored; an empty list blocks all; none set allows all.
   assert.deepEqual([H.httpUrlAllowed("https://HOOKS.example.com./a", ["https://hooks.example.com/*"]), H.httpUrlAllowed("http://localhost:8080/x", ["http://localhost:*"]), H.httpUrlAllowed("https://evil.example/", ["https://hooks.example.com/*"]), H.httpUrlAllowed("https://a.b/", []), H.httpUrlAllowed("https://a.b/", undefined)], [true, true, false, false, true]);
   // STOPFAILURE'S KINDS.
-  assert.deepEqual([429, 503, 401, 402, 404, 400, 500, 0].map((status) => H.stopFailureKind({ status })), ["rate_limit", "overloaded", "authentication_failed", "billing_error", "model_not_found", "invalid_request", "server_error", "unknown"]);
+  assert.deepEqual([429, 503, 529, 401, 402, 404, 400, 500, 0].map((status) => H.stopFailureKind({ status })), ["rate_limit", "server_error", "server_error", "authentication_failed", "billing_error", "model_not_found", "invalid_request", "server_error", "unknown"]);
   // A COMMAND HOOK'S SHELL: exec form quoted word by word; its output split at its mark, Coder's own end line left out.
   assert.match(H.hookShell({ command: "/x/check.sh", args: ["a b", "it's"] }, "<<m>>", "/w"), /\(\n'\/x\/check\.sh' 'a b' 'it'\\''s'\n\)/);
   assert.match(H.hookShell({ command: "x" }, "<<m>>", "/w"), /if \[ -n "\$\{CLAUDE_ENV_FILE:-\}" \]; then mkdir -p "\$\{CLAUDE_ENV_FILE%\/\*\}" 2>\/dev\/null; fi; export CLAUDE_PROJECT_DIR='\/w'/);
@@ -120,7 +120,7 @@ async function loop(steps, hooks, { judge = () => say('{"ok": true}'), checkerSa
   const r = await runCoder({
     send: async (req) => {
       const sys = String((req.messages[0] && req.messages[0].content) || "");
-      if (sys.startsWith(H.HOOK_JUDGE)) { judged.push(req); return await judge(req, judged.length); }
+      if (sys.startsWith(H.HOOK_JUDGE) || sys.startsWith(H.HOOK_JUDGE_AGENT)) { judged.push(req); return await judge(req, judged.length); }
       if (/^You are the safety checker/.test(sys)) { checks.push(req); const v = checkerSays(req); if (v instanceof Error) throw v; return { message: { role: "assistant", content: v }, usage: { in: 2, out: 1 } }; }
       seen.push(req);
       const s = steps[Math.min(n++, steps.length - 1)];

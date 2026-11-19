@@ -49,7 +49,7 @@ import { withMcpServer } from "./coder-hooks.mjs";
 import { TOOL_SEARCH, TOOL_SEARCH_TOOL, isDeferred, decideToolSearch, toolSearchRecord, requestTools, upfrontTools, upfrontRecord, entryName, sameTools, announcement, runToolSearch, notLoadedHint, toolSearchAnswer, stillListed, retracts, isMcpName, mcpParts, mcpDescMaxOf, XAI_TOOLS_MAX, lockTools, heldBackRefusal } from "./coder-toolsearch.mjs";
 import { PARK_MS, PARKED_SUMMARY, STEP_SITES, Parked, parkRecord, parkAnswer, parkedRound, closeParked, keptCall, siteOfCard, wordsAfterResults } from "./coder-park.mjs";
 import { askedCall, untilBackground, serverOf, cardAnswer, cardEnding, elicitHookVerdict, elicitHookAnswer, afterResultHooks, elicitReply, responseNotice, completeNotice, toolDisplayName } from "./coder-elicit.mjs";
-import { HOOK_EVENTS, STOP_BLOCK_CAP, ENV_FILE_EVENTS, GATING_EVENTS, AGENT_HOOK_TURNS, HOOK_JUDGE, hooksFor, hookInput, hookResult, hookResultSafe, persistHookText, hooksOutcome, ccTool, hookToolInput, toolInputFromHook, givenPathKept, hookAnswers, answeredText, hookName, hookNoteText, hookPrompt, parseHookVerdict, httpUrlAllowed, asyncHookTexts, watchedNames, stopFailureKind, hookShell, splitHookOut, asBashInput, withoutGrant, ruleEntry, entryRule, runMcpToolHook } from "./coder-hooks.mjs";
+import { HOOK_EVENTS, STOP_BLOCK_CAP, ENV_FILE_EVENTS, GATING_EVENTS, AGENT_HOOK_TURNS, HOOK_JUDGE, HOOK_JUDGE_AGENT, hooksFor, hookInput, hookResult, hookResultSafe, persistHookText, hooksOutcome, ccTool, hookToolInput, toolInputFromHook, givenPathKept, hookAnswers, answeredText, hookName, hookNoteText, hookPrompt, parseHookVerdict, httpUrlAllowed, asyncHookTexts, watchedNames, stopFailureKind, hookShell, splitHookOut, asBashInput, withoutGrant, ruleEntry, entryRule, runMcpToolHook } from "./coder-hooks.mjs";
 /** A word for the shell, in single quotes. */
 import { capHit } from "./coder-scrub.mjs";
 import { secretsIn } from "./coder-secretscan.mjs";
@@ -2644,7 +2644,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   const HOOK_TOOLS = ["read", "grep", "glob"];
   const agentHook = async (ask) => {
     const tools = chatTools.filter((t) => t && t.function && HOOK_TOOLS.includes(t.function.name));
-    const msgs = [{ role: "system", content: HOOK_JUDGE + " You may first look at the project with read, grep and glob (they only read)." }, { role: "user", content: ask }];
+    const msgs = [{ role: "system", content: HOOK_JUDGE_AGENT + " You may first look at the project with read, grep and glob (they only read)." }, { role: "user", content: ask }];
     for (let turn = 0; turn < AGENT_HOOK_TURNS; turn++) {
       let r;
       try { r = await deps.send({ model, effort: "low", webSearch: false, tools, tool_choice: "auto", messages: msgs }); }
@@ -3505,7 +3505,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     if (up && (up.stop || up.decision === "block")) {
       emit({ type: opening === "note" ? "note" : "user", text: typed, ...(pics.length ? { images: pics.length } : {}), ...(Array.isArray(attached) && attached.length ? { files: attached.slice(0, 10).map((f) => ({ id: String(f.id || ""), name: plain(String(f.name || "")).slice(0, 120), size: Number(f.size) || 0 })) } : {}) });
       const why = up.stop ? up.stop.reason : up.reason;
-      emit({ type: "note", text: "UserPromptSubmit operation blocked by hook:\n" + scrub(String(why || "")).slice(0, 2000) + "\n\nOriginal prompt: " + typed.slice(0, 2000), hook: "UserPromptSubmit" });
+      emit({ type: "note", text: "UserPromptSubmit operation blocked by hook:\n" + scrub(String(why || "")).slice(0, 2000) + (up.suppressPrompt ? "" : "\n\nOriginal prompt: " + typed.slice(0, 2000)), hook: "UserPromptSubmit" });
       promptBlocked = why || "";
     } else {
       // (A picture too small for Grok goes enlarged, or not at all, with a note: fitOwnerPics.)
@@ -3945,8 +3945,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     // (custom_instructions: what the owner passed, or null when nothing, as Claude Code's; each hook's output cut at 10,000
     // characters for the summary, as its own is.)
     const preC = hookList.length ? await runHooks("PreCompact", "manual", { trigger: "manual", custom_instructions: offered ? focus : focus || null }) : null;
-    if (preC && (preC.decision === "block" || preC.stop)) {
-      emit({ type: "note", text: scrub("A PreCompact hook kept the conversation from being summarized: " + String(preC.reason || (preC.stop && preC.stop.reason) || "")).slice(0, 600), hook: "PreCompact" });
+    if (preC && preC.decision === "block") {
+      emit({ type: "note", text: scrub("A PreCompact hook kept the conversation from being summarized: " + String(preC.reason || "")).slice(0, 600), hook: "PreCompact" });
       return end("done", { compact: { done: false } });
     }
     // (Gloopy's as before.)
