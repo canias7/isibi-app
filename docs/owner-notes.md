@@ -4,6 +4,25 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-19: Claude Code fixes, batch 5
+
+- Five of ten audit items fixed, each with a test. Gloopy, connectors and MCP were not touched. Not deployed and not merged yet.
+- **/compact on a very short chat** (one message, with or without its answer) now says "Not enough messages to compact." as Claude Code does, and makes no paid summary.
+- **Up to 100 files** named with @ in a message are now read (it was 10), like Claude Code. They still share one read's worth of text.
+- **A suggested next message that is only a tag** (like `<none/>`) is no longer shown under the box.
+- **Stopping a very long background command** now shows Grok only its start and end, to save room.
+- **A hook's rule changes** are now limited to the place the hook names, so the owner's own rules stay in force.
+- Left for later: chat titles made by Grok (needs the owner's yes for the extra call), Coder reading its own help page, limiting re-reads of the same picture, cancelling slow model hooks at their time limit, and Stop hooks running twice after file changes.
+
+## 2026-11-19: Claude Code fixes, batch 4
+
+- Four of ten audit items fixed, each with a test. Gloopy, connectors and MCP were not touched. Not deployed and not merged yet.
+- **When a call to Grok fails, the chat now says what kind of failure it was**, in Claude Code's words: a server problem ("usually temporary, try again in a moment"), too busy, too many requests, timed out, or a refused request. "Could not be reached" is now only for a real connection failure.
+- **When a too-long chat can't be shortened**, the error now says why the shortening failed, as Claude Code does.
+- **A repository set to start in Plan mode** now starts in Plan even when Auto mode is turned off (it used to start in Accept edits).
+- **Very long, unusual commands** no longer keep the chat's machine busy for seconds: a command over 10,000 characters goes straight to its question card, and a few slow checks were made fast.
+- Left for a later batch: Stop hooks running twice after file changes, background start hooks repeating their text, a chat-wide limit on prompt and agent hooks, a switch for @-mentioned files, protected-file edits in Auto, and the Auto checker reading the whole instruction file.
+
 ## 2026-11-19: Claude Code fixes, batch 3
 
 - Nine of ten audit items fixed, each with a test. Gloopy, connectors and MCP were not touched. Not deployed and not merged yet.

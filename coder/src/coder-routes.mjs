@@ -148,7 +148,7 @@ import { scanCard } from "./gloopy-cardscan.mjs";
 import { readLogins, saveLogin, editLogin, importLogins, removeLogin, loginList, loginFor, loginSite, LOGINS_MAX, readCards, saveCard, editCard, removeCard, cardList, cardLabel, cardBrand, checkCard, cardFor, cardsForTurn, CARDS_MAX, readContacts, saveContact, editContact, removeContact, contactList, CONTACTS_MAX } from "./gloopy-vault.mjs";
 import { cleanSchedule, checkSchedule, whenLocal, whenWords, cleanWebhook, HOOK_ID, okZone } from "../container/gloopy-schedule.mjs";
 import { summarize, compactHistory, marksAfter, COMPACT_HISTORY_AT, CODER_COMPACT_SAFETY } from "./coder-summary.mjs";
-import { summaryMessage, filesTouched } from "../container/coder-compact.mjs";
+import { summaryMessage, filesTouched, tooShortToCompact, TOO_SHORT_TO_COMPACT } from "../container/coder-compact.mjs";
 import { egressPass, machineKeyRules, EGRESS_PATH, sendHeld, dropHeld } from "./coder-egress.mjs";
 import { keepBackup, readBackup, forgetSite, WORK_MAX, BROWSER_MAX } from "./gloopy-backup.mjs";
 import { watchJob, watchKey, watchBackground, WATCH_PREFIX } from "./coder-watch.mjs";
@@ -288,7 +288,7 @@ function tidyPath(p) {
 /** @path mentions in a message, as a note for Coder. */
 export function fileMentions(text) {
   // The same paths Coder's machine reads into the message (mentionedPaths in container/coder-agent.mjs); "@src/" is a folder.
-  const paths = [...new Set([...String(text).matchAll(/(?:^|\s)@([\w.()\[\]+~@,/-]+\.\w+|[\w()\[\]+~@,-]+\/[\w.()\[\]+~@,/-]*)/g)].map((m) => tidyPath(m[1])).filter((p) => p && !p.split("/").includes("..")))].slice(0, 20);
+  const paths = [...new Set([...String(text).matchAll(/(?:^|\s)@([\w.()\[\]+~@,/-]+\.\w+|[\w()\[\]+~@,-]+\/[\w.()\[\]+~@,/-]*)/g)].map((m) => tidyPath(m[1])).filter((p) => p && !p.split("/").includes("..")))].slice(0, 100);
   return paths.length ? "\n\n(The owner pointed at these files: " + paths.join(", ") + ".)" : "";
 }
 // SEVERAL CHATS AT ONCE (owner, 2026-11-05: "no limit"): each chat has its own
@@ -1599,7 +1599,7 @@ export async function handleCoder(request, env, ctx, deps) {
       const compactJob = compact && !notes && !pics.images.length ? { focus: String(compact[1] || "").replace(/\s+/g, " ").trim().slice(0, 300) } : null;
       if (compactJob) {
         const msgs = await getJson(bucket, keyOf(uid, id, "messages.json"), []);
-        if (!Array.isArray(msgs) || !msgs.length) return json({ error: "There is nothing to summarize yet." }, 400);
+        if (tooShortToCompact(msgs)) return json({ error: TOO_SHORT_TO_COMPACT }, 400);
       }
       // MARKED AS STARTING FIRST (Gloopy's fix, 2026-11-12): what follows can take a while (the GitHub sign-in, a long chat's
       // summary, the environment), and another message meanwhile waits in the queue. Any way this start ends without Coder's

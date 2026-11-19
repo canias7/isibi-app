@@ -332,7 +332,7 @@ test("CD532 the owner's /compact runs on the chat's machine with its hooks, as C
   const H = await import("../container/coder-hooks.mjs");
   const K = await import("../container/coder-compact.mjs");
   const call = (name, args, id) => ({ id, type: "function", function: { name, arguments: JSON.stringify(args) } });
-  const history = [{ role: "user", content: "fix the totals" }, { role: "assistant", content: "", tool_calls: [call("read", { path: "src/totals.js" }, "r1")] }, { role: "tool", tool_call_id: "r1", content: "…" }, { role: "assistant", content: "Fixed." }];
+  const history = [{ role: "user", content: "fix the totals" }, { role: "assistant", content: "", tool_calls: [call("read", { path: "src/totals.js" }, "r1")] }, { role: "tool", tool_call_id: "r1", content: "…" }, { role: "assistant", content: "Fixed." }, { role: "user", content: "thanks" }, { role: "assistant", content: "Done." }];
   const run = async ({ hooks = {}, hookRun = () => ({}), answer = "THE SUMMARY", focus = "keep the API notes", messages = history } = {}) => {
     const events = [], seen = [], hookCalls = [];
     const r = await runCoder({
@@ -367,7 +367,7 @@ test("CD532 the owner's /compact runs on the chat's machine with its hooks, as C
   assert.equal(t.r.messages[0].content, K.COMPACT_LEAD + "\n\nSummary:\nTHE SUMMARY\n\n(Note from Coder's app, not the owner: SessionStart hook additional context: Reminder: run pnpm test.)");
   assert.equal(t.r.messages[0].summaryOf, "the conversation before the owner's /compact, focused on: keep the API notes");
   assert.deepEqual(t.r.messages[0].reread, ["src/totals.js"], "the files it worked on, read again by the next job");
-  assert.deepEqual(t.r.compact, { done: true, from: 0, to: 4 });
+  assert.deepEqual(t.r.compact, { done: true, from: 0, to: 6 });
   assert.deepEqual(t.events.map((e) => e.type), ["user", "note"]);
   assert.equal(t.events[0].text, "/compact keep the API notes");
   // (Claude Code's compact boundary, "Conversation compacted", since 2026-11-14.)
@@ -391,6 +391,10 @@ test("CD532 the owner's /compact runs on the chat's machine with its hooks, as C
   assert.ok(t.events.some((e) => e.type === "error" && e.text === "The summary could not be made. Try again in a minute."));
   // Nothing to summarize.
   t = await run({ messages: [] });
+  assert.deepEqual([t.seen.length, t.r.compact.done], [0, false]);
+  // A single exchange: Claude Code's "Not enough messages to compact.", no paid summary.
+  t = await run({ messages: history.slice(0, 4) });
+  assert.ok(t.events.some((e) => e.type === "note" && e.text === "Not enough messages to compact."));
   assert.deepEqual([t.seen.length, t.r.compact.done], [0, false]);
 });
 

@@ -455,3 +455,10 @@ export function turnCut(messages, keepTurns = 3) {
   if (owner.length <= keepTurns) return -1;
   return owner[owner.length - keepTurns];
 }
+
+// TOO SHORT TO COMPACT (Claude Code's /compact: "Not enough messages to compact." when the conversation is a single
+// exchange, one prompt with or without its reply, with nothing earlier to summarize). No paid summary is made then.
+export const TOO_SHORT_TO_COMPACT = "Not enough messages to compact.";
+export function tooShortToCompact(msgs) {
+  return !Array.isArray(msgs) || msgs.filter((m) => m && m.role === "user").length <= 1;
+}

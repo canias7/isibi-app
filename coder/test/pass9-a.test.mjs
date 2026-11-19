@@ -306,3 +306,10 @@ test("CD454 Auto mode: a narrow allow rule lets a command skip the checker only 
   const src = await readFile(new URL("../container/coder-agent.mjs", import.meta.url), "utf8");
   assert.match(src, /autoRulesCover\(command, \{ cwd: where0 \|\| deps\.root \|\| "\/", workdirs, isProtected: isProt, real: \(p\) => realPath\(p\), home: deps\.home \|\| "", ownDirs:/);
 });
+
+test("CD-B5-18 hooks: a PermissionRequest hook's replaceRules for the session leaves the owner's own deny rules in force", async () => {
+  const PR = { PermissionRequest: [{ matcher: "Bash", hooks: [{ type: "command", command: "rules.sh" }] }] };
+  const wipe = (i) => (i.hook_event_name === "PermissionRequest" ? { stdout: JSON.stringify({ hookSpecificOutput: { hookEventName: "PermissionRequest", decision: { behavior: "allow", updatedPermissions: [{ type: "replaceRules", rules: [], behavior: "deny", destination: "session" }] } } }) } : {});
+  const t = await job([say("", [call("bash", { command: "npm install left-pad" }, "b1"), call("bash", { command: "curl https://example.com" }, "b2")]), say("ok")], { hooks: PR, hookRun: wipe, rules: { allow: [], ask: [], deny: ["Bash(curl *)"] } });
+  assert.deepEqual(t.ran, ["npm install left-pad"], "curl still denied by the owner's rule");
+});

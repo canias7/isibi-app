@@ -59,8 +59,14 @@ export function textReasons(source) {
   if (/~\[/.test(s)) out.push("Contains zsh ~[ dynamic directory syntax");
   if (/(?:^|[\s;&|])=[a-zA-Z_]/.test(s)) out.push("Contains zsh =cmd equals expansion");
   if (/<\d*-\d*>/.test(s)) out.push("Contains zsh <N-M> numeric-range glob");
-  if (/\{[^}]*['"]/.test(quotedBracesBlanked(s))) out.push("Contains brace with quote character (expansion obfuscation)");
+  if (braceThenQuote(quotedBracesBlanked(s))) out.push("Contains brace with quote character (expansion obfuscation)");
   return out;
+}
+/** /\{[^}]*['"]/ in one pass (the pattern rescans from each "{", seconds on a long run of them). */
+function braceThenQuote(t) {
+  let open = false;
+  for (const ch of t) { if (ch === "{") open = true; else if (ch === "}") open = false; else if (open && (ch === "'" || ch === '"')) return true; }
+  return false;
 }
 /**
  * CLAUDE CODE'S REASONS FOR BRACKETS AND QUOTED WORDS (2.1.322, tried in its command-line version on 2026-11-11). Each
@@ -265,7 +271,7 @@ export function parseShell(source, { scriptDepth = 0, nest = 0 } = {}) {
       if (ch === "[" && s.indexOf("]", i + 1) > i) glob = true;
       // A BRACE EXPANSION stands for several words: `{a,b}` (Claude Code: "Brace expansion") or `{1..3}` (its "A brace
       // pattern …"); either asks.
-      if (ch === "{" && /^\{[^{}\s]*,[^{}\s]*\}/.test(s.slice(i))) { glob = true; noteComplex(BRACE_EXPANSION); }
+      if (ch === "{" && /^\{[^{}\s,]*,[^{}\s]*\}/.test(s.slice(i))) { glob = true; noteComplex(BRACE_EXPANSION); }
       else if (ch === "{" && /^\{[^{}\s,]*\.\.[^{}\s,]*\}/.test(s.slice(i))) { glob = true; noteComplex(BRACE_PATTERN); }
       text += ch; varOnly = false; i++; parts++;
     }

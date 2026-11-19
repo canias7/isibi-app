@@ -446,7 +446,7 @@ export function commandReadOnly(cmd) {
   const rest = w.slice(1);
   // No expansion (Claude Code: an argument with `$` is never read-only) or brace expansion; a glob only where allowed.
   if (rest.some((x) => x.expand || x.subst)) return false;
-  if (rest.some((x) => !x.quoted && /\{[^{}\s]*(,|\.\.)[^{}\s]*\}/.test(x.raw))) return false;
+  if (rest.some((x) => !x.quoted && /\{[^{}\s,]*(,|\.\.)[^{}\s]*\}/.test(x.raw))) return false;
   if (rest.some((x) => x.glob) && !GLOB_OK.has(prog)) return false;
   const args = rest.map((x) => x.text), line = w.map((x) => x.text).join(" "), raw = w.map((x) => x.raw).join(" ");
   if (NO_ARGS.has(prog)) return !args.length;

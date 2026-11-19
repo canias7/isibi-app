@@ -299,7 +299,7 @@ test("CD209 @-mentioned files go into the message, like Claude Code's @ (\"inclu
   const ask = "look at @src/app.js, @shot.png and @src/ then @big.log and @mid.txt. Also npm i @types/node, mail me@x.y, and @../etc/passwd";
   assert.deepEqual(mentionedPaths(ask), ["src/app.js", "shot.png", "src/", "big.log", "mid.txt", "types/node"]);
   assert.equal(fileMentions(ask), "\n\n(The owner pointed at these files: src/app.js, shot.png, src/, big.log, mid.txt, types/node.)");
-  assert.equal(mentionedPaths(Array.from({ length: 15 }, (_, i) => "@f" + i + ".js").join(" ")).length, MENTIONS_MAX);
+  assert.equal(mentionedPaths(Array.from({ length: 120 }, (_, i) => "@f" + i + ".js").join(" ")).length, MENTIONS_MAX);
   // Real paths with ( ) [ ] (Next.js routes); a plain word (a person on GitHub, @coder) is not a path.
   const next = "see @app/(auth)/login/page.tsx, @pages/[id].tsx and @node_modules/@types/node/index.d.ts (and @lib/), hi @coder";
   assert.deepEqual(mentionedPaths(next), ["app/(auth)/login/page.tsx", "pages/[id].tsx", "node_modules/@types/node/index.d.ts", "lib/"]);

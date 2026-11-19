@@ -20,10 +20,10 @@
 // The conversation is kept in the OpenAI chat shape (`messages`, with
 // `tool_calls` and `tool` answers), which Grok speaks natively; the next
 // message continues from the same messages.
-import { summaryRequest, summaryMessage, cutPoint, isSummary, viewedFile, filesTouched, compactSettings, compactLimits, compactLevel, conversationTokens, COMPACT_FAILURES_MAX, REFILL_TURNS, REFILL_TIMES, PRECOMPACT_OUTPUT_MAX, CHARS_PER_TOKEN, COMPACTED_SHOWN, THRASHING, contextLimitShown, compactPrompt, summaryText, dropOldestRounds, tokenGap, COMPACT_PTL_RETRIES, COMPACT_TOO_LONG } from "./coder-compact.mjs";
+import { summaryRequest, summaryMessage, cutPoint, isSummary, viewedFile, filesTouched, compactSettings, compactLimits, compactLevel, conversationTokens, COMPACT_FAILURES_MAX, REFILL_TURNS, REFILL_TIMES, PRECOMPACT_OUTPUT_MAX, CHARS_PER_TOKEN, COMPACTED_SHOWN, THRASHING, contextLimitShown, compactPrompt, summaryText, dropOldestRounds, tokenGap, COMPACT_PTL_RETRIES, COMPACT_TOO_LONG, tooShortToCompact, TOO_SHORT_TO_COMPACT } from "./coder-compact.mjs";
 // A command that views one file counts as reading it (moved to coder-compact.mjs, which the Worker uses too).
 export { viewedFile };
-import { retryLine, modelWindow } from "./coder-model.mjs";
+import { retryLine, apiErrorText, modelWindow } from "./coder-model.mjs";
 import { commandProblem, capOutput, readTimeout, scrub, splitSetup, MAX_OUTPUT_CHARS, MAX_COMMAND_CHARS, MAX_TIMEOUT_S, DEFAULT_TIMEOUT_S, bashResultText, BASH_INLINE_MAX, BASH_READ_BACK, ccDuration, secretVar } from "./coder-checks.mjs";
 import { SLEEP_BLOCK_S, exitMeaning, sleepBlocked, leadsWithSleep, writeTargets, dangerousRm, realPath, leadsTo, pathExists, RM_UNCHECKED } from "./coder-bashcheck.mjs";
 import { textReasons } from "./coder-shell.mjs";
@@ -308,7 +308,7 @@ export const BROWSER_STEP = { verb: (a) => ({ open: "Opened", look: "Looked at",
  * instructions. A file that is not there (a package name like @types/node, say) is left alone. At most MENTIONS_MAX
  * files a message, and MENTIONS_CHARS of them in all (one read's worth).
  */
-export const MENTIONS_MAX = 10, MENTIONS_CHARS = READ_CHARS;
+export const MENTIONS_MAX = 100, MENTIONS_CHARS = READ_CHARS;
 /** The paths a message @-mentions: the Worker's fileMentions finds the same ones (and names them in a note). */
 export function mentionedPaths(text) {
   // Letters, digits and . _ - / plus the ( ) [ ] + ~ @ , that real paths have (Next.js's app/(auth)/page.tsx, pages/[id].tsx).
@@ -1706,8 +1706,15 @@ export async function nextPromptFor(ask, usage = null) {
   if (r && r.usage && Array.isArray(usage)) usage.push(r.usage);
   let t = String((r && r.message && r.message.content) || "").replace(/<\/?next-prompt>/gi, "").split("\n").map((x) => x.trim()).filter(Boolean)[0] || "";
   t = t.replace(/^["“'`]+|["”'`]+$/g, "").trim();
-  if (!t || /^none\.?$/i.test(t) || t.length > 160 || (r && r.message && Array.isArray(r.message.tool_calls) && r.message.tool_calls.length)) return "";
+  if (!t || /^none\.?$/i.test(t) || /^<[^<>]*>$/.test(t) || t.length > 160 || (r && r.message && Array.isArray(r.message.tool_calls) && r.message.tool_calls.length)) return "";
   return t;
+}
+/** A long command shown back to Grok: over 1,000 characters, only its start and its end (Claude Code 2.1.321's TaskStop). */
+export function commandEnds(c, max = 1000) {
+  const s = String(c || "");
+  if (s.length <= max) return s;
+  const half = Math.floor((max - 40) / 2);
+  return s.slice(0, half) + "\n… [" + (s.length - 2 * half) + " characters cut] …\n" + s.slice(-half);
 }
 /** A final answer with its hidden suggestion taken off: `{ text, next }`. */
 export function splitSuggest(said) {
@@ -2142,8 +2149,9 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   // THE REPOSITORY'S STARTING MODE (its .claude/settings.json permissions.defaultMode; Claude Code's cloud sessions honor
   // "only acceptEdits, plan, default, and auto from this key", and auto not from a project's file): "plan" starts a new
   // chat in Plan.
-  if (startMode === "plan" && !github && !(Array.isArray(messages) && messages.length) && normMode(mode) !== "plan") { setMode("plan", "settings"); emit({ type: "note", text: "This repository's settings (.claude/settings.json, defaultMode) start chats in Plan mode." }); }
-  if (autoOff === true && !github && normMode(mode) === "auto") { setMode("acceptEdits", "autoOff"); emit({ type: "note", text: "Auto mode is turned off, so this chat works in Accept edits." }); }
+  let startedPlan = false;
+  if (startMode === "plan" && !github && !(Array.isArray(messages) && messages.length) && normMode(mode) !== "plan") { startedPlan = true; setMode("plan", "settings"); emit({ type: "note", text: "This repository's settings (.claude/settings.json, defaultMode) start chats in Plan mode." }); }
+  if (autoOff === true && !github && !startedPlan && normMode(mode) === "auto") { setMode("acceptEdits", "autoOff"); emit({ type: "note", text: "Auto mode is turned off, so this chat works in Accept edits." }); }
   const ownRules = { allow: [], ask: [], deny: [] };
   for (const k of ["allow", "ask", "deny"]) for (const r of Array.isArray(rules && rules[k]) ? rules[k].slice(0, 200) : []) if (typeof r === "string" && r.length <= RULE_MAX + 20 && parseRule(r)) ownRules[k].push(r);
   // (Which settings each deny and ask rule came from, the owner's or the repository's, for a `!` file rule: rulesSources.)
@@ -2246,7 +2254,9 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       const kind = ["allow", "deny", "ask"].includes(u.behavior) ? u.behavior : "";
       if (!kind) continue;
       const list0 = (Array.isArray(u.rules) ? u.rules : []).map(entryRule).filter((r) => r && r.length <= RULE_MAX && parseRule(r));
-      if (u.type === "replaceRules") { ownRules[kind].splice(0); if (u.destination === "session") hookSession[kind].splice(0); }
+      // replaceRules replaces only the rules at the place it names (Claude Code's: "Replaces all rules of the given behavior at
+      // the destination"): the session's, or those hooks saved earlier; never the owner's saved rules or the repository's.
+      if (u.type === "replaceRules") { const from = u.destination === "session" || kind === "allow" ? hookSession[kind] : hookSaved[kind] || []; for (const r of from) { const k = ownRules[kind].indexOf(r); if (k >= 0) ownRules[kind].splice(k, 1); } from.splice(0); }
       for (const r of list0) {
         if (u.type === "removeRules") { const k = ownRules[kind].indexOf(r); if (k >= 0) ownRules[kind].splice(k, 1); for (const l of [hookSession[kind], hookSaved[kind] || []]) { const j = l.indexOf(r); if (j >= 0) l.splice(j, 1); } continue; }
         if (kind === "allow" && u.destination !== "session") addRule(r);
@@ -3649,11 +3659,13 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
    * out and sent again, up to 3 times (`headCut`); after that, `tooLong`. Failed otherwise, or a reply with no words: Coder's own
    * plain-text summary request instead (`asks` its focus), as Claude Code sends its own uncached one. → { text, headCut, tooLong }.
    */
+  let compactWhy = "";
   const summarizeChat = async (part, custom, asks) => {
     let tools0 = lastSentTools;
     if (!tools0) { const m = modeNow(); tools0 = roundTools(m, m === "plan" || toldMode === "plan" ? await planNow() : null).sending.tools; }
     const prompt = compactPrompt(custom);
-    let msgs = part, headCut = false, tries = 0;
+    let msgs = part, headCut = false, tries = 0, why = "";
+    const whyOf = (e) => scrub(String((e && e.message) || e)).replace(/\s+/g, " ").slice(0, 220);
     while (true) {
       let r = null, err = null;
       try { r = await deps.send({ model, ...(effort ? { effort } : {}), messages: [{ role: "system", content: systemText() }, ...wordsAfterResults(msgs), { role: "user", content: prompt }], tools: tools0, tool_choice: "auto" }); } catch (e) { err = e; }
@@ -3666,10 +3678,11 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         msgs = cut; headCut = true; tries++;
         continue;
       }
+      if (err) why = whyOf(err);
       break;
     }
     const req = summaryRequest(msgs, asks);
-    try { const r = await deps.send({ model, ...req, webSearch: false }); if (r && r.usage) usage.push(r.usage); const text = String((r && r.message && r.message.content) || "").trim(); return { text, headCut: headCut || req.headCut }; } catch { return { text: "", headCut }; }
+    try { const r = await deps.send({ model, ...req, webSearch: false }); if (r && r.usage) usage.push(r.usage); const text = String((r && r.message && r.message.content) || "").trim(); return { text, headCut: headCut || req.headCut, ...(text ? {} : why ? { why } : {}) }; } catch (e) { if (!tooLongError(e)) why = whyOf(e); return { text: "", headCut, ...(why ? { why } : {}) }; }
   };
   // RIGHT AFTER A SUMMARY MADE BETWEEN MESSAGES (/compact, a long chat summarized before a job, Rewind's summaries), the
   // files the summarized part worked on (the summary names them: `reread`) are read again, once, like Claude Code
@@ -3920,7 +3933,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     // (DISABLE_COMPACT turns the owner's /compact off too, as Claude Code's: "both automatic compaction and the manual /compact
     // command". Coder's chats. 2026-11-14.)
     if (!offered && compactSettings(compactVars).off) { emit({ type: "note", text: "/compact is turned off: this chat's environment sets DISABLE_COMPACT." }); return end("done", { compact: { done: false } }); }
-    if (!history.length) { emit({ type: "note", text: "There is nothing to summarize yet." }); return end("done", { compact: { done: false } }); }
+    if (tooShortToCompact(history)) { emit({ type: "note", text: TOO_SHORT_TO_COMPACT }); return end("done", { compact: { done: false } }); }
     // (custom_instructions: what the owner passed, or null when nothing, as Claude Code's; each hook's output cut at 10,000
     // characters for the summary, as its own is.)
     const preC = hookList.length ? await runHooks("PreCompact", "manual", { trigger: "manual", custom_instructions: offered ? focus : focus || null }) : null;
@@ -4114,7 +4127,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     // (Claude Code's compact request, the conversation itself: summarizeChat.)
     const made = await summarizeChat(part, asks, asks);
     const text = made.text;
-    if (!text) { compactFailures++; if (made.tooLong && reactive) emit({ type: "error", text: COMPACT_TOO_LONG }); return "failed"; }
+    if (!text) { compactFailures++; compactWhy = made.tooLong ? "" : made.why || ""; if (made.tooLong && reactive) emit({ type: "error", text: COMPACT_TOO_LONG }); return "failed"; }
     compactFailures = 0; rapidRefills = refill; lastCompactRound = rounds; autoCompacted++; compactions++;
     // (The files the whole conversation worked on, this job's last: those read again right after it.)
     const files = new Map(filesTouched(part).map((p, i) => [normPath(p), i + 1]));
@@ -4352,13 +4365,15 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     try { answer = await sendOrStop({ model, ...(effort ? { effort } : {}), onRetry: (x) => emit({ type: "note", text: retryLine(x), retry: true }), messages: [{ role: "system", content: systemText() }, ...wordsAfterResults(convo)], tools: sending.tools, tool_choice: "auto" }); }
     catch (e) {
       // CLAUDE CODE'S REACTIVE COMPACTION: a request Grok refused as too long is summarized and sent again, once.
+      let failWhy = "";
       if (!offered && !reactiveTried && tooLongError(e)) {
-        reactiveTried = true;
+        reactiveTried = true; compactWhy = "";
         const ac = await autoCompact({ reactive: true });
         if (ac === "compacted") { rounds--; continue; }
         if (ac === "blocked" || ac === "thrashing") return end("done", { summary: lastSaid || (ac === "blocked" ? contextLimitShown({ compactOff: cset.off, autoOff: cset.autoOff }) : THRASHING) });
+        if (ac === "failed") failWhy = compactWhy;
       }
-      emit({ type: "error", text: "The AI could not be reached: " + scrub(String((e && e.message) || e)).slice(0, 220) });
+      emit({ type: "error", text: failWhy ? "Prompt is too long \u00b7 automatic compaction failed: " + failWhy : apiErrorText(e, scrub) });
       // STOPFAILURE HOOKS (Claude Code: "Runs when the turn ends due to an API error"; "Output and exit code are ignored"),
       // matched on the error's kind (rate_limit, server_error, …).
       if (hookList.length) { const why = scrub(String((e && e.message) || e)).slice(0, 2000); try { await runHooks("StopFailure", stopFailureKind(e), { error: stopFailureKind(e), error_details: why, last_assistant_message: why }); } catch { /* ignored */ } }
@@ -5125,7 +5140,10 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         const rmAuto = modeB === "auto" || (modeB === "plan" && planChecks);
         // (2026-11-19: a check that throws asks about this one command, never ends the job.)
         let rmWhy = "";
-        try { rmWhy = c.ps ? "" : dangerousRm(command, { cwd: where0 || deps.root || "/", home: deps.home || undefined, workdirs, off: rmChecksOff || {} }); } catch { rmWhy = RM_UNCHECKED; }
+        // (A command over 10,000 characters is not read by the checks at all: it goes straight to its card, as Claude Code's
+        // "Commands longer than 10,000 characters always prompt because they exceed what the analysis parses".)
+        const tooLongToRead = String(command).length > MAX_COMMAND_CHARS;
+        try { rmWhy = c.ps || tooLongToRead ? "" : dangerousRm(command, { cwd: where0 || deps.root || "/", home: deps.home || undefined, workdirs, off: rmChecksOff || {} }); } catch { rmWhy = RM_UNCHECKED; }
         // (One that Claude Code's checks of the whole text catch, `echo <1-3>`: the owner is asked with their reason, as those
         // run before Claude Code reads the command; tried in its command-line version, 2026-11-11, the owner: "yes copy all of
         // them". Where no one is asked, Auto, it is still refused as one that can't be checked.)
@@ -5164,7 +5182,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // "default", Accept edits with such commands asked about (decideIn("acceptEdits", false)): its card after a mode switch
         // while auto mode checked the command, and what Coder is told at the limit of blocks where no one can answer. Round 6.)
         const decideIn = async (m, byCmd) => { const r = c.monitor ? monitorRules(ownRules, m) : ownRules; const d = c.ps ? psDecision(command, { mode: m, rules: m === "auto" ? autoPsRules(r) : r, nativeReadOnly: nativeRO, parsed: await psParse(command), pathAbs: psAbs, inside: psInside, cwd: where0 || deps.root || "/", home: deps.home || "", byCommand: byCmd, input: c.args, dirs: workdirs }) : bashDecision(command, { mode: m, rules: r, cwd: where0 || deps.root || "/", workdirs, isProtected: isProt, real: (p) => realPath(p), input: c.monitor ? c.monitorArgs : c.args, home: deps.home || "", ownDirs: Array.isArray(deps.ownDirs) ? deps.ownDirs : [], byCommand: byCmd, scratch: [SCRATCH], planFile: planPath(), ...(c.monitor ? { settings: MONITOR_SETTINGS } : {}) }); return c.monitor ? namedForMonitor(d, r) : d; };
-        let dec = github ? { verdict: "allow" } : await decideIn(modeB, fileEdits !== false);
+        let dec = github ? { verdict: "allow" } : tooLongToRead ? { verdict: "ask", why: "", suggest: null } : await decideIn(modeB, fileEdits !== false);
         if (dec.verdict === "deny") { refuse(dec.why); continue; }
         // A PRETOOLUSE HOOK'S ALLOW OR ASK (Claude Code: "allow skips the permission prompt"; "ask prompts the user to confirm";
         // "Deny and ask rules are still evaluated regardless of what the hook returns"): its ask asks, in Auto too; its allow
@@ -5484,7 +5502,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // missed it). Without the service's help (a machine made in a test), the commands of before.
         const svc = deps.bg && typeof deps.bg.alive === "function" && typeof deps.bg.stop === "function" ? deps.bg : null;
         let r, stoppedNow = false;
-        const stoppedJson = () => JSON.stringify({ message: "Successfully stopped task: " + name + " (" + scrub(String(j.command || "").split("\n")[0]).slice(0, 200) + ")", task_id: name, task_type: "local_bash", command: scrub(String(j.command || "")).slice(0, 2000) });
+        const stoppedJson = () => JSON.stringify({ message: "Successfully stopped task: " + name + " (" + scrub(String(j.command || "").split("\n")[0]).slice(0, 200) + ")", task_id: name, task_type: "local_bash", command: commandEnds(scrub(String(j.command || ""))) });
         if (svc) {
           const was = await svc.alive(j.pid).catch(() => false);
           const gone = was ? await svc.stop(j.pid).catch(() => false) : true;

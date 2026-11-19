@@ -169,13 +169,15 @@ test("CD167 on the Worker: a long chat's older jobs are summarized before the ne
   assert.deepEqual(job.messages, msgs, "the whole conversation, not summarized before");
   assert.equal(c.read("meta.json").status, "running");
   assert.deepEqual(c.read("meta.json").marks, marks, "no mark of its own");
-  // Nothing to summarize: refused, no job.
-  await c.set({ marks: [] }, [], []);
-  c.machine.calls.length = 0;
-  const none = await c.go("projects/" + ID + "/message", { method: "POST", body: JSON.stringify({ text: "/compact" }) });
-  assert.equal(none.status, 400);
-  assert.equal((await none.json()).error, "There is nothing to summarize yet.");
-  assert.deepEqual(c.machine.calls, []);
+  // Nothing, or a single exchange, or a prompt with no reply: refused in Claude Code's words, no job.
+  for (const few of [[], [{ role: "user", content: "hi" }, { role: "assistant", content: "hello" }], [{ role: "user", content: "hi" }]]) {
+    await c.set({ marks: [] }, few, []);
+    c.machine.calls.length = 0;
+    const none = await c.go("projects/" + ID + "/message", { method: "POST", body: JSON.stringify({ text: "/compact" }) });
+    assert.equal(none.status, 400);
+    assert.equal((await none.json()).error, "Not enough messages to compact.");
+    assert.deepEqual(c.machine.calls, []);
+  }
 
   // REWIND, SUMMARIZE UP TO HERE (message 3): before it, one summary; message 3 on, as it was; files untouched.
   await c.set({ marks }, msgs, evs);

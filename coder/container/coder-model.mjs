@@ -114,6 +114,18 @@ export function retryWaitMs(attempt, retryAfter = null, rand = Math.random) {
   const base = Math.min(RETRY_BASE_MS * Math.pow(2, Math.max(1, attempt) - 1), RETRY_MAX_MS);
   return Math.round(base + rand() * 0.25 * base);
 }
+// THE CHAT'S LINE FOR A FAILED CALL, in Claude Code's words by the kind of failure (errors.md).
+export function apiErrorText(e, clean = (x) => x) {
+  const msg = clean(String((e && e.message) || e || "")).replace(/\s+/g, " ");
+  const status = e && Number.isInteger(e.status) ? e.status : (/^AI call failed: (\d{3})/.exec(msg) || [])[1] ? Number(/^AI call failed: (\d{3})/.exec(msg)[1]) : 0;
+  const text = msg.replace(/^AI call failed: \d{3} ?/, "").slice(0, 200);
+  if (e && (e.name === "TimeoutError")) return "Request timed out";
+  if (status === 529 || (status >= 500 && /overloaded/i.test(text))) return "API Error: Repeated 529 Overloaded errors. The API is at capacity \u2014 this is usually temporary. Try again in a moment.";
+  if (status >= 500) return "API Error: " + status + (text ? " " + text : "") + ". This is a server-side issue, usually temporary \u2014 try again in a moment.";
+  if (status === 429) return "API Error: Request rejected (429) \u00b7 this may be a temporary capacity issue.";
+  if (status >= 400) return "API Error: " + status + (text ? " " + text : "");
+  return "The AI could not be reached: " + msg.slice(0, 220);
+}
 export const retryLine = ({ attempt, maxRetries, waitMs, error }) =>
   (attempt >= Math.min(3, maxRetries) ? String(error || "API error").replace(/\s+/g, " ").slice(0, 300) : "API error") +
   " · Retrying in " + Math.max(1, Math.ceil((Number(waitMs) || 0) / 1000)) + "s · attempt " + attempt + "/" + maxRetries;

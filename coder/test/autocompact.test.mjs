@@ -328,3 +328,50 @@ test("AC9 Claude Code's compact request (its compactConversation, the coordinato
   assert.deepEqual(g.sums.map((q) => (K.isCompactRequest(q) ? "compact" : q.messages[0].content === K.SUMMARY_SYSTEM ? "own" : "?")), ["compact", "own"]);
   assert.match(g.messages.find((m) => K.isSummary(m)).content, /\nSummary:\nTHE FALLBACK SUMMARY\n/);
 });
+
+test("B4-1 a failed call says what kind of failure it was, in Claude Code's words (errors.md)", () => {
+  const E = (m, status, name) => Object.assign(new Error(m), status ? { status } : {}, name ? { name } : {});
+  assert.equal(M.apiErrorText(E("AI call failed: 500 boom", 500)), "API Error: 500 boom. This is a server-side issue, usually temporary — try again in a moment.");
+  assert.match(M.apiErrorText(E("AI call failed: 529 x", 529)), /^API Error: Repeated 529 Overloaded errors\. The API is at capacity/);
+  assert.equal(M.apiErrorText(E("AI call failed: 429 slow", 429)), "API Error: Request rejected (429) · this may be a temporary capacity issue.");
+  assert.equal(M.apiErrorText(E("AI call failed: 403 no", 403)), "API Error: 403 no");
+  assert.equal(M.apiErrorText(E("timed out", 0, "TimeoutError")), "Request timed out");
+  assert.equal(M.apiErrorText(E("fetch failed")), "The AI could not be reached: fetch failed");
+});
+
+test("B4-2 a refused call in the chat shows Claude Code's words, not 'could not be reached'", async () => {
+  const c = chat();
+  const r = await c.run([say("x")], { text: "go", vars: {}, fail: () => Object.assign(new Error("AI call failed: 503 busy"), { status: 503 }) });
+  const err = r.events.find((e) => e.type === "error");
+  assert.match(err.text, /^API Error: 503 busy\. This is a server-side issue/);
+});
+
+test("B4-3 a too-long chat whose summary fails for another reason names that reason (Claude Code's errors.md)", async () => {
+  const c = chat({ summary: () => Object.assign(new Error("AI call failed: 503 unavailable"), { status: 503 }) });
+  const tooLong = Object.assign(new Error("AI call failed: 400 This model's maximum prompt length is 500000 but the request contains 512000 tokens."), { status: 400 });
+  const r = await c.run([say("x")], { text: "go", vars: {}, fail: () => tooLong });
+  const err = r.events.find((e) => e.type === "error");
+  assert.equal(err.text, "Prompt is too long · automatic compaction failed: AI call failed: 503 unavailable");
+});
+
+test("B4-4 a repository that starts in Plan stays in Plan when Auto mode is off (Claude Code's starting-mode order)", async () => {
+  const c = chat();
+  let r = await c.run([say("ok")], { text: "go", vars: {}, opts: { mode: "auto", startMode: "plan", autoOff: true } });
+  const notes = r.events.filter((e) => e.type === "note").map((e) => e.text);
+  assert.ok(notes.some((t) => /start chats in Plan mode/.test(t)));
+  assert.ok(!notes.some((t) => /Auto mode is turned off/.test(t)));
+  r = await chat().run([say("ok")], { text: "go", vars: {}, opts: { mode: "auto", autoOff: true } });
+  assert.ok(r.events.some((e) => e.type === "note" && /Auto mode is turned off/.test(e.text)));
+});
+
+test("B4-5 a command over 10,000 characters goes straight to its card, without the slower checks (Claude Code: such commands always prompt)", async () => {
+  for (const cmd of ["echo " + "{".repeat(60_000), "echo a" + "\n".repeat(60_000) + "b", "cat {" + ",".repeat(60_000)]) {
+    const t0 = Date.now();
+    const r = await chat().run([say("", [call("bash", { command: cmd }, "b1")]), say("ok")], { text: "go", vars: {} });
+    const ms = Date.now() - t0;
+    const card = r.events.find((e) => e.type === "permission");
+    assert.ok(card, "a card");
+    assert.match(JSON.stringify(card), /over 10,000 characters/);
+    assert.ok(ms < 1000, "took " + ms + " ms");
+  }
+});
