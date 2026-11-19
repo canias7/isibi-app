@@ -28,6 +28,8 @@ import { asText } from "./coder-text.mjs";
 // Claude Code's Read gives "at most 25,000 tokens" a call): about 100,000 characters of whole lines, so the whole
 // file when it fits; a longer one comes in parts, read on with offset (limit asks for fewer lines).
 export const READ_CHARS = 100_000;
+/** A relative path that really climbs out ("..", "../x"); a name like "..cache" does not (audit L-machine-11). */
+export const climbsOut = (x) => x === ".." || x.startsWith(".." + sep) || x.startsWith("../");
 export const READ_LINES_MAX = 100_000;
 // ALL OF CLAUDE CODE'S READ RULES (its tools reference, read again 2026-11-08 at the owner's word "double check it
 // against claude code docs"): a whole-file read over 256 KB is refused (read a part, or grep); a part asked for with
@@ -35,7 +37,9 @@ export const READ_LINES_MAX = 100_000;
 // "sized against the room left" (Coder's agent says how much: max_chars, at most READ_LARGE_CHARS); pictures up to
 // 128 MB (they are made smaller anyway); notebooks up to 100 MB, and an error when their cells come to over 256 KB.
 export const READ_WHOLE_MAX = 256 * 1024;
-export const READ_LARGE_CHARS = 400_000;
+// (Only a safety ceiling now, under what the machine passes back for one tool answer (8 MB): the room left in the
+// conversation, max_chars, decides how much an allow_large read gives, as in Claude Code. Audit M-a-11.)
+export const READ_LARGE_CHARS = 7_000_000;
 export const PIC_MAX_BYTES = 128 * 1024 * 1024;
 export const NOTEBOOK_MAX_BYTES = 100 * 1024 * 1024;
 export const NOTEBOOK_CELLS_MAX = 256 * 1024;
@@ -112,7 +116,7 @@ async function inside(p, { mustExist = false, tool = "", output = false } = {}) 
     // (One in the project, in the repository's plansDirectory folder, is kept inside it as any file of the project is, below,
     // and is no hard link: Claude Code 2.1.325, "a write that can't be shown to stay inside the project is now refused".)
     const inProject = relative(ROOT, abs);
-    if (inProject.startsWith("..") || isAbsolute(inProject)) return { abs, rel: abs };
+    if (climbsOut(inProject) || isAbsolute(inProject)) return { abs, rel: abs };
     if (st && st.nlink !== 1) fail("the plan file is not a plain file");
   }
   // THE CHAT'S OWN COMMAND OUTPUT, TO READ (the live test after deploy 75): a background command's log and a long output's
@@ -122,17 +126,17 @@ async function inside(p, { mustExist = false, tool = "", output = false } = {}) 
   if (output) {
     for (const d of String(process.env.CODER_OUTPUT_DIRS || "").split(":").filter((x) => x && isAbsolute(x))) {
       const x = relative(d, abs);
-      if (!x || x.startsWith("..") || isAbsolute(x)) continue;
+      if (!x || climbsOut(x) || isAbsolute(x)) continue;
       let real = "";
       try { real = await realpath(abs); } catch { fail("no such file: " + abs); }
       const r2 = relative(await realpath(d).catch(() => d), real);
-      if (!r2 || r2.startsWith("..") || isAbsolute(r2)) fail("that path leads outside the project");
+      if (!r2 || climbsOut(r2) || isAbsolute(r2)) fail("that path leads outside the project");
       return { abs, rel: abs };
     }
   }
   // THE CHAT'S OTHER REPOSITORIES (2026-11-06, like Claude Code's several repos
   // in one session): their folders, next to this one, count as inside too.
-  const holds = (r) => { const x = relative(r, abs); return !x.startsWith("..") && !isAbsolute(x); };
+  const holds = (r) => { const x = relative(r, abs); return !climbsOut(x) && !isAbsolute(x); };
   const roots = [ROOT, SCRATCH, ...String(process.env.CODER_EXTRA_ROOTS || "").split(":").filter((x) => x && isAbsolute(x))];
   // THE OWNER'S ADDITIONAL WORKING FOLDERS (Claude Code's additionalDirectories; round 3, 2026-11-14): Coder's machine names
   // them (CODER_WORK_DIRS), and they count as inside too, as Claude Code's "Files in additional directories follow the same
@@ -141,7 +145,7 @@ async function inside(p, { mustExist = false, tool = "", output = false } = {}) 
   const work = workDirs().filter(holds).sort((x, y) => y.length - x.length);
   const home = roots.find(holds) || work[0] || ROOT;
   const rel = relative(home, abs);
-  if (rel.startsWith("..") || isAbsolute(rel)) fail("that path is outside the project");
+  if (climbsOut(rel) || isAbsolute(rel)) fail("that path is outside the project");
   if (rel.split(sep)[0] === ".git") fail("the .git folder is off limits");
   // (Never the .git folder of any of them that holds it: a working folder around the project, or inside another one.)
   if ([...roots, ...work].some((r) => holds(r) && relative(r, abs).split(sep)[0] === ".git")) fail("the .git folder is off limits");
@@ -155,7 +159,7 @@ async function inside(p, { mustExist = false, tool = "", output = false } = {}) 
       const real = await realpath(probe);
       const rootReal = await realpath(home);
       const r2 = relative(rootReal, real);
-      if (r2.startsWith("..") || isAbsolute(r2)) fail("that path leads outside the project");
+      if (climbsOut(r2) || isAbsolute(r2)) fail("that path leads outside the project");
       // (Nor the .git folder reached through a link: where the path really lands counts. Audit I28.)
       if (r2.split(sep)[0] === ".git") fail("the .git folder is off limits");
       break;
@@ -713,6 +717,8 @@ export function fileInputProblem(name, args, when = "before", { memFile = proces
     return pathProblem("write", w.path) || memoryProblem(w.path, w.content, memFile);
   }
   if (name !== "read" && name !== "edit") return "";
+  // TWO DIFFERENT PATHS (audit L-machine-22): refused, as write does, so a hook is never shown one file while the tool uses another.
+  if (typeof a.path === "string" && typeof a.file_path === "string" && a.path !== a.file_path) return name + " failed due to the following issue: An unexpected parameter `file_path` was provided";
   if (typeof path !== "string" || !path.trim()) return "give a path";
   if (name === "edit") {
     const old_string = typeof a.old_string === "string" ? a.old_string : a.old_str, new_string = typeof a.new_string === "string" ? a.new_string : a.new_str;
@@ -814,12 +820,13 @@ export async function toolRead({ path, offset, limit, pages = "", allow_large = 
   const text = fileText(buf);
   const notText = notTextOf(buf);
   const oldText = notText ? "\n" + notTextNote(notText) : "";
-  await remember(abs, buf, { whole: false });
+  // (Noted as read only once the read shows lines: one that fails or shows nothing keeps the old record and its partial
+  // mark, as Claude Code's read-before-edit check. Audit L-machine-04.)
   // ITS RESULT OBJECT, FOR THE POSTTOOLUSE HOOKS, when Coder's loop asks (`facts`): Claude Code's Read output for a text file,
   // { type: "text", file: { filePath, content, numLines, startLine, totalLines } }, the lines given without their numbers.
   // (The owner, 2026-11-14: "Fix base on Claude Code docs, please".)
   const told = (t, content, numLines, startLine, totalLines) => (facts === true && content.length <= FACTS_TEXT_MAX ? { text: t, facts: { type: "text", file: { filePath: abs, content, numLines, startLine, totalLines } } } : t);
-  if (!text.length) { await clearStart(abs); return told(rel + " exists, but it is empty.", "", 0, 1, 0); }
+  if (!text.length) { await remember(abs, buf, { whole: false }); await clearStart(abs); return told(rel + " exists, but it is empty.", "", 0, 1, 0); }
   const lines = text.split("\n");
   if (lines.length > 1 && lines[lines.length - 1] === "") lines.pop(); // the last newline ends a line; it is not one
   const total = lines.length;
@@ -854,6 +861,7 @@ export async function toolRead({ path, offset, limit, pages = "", allow_large = 
   const last = from - 1 + rows.length;
   // A part that was asked for and does not fit is refused, as in Claude Code; a whole-file read gets its first part.
   if (asked && last < end) fail("lines " + from + "-" + end + " of " + rel + " come to more than about " + Math.round(cap / 1000) + ",000 characters: ask for fewer lines (limit), search with grep" + (large ? "" : ", or set allow_large when you truly need them all at once"));
+  await remember(abs, buf, { whole: false });
   const body = rows.join("\n");
   const gave = (t) => told(t, lines.slice(from - 1, last).join("\n"), rows.length, from, total);
   if (asked && (from > 1 || last < total)) await markPart(abs);
@@ -1114,7 +1122,7 @@ export async function toolWrite(args) {
     oldText = wasAll ? (u ? fileText(wasAll) : wasAll.toString("utf8")).replace(/^\ufeff/, "") : undefined;
   }
   await mkdir(dirname(abs), { recursive: true });
-  await writeFile(abs, bytes);
+  await writeOver(abs, bytes, rel, "write"); // a read-only file too, as edit (audit M-r2-39)
   await remember(abs, bytes);
   const mem = process.env.CODER_MEMORY_FILE;
   const memSaid = mem && isAbsolute(mem) && abs === resolve(mem) ? memoryNote(bytes) : "";
@@ -1367,13 +1375,13 @@ export async function toolEdit(args) {
  * them", so without it, it overwrites them; tried as root, the file stayed read-only). Coder's edit stopped at "EACCES:
  * permission denied". Its owner may make it writable for the moment; a file of another user's stays as it is.
  */
-async function writeOver(abs, bytes, rel) {
+async function writeOver(abs, bytes, rel, tool = "edit") {
   try { await writeFile(abs, bytes); return; } catch (e) {
     if (!e || (e.code !== "EACCES" && e.code !== "EPERM")) throw e;
     let mode;
     try { mode = (await stat(abs)).mode & 0o7777; } catch { throw e; }
     if (mode & 0o200) throw e; // writable by its owner already: something else stops it
-    try { await chmod(abs, mode | 0o200); } catch { fail(rel + " is read-only, and it belongs to another user, so edit cannot change it: change it with a command, or ask the owner."); }
+    try { await chmod(abs, mode | 0o200); } catch { fail(rel + " is read-only, and it belongs to another user, so " + tool + " cannot change it: change it with a command, or ask the owner."); }
     try { await writeFile(abs, bytes); } finally { await chmod(abs, mode).catch(() => {}); }
   }
 }
@@ -1558,7 +1566,7 @@ async function seenLocked(fn) {
   try { return await fn(); } finally { if (held) await unlink(lock).catch(() => {}); }
 }
 /** A file's path as the tools take it: from the project's folder, or whole for one of the chat's other repositories. */
-function showPath(abs) { const r = relative(ROOT, abs); return r && !r.startsWith("..") && !isAbsolute(r) ? r : abs; }
+function showPath(abs) { const r = relative(ROOT, abs); return r && !climbsOut(r) && !isAbsolute(r) ? r : abs; }
 /**
  * EACH LINE'S OWN SHORT FINGERPRINT (8 hex characters, never the line's text), kept next to the file's: what lets the
  * note after a change show the lines it touched, as Claude Code's does (the owner, 2026-11-08: "Yea fix those 4").
@@ -1582,7 +1590,7 @@ async function rememberNow(abs, buf, { whole = true, cmd = false } = {}) {
       // `cmd`: shown by a command (its output may have been cut), not read whole by the read tool.
       list.push({ abs, mtime: st.mtimeMs, size: st.size, hash: fingerprint(buf), ...(keepStart ? { start: true } : {}), ...(cmd ? { cmd: true } : {}) });
       await writeFile(marksFile(dir, abs), marksOf(buf));
-    } else if (keepStart) list.push({ abs, mtime: st.mtimeMs, size: st.size, hash: "", start: true });
+    } else if (st.isFile()) list.push({ abs, mtime: st.mtimeMs, size: st.size, hash: "", ...(keepStart ? { start: true } : {}) }); // a bigger one: its time and size only (audit L-machine-10)
     while (list.length > SEEN_FILES) { const old = list.shift(); await unlink(marksFile(dir, old.abs)).catch(() => {}); }
     await seenSave(dir, list);
   } catch { /* never costs the tool */ }

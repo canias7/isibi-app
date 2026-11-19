@@ -4,6 +4,15 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-19: Claude Code fixes, batch 12
+
+- Six of the ten audit items in this batch fixed, each with a test; four left for later (below). Gloopy, connectors and MCP were not touched. Not deployed and not merged yet, so none of it is tried live in the browser yet.
+- **Read and write:** a read that fails or shows nothing no longer counts as having read the file, so Coder still cannot write over a file it only partly saw. A notebook over 256 KB can now be replaced once it is read. Writing over a read-only file now works the way editing one already did, and the file stays read-only.
+- **Big reads:** when Coder asks for a whole large file, how much comes back now depends only on the room left in the chat, not on a fixed 400,000-character limit.
+- **File names:** files and folders whose names start with two dots (like `..cache`) are no longer refused as outside the project. A real `../` still is.
+- **Hooks:** a safety gap in how read and edit name their file was closed, so a hook always sees the same file the tool uses.
+- **Left for later:** a rare way of writing a file from a zsh command (needs changes across three safety readers); saving files so a full disk can never leave them empty; a setting for how much one read returns; and letting the file tools open the `.git` folder, which would let Coder read the repository's settings file, so that waits for your word.
+
 ## 2026-11-19: Claude Code fixes, batch 10
 
 - Nine of the ten audit items in this batch fixed, each with a test; one skipped (below). Gloopy, connectors and MCP were not touched. Not deployed and not merged yet, so none of it is tried live in the browser yet.

@@ -136,7 +136,7 @@ test("CD205 the rest of Claude Code's Read rules: an empty file and an offset pa
   const { tmpdir } = await import("node:os");
   const { join } = await import("node:path");
   const T = await import("../container/coder-tools.mjs");
-  assert.deepEqual([T.READ_WHOLE_MAX, T.READ_LARGE_CHARS, T.PIC_MAX_BYTES, T.NOTEBOOK_MAX_BYTES, T.NOTEBOOK_CELLS_MAX], [256 * 1024, 400000, 128 * 1048576, 100 * 1048576, 256 * 1024]);
+  assert.deepEqual([T.READ_WHOLE_MAX, T.READ_LARGE_CHARS, T.PIC_MAX_BYTES, T.NOTEBOOK_MAX_BYTES, T.NOTEBOOK_CELLS_MAX], [256 * 1024, 7_000_000, 128 * 1048576, 100 * 1048576, 256 * 1024]);
   const dir = await mkdtemp(join(tmpdir(), "coder-read2-"));
   const script = new URL("../container/coder-tools.mjs", import.meta.url).pathname;
   const read = (args) => { try { return execFileSync("node", ["--no-warnings", script, Buffer.from(JSON.stringify({ tool: "read", args })).toString("base64")], { cwd: dir, maxBuffer: 8 << 20 }).toString(); } catch (e) { return "FAILED " + String(e.stdout || e.stderr || e.message); } };
@@ -155,9 +155,9 @@ test("CD205 the rest of Claude Code's Read rules: an empty file and an offset pa
   assert.ok(all.endsWith("  3000\trow 3000 " + "y".repeat(92)) && !/PARTIAL/.test(all), "all 3000 lines in one call");
   assert.match(read({ path: "big.txt", allow_large: true }), /\n\[PARTIAL view: lines 1-\d+ of 3000/);
   await writeFile(join(dir, "huge.txt"), Array.from({ length: 5000 }, (_, i) => "row " + (i + 1) + " " + "y".repeat(92)).join("\n"));
-  const most = read({ path: "huge.txt", allow_large: true, max_chars: 99999999 });
+  const most = read({ path: "huge.txt", allow_large: true, max_chars: 450000 });
   const hm = /\n\[PARTIAL view: lines 1-(\d+) of 5000 [^\n]*\]$/.exec(most);
-  assert.ok(hm && most.slice(0, hm.index).length <= T.READ_LARGE_CHARS && Number(hm[1]) > 3500, "never more than READ_LARGE_CHARS in one call, however much room is claimed");
+  assert.ok(hm && most.slice(0, hm.index).length <= 450000 && Number(hm[1]) > 3500 && Number(hm[1]) < 5000, "never more than the room given in one call");
   // Coder's agent sets max_chars for an allow_large read (the room left), and drops one Grok tries to set itself.
   const { runCoder, COMPACT_AT } = await import("../container/coder-agent.mjs");
   const sentArgs = [];
