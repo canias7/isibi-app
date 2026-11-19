@@ -1045,7 +1045,7 @@ writes, `@REQUEST`), their stderr kept apart from their stdout, with
 `CLAUDE_PROJECT_DIR` and `CLAUDE_CODE_REMOTE=true`. Events: SessionStart (a chat's
 first message, and after a summary), UserPromptSubmit, PreToolUse,
 PermissionRequest, PostToolUse, PostToolUseFailure, Notification (a card that
-waits), Stop (8 times in a row at most), PreCompact and PostCompact. Matchers,
+waits), Stop (after 8 blocks in a row the next is overridden and the turn ends with a note; CODER_STOP_HOOK_BLOCK_CAP changes the 8, 0 for no limit; a PreToolUse "continue": false lets its call run, then stops), PreCompact and PostCompact. Matchers,
 `if`, deduplication, the exit-code table (0, 2, other), JSON decisions
 (`permissionDecision`, `updatedInput`, `additionalContext`, `decision: "block"`,
 `continue: false`, `systemMessage`, `updatedToolOutput`) and the words Coder is

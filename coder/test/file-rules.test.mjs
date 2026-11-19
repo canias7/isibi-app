@@ -861,7 +861,7 @@ test("R6R2 (round 6) a PowerShell command that writes or reads the chat's own pl
   const agentSrc = read("container/coder-agent.mjs");
   assert.match(agentSrc, /const psPlan = \(p\) => psPlanFile\(p, \{ planFile: planPath\(\), cwd: where0 \|\| deps\.root \|\| "\/", home: deps\.home \|\| "", real: \(q\) => realPath\(q\) \}\);/);
   assert.match(agentSrc, /const psInside = \(p\) => \{ if \(psPlan\(p\)\) return true;/);
-  assert.match(agentSrc, /psProtectedAsk\(await psParse\(command\), deps, psAbs, psPlan\)/);
+  assert.match(agentSrc, /psProtectedAsk\(await psParse\(command\), deps, psAbs, psPlan, \{ named: psNamed, command, /);
 
   // In Coder's loop, its plan file in .claude/plans, then in its own plans folder outside the project.
   const { mkdtemp, mkdir } = await import("node:fs/promises");

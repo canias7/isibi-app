@@ -4,6 +4,18 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-19: Claude Code fixes, batch 3
+
+- Nine of ten audit items fixed, each with a test. Gloopy, connectors and MCP were not touched. Not deployed and not merged yet.
+- **Safety checks tightened** in a few places where a file write could reach a protected file (through a folder link, or after changing folder first) without the usual question. These now ask, or are refused in jobs started from GitHub, the way Claude Code does.
+- **"Yes, and don't ask again" on a command that holds a password or key** now allows it for this chat only and does not save it with the repository's rules.
+- **Setup scripts may use sudo on any line** when the chat has the admin sandbox, as Claude Code's whole setup script runs as admin.
+- **Stop hooks** now run every time; after 8 blocks in a row the turn ends with a note. A new environment setting, CODER_STOP_HOOK_BLOCK_CAP, changes the 8 (0 means no limit).
+- **A hook that says "stop" before a step** now lets that step run first, then stops, unless it also blocks the step.
+- **If a hook adds more than 50 deny or ask rules in one chat**, its allow rules are dropped too, so nothing is let through by mistake.
+- **Coder is told not to write stray @names** on GitHub, which would notify strangers.
+- Not done: storing a "don't ask again" rule at the moment it is chosen (with a warning if storing fails). It touches the live save, the end-of-job save and the page, and is left for the next batch.
+
 ## 2026-11-19: Claude Code fixes, batch 2
 
 - Seven of ten audit items fixed, each with a test. Gloopy, connectors and MCP were not touched. Not deployed and not merged yet.

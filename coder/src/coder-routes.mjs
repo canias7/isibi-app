@@ -417,7 +417,15 @@ export async function setTrust(bucket, uid, repo, on) {
 export function sessionRulesOf(x) {
   if (!x || typeof x !== "object") return null;
   const out = {};
-  for (const k of ["allow", "ask", "deny"]) out[k] = (Array.isArray(x[k]) ? x[k] : []).filter((r) => typeof r === "string" && r.length > 0 && r.length <= 400).slice(0, 50);
+  let lost = false;
+  for (const k of ["allow", "ask", "deny"]) {
+    const all = (Array.isArray(x[k]) ? x[k] : []).filter((r) => typeof r === "string" && r.length > 0);
+    out[k] = all.filter((r) => r.length <= 400).slice(0, 50);
+    if (k !== "allow" && out[k].length < all.length) lost = true;
+  }
+  // (Claude Code: when the session's deny and ask rules can't all be kept, its allow rules are dropped too, so the owner may be
+  // asked again rather than an allow rule letting through what a lost deny rule refused.)
+  if (lost) out.allow = [];
   return out;
 }
 /** What a turn's request carries of the chat's session rules (from PermissionRequest hooks): `{ sessionRules }` or nothing. */

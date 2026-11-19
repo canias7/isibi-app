@@ -24,7 +24,7 @@ import { summaryRequest, summaryMessage, cutPoint, isSummary, viewedFile, filesT
 // A command that views one file counts as reading it (moved to coder-compact.mjs, which the Worker uses too).
 export { viewedFile };
 import { retryLine, modelWindow } from "./coder-model.mjs";
-import { commandProblem, capOutput, readTimeout, scrub, splitSetup, MAX_OUTPUT_CHARS, MAX_COMMAND_CHARS, MAX_TIMEOUT_S, DEFAULT_TIMEOUT_S, bashResultText, BASH_INLINE_MAX, BASH_READ_BACK, ccDuration } from "./coder-checks.mjs";
+import { commandProblem, capOutput, readTimeout, scrub, splitSetup, MAX_OUTPUT_CHARS, MAX_COMMAND_CHARS, MAX_TIMEOUT_S, DEFAULT_TIMEOUT_S, bashResultText, BASH_INLINE_MAX, BASH_READ_BACK, ccDuration, secretVar } from "./coder-checks.mjs";
 import { SLEEP_BLOCK_S, exitMeaning, sleepBlocked, leadsWithSleep, writeTargets, dangerousRm, realPath, leadsTo, pathExists, RM_UNCHECKED } from "./coder-bashcheck.mjs";
 import { textReasons } from "./coder-shell.mjs";
 import { accountEmailRefused, emailRefused, refusedNow, REMOTE_TOOLS } from "./coder-privacy.mjs";
@@ -52,6 +52,7 @@ import { askedCall, untilBackground, serverOf, cardAnswer, cardEnding, elicitHoo
 import { HOOK_EVENTS, STOP_BLOCK_CAP, ENV_FILE_EVENTS, GATING_EVENTS, AGENT_HOOK_TURNS, HOOK_JUDGE, hooksFor, hookInput, hookResult, hookResultSafe, persistHookText, hooksOutcome, ccTool, hookToolInput, toolInputFromHook, givenPathKept, hookAnswers, answeredText, hookName, hookNoteText, hookPrompt, parseHookVerdict, httpUrlAllowed, asyncHookTexts, watchedNames, stopFailureKind, hookShell, splitHookOut, asBashInput, withoutGrant, ruleEntry, entryRule, runMcpToolHook } from "./coder-hooks.mjs";
 /** A word for the shell, in single quotes. */
 import { capHit } from "./coder-scrub.mjs";
+import { secretsIn } from "./coder-secretscan.mjs";
 // (A hook's rewrites of a call's input and output, checked as Claude Code checks them: coder-hookcheck.mjs. 2026-11-14.)
 import { outputRewrite, checkHookInput, sameInput } from "./coder-hookcheck.mjs";
 import { psDescription, psCommand, psSleepWhat } from "./coder-ps.mjs";
@@ -449,6 +450,7 @@ export function commandAsk(command, deps, where0 = "", { real = null, allowed = 
   const planF = typeof planFile === "string" && planFile.startsWith("/") ? planFile : "";
   const ownPlan = (full) => !!planF && full === planF && (typeof real !== "function" || (() => { try { return real(full) === full; } catch { return false; } })());
   const fullOf = (p) => (deps && typeof deps.where === "function" ? deps.where(p) : p);
+  const seenRaw = new Set();
   for (const x of writeTargets(command).targets) {
     // After a cd in the same command, or with a variable in it, the name as written is checked (its folder is not known);
     // a full path, or one from ~, doesn't depend on a cd before it.
@@ -456,7 +458,10 @@ export function commandAsk(command, deps, where0 = "", { real = null, allowed = 
     const asWritten = x.unsure || ((x.afterCd || x.path === "~" || String(x.path).startsWith("~/")) && !String(p).startsWith("/"));
     if (!asWritten && !String(x.path).startsWith("~") && ownPlan(fullOf(p))) continue;
     const name = asWritten ? x.path : projectPath(deps, p);
-    if (name && protectedFile(name)) add(name, sensitiveWhy(asWritten || !deps || typeof deps.where !== "function" ? x.path : deps.where(p)));
+    if (name && protectedFile(name)) { add(name, sensitiveWhy(asWritten || !deps || typeof deps.where !== "function" ? x.path : deps.where(p))); seenRaw.add(x.raw); }
+    // (A target with a variable or a $(…) in it, whose folder can't be known: asked about, as Claude Code asks when it can't
+    // tell where a redirect lands. Audit I33.)
+    else if (x.unsure && /[$`]/.test(String(x.path))) add(x.path, "The target of this write (" + x.path + ") could not be determined.");
   }
   // THE FILE COMMANDS TOO (mkdir, touch, rm, rmdir, mv, cp, sed -i; the permission modes, 2026-11-09): a protected file or
   // folder one changes is asked about in every mode (Claude Code: writes to protected paths "are never auto-approved").
@@ -479,7 +484,7 @@ export function commandAsk(command, deps, where0 = "", { real = null, allowed = 
       for (const x of p0.split("/")) { if (!x || x === ".") continue; if (x === "..") segs.pop(); else segs.push(x); }
       const name = projectPath(deps, "/" + segs.join("/"));
       if (name && protectedFile(name + "/x") && !into) { into = name; intoFull = "/" + segs.join("/"); }
-    } else if (into && fileCommandTargets(c, "/") && !planOnly(c)) add(into, sensitiveWhy(intoFull));
+    } else if (into && ((fileCommandTargets(c, "/") && !planOnly(c)) || (c.redirects || []).some((r) => />/.test(String(r.op)) && !/^\/dev\//.test(String(r.target && r.target.text))) || (w[0] === "tee" && w.length > 1))) add(into, sensitiveWhy(intoFull));
   }
   // WHERE EACH WRITE REALLY LANDS (Bash docs pass 3, the owner, 2026-11-10: "Ok yes do that"; Claude Code's permissions
   // docs, "Writes through a symlink": a write by a Bash command whose file "resolves to a protected path that the requested
@@ -501,7 +506,9 @@ export function commandAsk(command, deps, where0 = "", { real = null, allowed = 
     if (rel && (protectedFile(rel) || protectedFile(rel + "/x"))) { viaLink = true; add(name + " (which leads to " + rel + ")", sensitiveWhy(to, full)); return; }
     if (relIn(full) && !rel && !(typeof allowed === "function" && allowed(full)) && !outs.some((o) => o.name === name)) outs.push({ name, to, full });
   };
-  for (const x of read.writes) if (x.path) through(x.path, projectPath(deps, x.path), null);
+  // (Each write by its full path, after any cd, against the protected paths: Claude Code checks a redirect's or tee's file "as
+  // if Claude wrote or read that file directly". Audit I33.)
+  for (const x of read.writes) if (x.path) { const n = projectPath(deps, x.path); if (n && protectedFile(n) && !ownPlan(x.path)) { if (!seenRaw.has(x.raw)) add(n, sensitiveWhy(x.path)); } else through(x.path, n, null); }
   for (const c of parts) {
     const known = c.dir !== false;
     const fc = fileCommandTargets(c, known ? (typeof c.dir === "string" ? c.dir : from) : "/");
@@ -541,9 +548,16 @@ export function commandAsk(command, deps, where0 = "", { real = null, allowed = 
  * `plan(word)` (round 6): whether a word names the chat's own plan file, which is no protected file here (Claude Code 2.1.325
  * checks its plan files before its protected paths; coder-perms.mjs psPlanFile).
  */
-export function psProtectedAsk(parsed, deps, abs, plan = () => false) {
+export function psProtectedAsk(parsed, deps, abs, plan = () => false, { named = null, allowed = null, command = "" } = {}) {
   if (!parsed || !parsed.valid) return null;
-  const names = [], says = [];
+  const names = [], says = [], outs = [];
+  let viaLink = false;
+  // (WRITES THROUGH A LINK, as a bash command's (commandAsk's `through`; Claude Code's "Writes through a symlink", which names
+  // Bash and PowerShell alike): `named(word)` is the path as written, its links not followed. One that leads into a protected
+  // path it doesn't name keeps its card in Auto (viaLink); one inside the project that leads out of it asks, naming where it
+  // leads, unless an Edit allow rule opens it. Audit L-second-16.)
+  const workdirs = [deps && deps.root, ...(deps && Array.isArray(deps.otherRoots) ? deps.otherRoots : [])].filter((x) => typeof x === "string" && x);
+  const inside = (p) => workdirs.some((d) => p === d || p.startsWith(d + "/"));
   const inGit = (w) => /(^|[\\/])\.git([\\/]|$)/i.test(String(w).replace(/^['"]|['"]$/g, ""));
   const check = (word, gitTold) => {
     const t = String(word ?? "").trim();
@@ -551,9 +565,18 @@ export function psProtectedAsk(parsed, deps, abs, plan = () => false) {
     if (plan(t)) return;
     const full = abs(t);
     if (!full) return;
+    const asNamed = typeof named === "function" ? named(t) : null;
+    const linked = !!asNamed && asNamed !== full;
     const name = projectPath(deps, full);
-    if (!name || (!protectedFile(name) && !protectedFile(name + "/x"))) return;
-    if (!names.includes(name)) { names.push(name); says.push(sensitiveWhy(full)); }
+    if (!name || (!protectedFile(name) && !protectedFile(name + "/x"))) {
+      if (linked && inside(asNamed) && !inside(full) && !(typeof allowed === "function" && allowed(asNamed)) && !outs.some((o) => o.full === asNamed)) outs.push({ name: projectPath(deps, asNamed), to: full, full: asNamed });
+      return;
+    }
+    const nameN = linked ? projectPath(deps, asNamed) : "";
+    const viaHere = linked && !protectedFile(nameN) && !protectedFile(nameN + "/x");
+    const shown = viaHere ? nameN + " (which leads to " + name + ")" : name;
+    if (viaHere) viaLink = true;
+    if (!names.includes(shown)) { names.push(shown); says.push(viaHere ? sensitiveWhy(full, asNamed) : sensitiveWhy(full)); }
   };
   for (const r of psFileRedirections(parsed)) check(r.target, true);
   for (const c of psCommands(parsed)) {
@@ -561,10 +584,15 @@ export function psProtectedAsk(parsed, deps, abs, plan = () => false) {
     const n = psCmdlet(c.name), told = n !== "remove-item" && n !== "clear-content";
     for (const w of psWriteTargets(c)) check(w, told);
   }
+  if (!names.length && outs.length) {
+    const list = outs.map((o) => scrub(visibleChars(o.name)).slice(0, 300) + " (which leads to " + scrub(visibleChars(o.to)).slice(0, 300) + ")");
+    const why = outs.map((o) => linkOutWhy(scrub(visibleChars(o.full)).slice(0, 300), scrub(visibleChars(o.to)).slice(0, 300))).join("; ");
+    return { kind: "link", paths: list, allow: [allowRunText(command)], why, note: "this command writes " + list.join(", ") + ", outside the project", github: "this command writes " + list.join(", ") + ", outside the project" };
+  }
   if (!names.length) return null;
   const list = names.map((n) => scrub(visibleChars(n)).slice(0, 300));
   const what = "this command writes " + list.join(", ") + ", " + (list.length === 1 ? "a protected file" : "protected files");
-  return { kind: "protected", paths: list, allow: list.map((n) => allowWriteText(n)), why: says.map((x) => scrub(visibleChars(x)).slice(0, 700)).join(" "), note: what + " (it can make code run on the owner's computer when the branch is pulled, or change how the project is built)", github: what };
+  return { kind: "protected", ...(viaLink ? { viaLink: true } : {}), paths: list, allow: list.map((n) => allowWriteText(n)), why: says.map((x) => scrub(visibleChars(x)).slice(0, 700)).join(" "), note: what + " (it can make code run on the owner's computer when the branch is pulled, or change how the project is built)", github: what };
 }
 /**
  * CLAUDE CODE'S HEADER FOR A BACKGROUND-TASK EVENT that arrives with no message of the person's (seen in its cloud
@@ -1239,6 +1267,8 @@ export function secretAsk(args) {
 
 /** suggest_connectors' description: when the model should show the owner the Suggested connectors card. */
 export const SUGGEST_CONNECTORS_WORDS = "Show the owner the Suggested connectors card: each of their connectors (MCP integrations such as Linear, Notion, Zapier, Neon) with a button to Connect, Use (turn on in this chat) or Reconnect it, and a link to browse more. Call it whenever the owner asks about connectors, integrations or MCP (\"search connector tools\", \"what connectors do I have\", \"connect Linear\"), or asks for something in a service you have no tools for. Call it instead of tool_search or request_secret for these. Then tell the owner in a sentence what the card offers.";
+/** (Claude Code 2.1.309: no stray @names in what it posts on GitHub, which would notify strangers.) */
+export const GH_MENTIONS = "GitHub notifies the owner of any @name written in a pull request, issue or comment. Write a bare @name only for a real login you mean to notify; put roles, placeholders and code (@reviewer, @types/node) in backticks or drop the @.";
 export const CODER_TOOLS = Object.freeze([
   // PICTURES, PDFs AND NOTEBOOKS too (owner item 1, 2026-11-07), like Claude Code's Read.
   fn("read", "Read a file in the project (or in " + SCRATCH + ", a scratch folder for crops and conversions that is never saved to the branch), like Claude Code's Read. Text: with line numbers, up to about 100,000 characters a call: a longer file gives its first part (PARTIAL view) and how to read more with offset and limit; a whole file over 256 KB is refused (read a part, or grep); allow_large reads all of it, or a long range, in one call when you truly need it at once. An empty file, or an offset past the end, says so. Use this instead of cat. A picture (PNG, JPG, GIF, WebP; a screenshot you took, say): shown to you as a picture. A PDF: each page's text, and each page shown to you as a picture too (like Claude Code's); pages \"1-5\" picks pages, at most " + PDF_PAGES_MAX + " at a time, and is needed for a PDF of over " + PDF_PAGES_FREE + " pages. A Jupyter notebook (.ipynb): its cells with their outputs, pictures in them shown.", { path: FILE_PATH, offset: { type: "integer" }, limit: { type: "integer" }, pages: { type: "string", description: "PDF pages, e.g. \"3\" or \"1-5\"" }, allow_large: { type: "boolean", description: "read the whole file, or a long range, in one call (sized to the room left in this job); only when you truly need it all at once" } }, ["path"]),
@@ -1281,7 +1311,7 @@ export const CODER_TOOLS = Object.freeze([
   fn("pr_read", "Read a pull request's reviews (state, text), review comments on lines (file:line, author, text) and conversation comments. Use it when the owner asks what the comments or reviews on a pull request say, instead of gh or curl. pr: its number or address (left out: this chat's pull request); repo: one of this chat's repositories (left out: the chat's own). Read-only.", { pr: { type: "string", description: "the pull request's number or address" }, repo: { type: "string" } }, []),
   // CHANGING A PULL REQUEST (2026-11-17, the owner's group 3 test: Claude Code marked one ready and resolved a thread; GitHub
   // does both only through GraphQL, refused to the chat's gh): done by Coder's server with the owner's login, one fixed request each.
-  fn("pr_update", "Change a pull request on GitHub, at once: op \"ready\" (mark a draft ready for review), \"draft\" (back to draft), \"resolve\" (resolve the review thread of comment_id), \"reply\" (answer review comment comment_id with body) or \"comment\" (a comment on its conversation, body). comment_id: the [number] pr_read shows before a review comment. Use it only for what the owner asked, instead of gh or curl (gh pr ready and GraphQL are refused here). pr: its number or address (left out: this chat's pull request); repo: one of this chat's repositories.", { op: { type: "string", enum: ["ready", "draft", "resolve", "reply", "comment"] }, pr: { type: "string" }, repo: { type: "string" }, comment_id: { type: "integer" }, body: { type: "string" } }, ["op"]),
+  fn("pr_update", "Change a pull request on GitHub, at once: op \"ready\" (mark a draft ready for review), \"draft\" (back to draft), \"resolve\" (resolve the review thread of comment_id), \"reply\" (answer review comment comment_id with body) or \"comment\" (a comment on its conversation, body). comment_id: the [number] pr_read shows before a review comment. Use it only for what the owner asked, instead of gh or curl (gh pr ready and GraphQL are refused here). pr: its number or address (left out: this chat's pull request); repo: one of this chat's repositories. " + GH_MENTIONS, { op: { type: "string", enum: ["ready", "draft", "resolve", "reply", "comment"] }, pr: { type: "string" }, repo: { type: "string" }, comment_id: { type: "integer" }, body: { type: "string" } }, ["op"]),
   // CLAUDE CODE'S SUGGESTED CONNECTORS (2026-11-16; claude.com/docs/connectors/directory: "Suggested Connectors, which are
   // in-chat recommendations shown when relevant to the user's task"): its own tool, so the card shows whenever the owner
   // asks about connectors, not only when a tool search happens to name them.
@@ -1317,7 +1347,7 @@ export const CODER_TOOLS = Object.freeze([
   // server pushes and opens it after the turn (Coder never holds the GitHub key).
   { type: "function", function: {
     name: "pull_request",
-    description: "Ask for a pull request of this chat's branch. Use it ONLY when the owner asks for a pull request (\"make a PR\", \"open a pull request\"). Write a clear title and a description: what changed, why, how to test it. Your changes are pushed and it opens now: the answer gives its number and address, so pr_read can read it right away; if one is already open, it is updated with your new work. draft true makes it a draft pull request (when the owner asks for a draft, or presses Create draft PR). repo: one of the chat's other repositories (owner/name), for a pull request there; leave it out for this chat's own repository.",
+    description: "Ask for a pull request of this chat's branch. Use it ONLY when the owner asks for a pull request (\"make a PR\", \"open a pull request\"). Write a clear title and a description: what changed, why, how to test it. Your changes are pushed and it opens now: the answer gives its number and address, so pr_read can read it right away; if one is already open, it is updated with your new work. draft true makes it a draft pull request (when the owner asks for a draft, or presses Create draft PR). repo: one of the chat's other repositories (owner/name), for a pull request there; leave it out for this chat's own repository." + " " + GH_MENTIONS,
     parameters: { type: "object", properties: { title: { type: "string" }, body: { type: "string" }, draft: { type: "boolean" }, repo: { type: "string" } }, required: ["title", "body"] },
   } },
   // PUSH AT A STOPPING POINT (owner, 2026-11-16; Claude Code's cloud session: "when Claude reaches a stopping point, it pushes
@@ -1343,7 +1373,7 @@ export const CODER_TOOLS = Object.freeze([
   } },
   { type: "function", function: {
     name: "reply_review",
-    description: "In an auto-fix job started by a review comment, answer in that comment's thread on GitHub, once you have resolved it: one or two sentences on what you changed, or why nothing needed to change. It is posted as the owner, marked as written by Coder, when your turn ends. Only the comment this job was started for.",
+    description: "In an auto-fix job started by a review comment, answer in that comment's thread on GitHub, once you have resolved it: one or two sentences on what you changed, or why nothing needed to change. It is posted as the owner, marked as written by Coder, when your turn ends. Only the comment this job was started for." + " " + GH_MENTIONS,
     parameters: { type: "object", properties: { comment_id: { type: "integer" }, body: { type: "string" } }, required: ["comment_id", "body"] },
   } },
   // RENAMING THE CHAT, like Claude Code renaming its session (live test 2026-11-15: the owner said "hey, name this chat
@@ -1625,7 +1655,7 @@ export const GITHUB_NOTE = "THIS JOB WAS STARTED FROM GITHUB. Some things work o
 // installed and how to use it, like a developer who knows their machine. The
 // small image (Cloudflare's backup machines) says nothing of these.
 export const MACHINE_TOOLS = `THIS MACHINE: Ubuntu 24.04 with the same tools as Claude Code's machine (check-tools lists them with their versions).
-- Python 3.12 with pip, uv, poetry, pytest, mypy, black, ruff, conan. Node 22 (Node 20, 21 and 24 are in /opt/node20/bin, /opt/node21/bin and /opt/node24/bin: put that bin first on the PATH; any other: . /opt/nvm/nvm.sh && nvm install 18) with npm, yarn, pnpm, bun, eslint, prettier, TypeScript. Ruby 3.3 through rbenv (also 3.1.6 and 3.2.6: rbenv local 3.2.6), with gem and bundler. PHP 8.3 with Composer. Java 21 with Maven and Gradle. Go. Rust with cargo, rustfmt and clippy. C and C++: gcc, clang, cmake, ninja. git, git-lfs, gh (it uses the owner's GitHub login, added by Coder's server, for this chat's own repositories only, like Claude Code's: gh api repos/OWNER/REPO/... and other REST calls work; gh pr and gh issue use GitHub's GraphQL, which is refused, so use gh api repos/OWNER/REPO/pulls and .../issues instead), jq, yq, ripgrep, sqlite3, tmux, vim, nano.
+- Python 3.12 with pip, uv, poetry, pytest, mypy, black, ruff, conan. Node 22 (Node 20, 21 and 24 are in /opt/node20/bin, /opt/node21/bin and /opt/node24/bin: put that bin first on the PATH; any other: . /opt/nvm/nvm.sh && nvm install 18) with npm, yarn, pnpm, bun, eslint, prettier, TypeScript. Ruby 3.3 through rbenv (also 3.1.6 and 3.2.6: rbenv local 3.2.6), with gem and bundler. PHP 8.3 with Composer. Java 21 with Maven and Gradle. Go. Rust with cargo, rustfmt and clippy. C and C++: gcc, clang, cmake, ninja. git, git-lfs, gh (it uses the owner's GitHub login, added by Coder's server, for this chat's own repositories only, like Claude Code's: gh api repos/OWNER/REPO/... and other REST calls work; gh pr and gh issue use GitHub's GraphQL, which is refused, so use gh api repos/OWNER/REPO/pulls and .../issues instead; GitHub notifies the owner of any @name written in a pull request, issue or comment. Write a bare @name only for a real login you mean to notify; put roles, placeholders and code (@reviewer, @types/node) in backticks or drop the @.), jq, yq, ripgrep, sqlite3, tmux, vim, nano.
 - What you install for yourself (npm install -g, pip install, gem install, cargo install, go install) goes in your home folder, never in the project.
 - PostgreSQL 16 and Redis 7 are installed but not running: start them with service postgresql start and service redis-server start. Connect as yourself, no password: psql -d postgres, createdb myapp, redis-cli.
 - The master key's jobs are yours: install any Ubuntu package yourself, mid-job (apt-get install -y NAME, or sudo apt-get install -y NAME), and start, stop or restart any installed service (service NAME start). Ports 80 and 443 work. Nothing else needs it here: everything else runs as you.
@@ -1943,7 +1973,24 @@ export const savedFor = (list, site) => {
   return (Array.isArray(list) ? list : []).map((x) => (typeof x === "string" ? { id: "", site: x, username: "" } : x)).filter((x) => x && typeof x.site === "string" && k(x.site) === k(site));
 };
 
-export async function runCoder(deps, { notices = [], lost = [], stalls = [], promptNotify = true, timeouts = null, outLimits = null, noBg = false, respondToBash = true, shell = "", cmdShell = "", compactVars = null, messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, mode = "auto", rules = null, editDiff = false, readBlock = false, writeBlock = false, checker = false, checkerInPlan = true, checkWhere = null, emailMark = "", diskWarnGib = 0, memWarnGib = 0, hooks = null, autoMode = null, denyInstead = false, autoOff = false, planExit = "auto", hostLists = null, powershell = null, connectors = [], connectorNotes = [], connectorsWaiting = [], connectorsFailed = [], connectorsGone = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS , rmChecksOff = null, fileEdits = true, startMode = "", resumed = false, lastAt = 0, sessionRules = null, compact = null, system = CODER_SYSTEM, tools = null, nudges = true, who = "Coder", browserRules: rulesIn = [], granted: grantedIn = [], schedules = [], opening = "user", permissions: permsIn = null, sites: sitesIn = [], monitor = false, ownerSaid: ownerSaidList = null, asHelper = false, helper = null, pages = [], savedLogins = [], savedCards = [], contacts = [], webhooks = [], hookBase = "/api/coder/gloopy-hook/", attached = [], workNote = "", marked = null, taught = null, files: keptFiles = [], background = false, checkWrites = false, denied: deniedIn = [], zone = "", searchLimits = null, takeUp = null, tasksOff = false, holdBack = null, suggest = false } = {}) {
+/** Whether a permission rule looks like it holds a secret: Claude Code's secret scanner, or a word of it that looks like a key
+ * (KEY=value, a token, a web address with a login), a user:password after -u/--user, or a password run on to -p. */
+export function ruleHoldsSecret(rule) {
+  const s = String(rule || "");
+  if (secretsIn(s).length) return true;
+  const words = s.replace(/^[A-Za-z]+\(|\)$/g, "").split(/[\s"'`]+/).filter(Boolean);
+  for (let i = 0; i < words.length; i++) {
+    const w = words[i], eq = w.indexOf("=");
+    if (eq > 0 && /^[A-Za-z_][A-Za-z0-9_]*$/.test(w.slice(0, eq)) && secretVar(w.slice(0, eq), w.slice(eq + 1))) return true;
+    if (secretVar("", w)) return true;
+    if (/^(?:-u|--user)$/.test(w) && /:./.test(words[i + 1] || "")) return true;
+    if (/^--user=.+:./.test(w) || /^-u[^\s:]+:./.test(w)) return true;
+    if (/^-p\S{3,}$/.test(w) && /\b(?:mysql|mysqldump|mariadb|mysqladmin)\b/.test(s)) return true;
+    if (/^--password=\S/.test(w)) return true;
+  }
+  return false;
+}
+export async function runCoder(deps, { notices = [], lost = [], stalls = [], promptNotify = true, timeouts = null, outLimits = null, noBg = false, respondToBash = true, shell = "", cmdShell = "", compactVars = null, messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, mode = "auto", rules = null, editDiff = false, readBlock = false, writeBlock = false, checker = false, checkerInPlan = true, checkWhere = null, emailMark = "", diskWarnGib = 0, memWarnGib = 0, hooks = null, autoMode = null, denyInstead = false, autoOff = false, planExit = "auto", hostLists = null, powershell = null, connectors = [], connectorNotes = [], connectorsWaiting = [], connectorsFailed = [], connectorsGone = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS , rmChecksOff = null, fileEdits = true, startMode = "", resumed = false, lastAt = 0, sessionRules = null, compact = null, system = CODER_SYSTEM, tools = null, nudges = true, who = "Coder", browserRules: rulesIn = [], granted: grantedIn = [], schedules = [], opening = "user", permissions: permsIn = null, sites: sitesIn = [], monitor = false, ownerSaid: ownerSaidList = null, asHelper = false, helper = null, pages = [], savedLogins = [], savedCards = [], contacts = [], webhooks = [], hookBase = "/api/coder/gloopy-hook/", attached = [], workNote = "", marked = null, taught = null, files: keptFiles = [], background = false, checkWrites = false, denied: deniedIn = [], zone = "", searchLimits = null, takeUp = null, tasksOff = false, holdBack = null, suggest = false, stopCap = STOP_BLOCK_CAP, box = false } = {}) {
   // ANOTHER AGENT ON THE SAME ENGINE (owner, 2026-11-09: Gloopy, container/gloopy-agent.mjs): its own instructions
   // (`system`), the tools it is offered (`tools`; a call to any other is refused), no reminders about Coder's setup script
   // (`nudges`), and its name in the chat's own lines (`who`). Coder's defaults are unchanged.
@@ -2110,7 +2157,10 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   // (Its run's own limit: the search's, with the 10 seconds Claude Code gives a search it stops, and room to start.)
   const searchExecS = () => Math.ceil(((deps.searchSettings && Number(deps.searchSettings.timeoutMs)) || SEARCH_TIMEOUT_MS) / 1000) + 30;
   const rulesAdded = [];
-  const addRule = (r) => { if (typeof r === "string" && parseRule(r) && !ownRules.allow.includes(r)) { ownRules.allow.push(r); rulesAdded.push(r); } };
+  // (A rule that looks like it holds a secret, such as a key or a password in the command, lasts for this chat only and is not
+  // saved with the repository's rules: Claude Code 2.1.323, "an allow rule that looks like it holds a secret ... lasts for the
+  // session only and isn't saved".)
+  const addRule = (r) => { if (typeof r === "string" && parseRule(r) && !ownRules.allow.includes(r)) { ownRules.allow.push(r); if (!ruleHoldsSecret(r)) rulesAdded.push(r); else if (!hookSession.allow.includes(r) && hookSession.allow.length < 50) hookSession.allow.push(r); } };
   // RULES A PERMISSIONREQUEST HOOK ADDS (Bash docs pass 9): for the "session", the chat's, which Coder's Worker keeps for its
   // next messages too (Claude Code: "session: in-memory only, cleared when the session ends"; Coder's had lasted one message);
   // for a settings file, the repository's saved rules, as "don't ask again" ones are.
@@ -2203,7 +2253,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         else {
           if (!ownRules[kind].includes(r)) ownRules[kind].push(r);
           const keep = u.destination === "session" || kind === "allow" ? hookSession[kind] : hookSaved[kind];
-          if (keep && !keep.includes(r) && keep.length < 50) keep.push(r);
+          if (keep && !keep.includes(r)) { if (keep.length < 50) keep.push(r); else if (keep === hookSession.deny || keep === hookSession.ask) hookSession.lost = true; }
         }
       }
       emit({ type: "note", text: "A PermissionRequest hook " + (u.type === "removeRules" ? "removed" : u.type === "replaceRules" ? "replaced" : "added") + " " + kind + " rules: " + list0.join(", ").slice(0, 300), hook: "PermissionRequest" });
@@ -3085,6 +3135,16 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   let stopRun = 0, stopHookActive = false;
   // A hook that said "continue": false: Coder stops after it, its reason shown to the owner and kept for Coder.
   let hookStop = null;
+  // (A PreToolUse hook's "continue": false without a deny: Claude Code runs the call and stops once it is done or has failed,
+  // not when the permission check or the owner refuses it. hooks.md: "It doesn't block a PreToolUse tool call".)
+  let stopAfter = null;
+  const settleStopAfter = () => {
+    if (!stopAfter) return;
+    const s = stopAfter; stopAfter = null;
+    const r = resultsSeen.get(s.id), said = convo.find((m) => m.role === "tool" && m.tool_call_id === s.id);
+    const refused = !said || (r ? r.ran === false && !r.background && !r.notStarted : String(said.content).startsWith(REJECTED.slice(0, 40)));
+    if (!refused) hookStop = hookStop || s.o;
+  };
   // A HOOK THAT ENDS THE TURN (Claude Code: a prompt hook's "ok": false on PreToolUse and PostToolUse, "the turn ends and the
   // reason appears in the chat as a warning line"; a PostToolBatch block "stops the loop before the next model call, with a
   // warning that stays in the conversation").
@@ -3807,7 +3867,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   let jobOver = false;
   // (After Claude Code's auto-compact, the Worker drops the Rewind marks of what was summarized: every one before this job's
   // end, as the whole conversation was.)
-  const end = (status, extra = {}) => ((jobOver = true), { status, messages: convo.map(saved), rounds, usage, summary: "", ...(autoCompacted ? { compact: { done: true, auto: true, from: 0, to: (Array.isArray(messages) ? messages.length : 0) + 1 } } : {}), ...(approvalRequest ? { approvalRequest } : {}), ...(signinRequest ? { signinRequest } : {}), ...(cardRequest ? { cardRequest } : {}), ...(handoffRequest ? { handoffRequest } : {}), ...(keyRequest ? { keyRequest } : {}), ...(scheduleRemovals.length ? { scheduleRemovals } : {}), ...(scheduleAdds.length ? { scheduleAdds } : {}), ...(scheduleEdits.length ? { scheduleEdits } : {}), ...(schedulePauses.length ? { schedulePauses } : {}), ...(signedIn.length ? { signedIn } : {}), ...(webhookAdds.length ? { webhookAdds } : {}), ...(webhookRemovals.length ? { webhookRemovals } : {}), ...(pageRequests.length ? { pageRequests } : {}), edited: [...edited], ...(editedCut ? { editedCut: true } : {}), ...(prRequest ? { prRequest } : {}), ...(pushRequest ? { push: true } : {}), ...(midPushes.length ? { midPushes } : {}), ...(midNotes.length ? { midNotes } : {}), ...(undoRequest ? { undoRequest } : {}), ...(reviewPost ? { reviewPost } : {}), ...(prExtra.length ? { prExtra } : {}), ...(autofixRequest ? { autofixRequest } : {}), ...(reviewReplies.length ? { reviewReplies } : {}), ...(github ? {} : { mode: modeNow() }), ...(rulesAdded.length ? { rulesAdded } : {}), ...(hadSession || Object.values(hookSession).some((l) => l.length) ? { sessionRules: hookSession } : {}), ...(Object.values(hookSaved).some((l) => l.length) ? { rulesSaved: hookSaved } : {}), ...(sessionTitle ? { sessionTitle } : {}), ...extra });
+  const end = (status, extra = {}) => ((jobOver = true), { status, messages: convo.map(saved), rounds, usage, summary: "", ...(autoCompacted ? { compact: { done: true, auto: true, from: 0, to: (Array.isArray(messages) ? messages.length : 0) + 1 } } : {}), ...(approvalRequest ? { approvalRequest } : {}), ...(signinRequest ? { signinRequest } : {}), ...(cardRequest ? { cardRequest } : {}), ...(handoffRequest ? { handoffRequest } : {}), ...(keyRequest ? { keyRequest } : {}), ...(scheduleRemovals.length ? { scheduleRemovals } : {}), ...(scheduleAdds.length ? { scheduleAdds } : {}), ...(scheduleEdits.length ? { scheduleEdits } : {}), ...(schedulePauses.length ? { schedulePauses } : {}), ...(signedIn.length ? { signedIn } : {}), ...(webhookAdds.length ? { webhookAdds } : {}), ...(webhookRemovals.length ? { webhookRemovals } : {}), ...(pageRequests.length ? { pageRequests } : {}), edited: [...edited], ...(editedCut ? { editedCut: true } : {}), ...(prRequest ? { prRequest } : {}), ...(pushRequest ? { push: true } : {}), ...(midPushes.length ? { midPushes } : {}), ...(midNotes.length ? { midNotes } : {}), ...(undoRequest ? { undoRequest } : {}), ...(reviewPost ? { reviewPost } : {}), ...(prExtra.length ? { prExtra } : {}), ...(autofixRequest ? { autofixRequest } : {}), ...(reviewReplies.length ? { reviewReplies } : {}), ...(github ? {} : { mode: modeNow() }), ...(rulesAdded.length ? { rulesAdded } : {}), ...(hadSession || ["allow", "ask", "deny"].some((k) => hookSession[k].length) ? { sessionRules: { allow: hookSession.lost ? [] : hookSession.allow, ask: hookSession.ask, deny: hookSession.deny } } : {}), ...(Object.values(hookSaved).some((l) => l.length) ? { rulesSaved: hookSaved } : {}), ...(sessionTitle ? { sessionTitle } : {}), ...extra });
   // A ROUND THAT ENDS EARLY (round 5; the owner, 2026-11-14: "Yes pls"; coder-parallel.mjs). Claude Code 2.1.325, in its cloud
   // sessions: the owner's No without words is its deny with "interrupt", which aborts the turn; their Stop aborts it as
   // "remote-cancel". Its executor keeps what each call of the reply had returned by then, gives a call still running its
@@ -4368,10 +4428,15 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     // have continued the turn eight times in a row, Claude Code overrides the next block and ends the turn").
     // (The repository's settings, looked at again before its Stop hooks too, as before each step: freshRules.)
     if (!calls.length) freshRules();
-    if (!calls.length && hookList.length && stopRun < STOP_BLOCK_CAP) {
+    // (The hooks run every time; once they have kept the turn going stopCap times in a row, the next block is overridden and the
+    // turn ends with a note, as Claude Code does. stopCap 0: no cap. CODER_STOP_HOOK_BLOCK_CAP, Claude Code's
+    // CLAUDE_CODE_STOP_HOOK_BLOCK_CAP.)
+    if (!calls.length && hookList.length) {
       const o = await runHooks("Stop", "", { stop_hook_active: stopHookActive, last_assistant_message: scrub(said).slice(0, 20000), background_tasks: [...jobs.entries()].filter(([, j]) => !j.done).map(([id, j]) => ({ id, type: j.monitor ? "monitor" : "shell", status: "running", description: String(j.desc || "").slice(0, 1000), command: String(j.command || "").slice(0, 1000) })), session_crons: [] });
       if (o && o.stop) { if (said) { emit({ type: "text", text: scrub(said) }); lastSaid = scrub(said).slice(0, 4000); } return stopByHook(o); }
-      if (o && (o.decision === "block" || o.context.length)) {
+      if (o && (o.decision === "block" || o.context.length) && stopCap > 0 && stopRun >= stopCap) {
+        emit({ type: "note", text: "Stop hooks blocked " + stopRun + " times in a row; ending the turn anyway.", hook: "Stop" });
+      } else if (o && (o.decision === "block" || o.context.length)) {
         stopRun++; stopHookActive = true;
         if (said) { emit({ type: "text", text: scrub(said) }); lastSaid = scrub(said).slice(0, 4000); }
         const why = o.decision === "block" ? o.blocks.join("\n") : "Stop hook feedback:\n" + o.context.join("\n");
@@ -4781,6 +4846,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       try {
       freshRules();
       await runPost();
+      settleStopAfter();
       // (ROUND 5, Coder's own runs, coder-parallel.mjs: the owner's Stop seen between two calls ends the round; a call answered
       // already, one that ran beside a card that paused the job, is not run again in the job that takes the round up again; in
       // closing mode a call takes its turn only when its early start had its result by then, and the others are answered here.)
@@ -4924,7 +4990,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // (Its hooks started at its group's start, beside the others', for this same input: their outcome, taken. Round 5.)
         const preEarly = early.takeHooks(c.id, JSON.stringify(input));
         const pre = preEarly ? await preEarly : await runHooks("PreToolUse", tool, { tool_name: tool, tool_input: input, tool_use_id: c.id }, { tool, input, ctx: { cwd: hookCtx().cwd, root: deps.root || "/", home: deps.home || "" }, ws: c.name === "monitor" && c.args.ws !== undefined });
-        if (pre && pre.stop) { reply("not run: a hook stopped this job"); return stopByHook(pre); }
+        if (pre && pre.stop && pre.decision === "deny") { reply("not run: a hook stopped this job"); return stopByHook(pre); }
+        if (pre && pre.stop) stopAfter = { id: c.id, o: pre };
         if (pre && pre.decision === "deny") {
           emit({ type: "bash", id: c.id, ...(c.name === "bash" || c.name === "monitor" ? {} : { tool: c.name, verb: "Blocked" }), command: scrub(String(c.name === "bash" || c.name === "monitor" ? c.args.command || "" : c.args.path || c.args.url || c.args.pattern || c.name)).slice(0, 300) });
           emit({ type: "result", id: c.id, code: -1, ran: false, output: scrub(pre.reason).slice(0, 2000), hookBlocked: true });
@@ -5088,6 +5155,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // (The chat's own plan file, named by a plain path, not through a link: Claude Code 2.1.325's "Plan files for current session
         // are allowed for writing" (and "… for reading"), in its check of each path a PowerShell cmdlet or redirection names, before
         // its protected paths and working folders: coder-perms.mjs psPlanFile. Round 6.)
+        // (The same path as written, its links not followed: psProtectedAsk's writes through a link.)
+        const psNamed = (p) => { let t = String(p ?? "").replace(/^['"]|['"]$/g, "").replace(/\\/g, "/"); if (!t) return null; if (t === "~" || t.startsWith("~/")) t = (deps.home || "/home/dev") + t.slice(1); return pathPosix.resolve(where0 || deps.root || "/", t); };
         const psPlan = (p) => psPlanFile(p, { planFile: planPath(), cwd: where0 || deps.root || "/", home: deps.home || "", real: (q) => realPath(q) });
         const psInside = (p) => { if (psPlan(p)) return true; const a = psAbs(p); return !!a && workdirs.some((w) => a === w || a.startsWith(w + "/")); };
         // (The decision in a mode, `byCmd` whether file commands run as Accept edits lets them; a monitor's card names the owner's
@@ -5138,7 +5207,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // ASKED FIRST IN EVERY MODE: a command over 10,000 characters, one that writes a protected file (by its name or through
         // a link), or one that writes through a link out of the project.
         // (A PowerShell command's protected writes: psProtectedAsk, fix 4 of "Yes all 7".)
-        let ask = c.ps ? (command.length > MAX_COMMAND_CHARS ? commandAsk(command, deps, where0) : psProtectedAsk(await psParse(command), deps, psAbs, psPlan)) : commandAsk(command, deps, where0, { real: (p) => realPath(p), allowed: (full) => !github && !!fileRuleHit(rulesB.allow, "Edit", full, "allow", { root: deps.root || "/", cwd: where0 || deps.root || "/", home: deps.home || "", real: (p) => realPath(p) }), planFile: planPath() });
+        let ask = c.ps ? (command.length > MAX_COMMAND_CHARS ? commandAsk(command, deps, where0) : psProtectedAsk(await psParse(command), deps, psAbs, psPlan, { named: psNamed, command, allowed: (full) => !github && !!fileRuleHit(rulesB.allow, "Edit", full, "allow", { root: deps.root || "/", cwd: where0 || deps.root || "/", home: deps.home || "", real: (p) => realPath(p) }) })) : commandAsk(command, deps, where0, { real: (p) => realPath(p), allowed: (full) => !github && !!fileRuleHit(rulesB.allow, "Edit", full, "allow", { root: deps.root || "/", cwd: where0 || deps.root || "/", home: deps.home || "", real: (p) => realPath(p) }), planFile: planPath() });
         // THE READ BLOCK (Bash docs pass 4: the environment's CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES, Claude Code's
         // permissions.blockReadsOutsideWorkingDirectories): a command that reads outside the project, or can't be traced, is
         // asked about in every mode (Claude Code: they "prompt even in auto mode"; no rule approves one).
@@ -5670,7 +5739,9 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         const script = !owed && typeof c.args.setup_script === "string" && c.args.script_change !== "removes the setup script" ? c.args.setup_script : "";
         if (script.trim()) {
           const parts = splitSetup(script), had = splitSetup(setupScript);
-          if (NEEDS_ROOT_RE.test(parts.script)) { reply("error: only plain lines like `apt-get install -y jq` (or `sudo apt-get update && sudo apt-get install -y jq`) can install system packages: Coder's app runs those as admin. Every other line runs as your own user without root, so other sudo or admin commands (and apt inside if/for or mixed with other commands) cannot work. This machine already has git, build tools, Python 3 with pip and venv, Node 22 with npm, curl, jq, ripgrep, zip and unzip. Put packages on their own apt-get install line, install the rest into the project (npm ci, a Python virtualenv), then propose the script again."); continue; }
+          // (With the admin sandbox the whole script runs as admin, as Claude Code's does, "Scripts run as root on Ubuntu 24.04":
+          // sudo and admin commands work on any line. Only without it is this refused.)
+          if (!box && NEEDS_ROOT_RE.test(parts.script)) { reply("error: only plain lines like `apt-get install -y jq` (or `sudo apt-get update && sudo apt-get install -y jq`) can install system packages: Coder's app runs those as admin. Every other line runs as your own user without root, so other sudo or admin commands (and apt inside if/for or mixed with other commands) cannot work. This machine already has git, build tools, Python 3 with pip and venv, Node 22 with npm, curl, jq, ripgrep, zip and unzip. Put packages on their own apt-get install line, install the rest into the project (npm ci, a Python virtualenv), then propose the script again."); continue; }
           // THE PACKAGES MUST EXIST (checked here, since you cannot install them yourself).
           const newPkgs = parts.packages.filter((x) => !had.packages.includes(x));
           if (newPkgs.length) {
@@ -6489,13 +6560,25 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         const emailTool = c.name === "write" ? "Write" : c.name === "edit" ? "Edit" : c.name === "web_fetch" ? "WebFetch" : "";
         const emailNo = !!emailMark && !!emailTool && await emailRefused(emailTool, args, emailMark);
         // A PROTECTED FILE (PROTECTED_DIRS, PROTECTED_FILES): written only once the owner allows it.
-        const guarded = (c.name === "write" || c.name === "edit") && typeof args.path === "string" ? toolProjectPath(deps, args.path) : "";
+        let guarded = (c.name === "write" || c.name === "edit") && typeof args.path === "string" ? toolProjectPath(deps, args.path) : "";
         // (But not the chat's own plan file, wherever plansDirectory puts it, `.claude/plans` too: Claude Code's "Plan files for
         // current session are allowed for writing", which it checks after the owner's deny and ask rules and before its
         // protected paths; permission-modes: ".claude, with a few exceptions, such as: … The current session's own plan files
         // in ~/.claude/plans/, or in the plansDirectory you set". Only this chat's file. D3, round 4, 2026-11-14.)
         const ownPlanFile = !!guarded && !!planPath() && targetFor(c.name, args) === planPath();
-        const why = guarded && !ownPlanFile ? protectedFile(guarded) : "";
+        let why = guarded && !ownPlanFile ? protectedFile(guarded) : "", linkTo = "";
+        // WRITES THROUGH A LINK (Claude Code's permissions docs, "Writes through a symlink": a write that "resolves to a protected
+        // path that the requested path doesn't name" gets that path's outcome, prompted for where it would go to the checker,
+        // "The prompt names the path the write resolves to"): the place the write really lands is checked too, and the card
+        // names it. Audit I28.
+        if (guarded && !why && !ownPlanFile) {
+          const full0 = targetFor(c.name, args);
+          let to0 = "";
+          try { to0 = full0 && full0.startsWith("/") ? leadsTo(full0, workdirs, (x) => realPath(x)) : ""; } catch { to0 = ""; }
+          const rel0 = to0 && to0 !== full0 ? projectPath(deps, to0) : "";
+          const w0 = rel0 ? protectedFile(rel0) || protectedFile(rel0 + "/x") : "";
+          if (w0) { why = w0; linkTo = to0; guarded = guarded + " (which leads to " + rel0 + ")"; }
+        }
         // What a write or an edit would do, for its card: a write's lines; an edit's old lines taken out and new ones put in.
         // A Windows line ending is not part of the line shown (live test, 2026-11-09: a hidden "\r" on each line).
         // A LONG LINE SHOWS IT WAS CUT (the owner, 2026-11-09: "Ok yea fix that"; Claude Code: "Fixed the file edit permission
@@ -6514,7 +6597,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
             // (Told in Claude Code's words since round 6, the ask itself, as its run with no one to answer returns it: Write's and
             // Edit's check of a protected path, "Coder requested permissions to edit <path> which is a sensitive file." (a .claude
             // folder's settings file: "… to write to <path>, but you haven't granted it yet."), by the path in full.)
-            const m = sensitiveWhy(ccPath(targetFor(c.name, args)));
+            const m = linkTo ? sensitiveWhy(linkTo, targetFor(c.name, args)) : sensitiveWhy(ccPath(targetFor(c.name, args)));
             emit({ type: "bash", id: c.id, tool: c.name, verb: spec.verb, command: shownPath }); emit({ type: "result", id: c.id, code: 1, ran: false, output: m }); reply(m); continue;
           }
           // (A machine that cannot wait for an answer asks as Coder did before the modes: the turn ends with the card.)
@@ -6651,7 +6734,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           // card; at the limit of blocks, what Coder is told where no one can answer, and the card's "don't ask again". Round 6.)
           const ccFetch = fetchLimit || fetchSwitched ? fetchDecision(String(args.url || ""), { mode: "acceptEdits", rules: ownRules }) : null;
           const card = fileAsk
-            ? { tool: c.name, id: c.id, path: shownPath, change: changeShown(), why: why ? sensitiveWhy(fullFile) : planWriteWhy(targetFor(c.name, args)), ...(hookLine || {}) }
+            ? { tool: c.name, id: c.id, path: shownPath, change: changeShown(), why: why ? (linkTo ? sensitiveWhy(linkTo, targetFor(c.name, args)) : sensitiveWhy(fullFile)) : planWriteWhy(targetFor(c.name, args)), ...(hookLine || {}) }
             : ruleAsk
             ? { tool: c.name, id: c.id, ...(c.name === "web_fetch" ? { url: scrub(String(args.url || "")).slice(0, 500) } : { path: shownPath }), ...(c.name === "write" || c.name === "edit" ? { change: changeShown() } : {}), why: fileDec && fileDec.verdict === "ask" ? fileDec.why : "", ...(hookLine || {}), byRule: true }
             : { tool: "web_fetch", id: c.id, url: scrub(String(args.url || "")).slice(0, 500), why: fetchLimit ? fetchLimit.why : fetchSwitched ? ccFetch.why : fetchDec.why, ...((ccFetch ? ccFetch.suggest : fetchDec && fetchDec.suggest) ? { rules: ccFetch ? ccFetch.suggest : fetchDec.suggest } : {}), ...(fetchLimit ? { told: "Coder requested permissions to use WebFetch, but you haven't granted it yet." } : {}) };
@@ -7184,6 +7267,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     // (The call taken up again is done: the mode is the chat's own again.)
     modePin = ""; if (taking) taking.used = true;
     await runPost();
+    settleStopAfter();
     roundDoneAt = now();
     // (A round that ended early: the job ends as its No, Stop or pause ends it, every call of the round answered or, for a
     // pause, left for the job that takes it up again. Round 5.)

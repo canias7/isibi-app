@@ -101,6 +101,9 @@ export function persistHookText(event, run, save) {
 }
 /** Claude Code's cap on Stop hooks that keep a turn going: "after stop hooks have continued the turn eight times in a row". */
 export const STOP_BLOCK_CAP = 8;
+/** The cap from the environment's CODER_STOP_HOOK_BLOCK_CAP (Claude Code's CLAUDE_CODE_STOP_HOOK_BLOCK_CAP): a whole number, 0 for
+ * no cap; anything else gives the default, 8. */
+export function stopCapOf(v) { const t = String(v ?? "").trim(); return /^\d{1,6}$/.test(t) ? Number(t) : STOP_BLOCK_CAP; }
 /** The owner's hooks box in Settings: at most this many characters of JSON. */
 export const HOOKS_SETTING_MAX = 20_000;
 /** How long after a hook's own process exits Coder stops waiting for the rest of its output (Claude Code: "up to 10 seconds"). */

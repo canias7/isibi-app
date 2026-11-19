@@ -156,6 +156,8 @@ async function inside(p, { mustExist = false, tool = "", output = false } = {}) 
       const rootReal = await realpath(home);
       const r2 = relative(rootReal, real);
       if (r2.startsWith("..") || isAbsolute(r2)) fail("that path leads outside the project");
+      // (Nor the .git folder reached through a link: where the path really lands counts. Audit I28.)
+      if (r2.split(sep)[0] === ".git") fail("the .git folder is off limits");
       break;
     } catch (e) {
       if (e instanceof ToolError) throw e;

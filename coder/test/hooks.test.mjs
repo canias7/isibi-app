@@ -83,7 +83,7 @@ test("CD383 hooks as Claude Code reads them: the settings' shape, its matchers, 
 });
 
 /** Coder's loop with hooks, on a pretend machine: `hookRun(input)` answers each hook ({ code, stdout, stderr }). */
-async function hooked(steps, hooks, { hookRun, mode = "auto", text = "go", messages = [], answers = [], askWait = 0, notifyMs } = {}) {
+async function hooked(steps, hooks, { hookRun, mode = "auto", text = "go", messages = [], answers = [], askWait = 0, notifyMs, opts = {} } = {}) {
   const { runCoder } = await import("../container/coder-agent.mjs");
   const events = [], seen = [], ran = [], hookCalls = [], cards = [];
   let n = 0, k = 0;
@@ -106,7 +106,7 @@ async function hooked(steps, hooks, { hookRun, mode = "auto", text = "go", messa
     // `gone`, fix round 4.)
     ask: async (pid, o = {}) => { cards.push(events.find((e) => e.type === "permission" && e.pid === pid)); for (const until = Date.now() + askWait; Date.now() < until;) { if (o.gone && o.gone()) return { choice: "gone" }; await new Promise((ok) => setTimeout(ok, 2)); } return answers[k++] || { choice: "yes" }; },
     ...(notifyMs !== undefined ? { promptNotifyMs: notifyMs } : {}),
-  }, { text, mode, messages, hooks: H.hooksFrom({ hooks }, "settings").list });
+  }, { text, mode, messages, hooks: H.hooksFrom({ hooks }, "settings").list, ...opts });
   return { r, events, seen, ran: ran.filter((c) => !/coder-tools\.mjs/.test(c)), hookCalls, cards };
 }
 
@@ -149,9 +149,20 @@ test("CD383b in Coder's loop: PreToolUse blocks, rewrites, asks or allows; PostT
   // STOP: a block keeps Coder going with the reason; at most 8 times in a row.
   let stops = 0;
   t = await hooked([say("All done.")], { Stop: hk("tests.sh") }, { hookRun: (i) => { stops++; assert.equal(i.stop_hook_active, stops > 1); assert.equal(i.last_assistant_message, "All done."); return { code: 2, stderr: "Run the tests first." }; } });
-  assert.equal(stops, 8);
+  // (Claude Code: the hooks run a ninth time, that block is overridden and the turn ends with a warning.)
+  assert.equal(stops, 9);
   assert.equal(t.seen.length, 9);
+  assert.equal(t.r.status, "done");
+  assert.ok(t.events.some((e) => e.type === "note" && e.text === "Stop hooks blocked 8 times in a row; ending the turn anyway."));
+  // (CODER_STOP_HOOK_BLOCK_CAP: 3; 0 is no cap.)
+  assert.deepEqual([H.stopCapOf("3"), H.stopCapOf("0"), H.stopCapOf(""), H.stopCapOf("x")], [3, 0, 8, 8]);
   assert.equal(t.seen[1].messages.at(-1).content, "(Note from Coder's app, not the owner: Stop hook feedback:\n[command hook]: Run the tests first.)");
+  stops = 0;
+  { const t = await hooked([say("All done.")], { Stop: hk("tests.sh") }, { opts: { stopCap: 3 }, hookRun: () => { stops++; return { code: 2, stderr: "again" }; } });
+  assert.deepEqual([stops, t.seen.length], [4, 4]); }
+  stops = 0;
+  { const t = await hooked([say("All done.")], { Stop: hk("tests.sh") }, { opts: { stopCap: 0 }, hookRun: () => (++stops <= 12 ? { code: 2, stderr: "again" } : {}) });
+  assert.deepEqual([stops, t.seen.length], [13, 13]); }
   t = await hooked([say("Done."), say("Ran them.")], { Stop: hk("fb.sh") }, { hookRun: (i) => (i.stop_hook_active ? {} : { stdout: '{"hookSpecificOutput":{"hookEventName":"Stop","additionalContext":"Please run the test suite before finishing"}}' }) });
   assert.equal(t.seen.length, 2);
   assert.match(t.seen[1].messages.at(-1).content, /Stop hook feedback:\nPlease run the test suite before finishing\)$/);
@@ -159,6 +170,16 @@ test("CD383b in Coder's loop: PreToolUse blocks, rewrites, asks or allows; PostT
   t = await hooked([say("", [call("bash", { command: "make", description: "Build" }, "b1")]), say("never")], { PostToolUse: hk("stop.sh") }, { hookRun: () => ({ stdout: '{"continue":false,"stopReason":"Build failed, fix errors before continuing"}' }) });
   assert.equal(t.seen.length, 1);
   assert.ok(t.events.some((e) => e.type === "note" && e.text === "Build failed, fix errors before continuing"));
+  // (A PreToolUse hook's continue:false runs the call, then stops: Claude Code's hooks.md, "It doesn't block a PreToolUse
+  // tool call". With a deny the call is not run; refused at the permission check, the stop does not apply.)
+  { const STOP = '{"continue":false,"stopReason":"Enough for today"}';
+    let u = await hooked([say("", [call("bash", { command: "make", description: "Build" }, "b1")]), say("never")], { PreToolUse: hk("stop.sh") }, { hookRun: () => ({ stdout: STOP }) });
+    assert.deepEqual([u.ran, u.seen.length], [["make"], 1]);
+    assert.ok(u.events.some((e) => e.type === "note" && e.text === "Enough for today"));
+    u = await hooked([say("", [call("bash", { command: "make", description: "Build" }, "b1")]), say("never")], { PreToolUse: hk("stop.sh") }, { hookRun: () => ({ stdout: '{"continue":false,"stopReason":"No","hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"no"}}' }) });
+    assert.deepEqual([u.ran, u.seen.length], [[], 1]);
+    u = await hooked([say("", [call("bash", { command: "npm test", description: "Test" }, "b1")]), say("Fine, not run.")], { PreToolUse: hk("stop.sh") }, { mode: "acceptEdits", answers: [{ choice: "no", comment: "not now" }], hookRun: () => ({ stdout: STOP }) });
+    assert.deepEqual([u.ran, u.seen.length, u.r.status], [[], 2, "done"]); }
   // PERMISSIONREQUEST: allow answers the card for the owner (shown at once beside its hooks, closed with the hook's answer
   // when it decides first: fix round 4, D4); the NOTIFICATION hooks run when a card waits.
   t = await hooked([say("", [call("bash", { command: "npm test", description: "Test" }, "b1")]), say("ok")], { PermissionRequest: hk("ok.sh") }, { mode: "acceptEdits", askWait: 2000, hookRun: () => ({ stdout: '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}' }) });
