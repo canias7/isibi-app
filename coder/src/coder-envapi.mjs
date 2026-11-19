@@ -12,7 +12,7 @@
  * Values of variables and network secrets never leave here for the machine.
  */
 import { modelPass } from "./coder-model-gate.mjs";
-import { userToken, readPullRequestComments, openPullRequest, postReview, updatePullRequest } from "./coder-github.mjs";
+import { userToken, readPullRequestComments, openPullRequest, prFailNote, postReview, updatePullRequest } from "./coder-github.mjs";
 import { chatLinkFor, madeWith, prStillOpen, noPrNote } from "./coder-routes.mjs";
 import { listEnvs, saveEnvList, readEnvData, writeEnvData, envIdFor, envIdOf, markUsed, envListOut } from "./coder-environments.mjs";
 import { egressPass, machineKeyRules, EGRESS_PATH } from "./coder-egress.mjs";
@@ -247,7 +247,7 @@ export async function prOpenNow(env, bucket, uid, id, meta, body, { fetchFn = fe
     const link = await chatLinkFor(env, bucket, uid, meta, id).catch(() => "");
     pr = await openPullRequest(t.token, repo, { head: meta.branch, base, title, body: String(body.body || "").slice(0, 8000) + madeWith(link), draft: body.draft === true }, fetchFn).catch(() => null);
   }
-  if (!pr) return { error: "error: GitHub did not open the pull request (is there a commit on " + meta.branch + " that " + base + " lacks?)" };
+  if (!pr || !pr.number) return { error: "error: GitHub did not open the pull request: " + prFailNote(repo, base, meta.branch, pr, "is there a commit on " + meta.branch + " that " + base + " lacks?") };
   const cur = (await getJson(bucket, metaKey(uid, id), null)) || meta;
   const next = x ? { ...cur, prs: { ...(cur.prs || {}), [repo]: pr } } : { ...cur, pr, pushed: true };
   await bucket.put(metaKey(uid, id), JSON.stringify(next), { httpMetadata: { contentType: "application/json" } });

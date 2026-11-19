@@ -229,6 +229,7 @@
     const r = await call('/github/repos');
     if (r.data && r.data.connect) { S.phase = 'connect'; return draw(); }
     S.repos = (r.data && r.data.repos) || [];
+    S.reposPartial = !!(r.data && r.data.partial); S.reposSso = !!(r.data && r.data.ssoHidden);
     if (r.data && r.data.install && S.github) S.github.install = r.data.install;
     // CODE REVIEW, PER REPOSITORY (owner item 11, like Claude Code's "Review runs"): on the Repositories screen.
     if (S.pickMode === 'repos') { const rs = await call('/review/settings'); S.reviews = (rs.data && rs.data.repos) || {}; }
@@ -1422,7 +1423,10 @@
       body = head('Environment: ' + (e.name || 'Default')) +
         '<p class="cd-em-help cd-em-top">' + (e.isDefault ? 'The Default environment: chats in all your repos can use it. ' : 'Used by every chat that picks it. ') + (e.locked ? 'This chat picked it before its first message.' : 'This chat can still pick another one under the message box, until its first message.') + '</p>' +
         '<div class="cd-em-rows">' + rows.map((r) => '<button type="button" class="cd-em-row" data-envgo="' + r[0] + '"><span><b>' + r[1] + '</b><small>' + esc(r[2]) + '</small></span><span aria-hidden="true">›</span></button>').join('') + '</div>' +
-        (!e.isDefault && e.envId ? '<button type="button" class="cd-em-archive" id="envArchive">Archive this environment</button>' : '');
+        (!e.isDefault && e.envId ? '<button type="button" class="cd-em-archive" id="envArchive">Archive this environment</button>' : '') +
+        // A REFUSED ARCHIVE SAYS WHY, inside the dialog (Claude Code: "Fixed failed saves and archives in the cloud environment
+        // edit dialog showing no error inside the dialog"); this page has no footer to show it in.
+        (S.envMsg ? '<p class="cd-em-err cd-em-archive-err" role="alert">' + esc(S.envMsg) + '</p>' : '');
     } else if (page === 'name') {
       body = head('Name', 'main') + '<input id="envNameIn" class="cd-em-in" maxlength="64" autocomplete="off" spellcheck="false" value="' + esc(f.text) + '">' +
         '<p class="cd-em-help">Every chat that uses this environment shows the new name.</p>' + foot('Save changes');
@@ -4395,6 +4399,9 @@
       const list = S.repos === null ? '<span class="cd-spin cd-spin-lg"></span>'
         : S.repos.length ? '<div class="cd-repos">' + S.repos.map((r) => (S.pickMode === 'repos' ? reviewRow(r) : repoBtn(r))).join('') + '</div>'
         : '<p class="cd-sub">Coder can’t see any repositories yet.</p>';
+      // SOME HIDDEN (like Claude Code's picker: single sign-on said even with others listed; a list GitHub cut short).
+      const hidden = S.repos === null ? '' : (S.reposSso ? '<p class="cd-sub cd-repos-sso" id="cdReposSso">Your GitHub organization requires single sign-on, so some of its repositories are hidden. Connect GitHub again and click Authorize next to your organization. <button type="button" class="cd-btn-2" id="cdReconnectGh">Connect GitHub again</button></p>' : '') +
+        (S.reposPartial ? '<p class="cd-sub cd-repos-partial" id="cdReposPartial">Some repositories could not be listed. Type owner/name to open one.</p>' : '');
       // ANY PUBLIC REPOSITORY (owner item 5, like Claude Code: "a session can clone any public repository").
       const open = '<form class="cd-open" id="cdOpenForm"><label for="cdOpenRepo">Or open any public repository</label>' +
         '<div class="cd-open-row"><input id="cdOpenRepo" placeholder="owner/name or its GitHub address" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="200"><button type="submit" class="cd-btn-2">Open</button></div>' +
@@ -4402,7 +4409,7 @@
       return centerHTML((S.pickMode === 'repos' ? '' : playFig()) + '<b class="cd-title">' + (S.pickMode === 'repos' ? 'Your repositories' : 'New chat: pick a repository') + '</b>' +
         '<p class="cd-sub">Signed in as <b>' + esc(S.github && S.github.login) + '</b>. Coder will work on its own branch and never touch your main branch.</p>' +
         (S.pickMode === 'repos' ? '<p class="cd-sub cd-review-note">Turn on <b>Code review</b> for a repository and Coder reviews its pull requests, posting what it finds on them. It never approves or blocks one. Anyone with write access can also comment <code>@coder review</code>.</p>' : '') +
-        list + open +
+        list + hidden + open +
         (install ? '<a class="cd-btn-2" href="' + esc(install) + '" target="_blank" rel="noopener">Add repositories on GitHub</a>' : '') +
         (S.error ? '<p class="cd-errline">' + esc(S.error) + '</p>' : ''));
     }
@@ -4441,6 +4448,17 @@
       if (b && b !== d.el && !b.disabled && S.root && S.root.contains(b) && b.outerHTML === d.html) b.click();
     }, true);
   }
+  // An editable field outside a permission card (and not the message box, kept on its own) that has the keyboard now, with
+  // its cursor: `{ id, a, b }` (id '' for one with no id, such as a window on the page's body), or null.
+  function typingNow() {
+    const a = document.activeElement;
+    if (!a || a === document.body || a.id === 'cdIn' || (a.closest && a.closest('.cd-perm'))) return null;
+    const editable = a.isContentEditable || (a.matches && a.matches('textarea, select, input:not([type=button]):not([type=submit]):not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file])'));
+    if (!editable) return null;
+    let a0 = null, b0 = null;
+    try { a0 = a.selectionStart; b0 = a.selectionEnd; } catch (er) { /* no cursor */ }
+    return { id: a.id || '', a: a0, b: b0, v: typeof a.value === 'string' ? a.value : null };
+  }
   function draw(scroll) {
     const root = S.root;
     if (!root || !root.isConnected) return;
@@ -4449,6 +4467,11 @@
     const log = root.querySelector('#cdLog');
     const atBottom = !log || log.scrollHeight - log.scrollTop - log.clientHeight < 80;
     const focus = document.activeElement && document.activeElement.id === 'cdIn';
+    // SOMETHING ELSE BEING TYPED IN (the Rename box, a line comment, the Environment window…): a permission card that comes
+    // now does not take the keyboard from it, and it keeps its cursor through the redraw (Claude Code: "Fixed permission
+    // dialogs stealing focus while actively typing"; "a permission prompt that arrived behind an open dialog taking keyboard
+    // focus, so a key pressed in the dialog could answer it").
+    S.typingAt = typingNow();
     // THE BOX KEEPS ITS CURSOR AND SELECTION through a redraw (while Coder works the page redraws every 1.5 seconds, and a
     // message can be typed then: the queue); only when its text was changed for it does the cursor go to the end.
     const was = focus ? { v: document.activeElement.value, a: document.activeElement.selectionStart, b: document.activeElement.selectionEnd, d: document.activeElement.selectionDirection, top: document.activeElement.scrollTop } : null;
@@ -4491,6 +4514,12 @@
     if (GLOOPY && S.project) markGloopy(!S.running && gloopyWaits(S.project));
     const nlog = root.querySelector('#cdLog');
     if (nlog && (scroll || atBottom)) nlog.scrollTop = nlog.scrollHeight;
+    const typedIn = S.typingAt && S.typingAt.id ? document.getElementById(S.typingAt.id) : null;
+    if (typedIn && root.contains(typedIn) && document.activeElement !== typedIn) {
+      const f = typedIn;
+      if (S.typingAt.v != null && typeof f.value === 'string' && f.value !== S.typingAt.v) f.value = S.typingAt.v;
+      f.focus({ preventScroll: true }); try { if (S.typingAt.a != null) f.setSelectionRange(S.typingAt.a, S.typingAt.b); } catch (er) { /* no cursor */ }
+    }
     if (focus) { const i = root.querySelector('#cdIn'); if (i) { i.focus(); if (was && i.value === was.v) { i.setSelectionRange(was.a, was.b, was.d || 'none'); i.scrollTop = was.top; } else i.setSelectionRange(i.value.length, i.value.length); } }
     if (webFocus) { const f = root.querySelector('#' + webFocus); if (f) f.focus(); }
     if (askAt) { const f = root.querySelector('.cd-ask[data-ask="' + askAt.at + '"] .cd-ask-one[data-q="' + askAt.q + '"] .' + askAt.cls); if (f && !f.disabled) { f.focus(); try { f.setSelectionRange(askAt.a, askAt.b); } catch (e) { /* not a text box */ } } }
@@ -4522,6 +4551,7 @@
     const on = (sel, ev, fn) => root.querySelectorAll(sel).forEach((el) => el.addEventListener(ev, fn));
     on('#cdRetry', 'click', load);
     on('#cdConnect', 'click', connect);
+    on('#cdReconnectGh', 'click', connect);
     on('.cd-repo', 'click', (e) => addProject(e.currentTarget.dataset.repo));
     on('#cdOpenForm', 'submit', (e) => {
       e.preventDefault();
@@ -5089,6 +5119,7 @@
     });
     on('#envArchive', 'click', async () => {
       const e = S.env; if (!e || !e.envId || e.isDefault) return;
+      if (S.envMsg) { S.envMsg = ''; draw(); }
       if (!(await askSure('Archive “' + e.name + '”?', 'It leaves the list for new chats. Chats that already use it keep working. Network secrets on the environment stay attached in its running chats. Delete any you no longer want before you archive.', 'Archive'))) return;
       const r = await call('/environments/' + encodeURIComponent(e.envId), { method: 'POST', body: JSON.stringify({ archive: true }) });
       if (r.status !== 200) { S.envMsg = (r.data && r.data.error) || 'It could not be archived.'; return draw(); }
@@ -5205,7 +5236,7 @@
     if (liveCard && S.permFocus !== liveCard.dataset.perm) {
       S.permFocus = liveCard.dataset.perm;
       const box = root.querySelector('#cdIn');
-      if (!box || !box.value) { try { liveCard.focus({ preventScroll: true }); } catch (e) { /* older browsers */ } }
+      if ((!box || !box.value) && !S.typingAt && !typingNow()) { try { liveCard.focus({ preventScroll: true }); } catch (e) { /* older browsers */ } }
     }
     const form = root.querySelector('#cdForm');
     const input = root.querySelector('#cdIn');

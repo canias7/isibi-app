@@ -2644,7 +2644,9 @@ any account. To make it again (names only; the values are typed in by the owner)
 3. **Events to tick**, each with what needs it: **Issue comment** (@coder in a
    comment), **Pull request** (automatic code reviews), **Pull request review**
    and **Pull request review comment** (auto-fix on the owner's review, @coder in
-   a review comment), **Check run** (auto-fix on a failed check).
+   a review's summary or a review comment), **Issues** (@coder in a new issue's
+   title or text), **Check run** (auto-fix on a failed check). Whoever writes
+   @coder must have write access to the repository, asked of GitHub each time.
 4. **Generate a private key**, saved as the `CODER_GITHUB_APP_PRIVATE_KEY` GitHub
    secret, and put the App ID in `wrangler.jsonc`'s `CODER_GITHUB_APP_ID`; the
    client secret goes in `CODER_GITHUB_CLIENT_SECRET`.

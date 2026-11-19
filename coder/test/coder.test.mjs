@@ -1134,6 +1134,7 @@ test("CD42 @coder in GitHub comments: only signed notifications, only connected+
   const gh = [];
   const fetchFn = async (url, init = {}) => {
     gh.push([init.method || "GET", String(url), init.body ? JSON.parse(init.body) : null, init.headers && init.headers.authorization]);
+    if (/\/permission$/.test(String(url))) return new Response(JSON.stringify({ role_name: "write" }));
     if (/\/app\/installations\/77\/access_tokens$/.test(url)) return new Response(JSON.stringify({ token: "ghs_app" }), { status: 201 });
     if (/\/issues\/5\/comments$/.test(url)) return new Response(JSON.stringify({ id: 900 }), { status: 201 });
     return new Response(JSON.stringify({}), { status: 200 });
@@ -1395,12 +1396,12 @@ test("CD48 auto-fix (like Claude Code's, owner item 2): off until turned on; a f
   await bucket.put(M.branchKey("canias7/shop", "coder/shop-ab12"), JSON.stringify({ uid: "u1", id: "shop-ab12" }));
   await bucket.put("coder/u1/profile.json", JSON.stringify({ email: "me@x.y" }));
   await bucket.put("coder/u1/github.json", JSON.stringify({ login: "canias7" }));
-  const env = { CODER_USERS: "me@x.y", CODER_BUCKET: bucket };
+  const env = { CODER_USERS: "me@x.y", CODER_BUCKET: bucket, CODER_GITHUB_APP_ID: "1", CODER_GITHUB_APP_PRIVATE_KEY: (await import("node:crypto")).generateKeyPairSync("rsa", { modulusLength: 2048, privateKeyEncoding: { type: "pkcs1", format: "pem" }, publicKeyEncoding: { type: "spki", format: "pem" } }).privateKey };
   let meta = { id: "shop-ab12", status: "idle", autofixTries: 0, commits: [{ sha: "abc123" }], autofix: true };
   const sent = [];
   const coder = async (req) => { const u = new URL(req.url); if (req.method === "POST") { sent.push(await req.json()); meta = { ...meta, autofixTries: meta.autofixTries + 1 }; return Response.json({ ok: true }); } return Response.json({ ok: true, project: meta }); };
   const posted = [];
-  const fetchFn = async (url, init = {}) => { if (String(init.method || "GET") !== "GET") posted.push(String(url)); return new Response("{}", { status: 404 }); };
+  const fetchFn = async (url, init = {}) => { if (/\/permission$/.test(String(url))) return new Response(JSON.stringify({ role_name: "write" })); if (/access_tokens$/.test(String(url))) return new Response(JSON.stringify({ token: "ghs" }), { status: 201 }); if (String(init.method || "GET") !== "GET") posted.push(String(url)); return new Response("{}", { status: 404 }); };
   assert.equal((await M.startAutofix(env, { coder, fetchFn }, f)).ok, true);
   assert.deepEqual(posted, [], "nothing posted on the pull request (Claude Code explains in the session)");
   assert.equal(sent.length, 0, "started by the minute check, not while answering GitHub");
@@ -1476,10 +1477,10 @@ test("CD51 auto-fix finds chats made before branches were recorded", async () =>
   await bucket.put("coder/u2/shop-old1/meta.json", JSON.stringify({ id: "shop-old1", repo: "canias7/shop", branch: "coder/shop-old1" }));
   await bucket.put("coder/u2/profile.json", JSON.stringify({ email: "me@x.y" }));
   await bucket.put("coder/u2/github.json", JSON.stringify({ login: "canias7" }));
-  const env = { CODER_USERS: "me@x.y", CODER_BUCKET: bucket };
+  const env = { CODER_USERS: "me@x.y", CODER_BUCKET: bucket, CODER_GITHUB_APP_ID: "1", CODER_GITHUB_APP_PRIVATE_KEY: (await import("node:crypto")).generateKeyPairSync("rsa", { modulusLength: 2048, privateKeyEncoding: { type: "pkcs1", format: "pem" }, publicKeyEncoding: { type: "spki", format: "pem" } }).privateKey };
   const sent = [];
   const coder = async (req) => { if (req.method === "POST") { sent.push(new URL(req.url).pathname); return Response.json({ ok: true }); } return Response.json({ ok: true, project: { id: "shop-old1", status: "idle", autofix: true } }); };
-  const r = await M.startAutofix(env, { coder, fetchFn: async () => new Response("{}", { status: 404 }) }, { kind: "review", repo: "canias7/shop", branch: "coder/shop-old1", number: 3, installation: 1, login: "canias7", text: "rename it" });
+  const r = await M.startAutofix(env, { coder, fetchFn: async (url) => /\/permission$/.test(String(url)) ? new Response(JSON.stringify({ role_name: "write" })) : /access_tokens$/.test(String(url)) ? new Response(JSON.stringify({ token: "ghs" }), { status: 201 }) : new Response("{}", { status: 404 }) }, { kind: "review", repo: "canias7/shop", branch: "coder/shop-old1", number: 3, installation: 1, login: "canias7", text: "rename it" });
   assert.equal(r.ok, true, r.why);
   await M.runMentionJobs(env, { coder, fetchFn: async () => new Response("{}", { status: 404 }) });
   assert.deepEqual(sent, ["/api/coder/projects/shop-old1/message"]);
@@ -1562,6 +1563,7 @@ test("CD57 @coder on Coder's own pull request works in that pull request's chat 
   await bucket.put(M.branchKey("canias7/shop", "coder/shop-abcd1234"), JSON.stringify({ uid: "u9", id: "shop-abcd1234" }));
   const env = { CODER_USERS: "me@x.y", CODER_BUCKET: bucket, CODER_GITHUB_WEBHOOK_SECRET: "s", CODER_GITHUB_APP_ID: "1", CODER_GITHUB_APP_PRIVATE_KEY: privateKey };
   const fetchFn = async (url) => {
+    if (/\/permission$/.test(String(url))) return new Response(JSON.stringify({ role_name: "write" }));
     if (/access_tokens$/.test(url)) return new Response(JSON.stringify({ token: "ghs" }), { status: 201 });
     if (/\/pulls\/4$/.test(url)) return new Response(JSON.stringify({ head: { ref: "coder/shop-abcd1234", repo: { id: 1 } }, base: { repo: { id: 1 } } }));
     if (/comments$/.test(url)) return new Response(JSON.stringify({ id: 5 }), { status: 201 });

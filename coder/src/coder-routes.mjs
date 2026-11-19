@@ -152,10 +152,10 @@ import { summaryMessage, filesTouched, tooShortToCompact, TOO_SHORT_TO_COMPACT }
 import { egressPass, machineKeyRules, EGRESS_PATH, sendHeld, dropHeld } from "./coder-egress.mjs";
 import { keepBackup, readBackup, forgetSite, WORK_MAX, BROWSER_MAX } from "./gloopy-backup.mjs";
 import { watchJob, watchKey, watchBackground, WATCH_PREFIX } from "./coder-watch.mjs";
-import { livePass, LIVE_PATH, readLive, dropLive, wholeSteps, prunePics, dropPics } from "./coder-live.mjs";
+import { livePass, LIVE_PATH, readLive, dropLive, wholeSteps, interruptedSteps, prunePics, dropPics } from "./coder-live.mjs";
 import { gitAccess } from "./coder-git.mjs";
 import { readConnectors, connectorOut, setPerms, CATALOG, CATALOG_LATER, addConnector, removeConnector, finishSignIn, toolsFor as connectorTools, keepJobTools, refreshTools, clientDoc, jobConnectors, expandConnectorRefs, readConnectorSettings, writeConnectorSettings, setConnectorState, STATE_COOKIE as MCP_COOKIE, CALLBACK_PATH as MCP_CALLBACK, jobTool, callTool } from "./coder-mcp.mjs";
-import { githubReady, makeState, readState, newNonce, STATE_COOKIE, signInUrl, installUrl, exchangeCode, saveConnection, forgetConnection, userToken, gh, ghRead, repoAccess, listRepos, openPullRequest, postReview, REPO, BRANCH, seal, unseal } from "./coder-github.mjs";
+import { githubReady, makeState, readState, newNonce, STATE_COOKIE, signInUrl, installUrl, exchangeCode, saveConnection, forgetConnection, userToken, gh, ghRead, repoAccess, listRepos, openPullRequest, prFailNote, postReview, REPO, BRANCH, seal, unseal } from "./coder-github.mjs";
 
 const MAX_PROJECTS = 50;
 const MAX_TEXT = 20000;
@@ -552,11 +552,13 @@ async function saveMode(bucket, uid, id, mode) {
   return next;
 }
 /** The owner's variable and key values a chat must never keep, and this job's (sealed when it started; used up here). */
-async function hiddenValues(env, bucket, uid, meta) {
+// (`keep`: the job's hide.json is only read, not deleted: a push mid-job hides the same values, and the end-of-job save still
+// needs them. Batch 19, 2026-11-19.)
+export async function hiddenValues(env, bucket, uid, meta, { keep = false } = {}) {
   const envNow = await readEnvData(env, bucket, uid, await envIdOf(bucket, uid, meta));
   let jobKeys = [];
   const ho = await bucket.get(keyOf(uid, meta.id, "hide.json"));
-  if (ho) { try { const v = await unseal(env, JSON.parse(await ho.text()).box); if (Array.isArray(v)) jobKeys = v.map(String); } catch { /* none */ } await bucket.delete(keyOf(uid, meta.id, "hide.json")); }
+  if (ho) { try { const v = await unseal(env, JSON.parse(await ho.text()).box); if (Array.isArray(v)) jobKeys = v.map(String); } catch { /* none */ } if (!keep) await bucket.delete(keyOf(uid, meta.id, "hide.json")); }
   // (The owner's variables: only those that look secret, by name or value: secretVar. Round 5 of the live test, 2026-11-12:
   // every value was hidden, so a variable set to `false` turned every "false" in the chat into "[hidden]".)
   return [...Object.entries(envNow.vars).filter(([k, v]) => secretVar(k, v)).map(([, v]) => String(v)), ...envNow.secrets.flatMap((x) => [...x.headers.flatMap((h) => { try { return [h.value, headerValue(h)]; } catch { return [h.value]; } }), ...configSecrets(x.kind, x.config)]), ...jobKeys].filter((v) => v.length >= 4);
@@ -626,10 +628,12 @@ async function endLostJob(env, bucket, uid, meta, note) {
     // The chat's saved history, then this job's part as far as it came (to its last whole step); or, when Claude Code's
     // auto-compact summarized the conversation in the job (`whole`), the conversation it sent, the summary first, in its place.
     const saved = await getJson(bucket, keyOf(uid, id, "messages.json"), []);
-    const base = wholeSteps(kept.whole === true ? kept.messages : [...(Array.isArray(saved) ? saved : []), ...(kept.messages || [])]);
+    // (The step that was running is kept, marked "outcome unknown", with the finished ones of its round: Claude Code's moved
+    // sessions do the same. Before, the whole round was cut off. Batch 19, 2026-11-19.)
+    const { messages: base, cut } = interruptedSteps(kept.whole === true ? kept.messages : [...(Array.isArray(saved) ? saved : []), ...(kept.messages || [])]);
     if (kept.whole === true) meta = { ...meta, marks: marksAfter(meta.marks, { from: 0, to: (Array.isArray(saved) ? saved.length : 0) + 1 }) };
     const told = [
-      { role: "user", appNote: true, content: "(Note from Coder's app, not the owner: Coder's machine stopped during the last job, so the job ended there" + (typeof asked === "string" && asked && !(kept.messages && kept.messages.length) ? ". The owner had asked: \"" + asked.slice(0, 2000) + "\"" : "") + ". Its steps are kept in the chat, but the changes it made in the files since the last save are gone: the branch has only what was saved before.)" },
+      { role: "user", appNote: true, content: "(Note from Coder's app, not the owner: Coder's machine stopped during the last job, so the job ended there" + (typeof asked === "string" && asked && !(kept.messages && kept.messages.length) ? ". The owner had asked: \"" + asked.slice(0, 2000) + "\"" : "") + (cut.length ? ". It stopped while running " + [...new Set(cut)].slice(0, 5).join(", ") + ": the outcome of " + (cut.length > 1 ? "those steps" : "that step") + " is unknown, so check what " + (cut.length > 1 ? "they" : "it") + " did before running " + (cut.length > 1 ? "them" : "it") + " again" : "") + ". Its steps are kept in the chat, but the changes it made in the files since the last save are gone: the branch has only what was saved before.)" },
       { role: "assistant", content: "Understood: that job was cut off, and its unsaved changes are gone." },
     ];
     await putJson(bucket, keyOf(uid, id, "messages.json"), capHistory([...base, ...told], historyMaxFor(meta)));
@@ -1079,7 +1083,7 @@ export async function handleCoder(request, env, ctx, deps) {
     if (what === "repos" && request.method === "GET") {
       const t = await userToken(env, bucket, uid, { fetchFn });
       if (!t) return json({ error: "connect GitHub first", connect: true }, 409);
-      try { return json({ ok: true, repos: await listRepos(t.token, fetchFn), install: installUrl(env) }); }
+      try { const repos = await listRepos(t.token, fetchFn); return json({ ok: true, repos, ...(repos.partial ? { partial: true } : {}), ...(repos.ssoHidden ? { ssoHidden: true } : {}), install: installUrl(env) }); }
       catch { return json({ error: "GitHub could not be reached" }, 502); }
     }
     return json({ error: "not found" }, 404);
@@ -2079,8 +2083,8 @@ export async function handleCoder(request, env, ctx, deps) {
           if (x.readOnly) { extraNotes.push(noPrNote(x.repo)); continue; }
           if (!t) { extraNotes.push("No pull request in " + x.repo + ": connect GitHub again first."); continue; }
           const made = await openPullRequest(t.token, x.repo, { head: meta.branch, base: x.base, title: String(want.title || "Changes by Coder").slice(0, 200), body: String(want.body || "").slice(0, 8000) + madeWith(chatLink), draft: want.draft === true }, fetchFn).catch(() => null);
-          if (made) { prs = { ...prs, [x.repo]: made }; extraNotes.push((want.draft === true ? "Draft pull request #" : "Pull request #") + made.number + " opened in " + x.repo + ": " + made.url); }
-          else extraNotes.push("The pull request in " + x.repo + " could not be opened on GitHub (is its branch saved?).");
+          if (made && made.number) { prs = { ...prs, [x.repo]: made }; extraNotes.push((want.draft === true ? "Draft pull request #" : "Pull request #") + made.number + " opened in " + x.repo + ": " + made.url); }
+          else extraNotes.push("The pull request in " + x.repo + " could not be opened on GitHub: " + prFailNote(x.repo, x.base, meta.branch, made, "is its branch saved?"));
         }
         if (!p.ok) pushNote = (meta.readOnly ? "Not kept: " : "Not sent to GitHub: ") + String(p.why || "the push failed").slice(0, 200);
         else if (meta.readOnly) {
@@ -2132,8 +2136,9 @@ export async function handleCoder(request, env, ctx, deps) {
         const open = pr ? await prStillOpen(t.token, meta.repo, pr, fetchFn) : null;
         if (open) { pr = open; pushNote = (pushNote ? pushNote + " · " : "") + "Pull request #" + pr.number + " updated: " + pr.url; }
         else {
-          pr = await openPullRequest(t.token, meta.repo, { head: meta.branch, base: meta.base, title: String(want.title || "Changes by Coder").slice(0, 200), body: String(want.body || "").slice(0, 8000) + madeWith(chatLink), draft: want.draft === true }, fetchFn).catch(() => null);
-          pushNote = (pushNote ? pushNote + " · " : "") + (pr ? (want.draft === true ? "Draft pull request #" : "Pull request #") + pr.number + " opened: " + pr.url : "The pull request could not be opened on GitHub.");
+          const made = await openPullRequest(t.token, meta.repo, { head: meta.branch, base: meta.base, title: String(want.title || "Changes by Coder").slice(0, 200), body: String(want.body || "").slice(0, 8000) + madeWith(chatLink), draft: want.draft === true }, fetchFn).catch(() => null);
+          pr = made && made.number ? made : null;
+          pushNote = (pushNote ? pushNote + " · " : "") + (pr ? (want.draft === true ? "Draft pull request #" : "Pull request #") + pr.number + " opened: " + pr.url : "The pull request could not be opened on GitHub: " + prFailNote(meta.repo, meta.base, meta.branch, made));
         }
       } else if (want) pushNote = (pushNote ? pushNote + " · " : "") + (t ? "No pull request: there are no changes on this chat's branch yet." : "");
       // THE REVIEW ON THE PULL REQUEST Coder was asked for (like Claude Code's /code-review --comment).
@@ -2368,8 +2373,9 @@ export async function handleCoder(request, env, ctx, deps) {
     }
     if (!meta.pushed) return json({ error: "Coder has not saved any changes to GitHub yet." }, 400);
     let pr = meta.pr ? await prStillOpen(t.token, meta.repo, meta.pr, fetchFn) : null;
-    if (!pr) pr = await openPullRequest(t.token, meta.repo, { head: meta.branch, base: meta.base, title: "Coder: " + commitTitle(meta.summary || meta.title || "changes"), body: String(meta.summary || "").slice(0, 4000) + madeWith(await chatLinkFor(env, bucket, uid, meta, id)) }, fetchFn).catch(() => null);
-    if (!pr) return json({ error: "GitHub would not open the pull request. There may be nothing new on the branch compared with " + meta.base + "." }, 502);
+    let made = null;
+    if (!pr) { made = await openPullRequest(t.token, meta.repo, { head: meta.branch, base: meta.base, title: "Coder: " + commitTitle(meta.summary || meta.title || "changes"), body: String(meta.summary || "").slice(0, 4000) + madeWith(await chatLinkFor(env, bucket, uid, meta, id)) }, fetchFn).catch(() => null); pr = made && made.number ? made : null; }
+    if (!pr) return json({ error: "GitHub would not open the pull request: " + prFailNote(meta.repo, meta.base, meta.branch, made, "there may be nothing new on the branch compared with " + meta.base) }, 502);
     const next = { ...meta, pr, at: Date.now() };
     await saveMeta(bucket, uid, next);
     return json({ ok: true, url: pr.url, number: pr.number, project: next });

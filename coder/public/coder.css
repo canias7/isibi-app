@@ -614,6 +614,7 @@
 .cd-em-top { margin: -4px 0 12px; }
 .cd-em-archive { display: block; margin: 14px auto 0; border: 0; background: none; color: #b3261e; font: inherit; font-size: 13.5px; cursor: pointer; padding: 6px 10px; border-radius: 8px; }
 .cd-em-archive:hover { background: #fbeeed; }
+.cd-em-archive-err { margin: 6px 0 0; text-align: center; }
 .cd-sure-in { display: block; width: 100%; box-sizing: border-box; margin-top: 12px; font: inherit; font-size: 14px; border: 1px solid #d9d6cf; border-radius: 10px; padding: 9px 12px; color: #1f1e1d; }
 .cd-sure-in:focus { outline: none; border-color: #1f1e1d; }
 .cd-sure-box.is-text .cd-sure-row .cd-sure-yes { background: #1f1e1d; border-color: #1f1e1d; }

@@ -15,7 +15,8 @@
 import { readReviewEvent, handleReviewEvent } from "./coder-review.mjs";
 
 const enc = new TextEncoder();
-export const MENTION = /(^|[^\w-])@coder\b/i;
+// A whole word: "@coder-bot" or "@coder_x" is someone else (Claude Code: "a complete word, not @claude-bot").
+export const MENTION = /(^|[^\w-])@coder(?![\w-])/i;
 const JOB_PREFIX = "coder/github-jobs/";
 const THREAD_PREFIX = "coder/github-threads/";
 export const JOB_MAX_MS = 2 * 60 * 60 * 1000;
@@ -72,6 +73,14 @@ async function ghApi(token, path, { method = "GET", body, fetchFn = fetch } = {}
   return { ok: r.ok, status: r.status, data: await r.json().catch(() => null) };
 }
 
+/** Whether GitHub says `login` may push to `repo` now (admin, maintain or write). No token: no. */
+export async function canWrite(token, repo, login, fetchFn = fetch) {
+  if (!token || !login) return false;
+  const r = await ghApi(token, "/repos/" + repo + "/collaborators/" + encodeURIComponent(login) + "/permission", { fetchFn }).catch(() => null);
+  const role = String((r && r.ok && r.data && (r.data.role_name || r.data.permission)) || "");
+  return ["admin", "maintain", "write"].includes(role);
+}
+
 // ── WHO IS ASKING ────────────────────────────────────────────────────────────
 const getJson = async (bucket, key) => { const o = await bucket.get(key); if (!o) return null; try { return JSON.parse(await o.text()); } catch { return null; } };
 const putJson = (bucket, key, v) => bucket.put(key, JSON.stringify(v), { httpMetadata: { contentType: "application/json" } });
@@ -120,7 +129,25 @@ async function accountForHit(bucket, login, hit) {
 // ── THE WEBHOOK ──────────────────────────────────────────────────────────────
 /** What a webhook asks for: `{ repo, number, isPr, text, login, installation, extra, headRef? }`, or null. */
 export function readMention(event, p) {
-  if (!p || p.action !== "created" || !p.comment || !p.repository) return null;
+  if (!p || !p.repository) return null;
+  // ALSO A REVIEW'S SUMMARY AND A NEW ISSUE (like Claude Code's GitHub app: "in an issue or pull request comment, in a
+  // pull request review, or in the body or title of a newly opened issue").
+  if (event === "pull_request_review" && p.action === "submitted" && p.review && p.pull_request) {
+    if (p.sender && p.sender.type === "Bot") return null;
+    const body = String(p.review.body || "");
+    if (!MENTION.test(body)) return null;
+    const n = p.pull_request.number;
+    return { repo: String(p.repository.full_name), login: String((p.sender && p.sender.login) || p.review.user?.login || ""), installation: p.installation && p.installation.id, text: body.slice(0, 6000),
+      number: n, isPr: true, headRef: p.pull_request.head && p.pull_request.head.ref, extra: "Pull request #" + n + " \"" + String(p.pull_request.title || "").slice(0, 200) + "\", a review (" + String(p.review.state || "commented").toLowerCase().replace("_", " ") + ")" };
+  }
+  if (event === "issues" && p.action === "opened" && p.issue) {
+    if (p.sender && p.sender.type === "Bot") return null;
+    const title = String(p.issue.title || ""), body = String(p.issue.body || "");
+    if (!MENTION.test(title) && !MENTION.test(body)) return null;
+    return { repo: String(p.repository.full_name), login: String((p.sender && p.sender.login) || p.issue.user?.login || ""), installation: p.installation && p.installation.id, text: (title + "\n\n" + body).slice(0, 6000),
+      number: p.issue.number, isPr: false, extra: "Issue #" + p.issue.number + " \"" + title.slice(0, 200) + "\"" + (body ? ":\n" + body.slice(0, 4000) : "") };
+  }
+  if (p.action !== "created" || !p.comment) return null;
   if (p.sender && p.sender.type === "Bot") return null;
   const body = String(p.comment.body || "");
   if (!MENTION.test(body)) return null;
@@ -181,6 +208,9 @@ export async function startMention(env, deps, m) {
   // at all. Before, every stranger's mention made the app post a comment.
   if (!acct || !allowed(env, acct.email)) return { ok: false, why: "not allowed" };
   const botToken = await installationToken(env, m.installation, fetchFn);
+  // WRITE ACCESS, asked of GitHub for the person who wrote it, every time (Claude Code: "the triggering user must have
+  // write access to the repository"). A saved user name alone can change hands.
+  if (!(await canWrite(botToken, m.repo, m.login, fetchFn))) return { ok: false, why: "no write access" };
   const say = async (text) => { if (botToken) return ghApi(botToken, "/repos/" + m.repo + "/issues/" + m.number + "/comments", { method: "POST", body: { body: text }, fetchFn }); return null; };
   const user = { id: acct.uid, email: acct.email };
   const run = (path, init = {}) => deps.coder(new Request("https://gofarther.dev/api/coder/" + path, { ...init, headers: { "content-type": "application/json" } }), user).then((r) => r.json().catch(() => ({})).then((j) => ({ status: r.status, data: j })));
@@ -333,6 +363,7 @@ export async function startAutofix(env, deps, f) {
   if (!prof || !allowed(env, prof.email)) return { ok: false, why: "not allowed" };
   // A review counts only from the owner's own GitHub account (others cannot spend their Grok).
   if (f.kind === "review" && String(f.login).toLowerCase() !== String(gh && gh.login || "").toLowerCase()) return { ok: false, why: "reviewer is not the owner" };
+  if (f.kind === "review" && !(await canWrite(await installationToken(env, f.installation, fetchFn), f.repo, f.login, fetchFn))) return { ok: false, why: "no write access" };
   const user = { id: owner.uid, email: prof.email };
   const run = (path, init = {}) => deps.coder(new Request("https://gofarther.dev/api/coder/" + path, { ...init, headers: { "content-type": "application/json" } }), user).then((r) => r.json().catch(() => ({})).then((j) => ({ status: r.status, data: j })));
   const look = await run("projects/" + owner.id);

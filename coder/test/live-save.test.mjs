@@ -223,10 +223,13 @@ test("CD121 a machine lost in the middle of a job: its steps so far stay in the 
   // Coder remembers the job up to its last whole step, and is told what happened.
   const msgs = JSON.parse(bucket.m.get("coder/" + UID + "/" + ID + "/messages.json"));
   assert.deepEqual(msgs.slice(0, 2).map((m) => m.content), ["Hello", "Hi."], "the earlier history, as saved");
-  assert.deepEqual(msgs.slice(2, 5).map((m) => m.role), ["user", "assistant", "tool"], "this job's part, the unfinished step left out");
-  assert.match(msgs[5].content, /^\(Note from Coder's app, not the owner: Coder's machine stopped during the last job, so the job ended there\. Its steps are kept in the chat, but the changes it made in the files since the last save are gone/);
-  assert.equal(msgs[6].role, "assistant");
-  assert.equal(msgs.length, 7);
+  // (Batch 19, M-r2-07: the step that was running stays, marked "outcome unknown", like Claude Code's moved sessions.)
+  assert.deepEqual(msgs.slice(2, 7).map((m) => m.role), ["user", "assistant", "tool", "assistant", "tool"], "this job's part, the unfinished step kept");
+  assert.equal(msgs[6].tool_call_id, "c2");
+  assert.match(msgs[6].content, /^Interrupted: Coder's machine stopped while this was running\. Outcome unknown: check what it did before running it again\.$/);
+  assert.match(msgs[7].content, /^\(Note from Coder's app, not the owner: Coder's machine stopped during the last job, so the job ended there\. It stopped while running bash: the outcome of that step is unknown, so check what it did before running it again\. Its steps are kept in the chat, but the changes it made in the files since the last save are gone/);
+  assert.equal(msgs[8].role, "assistant");
+  assert.equal(msgs.length, 9);
   // The chat is free, and nothing of the job is left over.
   const meta = JSON.parse(bucket.m.get("coder/" + UID + "/" + ID + "/meta.json"));
   assert.equal(meta.status, "idle");
@@ -265,9 +268,10 @@ test("CD121b a machine lost after the job's own auto-compact (Claude Code's, sin
   const msgs = JSON.parse(bucket.m.get("coder/" + UID + "/" + ID + "/messages.json"));
   assert.ok(K.isSummary(msgs[0]), "the summary first, in place of the saved chat");
   assert.ok(!msgs.some((m) => m.content === "Hello"), "what it summarized is not there twice");
-  assert.deepEqual(msgs.slice(1, 4).map((m) => m.role), ["user", "assistant", "tool"], "then the job's part after it, to its last whole step");
-  assert.match(msgs[4].content, /^\(Note from Coder's app, not the owner: Coder's machine stopped during the last job/);
-  assert.equal(msgs.length, 6);
+  assert.deepEqual(msgs.slice(1, 6).map((m) => m.role), ["user", "assistant", "tool", "assistant", "tool"], "then the job's part after it, the step that was running marked outcome unknown");
+  assert.match(msgs[5].content, /Outcome unknown/);
+  assert.match(msgs[6].content, /^\(Note from Coder's app, not the owner: Coder's machine stopped during the last job/);
+  assert.equal(msgs.length, 8);
   const meta = JSON.parse(bucket.m.get(mk));
   assert.equal(meta.status, "idle");
   assert.deepEqual(meta.marks, [], "the Rewind marks of what was summarized go");

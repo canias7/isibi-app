@@ -201,6 +201,7 @@ test("CD541 `@coder` on a pull request whose chat was deleted opens a new chat o
     b.m.set(M.branchKey("ana/shop", "coder/shop-old"), JSON.stringify({ uid: "u1", id: "shop-old" }));
     const calls = [];
     const fetchFn = async (url, init = {}) => {
+      if (/\/permission$/.test(String(url))) return new Response(JSON.stringify({ role_name: "write" }));
       if (/access_tokens$/.test(url)) return new Response(JSON.stringify({ token: "ghs_app" }), { status: 201 });
       if (/\/pulls\/16$/.test(url)) return new Response(JSON.stringify({ head: { ref: "coder/shop-old", repo: { id: 1 } }, base: { ref: "main", repo: { id: 1 } } }), { status: 200 });
       return new Response(JSON.stringify({ id: 77 }), { status: 201 });

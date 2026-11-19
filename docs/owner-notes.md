@@ -4,6 +4,18 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-19: Claude Code fixes, batch 19
+
+- All ten audit items in this batch fixed, each with a test. Gloopy, connectors and MCP were not touched. Not deployed or merged.
+- **@coder on GitHub** is now also heard in a review's summary and in a new issue's title or text, as Claude Code's GitHub app is. A name like @coder-bot no longer counts as @coder. If the GitHub App does not send "Issues" and "Pull request review" events yet, tick them in its settings (coder/README.md says where).
+- **Who may start @coder on GitHub** is checked more carefully: GitHub is asked each time whether the person who wrote it can change the repository, the same check Claude Code makes.
+- **A pull request GitHub would not open** now says GitHub's own reason (for example "No commits between main and coder/x") and gives a link to open it on GitHub, in the chat, to Coder, and on the Create PR button.
+- **The repository list** now shows all your repositories, not only the first 100 per account (up to 2,000). If some could not be listed it says so; if your company's GitHub single sign-on hides some, it says so with a "Connect GitHub again" button.
+- **Phone notifications** now hide your saved passwords and keys the same way the saved chat does.
+- **When Coder's machine stops in the middle of a step**, Coder now keeps that round and is told which step was cut off, with "outcome unknown", so it checks before running it again (Claude Code does the same).
+- **Environment window:** a refused Archive now shows why inside the window, instead of nothing.
+- **A new approval card** no longer takes the keyboard while you are typing somewhere else (the Rename box, a comment, a settings window), so a number you type there cannot answer the card by accident. With nothing being typed, the card still takes the keyboard as before.
+
 ## 2026-11-19: Claude Code fixes, batch 18
 
 - Three of the ten audit items in this batch fixed, each with a test; one was already fixed in batch 17 (the "No newline" line count); five skipped. Skipped: keeping your scroll place while Coder works, and refreshing the @ file list, need a real-browser test harness and are left for their own batch; sending the same unchanged message after a failed send with the same id is pinned by a Gloopy test, which this batch was told not to touch; a Disconnect GitHub button and file counts in the Rewind list are new pieces of the page, which you direct; whether Coder may propose any sudo line in a setup script changes one of its safety checks, so it is your call. Gloopy, connectors and MCP were not touched. Not deployed or merged yet, so none of it has been tried live in the browser.

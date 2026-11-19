@@ -19,6 +19,7 @@
 
 import { seal, unseal } from "./coder-github.mjs";
 import { pushesFor, notifyOwner } from "./coder-push.mjs";
+import { hiddenValues } from "./coder-routes.mjs";
 
 export const LIVE_PATH = "/api/coder/live";
 /**
@@ -183,6 +184,11 @@ export async function handleLive(request, env, { fetchFn = fetch, waitUntil = nu
     const fresh = take.slice(Math.max(0, start + known.length - from));
     const list = fresh.length ? pushesFor(fresh, meta, now) : [];
     if (list.length) {
+      // HIDDEN AS IN THE SAVED CHAT (Claude Code: "Improved how secrets are masked in push notifications"): the owner's
+      // secret-looking variables, saved keys and the job's own keys never reach a lock screen.
+      const values = await hiddenValues(env, bucket, uid, { ...meta, id }, { keep: true }).catch(() => []);
+      const hide = (x) => { let t = String(x == null ? "" : x); for (const v of values) t = t.split(v).join("[hidden]"); return t; };
+      if (values.length) for (const p of list) { p.title = hide(p.title); p.body = hide(p.body); }
       const work = (async () => { for (const p of list) await notifyOwner(env, uid, { ...p, chat: id }, { fetchFn, now }).catch(() => null); })();
       if (typeof waitUntil === "function") waitUntil(work); else await work;
     }
@@ -240,4 +246,26 @@ export function wholeSteps(messages) {
     return x.tool_calls.every((c) => c && replied.has(c.id)) ? out : out.slice(0, i);
   }
   return out;
+}
+
+/**
+ * A CONVERSATION WHOSE MACHINE STOPPED MID-STEP keeps its last round (like Claude Code, whose moved sessions show "the tool call
+ * that was interrupted, marked as outcome unknown"): each call of that round with no reply gets one saying so, and the steps
+ * of that round that finished keep their real results. → { messages, cut: [the interrupted steps' names] }.
+ */
+export const INTERRUPTED = "Interrupted: Coder's machine stopped while this was running. Outcome unknown: check what it did before running it again.";
+export function interruptedSteps(messages) {
+  const out = Array.isArray(messages) ? messages.filter((x) => x && typeof x === "object" && typeof x.role === "string") : [];
+  for (let i = out.length - 1; i >= 0; i--) {
+    const x = out[i];
+    if (x.role !== "assistant" || !Array.isArray(x.tool_calls) || !x.tool_calls.length) continue;
+    let j = i + 1;
+    while (j < out.length && out[j].role === "tool") j++;
+    const replied = new Set(out.slice(i + 1, j).map((y) => y.tool_call_id));
+    const lost = x.tool_calls.filter((c) => c && c.id && !replied.has(c.id));
+    if (!lost.length) return { messages: out, cut: [] };
+    const fill = lost.map((c) => ({ role: "tool", tool_call_id: c.id, content: INTERRUPTED }));
+    return { messages: [...out.slice(0, j), ...fill, ...out.slice(j)], cut: lost.map((c) => String((c.function && c.function.name) || c.name || "a step")) };
+  }
+  return { messages: out, cut: [] };
 }

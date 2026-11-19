@@ -141,22 +141,51 @@ export async function gh(token, path, { method = "GET", body = null, fetchFn = f
     ...(body ? { body: JSON.stringify(body) } : {}),
   });
   const j = await r.json().catch(() => null);
-  return { ok: r.ok, status: r.status, data: j };
+  const sso = r.headers && typeof r.headers.get === "function" ? r.headers.get("x-github-sso") : null;
+  return { ok: r.ok, status: r.status, data: j, ...(sso ? { sso: String(sso) } : {}) };
 }
 
 /**
  * The repositories this user let Coder use (through the app's installations): `[{ repo, branch, private,
  * readOnly? }]`. `readOnly`: GitHub says this user may read it but not push to it (owner item 5).
  */
+// EVERY PAGE, NOT ONLY THE FIRST 100 (like Claude Code's picker, which has no such limit), up to 2,000 repositories.
+// The array also says `partial` (a page failed or the cap was hit) and `ssoHidden` (GitHub single sign-on hid some:
+// Claude Code's picker "now says so even with other repositories listed").
+export const REPO_CAP = 2000;
 export async function listRepos(token, fetchFn = fetch) {
-  const inst = await gh(token, "/user/installations?per_page=100", { fetchFn });
-  if (!inst.ok) throw new Error("GitHub would not list the installations: " + inst.status);
-  const out = [];
-  for (const i of (inst.data && inst.data.installations) || []) {
-    const r = await gh(token, "/user/installations/" + i.id + "/repositories?per_page=100", { fetchFn });
-    if (!r.ok) continue;
-    for (const x of (r.data && r.data.repositories) || []) out.push({ repo: x.full_name, branch: x.default_branch || "main", private: !!x.private, ...(x.permissions && x.permissions.push === false ? { readOnly: true } : {}) });
+  let partial = false, ssoHidden = false;
+  const insts = [];
+  for (let page = 1; page <= 20; page++) {
+    const inst = await gh(token, "/user/installations?per_page=100&page=" + page, { fetchFn });
+    if (inst.sso) ssoHidden = true;
+    if (!inst.ok) { if (page === 1) throw new Error("GitHub would not list the installations: " + inst.status); partial = true; break; }
+    const got = (inst.data && inst.data.installations) || [];
+    insts.push(...got);
+    if (got.length < 100 || (inst.data.total_count && insts.length >= inst.data.total_count)) break;
   }
+  let room = REPO_CAP;
+  const lists = await Promise.all(insts.map(async (i) => {
+    const mine = [];
+    for (let page = 1; page <= 20; page++) {
+      const r = await gh(token, "/user/installations/" + i.id + "/repositories?per_page=100&page=" + page, { fetchFn });
+      if (r.sso) ssoHidden = true;
+      if (!r.ok) { partial = true; if (r.status === 403) ssoHidden = true; break; }
+      const got = (r.data && r.data.repositories) || [];
+      mine.push(...got);
+      room -= got.length;
+      if (got.length < 100 || (r.data.total_count && mine.length >= r.data.total_count)) break;
+      if (room <= 0) { partial = true; break; }
+    }
+    return mine;
+  }));
+  const out = [];
+  for (const x of lists.flat()) {
+    if (out.length >= REPO_CAP) { partial = true; break; }
+    out.push({ repo: x.full_name, branch: x.default_branch || "main", private: !!x.private, ...(x.permissions && x.permissions.push === false ? { readOnly: true } : {}) });
+  }
+  if (partial) out.partial = true;
+  if (ssoHidden) out.ssoHidden = true;
   return out;
 }
 
@@ -197,7 +226,21 @@ export async function openPullRequest(token, repo, { head, base, title, body, dr
   const owner = repo.split("/")[0];
   const open = await gh(token, "/repos/" + repo + "/pulls?state=open&head=" + encodeURIComponent(owner + ":" + head), { fetchFn });
   const pr = open.ok && Array.isArray(open.data) ? open.data[0] : null;
-  return pr ? { url: pr.html_url, number: pr.number } : null;
+  if (pr) return { url: pr.html_url, number: pr.number };
+  // GITHUB'S OWN REASON (like Claude Code: "they now give the reason or a link to GitHub instead of saying Try again").
+  return { why: prRefusal(made.data) };
+}
+/** GitHub's words for a refused pull request ("Validation Failed: No commits between main and x"), cut short, or "". */
+export function prRefusal(data) {
+  if (!data || typeof data !== "object") return "";
+  const parts = [String(data.message || "")];
+  for (const e of Array.isArray(data.errors) ? data.errors : []) { const t = e && typeof e === "object" ? e.message : e; if (t) parts.push(String(t)); }
+  return parts.filter(Boolean).join(": ").replace(/\s+/g, " ").trim().slice(0, 300);
+}
+/** What to say when a pull request was not opened: GitHub's reason (else `guess`), and where to open it on GitHub. */
+export function prFailNote(repo, base, head, made, guess = "") {
+  const why = made && made.why ? made.why : guess;
+  return (why ? why.replace(/[.\s]+$/, "") + ". " : "") + "Open it on GitHub: https://github.com/" + repo + "/compare/" + encodeURIComponent(String(base || "")).replace(/%2F/g, "/") + "..." + encodeURIComponent(String(head || "")).replace(/%2F/g, "/");
 }
 
 /**

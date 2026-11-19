@@ -231,3 +231,23 @@ test("CD191 the desktop app (no web push in its window): while it is open it sho
   assert.equal(entry.waiting, "question");
   assert.ok(entry.ran >= 5 * 60000 && entry.ran < 6 * 60000, String(entry.ran));
 });
+
+test("B19 M-g-08 a push hides the owner's secret-looking variables and the job's keys, as the saved chat does; the job's list of them is kept for the end-of-job save", async () => {
+  const w = await worker();
+  const L = await import("../src/coder-live.mjs");
+  const E = await import("../src/coder-environments.mjs");
+  const { seal } = await import("../src/coder-github.mjs");
+  const dev = await fakeDevice();
+  await w.go("push/subscribe", { method: "POST", body: JSON.stringify(dev.sub) });
+  const meta = { id: ID, repo: "ana/shop", title: "Fix the cart", turn: 2, status: "running", at: Date.now() - 5 * 60_000 };
+  await w.bucket.put("coder/" + UID + "/" + ID + "/meta.json", JSON.stringify(meta));
+  const envId = await E.envIdOf(w.bucket, UID, meta);
+  await E.writeEnvData(w.env, w.bucket, UID, envId, { script: "", vars: { DB_PASSWORD: "hunter2-very-secret", DEBUG: "false" }, secrets: [], network: {} });
+  await w.bucket.put("coder/" + UID + "/" + ID + "/hide.json", JSON.stringify({ box: await seal(w.env, ["ghs_jobkey12345"]) }));
+  const chat = UID + "/" + ID, pass = await L.livePass(w.env, chat, 2);
+  const send = (from, events) => L.handleLive(new Request("https://coder.gofarther.dev" + L.LIVE_PATH, { method: "POST", headers: { "content-type": "application/json", "x-coder-chat": chat, "x-coder-turn": "2", "x-coder-live": pass }, body: JSON.stringify({ from, events }) }), w.env, { fetchFn: w.fetchFn });
+  await send(0, [{ type: "notify", text: "Logged in with hunter2-very-secret and ghs_jobkey12345; DEBUG is false" }, { type: "question", text: "Keep hunter2-very-secret?" }]);
+  const got = await Promise.all(w.sent.splice(0).map((s) => dev.open(s.body)));
+  assert.deepEqual(got.map((x) => x.body), ["Logged in with [hidden] and [hidden]; DEBUG is false", "Keep [hidden]?"]);
+  assert.ok(w.bucket.m.has("coder/" + UID + "/" + ID + "/hide.json"), "kept for the end-of-job save");
+});
