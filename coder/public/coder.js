@@ -1743,7 +1743,7 @@
     const seen = document.visibilityState === 'visible' && document.hasFocus() ? '&seen=1' : '';
     const ac = new AbortController();
     S.streamAbort = ac;
-    let silent = 0, got = 0;
+    let silent = 0, got = 0, threw = false;
     const dog = setInterval(() => { if (Date.now() - silent > STREAM_SILENT_MS) ac.abort(); }, 5000);
     try {
       silent = Date.now();
@@ -1767,7 +1767,10 @@
           try { d = JSON.parse(line[1]); } catch (e) { d = null; }
           if (!d || !S.project || S.project.id !== id || S.streamAbort !== ac) { ac.abort(); break; }
           got++;
-          if (!applyState({ status: 200, data: d }, id) || !S.running) { ac.abort(); break; }
+          // (Drawing a state that was read threw: the stream is closed and the next look waits the usual time, not 150 ms.)
+          let ok = false;
+          try { ok = applyState({ status: 200, data: d }, id); } catch (e) { threw = true; }
+          if (!ok || !S.running) { ac.abort(); break; }
         }
       }
       S.streamFails = got ? 0 : (S.streamFails || 0) + 1;
@@ -1777,7 +1780,7 @@
       clearInterval(dog);
       if (S.streamAbort === ac) S.streamAbort = null;
     }
-    if (S.running && S.project && S.project.id === id && !S.poll) S.poll = setTimeout(tick, 150);
+    if (S.running && S.project && S.project.id === id && !S.poll) S.poll = setTimeout(tick, threw ? POLL_MS : 150);
     else if (!S.running) { S.background = undefined; startBgWatch(); }
   }
   async function tickOnce() {
@@ -1876,10 +1879,12 @@
     if (!S.project) return;
     const id = S.project.id;
     S.changes = null;
+    // (Only the latest pick's answer is shown: a slow answer for an earlier branch is dropped.)
+    const want = S.compareAgainst || '', ask = S.changesAsk = (S.changesAsk || 0) + 1;
     // COMPARE AGAINST (like Claude Code's diff view, owner item 4): the base branch unless another is picked.
-    if (!S.compareBranches) loadCompareBranches();
+    if (!S.compareBranches && !S.compareBranchesLoading) loadCompareBranches();
     const r = await call('/projects/' + encodeURIComponent(id) + '/changes' + (S.compareAgainst ? '?against=' + encodeURIComponent(S.compareAgainst) : ''));
-    if (!S.project || S.project.id !== id) return;
+    if (!S.project || S.project.id !== id || S.changesAsk !== ask || (S.compareAgainst || '') !== want) return;
     S.changes = r.status === 200 && r.data && Array.isArray(r.data.files) ? r.data : { files: [], add: 0, del: 0, error: (r.data && r.data.error) || '' };
     draw();
   }
@@ -1900,8 +1905,11 @@
     if (!S.project) return;
     const id = S.project.id;
     S.compareBranches = [];
+    S.compareBranchesLoading = true;
     const r = await call('/projects/' + encodeURIComponent(id) + '/branches?all=1');
-    if (!S.project || S.project.id !== id || r.status !== 200 || !r.data) return;
+    S.compareBranchesLoading = false;
+    // (A failed list, or one for a chat no longer open, is asked for again on the next See changes.)
+    if (!S.project || S.project.id !== id || r.status !== 200 || !r.data) { S.compareBranches = null; return; }
     S.compareBranches = r.data.branches || [];
     draw();
   }
@@ -1968,6 +1976,7 @@
     return '<div class="cd-table"><table><thead><tr>' + head.map((c, k) => cell('th', c, k)).join('') + '</tr></thead><tbody>' +
       lines.slice(2).map((l) => { const cs = cellsOf(l); return '<tr>' + head.map((_, k) => cell('td', cs[k] || '', k)).join('') + '</tr>'; }).join('') + '</tbody></table></div>';
   }
+  const TABLE_ROWS = 200;
   function blocks(text) {
     const out = [];
     // A NUMBERED LIST KEEPS ITS OWN NUMBERS, AND ITEMS WITH A BLANK LINE BETWEEN THEM ARE ONE LIST (live test, 2026-11-09:
@@ -1983,18 +1992,31 @@
       else out.push('<ul>' + items.map((x) => '<li>' + x + '</li>').join('') + '</ul>');
     };
     const bullet = /^\s*[-*•]\s+/, num = /^\s*(\d{1,3})[.)]\s+/;
+    // A TABLE (Gloopy's, 2026-11-10), with or without a line of words before it and after it in the same block: the block
+    // is cut into words, table, words in one pass, with no call into itself (many tiny tables once overflowed the stack),
+    // and a table shows at most 200 rows, then "… N more rows", as in Claude Code.
+    const pieces = [];
     for (const block of String(text).trim().split(/\n{2,}/)) {
       const lines = block.split('\n');
-      // A TABLE (Gloopy's, 2026-11-10), with or without a line of words before it and after it in the same block.
-      const at = lines.findIndex((l, k) => l.includes('|') && k + 1 < lines.length && SEP_ROW.test(lines[k + 1]) && cellsOf(l).length > 1);
-      if (at >= 0) {
-        let to = at + 2;
-        while (to < lines.length && lines[to].includes('|')) to++;
-        if (at > 0) out.push(blocks(lines.slice(0, at).join('\n')));
-        out.push(tableHTML(lines.slice(at, to)));
-        if (to < lines.length) out.push(blocks(lines.slice(to).join('\n')));
+      let from = 0, k = 0;
+      while (k < lines.length) {
+        if (lines[k].includes('|') && k + 1 < lines.length && SEP_ROW.test(lines[k + 1]) && cellsOf(lines[k]).length > 1) {
+          let to = k + 2;
+          while (to < lines.length && lines[to].includes('|')) to++;
+          if (k > from) pieces.push(lines.slice(from, k));
+          pieces.push({ table: lines.slice(k, to) });
+          from = k = to;
+        } else k++;
+      }
+      if (from < lines.length) pieces.push(lines.slice(from));
+    }
+    for (const piece of pieces) {
+      if (piece.table) {
+        const rows = piece.table.length - 2;
+        out.push(tableHTML(piece.table.slice(0, 2 + TABLE_ROWS)) + (rows > TABLE_ROWS ? '<p class="cd-more-rows">… ' + (rows - TABLE_ROWS) + ' more rows</p>' : ''));
         continue;
       }
+      const lines = piece;
       if (lines.length === 1 && /^#{1,4}\s+/.test(lines[0])) { out.push('<h4>' + inline(lines[0].replace(/^#{1,4}\s+/, '')) + '</h4>'); continue; }
       // A paragraph, or one followed by its own list (no blank line between them).
       const first = lines.findIndex((l) => bullet.test(l) || num.test(l));
@@ -2014,7 +2036,10 @@
   function prose(t) {
     t = String(t == null ? '' : t).replace(/(^|\n)[ \t]*<next-prompt>[^\n]*?<\/next-prompt>\s*$/i, ''); // (an old saved suggestion, a complete tag on the last line, never shows)
     const parts = noColor(t).split(/```[a-zA-Z0-9_-]*\n?/);
-    return parts.map((p, i) => i % 2 ? '<pre class="cd-pre">' + esc(p.replace(/\n$/, '')) + '</pre>' : (p.trim() ? blocks(p) : '')).join('');
+    // (One message that cannot be formatted is shown as plain text, so it never stops the chat being drawn.)
+    try {
+      return parts.map((p, i) => i % 2 ? '<pre class="cd-pre">' + esc(p.replace(/\n$/, '')) + '</pre>' : (p.trim() ? blocks(p) : '')).join('');
+    } catch (e) { return '<p>' + esc(t).replace(/\n/g, '<br>') + '</p>'; }
   }
 
   // ONE COMMAND as a quiet line, "Ran <command> ▸", like the Claude app

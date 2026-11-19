@@ -4,6 +4,13 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-19: Claude Code fixes, batch 18
+
+- Three of the ten audit items in this batch fixed, each with a test; one was already fixed in batch 17 (the "No newline" line count); five skipped. Skipped: keeping your scroll place while Coder works, and refreshing the @ file list, need a real-browser test harness and are left for their own batch; sending the same unchanged message after a failed send with the same id is pinned by a Gloopy test, which this batch was told not to touch; a Disconnect GitHub button and file counts in the Rewind list are new pieces of the page, which you direct; whether Coder may propose any sudo line in a setup script changes one of its safety checks, so it is your call. Gloopy, connectors and MCP were not touched. Not deployed or merged yet, so none of it has been tried live in the browser.
+- **An answer with very many small tables** no longer stops the chat from being drawn; a table over 200 rows shows the first 200 and "… N more rows", as Claude Code does. A message that still cannot be formatted shows as plain text, and the page no longer retries every 150 ms when drawing fails.
+- **See changes, Compare against:** picking two branches quickly no longer shows the first branch's changes under the second one's name.
+- **See changes, Compare against:** if the branch list fails to load once, it is asked for again the next time you open See changes, instead of only offering the base branch.
+
 ## 2026-11-19: Claude Code fixes, batch 17
 
 - Nine of the ten audit items in this batch fixed, each with a test; one skipped: what a step waiting for your answer should say instead of "Ran" or "Wrote" is your choice of words, as Claude Code's exact words are not written down. Gloopy, connectors and MCP were not touched. Not deployed or merged yet, so none of it has been tried live in the browser.

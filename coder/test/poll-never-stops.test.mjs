@@ -47,7 +47,7 @@ test("the live stream: the Worker sends each state as it comes, the machine wait
   assert.match(m, /const waitMs = Math\.min\(25_000/);
   assert.match(js, /async function streamOnce\(\)/);
   assert.match(js, /'\/stream\?since='/);
-  assert.match(js, /S\.poll = setTimeout\(tick, 150\)/, "a stream that ended while the chat runs is opened again at once");
+  assert.match(js, /S\.poll = setTimeout\(tick, threw \? POLL_MS : 150\)/, "a stream that ended while the chat runs is opened again at once");
   assert.match(js, /\(S\.streamFails \|\| 0\) < 3/, "after 3 failed streams, the page goes back to its looks");
   assert.match(js, /function applyState\(r, id\)/, "a look and the stream draw a state the same way");
 });
