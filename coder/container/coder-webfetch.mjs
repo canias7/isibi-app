@@ -142,6 +142,9 @@ export function checkInput(args, ctx = {}) {
   const unknown = Object.keys(a).filter((k) => !INPUT_FIELDS.includes(k));
   if (unknown.length) issues.push(keysIssue(unknown));
   if (issues.length) return { error: "error: InputValidationError: " + issuesText("web_fetch", issues) };
+  // (Claude Code 2.1.327: "WebFetch now refuses a URL over 2,000 characters before any permission prompt", in the words the
+  // fetch itself gives; fetchPage keeps its own check.)
+  if (url.length > WEBFETCH_MAX_URL) return { error: "error: " + INVALID_URL };
   if (ctx && typeof ctx.webFetchOff === "string" && ctx.webFetchOff) return { error: "error: WebFetch is turned off by " + ctx.webFetchOff + "." };
   return { args: { url, prompt: a.prompt, ...(a.offset !== undefined ? { offset: a.offset } : {}) } };
 }

@@ -4,6 +4,16 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-19: Claude Code fixes, batch 13
+
+- Six of the ten audit items in this batch fixed, each with a test; four skipped (below). Gloopy, connectors and MCP were not touched. Not deployed and not merged yet, so none of it is tried live in the browser yet.
+- **Web pages:** a web address over 2,000 characters is now refused straight away, before you are asked to approve it, as in Claude Code.
+- **Commands:** when the folder Coder's commands were in has been deleted, the next command is no longer run in the project's main folder. It is stopped with a message, and Coder can send it again, as in Claude Code.
+- **Long command output:** the saved file of a very long output now keeps its real last lines, and only Coder's own hidden marker line is taken out.
+- **Setup script:** on the machines without the admin sandbox (local runs and tests), the script now runs whole and unchanged, like everywhere else, instead of having its install lines taken out.
+- **Instruction files:** a subfolder's instruction file that is still in the chat is no longer added again with every message. A subfolder's AGENTS.md now loads only when the project has no CODER.md at its top, and only when Coder reads a file there. A repository's `.claude/settings.json` can now leave instruction files out with `claudeMdExcludes`, as in Claude Code.
+- **Skipped:** using a GitHub token you set yourself for GitHub's command-line tool (it changes how GitHub sign-in is routed, so it needs your word); a warning when instruction files are too long (the limits are Coder's own choice, so they need your word); personal instructions for all your repositories (a new feature with new text on the Environment page, which you direct).
+
 ## 2026-11-19: Claude Code fixes, batch 12
 
 - Six of the ten audit items in this batch fixed, each with a test; four left for later (below). Gloopy, connectors and MCP were not touched. Not deployed and not merged yet, so none of it is tried live in the browser yet.

@@ -291,7 +291,7 @@ test("CD148 the service runs the AI's commands and the setup script in the job's
   assert.match(s, /export function killUser\(uid = RUN_UID, gid = RUN_GID\) \{\n\s+\/\/[^\n]*\n\s+if \(BOX\) \{ BOX\.stop\(\); BOX = null; \}/, "ended wherever the AI's commands are (before root's git, at a job's end, at the next job)");
   assert.match(s, /if \(t\.room && !BOX\) BOX = await openBox\(\);\n\s+t\.box = t\.room \? BOX : null;/, "only in the room (one kept from the last message, while a background command of its runs in it, is used again)");
   assert.match(s, /const binds = \[\{ src: root, mode: "rw", mine: true \}, \.\.\.\(home \? \[\{ src: home, mode: "rw", mine: true \}\] : \[\]\), \{ src: memRoot, mode: "rw", mine: true \}, \{ src: gitRoot, mode: "ro" \}, \{ src: bgRoot, mode: "ro" \}, \{ src: proxyDir, mode: "ro" \}\];/, "what it is shown");
-  assert.match(s, /const \{ packages, script: userPart \} = t\.box \? \{ packages: \[\], script \} : splitSetup\(script\);/, "the whole setup script in it");
+  assert.match(s, /const userPart = script;/, "the whole setup script in it (and everywhere else: L-machine-60)");
   // (From the folder that holds the repository checkouts, or inside the repository for a script saved before 2026-11-14: E7.)
   assert.match(s, /const u = await execIn\(scriptInRepo \? dir : root, userPart, left, \{ bgDir, kill: true, home, room: t\.room, box: t\.box, /);
   assert.match(s, /const r = await execIn\(dir, command, timeoutS, \{ bgDir, kill: !!tool, home, room: t\.room, box: t\.box, /);

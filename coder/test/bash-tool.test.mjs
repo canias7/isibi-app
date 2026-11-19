@@ -483,3 +483,26 @@ test("L-machine-57: the command whose exit code decides is read from the whole c
   assert.equal(exitMeaning("ls nope", 1).isError, true);
   assert.equal(exitMeaning("grep a f; ls x", 1).isError, true);
 });
+
+test("BT-spill a long output's saved file loses only Coder's hidden folder line: a background child's last line after it is kept", async () => {
+  const { dropFromTail } = await import("../container/server.mjs");
+  const { CWD_MARK } = await import("../container/coder-agent.mjs");
+  const d = await mkdtemp(join(tmpdir(), "coder-spill-"));
+  const line = "\n" + CWD_MARK + "abc123:/work/shop\n";
+  const big = "x".repeat(40000);
+  const f1 = join(d, "a.txt");
+  await writeFile(f1, big + line + "child's last line\n");
+  assert.equal(dropFromTail(f1, line), true);
+  const a = await readFile(f1, "utf8");
+  assert.ok(a.endsWith("child's last line\n"));
+  assert.doesNotMatch(a, /CODER-CWD/);
+  assert.equal(a, big + "child's last line\n");
+  const f2 = join(d, "b.txt");
+  await writeFile(f2, big + line);
+  dropFromTail(f2, line);
+  assert.equal(await readFile(f2, "utf8"), big, "a plain long output loses only the hidden line");
+  const f3 = join(d, "c.txt");
+  await writeFile(f3, big);
+  assert.equal(dropFromTail(f3, line), false);
+  assert.equal(await readFile(f3, "utf8"), big, "not found: left as it is");
+});

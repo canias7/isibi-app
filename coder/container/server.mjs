@@ -23,7 +23,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { createHash, randomUUID, randomBytes, randomInt } from "node:crypto";
 import { mkdir, readdir, readFile, writeFile, stat, chown, open, unlink, rm, lstat, realpath, lchown, chmod, rename, rmdir, symlink } from "node:fs/promises";
 import { constants } from "node:fs";
-import { createWriteStream, realpathSync, openSync, closeSync, readSync, fstatSync, fchownSync, lstatSync, lchownSync, existsSync, readdirSync, mkdirSync, chownSync, chmodSync, writeFileSync, readFileSync, statfsSync, truncateSync, rmdirSync, unlinkSync } from "node:fs";
+import { createWriteStream, realpathSync, openSync, closeSync, readSync, writeSync, ftruncateSync, fstatSync, fchownSync, lstatSync, lchownSync, existsSync, readdirSync, mkdirSync, chownSync, chmodSync, writeFileSync, readFileSync, statfsSync, truncateSync, rmdirSync, unlinkSync } from "node:fs";
 import { join, dirname, relative, resolve, basename, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runCoder, connectorTools, connectorCaller, connectorHookCaller, MACHINE_TOOLS, MACHINE_ADMIN, CWD_MARK, CWD_WORDS, monitorMs, TOOLS_SCRIPT, hookModeName, boxDownTold, boxDownShown } from "./coder-agent.mjs";
@@ -44,7 +44,7 @@ import { makeBrowserHub, RESTORE_FILE } from "./gloopy-browser.mjs";
 import { makeTunnel, makeRouteProxy, wsAccept } from "./gloopy-route.mjs";
 import { coderSend, coderModel, pickModel } from "./coder-model.mjs";
 import { CLOUD_AUTOCOMPACT_PCT } from "./coder-compact.mjs";
-import { cleanEnv, PROJECT_ID, PROJECT_ROOT, splitSetup, APT_NAME_RE, DEV_HOME, SETUP_SCRIPT_MAX, scrub, PROC_WRAPPERS, ccDuration, movedSoFar, utf8Partial, secretVar } from "./coder-checks.mjs";
+import { cleanEnv, PROJECT_ID, PROJECT_ROOT, APT_NAME_RE, DEV_HOME, SETUP_SCRIPT_MAX, scrub, PROC_WRAPPERS, ccDuration, movedSoFar, utf8Partial, secretVar } from "./coder-checks.mjs";
 import { bashEndBytes } from "./coder-checks.mjs";
 import { startProxy, okHost, firewall, blockedNote } from "./coder-proxy.mjs";
 import { makeRoom, roomArgs, roomGate, roomInternet, gateForApt, NSENTER, SETPRIV } from "./coder-room.mjs";
@@ -966,7 +966,7 @@ export function withRepoOwn(vars, own) {
  * when one says "disable". `held`: what waits for trust, for Claude Code's warning. Nothing in a job from GitHub.
  */
 export function repoSettings(root, { trust = false, github = false, several = false } = {}) {
-  const out = { deny: [], ask: [], allow: [], dirs: [], env: {}, own: {}, held: [], blockReads: false, blockWrites: false, autoOff: false, defaultMode: "", plansDir: "" };
+  const out = { deny: [], ask: [], allow: [], dirs: [], env: {}, own: {}, held: [], blockReads: false, blockWrites: false, autoOff: false, defaultMode: "", plansDir: "", mdExcludes: [] };
   // (None from a job started from GitHub, and none in a chat with several repositories: Claude Code's cloud session then works
   // from a folder outside all of them and reads no repository's .claude/settings.json or settings.local.json. Bash docs pass 8.)
   if (github || several) return out;
@@ -999,9 +999,11 @@ export function repoSettings(root, { trust = false, github = false, several = fa
     if (typeof p.defaultMode === "string" && ["acceptEdits", "plan", "default"].includes(p.defaultMode)) out.defaultMode = p.defaultMode;
     // (Claude Code's plansDirectory, "Any file": the later file's, settings.local.json over settings.json. 2026-11-14.)
     if (typeof j.plansDirectory === "string" && j.plansDirectory.length <= 1000) out.plansDir = j.plansDirectory;
+    // (Claude Code's claudeMdExcludes, "Arrays merge across layers"; coderMdExcludes, Coder's name for it. M-f-14.)
+    for (const k of ["claudeMdExcludes", "coderMdExcludes"]) for (const x of Array.isArray(j[k]) ? j[k] : []) if (typeof x === "string" && x.trim() && x.length <= 400) out.mdExcludes.push(x.trim());
   }
   const cap = (a, n) => [...new Set(a)].slice(0, n);
-  out.deny = cap(out.deny, 200); out.ask = cap(out.ask, 200); out.allow = cap(out.allow, 200); out.dirs = cap(out.dirs, 20);
+  out.deny = cap(out.deny, 200); out.ask = cap(out.ask, 200); out.allow = cap(out.allow, 200); out.dirs = cap(out.dirs, 20); out.mdExcludes = cap(out.mdExcludes, 100);
   return out;
 }
 /** Claude Code's warning for what waits for trust ("Ignoring 2 permissions.allow entries from .claude/settings.json: this workspace has not been trusted. …"), with Coder's way to trust. */
@@ -1495,11 +1497,11 @@ function execNow(dir, command, timeoutS = 120, { uid = RUN_UID, gid = RUN_GID, k
       // (A letter left half-read at the end is shown as it is.)
       { const rest = leftover(); if (rest.length && out.length < (spillDir ? keep : outMax)) out += rest.toString("utf8"); }
       // The folder line is taken out of what the command printed (its last one, with this command's own random part).
-      let ended = null, text = out, markBytes = 0;
+      let ended = null, text = out, markBytes = 0, markLine = "";
       if (follow) {
         const mark = "\n" + CWD_MARK + nonce + ":", at = tail.lastIndexOf(mark), stop = at >= 0 ? tail.indexOf("\n", at + mark.length) : -1;
         if (stop >= 0) ended = tail.slice(at + mark.length, stop);
-        if (ended !== null) { const line = mark + ended + "\n", k = text.lastIndexOf(line); markBytes = Buffer.byteLength(line); if (k >= 0) text = text.slice(0, k) + text.slice(k + line.length); }
+        if (ended !== null) { const line = mark + ended + "\n", k = text.lastIndexOf(line); markBytes = Buffer.byteLength(line); markLine = line; if (k >= 0) text = text.slice(0, k) + text.slice(k + line.length); }
         if (ended !== null && ended.startsWith("b64:")) ended = /^[A-Za-z0-9+/]*={0,2}$/.test(ended.slice(4)) ? Buffer.from(ended.slice(4), "base64").toString("utf8") : "";
       }
       let file = "";
@@ -1507,7 +1509,8 @@ function execNow(dir, command, timeoutS = 120, { uid = RUN_UID, gid = RUN_GID, k
         spill.end(); await spillDone;
         file = spillPath;
         // The folder line goes from the file too.
-        if (markBytes && spillBytes < SPILL_KEEP) { try { truncateSync(file, Math.max(0, spillBytes - markBytes)); } catch { /* left as it is */ } }
+        // (Exactly its bytes, found near the end: whatever a background child printed after it is kept. Not found: left as it is.)
+        if (markBytes && spillBytes < SPILL_KEEP) { try { dropFromTail(file, markLine); } catch { /* left as it is */ } }
       }
       const size = Math.max(0, bytes - markBytes);
       const c = typeof code === "number" ? code : signal === "SIGTERM" ? 143 : signal === "SIGKILL" ? 137 : -1;
@@ -2715,11 +2718,27 @@ export async function topNotes(dir, notes) {
   return out;
 }
 
-export async function repoInstructions(dir) {
+/**
+ * Is this instruction file (`rel`, inside `dir`) left out by claudeMdExcludes (M-f-14)? A pattern matches its absolute path
+ * (one starting with the project's folder is matched inside it; another absolute one never matches), or its path in the project
+ * (a pattern such as "**\/AGENTS.md").
+ */
+export function mdExcluded(excludes, dir, rel) {
+  if (!Array.isArray(excludes) || !excludes.length) return false;
+  const top = String(dir).replace(/\/+$/, "") + "/";
+  return excludes.some((p) => {
+    if (typeof p !== "string" || !p) return false;
+    if (p.startsWith(top)) return globAny([p.slice(top.length)], rel);
+    if (p.startsWith("/")) return false; // (an absolute path outside the project)
+    return globAny([p], rel);
+  });
+}
+export async function repoInstructions(dir, { excludes = [] } = {}) {
   const notes = [], later = [];
   let left = NOTES_MAX;
-  // Read with room for the comments that are left out (they cost Coder nothing, as in Claude Code).
-  const load = async (rel, max) => { const raw = await plainText(dir, rel, max * 4); return raw === null ? null : withoutComments(raw); };
+  // Read with room for the comments that are left out (they cost Coder nothing, as in Claude Code). A file the settings'
+  // claudeMdExcludes names is not read at all.
+  const load = async (rel, max) => { if (mdExcluded(excludes, dir, rel)) return null; const raw = await plainText(dir, rel, max * 4); return raw === null ? null : withoutComments(raw); };
   const now = (name, loaded) => {
     if (loaded === null) return false;
     if (left <= 0) { notes.push({ name, text: "[Not loaded here: the repository's instructions already come to " + NOTES_MAX.toLocaleString("en-US") + " characters. Read " + name + " with the read tool.]" }); return true; }
@@ -2757,10 +2776,12 @@ export async function repoInstructions(dir) {
     const list = await entriesOf(rel ? join(dir, rel) : dir);
     if (rel) {
       const has = (n) => list.some((e) => e.file && e.name === n);
-      const name = has("CODER.md") ? "CODER.md" : has("AGENTS.md") ? "AGENTS.md" : "";
+      // (A subfolder's AGENTS.md only when the project's top has no CODER.md, as Claude Code reads AGENTS.md only with no
+      // CLAUDE.md; and it loads only on a read, laterNotes. M-f-10.)
+      const name = has("CODER.md") ? "CODER.md" : !found && has("AGENTS.md") ? "AGENTS.md" : "";
       if (name && later.filter((x) => x.dir !== undefined).length < NESTED_MAX) {
         const loaded = await load(rel + "/" + name, NOTE_ONE_MAX + 1);
-        if (loaded !== null) { const text = loaded.text.slice(0, NOTE_ONE_MAX); later.push({ name: rel + "/" + name, dir: rel, text, ...(loaded.text.length > NOTE_ONE_MAX ? { cut: true, from: lineAfter(loaded, text) } : {}) }); }
+        if (loaded !== null) { const text = loaded.text.slice(0, NOTE_ONE_MAX); later.push({ name: rel + "/" + name, dir: rel, text, ...(name === "AGENTS.md" ? { agents: true } : {}), ...(loaded.text.length > NOTE_ONE_MAX ? { cut: true, from: lineAfter(loaded, text) } : {}) }); }
       }
     }
     for (const e of list.filter((x) => x.dir && !SKIP_DIRS.has(x.name)).sort((a, b) => a.name.localeCompare(b.name))) {
@@ -2835,11 +2856,26 @@ export function projectRel(dir, path) {
   rel = rel.replace(/^\.\/+/, "").replace(/\/+/g, "/");
   return !rel || rel.split("/").some((x) => x === ".." || x === ".") ? "" : rel;
 }
-export function laterNotes(later, dir, path, shown) {
+/** The instruction files laterNotes already attached to tool answers still in `messages` (their "— <name>:" lines). */
+export function seedShownNotes(messages) {
+  const shown = new Set();
+  const HEAD = "THE REPO'S INSTRUCTIONS FOR THIS FILE";
+  for (const m of Array.isArray(messages) ? messages : []) {
+    if (!m || m.role !== "tool") continue;
+    const c = typeof m.content === "string" ? m.content : Array.isArray(m.content) ? m.content.map((x) => (x && typeof x.text === "string" ? x.text : "")).join("\n") : "";
+    const at = c.indexOf(HEAD);
+    if (at < 0) continue;
+    for (const hit of c.slice(at).matchAll(/^— (.+):$/gm)) shown.add(hit[1]);
+  }
+  return shown;
+}
+export function laterNotes(later, dir, path, shown, tool = "read") {
   if (!Array.isArray(later) || !later.length) return "";
   const out = [];
   for (const x of later) {
     if (shown.has(x.name)) continue;
+    // (A subfolder's AGENTS.md: "when Claude opens a file there with the Read tool", only.)
+    if (x.agents && tool !== "read") continue;
     // (One from a working folder, extraInstructions: a full path inside that folder.)
     const rel = x.root ? (String(path || "").startsWith(String(x.root).replace(/\/+$/, "") + "/") ? projectRel(x.root, path) : "") : projectRel(dir, path);
     if (!rel) continue;
@@ -2901,6 +2937,24 @@ export function contextTextPieces(notes, memFile, memory, later = [], today = to
 /** SYSTEM PACKAGES FROM THE SETUP SCRIPT (owner, 2026-11-06, "1": like Claude
  *  Code, `apt install` works). Only checked package names go in; through the
  *  proxy when the network is limited, so the repo's network list applies. */
+/**
+ * Takes the last copy of `line` out of the end of a saved output file (its last line.length + 64 KB bytes), keeping what came
+ * after it; leaves the file as it is when the line is not there (L-machine-56).
+ */
+export function dropFromTail(file, line) {
+  const want = Buffer.from(line);
+  const fd = openSync(file, "r+");
+  try {
+    const size = fstatSync(fd).size, n = Math.min(size, want.length + 65536), start = size - n;
+    const buf = Buffer.alloc(n); readSync(fd, buf, 0, n, start);
+    const k = buf.lastIndexOf(want);
+    if (k < 0) return false;
+    const after = buf.subarray(k + want.length);
+    if (after.length) writeSync(fd, after, 0, after.length, start + k);
+    ftruncateSync(fd, start + k + after.length);
+    return true;
+  } finally { closeSync(fd); }
+}
 export function aptCommand(packages, proxy = "", ca = "") {
   const names = (Array.isArray(packages) ? packages : []).filter((x) => APT_NAME_RE.test(x));
   const safe = (v) => typeof v === "string" && /^[\w./:-]{1,300}$/.test(v);
@@ -4092,12 +4146,16 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     // THE REPO'S OWN RULES (CODER.md) and THE MEMORY FOR
     // THIS REPO (kept between chats by the Worker), told to the AI each turn.
     // The memory folder sits in a root-owned place, so it cannot be swapped.
-    const ins = await repoInstructions(dir);
+    // (Which instruction files the settings leave out: the repository's .claude/settings.json and the owner's, merged. M-f-14.)
+    const mdExcludes = [...repoSettings(dir, { trust: !!(body.rules && body.rules.trust === true), github: body.github === true, several: extraRepos(body).length > 0 }).mdExcludes, ...(body.rules && Array.isArray(body.rules.mdExcludes) ? body.rules.mdExcludes.filter((x) => typeof x === "string" && x.trim()).slice(0, 100) : [])];
+    const ins = await repoInstructions(dir, { excludes: mdExcludes });
     const notes = ins.notes;
     // The instruction files that load later (path rules, a subfolder's own file), as read before any command ran.
     const later = ins.later;
     // What loads later (path rules, a subfolder's own file), each once this job.
-    const shownNotes = new Set();
+    // (Seeded from the chat's own history: a file already attached to an earlier tool answer still in the conversation is
+    // not attached again; one a summary or a Rewind dropped loads again, as in Claude Code. M-f-09.)
+    const shownNotes = seedShownNotes(body.messages);
     // THE CHECK ON EACH EDIT (item 12): Coder's rules and the repo's own, each once a job for each file.
     const repoRules = await repoSecurityRules(dir);
     const secRules = [...BUILTIN_RULES, ...repoRules];
@@ -4428,22 +4486,15 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         // 2026-11-06, "1", like Claude Code): no variables, and no keys added
         // by the proxy while it runs; only the network list applies.
         if (px && secretList.length) px.setSecrets([]);
-        // SYSTEM PACKAGES FIRST (owner, 2026-11-06, "1", like Claude Code where
-        // the script runs as root): its plain apt lines are done here, as root,
-        // with only the checked package names; the rest runs as `dev`, so the
-        // script never gets near the GitHub token or the owner's keys.
-        const { packages, script: userPart } = t.box ? { packages: [], script } : splitSetup(script);
+        // THE WHOLE SCRIPT, UNCHANGED (like Claude Code, where it runs as root, and like the admin sandbox, where it runs as
+        // admin): no apt lines taken out of it, which could break an if-block or drop package names.
+        const userPart = script;
         // (What is beside the checkouts before it runs: what is new after it, the setup made. noteSetupMade.)
         const rootBefore = fresh && body.repo ? await readdir(root).catch(() => null) : null;
         const t0 = Date.now();
         let r = { code: 0, output: "" };
         // IN THE ADMIN SANDBOX (like Claude Code, where the whole script runs as admin): all of it, as
         // dev with sudo for anything (apt-get, apt and service need no sudo), below with the rest.
-        if (packages.length) {
-          // From "/", not the project folder that `dev` can write to.
-          const a = await aptRun("/", aptCommand(packages, net.limited ? proxyEnv.HTTP_PROXY || "" : "", net.limited ? proxyEnv.SSL_CERT_FILE || "" : ""), SETUP_MAX_S, { bgDir });
-          r = { code: a.code, timedOut: !!a.timedOut, output: "$ apt-get install " + packages.join(" ") + " (as admin, by Coder's app)\n" + String(a.output || "") };
-        }
         if (r.code === 0 && !r.timedOut && userPart) {
           const left = Math.max(10, SETUP_MAX_S - Math.round((Date.now() - t0) / 1000));
           // (The owner's Stop ends it: it is one of the turn's own commands.)
@@ -4548,7 +4599,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         piece("s:THIS CHAT'S ENVIRONMENT", envNameNote(body)),
         piece("s:UNDO", undoNote(lastJobOf(body))),
         ...workNote(),
-        piece("s:THE ENVIRONMENT'S SETUP SCRIPT", (script ? (setupHere === "moved" ? "\n\nTHE ENVIRONMENT'S SETUP SCRIPT (the owner's; it has NOT run on this machine: this chat moved to this environment while its machine was running, and it runs only on a fresh machine, so what it installs is not here unless you install it):\n" : setupHere === "not" ? "\n\nTHE ENVIRONMENT'S SETUP SCRIPT (the owner's; it has NOT run on this machine: the owner set or changed it after this chat's machine had its setup, and like Claude Code, a change to the setup script reaches a chat only on a fresh machine (new chats run it), so what it installs is not here unless you install it):\n" : setupHere === "pending" ? "\n\nTHE ENVIRONMENT'S SETUP SCRIPT (the owner's; it has NOT run on this machine yet: Coder's admin sandbox could not start here, and it runs before a later message whose sandbox starts):\n" : setupHere === "copied" ? "\n\nTHE ENVIRONMENT'S SETUP SCRIPT (the owner's; this chat's machine started from the environment's saved copy of its result, made right after it ran in another chat, so it did not run again here. What it installed on the system and in your home is here; " + (repoWithCopy ? "what it made inside the project folder (node_modules, say) is here too: the repository came with the copy and was fetched from GitHub, with nothing of the other chat's own work left in it" : "what it made inside the project folder (node_modules, say) is not, as the repository is cloned fresh: run the project's own install yourself when the work needs it") + "):\n" : "\n\nTHE ENVIRONMENT'S SETUP SCRIPT (the owner's, already run on this machine: " + (t.box ? "as your own user with admin for anything, like your commands" : "its plain apt-get install lines by Coder's app as admin, every other line as your own user") + "; " + (setupHere === "failed" && !setupRan ? "it FAILED there, so what it failed to set up is not here, and it does not run again on this machine (new chats run it); its output is in the chat" : "its output is in the chat") + "):\n") + script.slice(0, 2000) + setupWhere() : "")),
+        piece("s:THE ENVIRONMENT'S SETUP SCRIPT", (script ? (setupHere === "moved" ? "\n\nTHE ENVIRONMENT'S SETUP SCRIPT (the owner's; it has NOT run on this machine: this chat moved to this environment while its machine was running, and it runs only on a fresh machine, so what it installs is not here unless you install it):\n" : setupHere === "not" ? "\n\nTHE ENVIRONMENT'S SETUP SCRIPT (the owner's; it has NOT run on this machine: the owner set or changed it after this chat's machine had its setup, and like Claude Code, a change to the setup script reaches a chat only on a fresh machine (new chats run it), so what it installs is not here unless you install it):\n" : setupHere === "pending" ? "\n\nTHE ENVIRONMENT'S SETUP SCRIPT (the owner's; it has NOT run on this machine yet: Coder's admin sandbox could not start here, and it runs before a later message whose sandbox starts):\n" : setupHere === "copied" ? "\n\nTHE ENVIRONMENT'S SETUP SCRIPT (the owner's; this chat's machine started from the environment's saved copy of its result, made right after it ran in another chat, so it did not run again here. What it installed on the system and in your home is here; " + (repoWithCopy ? "what it made inside the project folder (node_modules, say) is here too: the repository came with the copy and was fetched from GitHub, with nothing of the other chat's own work left in it" : "what it made inside the project folder (node_modules, say) is not, as the repository is cloned fresh: run the project's own install yourself when the work needs it") + "):\n" : "\n\nTHE ENVIRONMENT'S SETUP SCRIPT (the owner's, already run on this machine: " + (t.box ? "as your own user with admin for anything, like your commands" : "the whole script, unchanged, as your own user") + "; " + (setupHere === "failed" && !setupRan ? "it FAILED there, so what it failed to set up is not here, and it does not run again on this machine (new chats run it); its output is in the chat" : "its output is in the chat") + "):\n") + script.slice(0, 2000) + setupWhere() : "")),
         piece("s:ENVIRONMENT VARIABLES", varsNote(ownerVars)),
         piece("s:NETWORK", netNote),
         piece("e:THE SETUP SCRIPT FAILED", (setupFailed ? "\n\nTHE SETUP SCRIPT FAILED this time (" + (setupFailed.timedOut ? "it ran past the 5-minute limit" : "exit code " + setupFailed.code) + "). Its last output:\n" + setupFailed.output + "\nLike Claude Code: tell the owner in a few lines which command failed and its exit code, and that they can fix it in Environment → Setup script (new chats run the fixed script). If you have a fix you ran yourself and saw work, propose it with update_environment (setup_script) at the end of your work. Carry on with whatever does not depend on it, and never stand in for the missing part with made-up results unless the owner asks." : "")),
@@ -4848,7 +4899,15 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
           let hookHome = false;
           if (here && t.cwd !== home0) {
             const ok = await cwdInside(t.cwd, workRoots, { seen: t.seen });
-            if (ok) t.cwd = ok; else if (hook) hookHome = true; else { t.cwd = home0; t.cwdWas = ""; notes.push("Shell cwd was reset to " + home0); }
+            if (ok) t.cwd = ok; else if (hook) hookHome = true;
+            else {
+              // (A folder that no longer exists: like Claude Code 2.1.325, the command is not run; it fails with a message and
+              // can be sent again. One that exists but ended outside the project: reset and run, as before.)
+              const gone = await lstat(t.cwd).then(() => false, () => true);
+              t.cwd = home0; t.cwdWas = "";
+              if (gone && !tool) return { code: 1, notStarted: true, output: "Shell cwd was reset to " + home0 + ": the folder this command would have run in no longer exists, so it was not run. Run it again if it is still wanted." };
+              notes.push("Shell cwd was reset to " + home0);
+            }
           }
           const moved = here && t.cwd !== home0 && !hookHome;
           const startedIn = t.cwd, startedAt = Date.now();
@@ -5089,7 +5148,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         seen: true,
         afterFile: ({ tool, args }) => {
           const rel = projectRel(dir, args && args.path), text = editedText(tool, args);
-          return [laterNotes(later, dir, args && args.path, shownNotes), rel && text !== null ? checkEdit(rel, text, secRules, shownSec) : ""].filter(Boolean).join("\n\n");
+          return [laterNotes(later, dir, args && args.path, shownNotes, tool), rel && text !== null ? checkEdit(rel, text, secRules, shownSec) : ""].filter(Boolean).join("\n\n");
         },
         // THE ANSWER SHOWN ENDS THE WAIT (the owner, 2026-11-18: "do it claude code way"; a one-line answer kept the chat busy
         // ~12 s more while the next-message suggestion was asked for; Claude Code makes it "a short background request"):

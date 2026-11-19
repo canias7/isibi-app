@@ -2233,7 +2233,7 @@ test("CD80 live test (2026-11-06): Coder knows which setup lines get admin; a fa
   } finally { await close(); }
 });
 
-test("CD81 (owner: 'do the 3 of them', like Claude Code) the setup script's apt lines are installed as admin by Coder's app, the rest runs as Coder's user; only lines Coder ran and saw work are proposed", async () => {
+test("CD81 (owner: 'do the 3 of them', like Claude Code) the setup script runs whole and unchanged (no apt lines taken out); only lines Coder ran and saw work are proposed", async () => {
   const { splitSetup, APT_NAME_RE } = await import("../container/coder-checks.mjs");
   const { aptCommand } = await import("../container/server.mjs");
   const { triedCommands, newSetupLines } = await import("../container/coder-agent.mjs");
@@ -2265,30 +2265,18 @@ test("CD81 (owner: 'do the 3 of them', like Claude Code) the setup script's apt 
     return s;
   };
   try {
-    const s = await run("shop-apt1", { script: "sudo apt-get update && sudo apt-get install -y jq\ncd shop && echo user-part-ran > after-apt.txt", network: { mode: "full" } });
-    assert.equal(aptCalls.length, 1);
-    assert.equal(aptCalls[0].command, "apt-get update -qq && apt-get install -y -q --no-install-recommends jq", "Full network: straight out");
-    assert.equal(aptCalls[0].dir, "/", "run from /, not the folder Coder's commands can write to");
-    const out = s.events.find((e) => e.type === "result" && /as admin, by Coder's app/.test(e.output || ""));
-    assert.ok(out && out.code === 0, "one setup step, its output says the packages were done as admin");
-    assert.match(out.output, /^\$ apt-get install jq \(as admin, by Coder's app\)\nSetting up jq/);
-    assert.ok(existsSync(join(root, "shop-apt1", "after-apt.txt")), "then the rest of the script ran");
-    // (The chat's context and this message's news are notes in the conversation since fix round 4: context-cache.test.mjs.)
-    assert.match(seen[0].messages.filter((m) => m.appNote).map((m) => m.content).join("\n"), /its plain apt-get install lines by Coder's app as admin, every other line as your own user/);
-    // On a limited network (Trusted, the default) apt goes through the proxy, so the repo's network list applies to it too.
-    aptCalls.length = 0;
-    await run("shop-apt4", { script: "apt-get install -y jq" });
-    assert.match(aptCalls[0].command, /^apt-get update -qq -o Acquire::http::Proxy=http:\/\/127\.0\.0\.1:\d+ -o Acquire::https::Proxy=http:\/\/127\.0\.0\.1:\d+ -o Acquire::https::CaInfo=\S+ && apt-get install -y -q --no-install-recommends -o .* jq$/);
-    // A package that fails to install: the rest does not run, and Coder is told like Claude Code.
-    aptResult = { code: 100, output: "E: Unable to locate package nosuchpkg" };
-    const bad = await run("shop-apt2", { script: "apt-get install -y nosuchpkg\ncd shop && echo never > never.txt" });
+    // (L-machine-60: like Claude Code, where the whole script runs as root, the script runs whole and unchanged; Coder's app
+    // no longer takes its apt lines out, which broke if-blocks.)
+    const s = await run("shop-apt1", { script: "if false; then apt-get install -y jq; fi\ncd shop && echo user-part-ran > after-apt.txt", network: { mode: "full" } });
+    assert.equal(aptCalls.length, 0, "no apt line is taken out and run apart");
+    assert.ok(existsSync(join(root, "shop-apt1", "after-apt.txt")), "the if-block was kept (its apt line not run) and the rest ran");
+    assert.ok(!s.events.some((e) => /as admin, by Coder's app/.test(e.output || "")));
+    assert.match(seen[0].messages.filter((m) => m.appNote).map((m) => m.content).join("\n"), /the whole script, unchanged, as your own user/);
+    // A failing script: the rest does not run, and Coder is told like Claude Code.
+    const bad = await run("shop-apt2", { script: "set -e\necho 'E: Unable to locate package nosuchpkg'; exit 100\ncd shop && echo never > never.txt" });
     assert.ok(bad.events.some((e) => e.type === "result" && e.code === 100));
     assert.ok(!existsSync(join(root, "shop-apt2", "never.txt")));
-    assert.match(seen[0].messages.filter((m) => m.appNote).map((m) => m.content).join("\n"), /THE SETUP SCRIPT FAILED this time \(exit code 100\)[\s\S]*Unable to locate package nosuchpkg[\s\S]*Like Claude Code: tell the owner in a few lines which command failed and its exit code, and that they can fix it in Environment → Setup script/);
-    // A script with no package lines never calls apt.
-    aptCalls.length = 0;
-    await run("shop-apt3", { script: "echo plain > plain.txt" });
-    assert.equal(aptCalls.length, 0);
+    assert.match(seen[0].messages.filter((m) => m.appNote).map((m) => m.content).join("\n"), /THE SETUP SCRIPT FAILED this time \(exit code 100\)[\s\S]*Unable to locate package nosuchpkg/);
   } finally { await close(); }
   // 3. Only lines Coder ran in this chat and saw work (exit code 0); a package must exist.
   const convo = [

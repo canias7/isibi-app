@@ -157,6 +157,7 @@ test("CD232 the folder is found after a command's output was cut at 1 MB, and a 
       say("", [call("bash", { command: "mkdir -p keep && cd keep && pwd" }, "c5")]),
       say("", [call("bash", { command: "rmdir " + dir + "/keep", run_in_background: true }, "c6")]),
       say("", [call("bash", { command: "sleep 1; pwd" }, "c7")]),
+      say("", [call("bash", { command: "pwd" }, "c8")]),
       say("Done.", []),
     ]);
     // Past 30,000 characters the output is saved to a file (Claude Code's "Output too large (…). Full output saved to: …"),
@@ -166,9 +167,12 @@ test("CD232 the folder is found after a command's output was cut at 1 MB, and a 
     // c3 removed the folder it ended in: the next command is back in the project's folder.
     assert.equal(j.out("c3"), "Shell cwd was reset to " + dir);
     assert.equal(j.out("c4"), dir);
-    // c6 (in the background) removed the folder c5 left the commands in: c7 says so and runs in the project's folder.
+    // c6 (in the background) removed the folder c5 left the commands in: like Claude Code 2.1.325, c7 is not run (it fails
+    // with a message and can be sent again), and the next command, c8, runs in the project's folder.
     assert.equal(j.out("c5"), dir + "/keep");
-    assert.equal(j.out("c7"), dir + "\nShell cwd was reset to " + dir);
+    assert.match(j.out("c7"), new RegExp("Shell cwd was reset to " + dir + ": the folder this command would have run in no longer exists, so it was not run\\."));
+    assert.doesNotMatch(j.out("c7"), /\n\//, "pwd never ran");
+    assert.equal(j.out("c8"), dir);
   } finally { m.close(); }
 });
 

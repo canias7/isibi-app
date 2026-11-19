@@ -1491,7 +1491,7 @@ test("CD248 Coder's docs page (the owner, 2026-11-08: \"start making a section f
   assert.match(agentSrc, /x\.length > 300 \? x\.slice\(0, 300\) \+ "…"/);
   assert.ok(page.includes("A very long line is cut short, with <code>&hellip;</code> at its end"));
   const server = readFileSync(HERE("container/server.mjs"), "utf8");
-  assert.match(server, /has\("CODER\.md"\) \? "CODER\.md" : has\("AGENTS\.md"\) \? "AGENTS\.md"/);
+  assert.match(server, /has\("CODER\.md"\) \? "CODER\.md" : !found && has\("AGENTS\.md"\) \? "AGENTS\.md"/);
   assert.ok(page.includes("a folder with its own <code>CODER.md</code> (or <code>AGENTS.md</code>)"));
   // Bash's, from the code too (2026-11-13): its time limits, output limits, background limits, the sleep refusal, a monitor's.
   const CK = await import("../container/coder-checks.mjs");

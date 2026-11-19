@@ -33,9 +33,8 @@ test("CD157 which instruction files load at the start and which later: CODER.md 
   assert.deepEqual(r.later.map((x) => [x.name, x.globs || x.dir]), [
     [".coder/rules/api/ts.md", ["src/api/**/*.ts", "lib/*.ts"]],
     [".coder/rules/docs.md", ["*.md", "/docs/**"]],
-    ["lib/AGENTS.md", "lib"],
     ["src/payments/CODER.md", "src/payments"],
-  ]);
+  ], "lib/AGENTS.md is not taken: the project has a CODER.md at its top (M-f-10)");
   assert.equal(r.later[0].text, "# API rules\nValidate input.\n", "the front matter is not part of the rule");
   // NEVER THROUGH A LINK (a repo can commit .coder as a link to anything), NOR A HARD LINK.
   const evil = await mkdtemp(join(tmpdir(), "coder-ins-evil-"));
@@ -96,4 +95,49 @@ test("CD159 a path rule or a subfolder's file comes with the tool's answer once 
   const toolMsgs = r.messages.filter((m) => m.role === "tool");
   assert.equal(toolMsgs[0].content, "file text\n\nRULES FOR src/api/a.ts");
   assert.equal(toolMsgs[1].content, "file text");
+});
+
+test("M-f-09 a subfolder's file already attached to a tool answer still in the chat is not attached again on the next message; once it is gone from the history it loads again", () => {
+  const later = [{ name: "src/CODER.md", dir: "src", text: "Use tabs." }];
+  const dir = "/data/work/shop";
+  const first = S.laterNotes(later, dir, "src/x.js", new Set());
+  assert.match(first, /— src\/CODER\.md:\nUse tabs\./);
+  const history = [{ role: "user", content: "go" }, { role: "tool", tool_call_id: "r1", content: "1\tcode\n\n" + first }];
+  assert.equal(S.laterNotes(later, dir, "src/x.js", S.seedShownNotes(history)), "", "still in the chat: not again");
+  assert.match(S.laterNotes(later, dir, "src/x.js", S.seedShownNotes([{ role: "user", content: "summary of earlier work" }])), /— src\/CODER\.md:/, "summarized away: loads again");
+  assert.match(S.laterNotes(later, dir, "src/x.js", S.seedShownNotes([{ role: "user", content: "— src/CODER.md:" }])), /— src\/CODER\.md:/, "only tool answers count");
+});
+
+test("M-f-10 a subfolder's AGENTS.md loads only when the project has no CODER.md at its top, only on a read, and a subfolder's CODER.md beats it", async () => {
+  const mk = async (files) => { const d = await mkdtemp(join(tmpdir(), "coder-agents-")); for (const [f, t] of Object.entries(files)) { await mkdir(dirname(join(d, f)), { recursive: true }); await writeFile(join(d, f), t); } return d; };
+  const a = await mk({ "CODER.md": "top", "src/AGENTS.md": "agents here", "src/x.js": "" });
+  const ia = await S.repoInstructions(a);
+  assert.equal(S.laterNotes(ia.later, a, "src/x.js", new Set(), "read"), "", "top CODER.md: no subfolder AGENTS.md");
+  const b = await mk({ "src/AGENTS.md": "agents here", "src/x.js": "" });
+  const ib = await S.repoInstructions(b);
+  assert.match(S.laterNotes(ib.later, b, "src/x.js", new Set(), "read"), /— src\/AGENTS\.md:\nagents here/);
+  assert.equal(S.laterNotes(ib.later, b, "src/x.js", new Set(), "write"), "");
+  assert.equal(S.laterNotes(ib.later, b, "src/x.js", new Set(), "edit"), "");
+  const c = await mk({ "src/AGENTS.md": "agents here", "src/CODER.md": "coder here", "src/x.js": "" });
+  const ic = await S.repoInstructions(c);
+  const out = S.laterNotes(ic.later, c, "src/x.js", new Set(), "edit");
+  assert.match(out, /— src\/CODER\.md:\ncoder here/); assert.doesNotMatch(out, /agents here/);
+});
+
+test("M-f-14 claudeMdExcludes (and coderMdExcludes) from the repository's settings leave instruction files out; the two files' lists merge; no setting changes nothing", async () => {
+  const d = await mkdtemp(join(tmpdir(), "coder-excl-"));
+  await put(d, "CODER.md", "top");
+  await put(d, ".coder/rules/a.md", "rule a");
+  await put(d, "src/CODER.md", "src rules");
+  let r = await S.repoInstructions(d);
+  assert.deepEqual(r.notes.map((n) => n.name), ["CODER.md", ".coder/rules/a.md"]);
+  assert.deepEqual(r.later.map((x) => x.name), ["src/CODER.md"]);
+  await put(d, ".claude/settings.json", JSON.stringify({ claudeMdExcludes: [d + "/CODER.md"] }));
+  await put(d, ".claude/settings.local.json", JSON.stringify({ coderMdExcludes: [".coder/rules/**", "**/src/CODER.md"] }));
+  const ex = S.repoSettings(d).mdExcludes;
+  assert.deepEqual(ex, [d + "/CODER.md", ".coder/rules/**", "**/src/CODER.md"]);
+  r = await S.repoInstructions(d, { excludes: ex });
+  assert.deepEqual(r.notes, []);
+  assert.deepEqual(r.later, []);
+  assert.equal(S.mdExcluded(["/elsewhere/CODER.md"], d, "CODER.md"), false);
 });

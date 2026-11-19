@@ -798,3 +798,11 @@ test("R6R3 (round 6) a hook's `if` on WebFetch or WebSearch, as Claude Code 2.1.
   assert.deepEqual(t.hookCalls.map((x) => /\b(\w+)\.sh\b/.exec(String(x.x.command))[1]), ["fetch"]);
   assert.equal(toolMsg(t, "f1"), "read");
 });
+
+test("WF-long a URL over 2,000 characters is refused by the input check, before hooks, rules, the card or the checker", () => {
+  const long = "https://example.com/" + "a".repeat(2100);
+  assert.equal(long.length, 2120);
+  assert.deepEqual(W.checkInput({ url: long, prompt: "p" }), { error: "error: Invalid URL" });
+  const ok = "https://example.com/" + "a".repeat(1980);
+  assert.equal(W.checkInput({ url: ok, prompt: "p" }).args.url, ok);
+});
