@@ -70,3 +70,46 @@ test("CD175 a first clone that fails leaves no git folder behind; a half-made on
   assert.equal(await readFile(join(dir, ".git"), "utf8"), "gitdir: " + gd + "\n");
   assert.equal(git(dir, "rev-parse", "HEAD").trim(), head, "the chat's own commits are kept");
 });
+
+test("batch 14: a first copy cut off part way lets the next message start; a repository with unpushed commits is never cleared", async () => {
+  const { prepareRepo, gitDirFor } = await import("../container/server.mjs");
+  const { remote } = await fakeGithub();
+  const root = await mkdtemp(join(tmpdir(), "coder-root-")), gitRoot = await mkdtemp(join(tmpdir(), "coder-git-"));
+  const dir = join(root, "shop-b14a"), gd = gitDirFor(dir, gitRoot);
+  const prep = () => prepareRepo({ dir, repo: "ana/shop", base: "main", branch: "coder/shop-b14a", token: "", remote, gitRoot, root });
+  // A CUT-OFF FIRST COPY: the files it had written stay, its git folder went.
+  await mkdir(dir, { recursive: true });
+  await writeFile(join(dir, "README.md"), "# sh");
+  const r = await prep();
+  assert.equal(r.ok, true, r.why);
+  assert.equal(await readFile(join(dir, "README.md"), "utf8"), "# shop\n");
+  // UNPUSHED COMMITS, then the branch file emptied: git cannot read HEAD, and the folder is kept.
+  await writeFile(join(dir, "fix.js"), "x\n");
+  git(dir, "-c", "user.name=a", "-c", "user.email=a@b", "add", "fix.js");
+  git(dir, "-c", "user.name=a", "-c", "user.email=a@b", "commit", "-q", "-m", "unpushed");
+  const sha = git(dir, "rev-parse", "HEAD").trim();
+  git(dir, "branch", "-q", "keep", sha);
+  git(dir, "symbolic-ref", "HEAD", "refs/heads/nothing-yet");
+  const kept = await prep();
+  assert.equal(kept.ok, false);
+  assert.match(kept.why, /not yet pushed; it is kept/);
+  assert.equal(git(dir, "rev-parse", "keep").trim(), sha, "the unpushed commit is still there");
+});
+
+test("batch 14: Coder's own downloads stop only when git goes quiet, not at a fixed time", async () => {
+  const { gitIn, GIT_FETCH_O } = await import("../container/server.mjs");
+  assert.ok(GIT_FETCH_O.timeoutS >= 3600 && GIT_FETCH_O.stallS > 0);
+  const root = await mkdtemp(join(tmpdir(), "coder-root-")), dir = join(root, "shop-b14s");
+  await mkdir(dir, { recursive: true });
+  const bin = join(await mkdtemp(join(tmpdir(), "coder-fakegit-")), "git");
+  // A stand-in git: "Receiving objects" every 100 ms for 1.2 s, then done.
+  await writeFile(bin, "#!/bin/sh\nfor i in 1 2 3 4 5 6 7 8 9 10 11 12; do echo \"Receiving objects: $i%\" >&2; sleep 0.1; done\necho fetched\n", { mode: 0o755 });
+  const o = { gitDir: join(root, "g"), root, bin };
+  assert.equal((await gitIn(dir, ["fetch", "x"], { ...o, timeoutS: 0.5 })).code, -1, "a fixed limit cuts a moving download off");
+  const r = await gitIn(dir, ["fetch", "x"], { ...o, timeoutS: 30, stallS: 0.5, progress: true });
+  assert.equal(r.code, 0, "a moving download runs to its end");
+  assert.doesNotMatch(r.output, /Receiving objects/, "progress lines are left out of git's answer");
+  const quiet = join(await mkdtemp(join(tmpdir(), "coder-fakegit-")), "git");
+  await writeFile(quiet, "#!/bin/sh\nsleep 1.2\necho fetched\n", { mode: 0o755 });
+  assert.equal((await gitIn(dir, ["fetch", "x"], { ...o, bin: quiet, timeoutS: 30, stallS: 0.5 })).code, -1, "a stalled one is stopped");
+});

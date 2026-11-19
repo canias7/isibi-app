@@ -310,7 +310,7 @@ test("CD128 the machine on Fly.io: its answers say they are its own; asked for i
     const w = await fetch(base + "/stop", { method: "POST", headers: { "x-coder-key": CONTROL, "x-coder-keepalive": "1" }, body: JSON.stringify({ project: "shop-a1" }) });
     assert.equal(w.status, 200);
     assert.equal(w.headers.get("x-coder-keepalive"), "1");
-    assert.deepEqual(JSON.parse(await w.text()), { coderStatus: 200, body: { ok: true, running: false } });
+    assert.deepEqual(JSON.parse(await w.text()), { coderStatus: 200, body: { ok: true, running: false, finished: false } });
     const no = await fetch(base + "/stop", { method: "POST", headers: { "x-coder-keepalive": "1" }, body: "{}" });
     assert.deepEqual(JSON.parse(await no.text()), { coderStatus: 403, body: { error: "not allowed" } });
     // A slow request: spaces while it waits (here, a body that comes slowly), then the answer.

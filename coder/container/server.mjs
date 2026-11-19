@@ -508,11 +508,49 @@ export const bgLimitMs = (ms, tmo = bashTimeouts()) => (Number.isFinite(Number(m
  */
 export const OUT_INLINE = 30_000, OUT_CHARS_MIN = 4000, OUT_CHARS_MAX = 128_000, OUT_READ_BACK_MAX = 150_000;
 export function bashOutputLimits(vars = {}) {
-  const int = (v) => { const x = String(v ?? "").trim(); return /^\d{1,9}$/.test(x) ? Number(x) : 0; };
+  // (Read as Claude Code reads number variables: 64_000, 64,000 and 1e5 too. Claude Code fixes, batch 14.)
+  const int = (v) => { const n = envNumber(v); return Number.isSafeInteger(n) && n > 0 ? n : 0; };
   const chars = int(vars && vars.CODER_BASH_OUTPUT_MAX_CHARS);
   if (chars > 0) { const n = Math.min(OUT_CHARS_MAX, Math.max(OUT_CHARS_MIN, chars)); return { inlineMax: n, readBack: n }; }
   const len = int(vars && vars.BASH_MAX_OUTPUT_LENGTH);
   return { inlineMax: OUT_INLINE, readBack: len > 0 ? Math.min(OUT_READ_BACK_MAX, len) : OUT_INLINE };
+}
+/**
+ * CLAUDE CODE'S NAMES IN THE ENVIRONMENT WINDOW (batch 14; Claude Code's cloud docs: "To change a setting for a cloud session,
+ * set an environment variable on the environment"): each CLAUDE_CODE_... switch Coder knows also sets its CODER_ name, unless
+ * the owner typed the CODER_ name too (that one wins). The Claude Code name still reaches commands as a plain variable.
+ */
+export const OWNER_CC_NAMES = { CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "CODER_SUBPROCESS_ENV_SCRUB", CLAUDE_CODE_SCRIPT_CAPS: "CODER_SCRIPT_CAPS",
+  CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: "CODER_ADDITIONAL_DIRECTORIES_CODER_MD", CLAUDE_CODE_DISABLE_SUBSTITUTION_RM_PROMPT: "CODER_DISABLE_SUBSTITUTION_RM_PROMPT",
+  CLAUDE_CODE_DISABLE_INLINE_SHELL_RM_PROMPT: "CODER_DISABLE_INLINE_SHELL_RM_PROMPT", CLAUDE_CODE_DISABLE_MOUNTED_DRIVE_RM_PROMPT: "CODER_DISABLE_MOUNTED_DRIVE_RM_PROMPT",
+  CLAUDE_CODE_DISABLE_DANGEROUS_RM_TIMEOUT: "CODER_DISABLE_DANGEROUS_RM_TIMEOUT", CLAUDE_CODE_DISABLE_PERMISSION_PROMPT_NOTIFY_HOOKS: "CODER_DISABLE_PERMISSION_PROMPT_NOTIFY_HOOKS",
+  CLAUDE_CODE_POWERSHELL_RESPECT_EXECUTION_POLICY: "CODER_POWERSHELL_RESPECT_EXECUTION_POLICY", CLAUDE_CODE_BASH_EDIT_DIFF: "CODER_BASH_EDIT_DIFF" };
+export function ownerCoderVars(raw) {
+  const out = { ...(raw && typeof raw === "object" ? raw : {}) };
+  const pairs = [...Object.entries(REPO_OWN_ENV).filter(([cc, c]) => cc !== c), ...Object.entries(OWNER_CC_NAMES)];
+  for (const [cc, c] of pairs) if (Object.hasOwn(out, cc) && !Object.hasOwn(raw, c)) out[c] = out[cc];
+  return out;
+}
+/** Which name the owner typed for a Coder setting: its own, or Claude Code's. */
+export function ownerNameFor(raw, n) {
+  if (!raw || Object.hasOwn(raw, n)) return n;
+  const all = { ...Object.fromEntries(Object.entries(REPO_OWN_ENV).filter(([cc, c]) => cc !== c)), ...OWNER_CC_NAMES };
+  return Object.keys(all).find((cc) => all[cc] === n && Object.hasOwn(raw, cc)) || n;
+}
+/**
+ * THE LOW-DISK AND LOW-MEMORY WARNINGS FROM THE OWNER'S ENVIRONMENT VARIABLES (batch 14; Claude Code's
+ * CLAUDE_CODE_WARN_DISK_FREE_GIB and CLAUDE_CODE_WARN_MEMORY_FREE_GIB: "a whole number of GiB", "off when the variable is
+ * unset, 0, or not plain digits", ignored in a settings file's env block). Coder's CODER_WARN_*_FREE_GIB beats Claude Code's
+ * name; a variable that is set beats the Settings choice for that chat; none set, the Settings choice. Never the repository's.
+ */
+export function warnGibFrom(ownerVars, what, pref) {
+  const v = ownerVars && typeof ownerVars === "object" ? ownerVars : {};
+  for (const n of ["CODER_WARN_" + what + "_FREE_GIB", "CLAUDE_CODE_WARN_" + what + "_FREE_GIB"]) {
+    if (!Object.hasOwn(v, n)) continue;
+    const x = String(v[n] ?? "").trim();
+    return /^\d{1,4}$/.test(x) ? Math.min(1000, Number(x)) : 0;
+  }
+  return pref;
 }
 /** A yes from the environment's variables, as Claude Code reads one ("1", "true", "yes", "on"). */
 export const varOn = (v) => /^(1|true|yes|on)$/i.test(String(v ?? "").trim());
@@ -970,6 +1008,9 @@ export function repoSettings(root, { trust = false, github = false, several = fa
   // (None from a job started from GitHub, and none in a chat with several repositories: Claude Code's cloud session then works
   // from a folder outside all of them and reads no repository's .claude/settings.json or settings.local.json. Bash docs pass 8.)
   if (github || several) return out;
+  // (Coder names set by a Claude Code variable in a file's env block: the variable beats the matching key, in either file,
+  // as in Claude Code, where CLAUDE_CODE_AUTO_COMPACT_WINDOW beats autoCompactWindow. Batch 14.)
+  const fromVar = new Set();
   for (const { file, json: j } of repoSettingsFiles(root)) {
     const p = j.permissions && typeof j.permissions === "object" && !Array.isArray(j.permissions) ? j.permissions : {};
     const list = (k) => (Array.isArray(p[k]) ? p[k] : []).filter((x) => typeof x === "string" && x.trim() && x.length <= 400 && ruleSaved(x.trim())).map((x) => x.trim());
@@ -985,12 +1026,12 @@ export function repoSettings(root, { trust = false, github = false, several = fa
       for (const [k, v] of Object.entries(j.env).slice(0, 50)) {
         if (!/^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(k) || !["string", "number", "boolean"].includes(typeof v)) continue;
         // (One of Claude Code's own command settings: Coder's of the same meaning too, REPO_OWN_ENV.)
-        if (Object.hasOwn(REPO_OWN_ENV, k)) out.own[REPO_OWN_ENV[k]] = String(v).slice(0, 4000);
+        if (Object.hasOwn(REPO_OWN_ENV, k)) { out.own[REPO_OWN_ENV[k]] = String(v).slice(0, 4000); fromVar.add(REPO_OWN_ENV[k]); }
         if (REPO_ENV_OFF.test(k)) continue;
         out.env[k] = String(v).slice(0, 4000);
       }
     }
-    for (const [k, name] of Object.entries(REPO_OWN_KEYS)) if (["string", "number", "boolean"].includes(typeof j[k])) out.own[name] = String(j[k]).slice(0, 100);
+    for (const [k, name] of Object.entries(REPO_OWN_KEYS)) if (!fromVar.has(name) && ["string", "number", "boolean"].includes(typeof j[k])) out.own[name] = String(j[k]).slice(0, 100);
     if (p.blockReadsOutsideWorkingDirectories === true) out.blockReads = true;
     if (p.blockWritesOutsideWorkingDirectories === true) out.blockWrites = true;
     if (p.disableAutoMode === "disable" || j.disableAutoMode === "disable") out.autoOff = true;
@@ -1602,7 +1643,12 @@ export const NO_SUBMODULES = ["-c", "submodule.recurse=false", "-c", "diff.ignor
 const RAW_MAX = 256 * 1024 * 1024;
 
 /** One git command as this process's user, on the project's own git folder, the token only in its own environment. `{ code, output, stdout }` (and `data`, all of git's answer as bytes, with `raw`). */
-export async function gitIn(dir, args, { token = "", headers = [], timeoutS = 180, gitDir = gitDirFor(dir), remote = DEFAULT_REMOTE, root = PROJECT_ROOT, raw = false } = {}) {
+/**
+ * CODER'S OWN DOWNLOADS OF THE REPOSITORY (batch 14; Claude Code's cloud no longer cuts off long clones and fetches): stopped
+ * only when git has sent nothing for 3 minutes (a stall), not at a fixed time, so a slow but moving download runs to its end.
+ */
+export const GIT_FETCH_O = { timeoutS: 4 * 3600, stallS: 180, progress: true };
+export async function gitIn(dir, args, { token = "", headers = [], timeoutS = 180, stallS = 0, progress = false, bin = GIT_BIN, gitDir = gitDirFor(dir), remote = DEFAULT_REMOTE, root = PROJECT_ROOT, raw = false } = {}) {
   // Never in a project folder that fails the check: git is not even started.
   const bad = await projectDirProblem(dir, root);
   if (bad) return { code: -1, output: bad, stdout: "" };
@@ -1618,18 +1664,24 @@ export async function gitIn(dir, args, { token = "", headers = [], timeoutS = 18
   return new Promise((done) => {
     let out = "", stdout = "", size = 0;
     const bytes = [];
-    const p = spawn(GIT_BIN, [...safe, ...args], { cwd: dir, env, stdio: ["ignore", "pipe", "pipe"] });
+    // (With `progress`, git reports as it downloads, so the stall guard sees it moving; those lines are left out of its answer.)
+    if (progress && args[0] === "fetch") args = ["fetch", "--progress", ...args.slice(1)];
+    const p = spawn(bin, [...safe, ...args], { cwd: dir, env, stdio: ["ignore", "pipe", "pipe"] });
+    let stall = null;
+    const moved = () => { if (stallS > 0) { clearTimeout(stall); stall = setTimeout(() => { try { p.kill("SIGKILL"); } catch { /* gone */ } }, stallS * 1000); } };
+    moved();
     p.stdout.on("data", (b) => {
+      moved();
       if (!raw) { out += b; stdout += b; } else if ((size += b.length) <= RAW_MAX) bytes.push(b); else { try { p.kill("SIGKILL"); } catch { /* gone */ } }
     });
-    p.stderr.on("data", (b) => { out += b; });
+    p.stderr.on("data", (b) => { moved(); out += progress ? String(b).split(/[\r\n]/).filter((l) => l.trim() && !/^(remote: )?(Enumerating|Counting|Compressing|Receiving|Resolving|Total|Unpacking|Updating files)\b/.test(l)).map((l) => l + "\n").join("") : b; });
     const t = setTimeout(() => { try { p.kill("SIGKILL"); } catch { /* gone */ } }, timeoutS * 1000);
-    p.on("error", (e) => { clearTimeout(t); done({ code: -1, output: e.message, stdout: "" }); });
+    p.on("error", (e) => { clearTimeout(t); clearTimeout(stall); done({ code: -1, output: e.message, stdout: "" }); });
     // ONLY WHAT IS SECRET IS HIDDEN in git's answer: the token, and the job's pass for the Worker's git address.
     // (Live test, 2026-11-07: the chat, its job number and the pass's end time were hidden too; a first job's
     // number, 1, became "[hidden]" in every branch name and commit, and "coder/testingforclaude-c51d" was "missing".)
     const secrets = extra.filter((x) => /^X-Coder-Git: /.test(x)).map((x) => x.slice(x.indexOf(": ") + 2)).filter((v) => v.length >= 16);
-    p.on("close", (code) => { clearTimeout(t); const hide = (s) => { if (token) s = s.split(token).join("[hidden]").split(header).join("[hidden]"); for (const v of secrets) s = s.split(v).join("[hidden]"); return s; };
+    p.on("close", (code) => { clearTimeout(t); clearTimeout(stall); const hide = (s) => { if (token) s = s.split(token).join("[hidden]").split(header).join("[hidden]"); for (const v of secrets) s = s.split(v).join("[hidden]"); return s; };
       const over = size > RAW_MAX;
       // `stdout`: git's answer alone, without its warnings (used to read state).
       done({ code: over ? -1 : typeof code === "number" ? code : -1, output: hide(over ? "git's answer was too long" : out).slice(0, 4000), stdout: hide(stdout).slice(0, 4000), ...(raw ? { data: Buffer.concat(bytes) } : {}) }); });
@@ -1982,7 +2034,16 @@ export async function prepareRepo({ dir, repo, base, branch, token, headers = []
     // all). A finished clone always has a commit; one without is cleared and made again.
     // (Live test, 2026-11-07: the setup had already run on such a folder, and the list of what it made, kept
     // in that git folder, went with it, so its file was pushed as Coder's work: the list is kept now.)
-    if ((await gitIn(dir, ["rev-parse", "--verify", "-q", "HEAD"], o)).code !== 0) {
+    // (Cleared only when git ran and clearly said "no commit" (exit 1), and the folder holds no commit GitHub lacks: a git
+    // that could not run or read the branch, or unpushed commits, keep the folder, as Claude Code never destroys unpushed
+    // commits. Claude Code fixes, batch 14.)
+    const hc = await gitIn(dir, ["rev-parse", "--verify", "-q", "HEAD"], o);
+    if (hc.code !== 0 && hc.code !== 1) return { ok: false, why: "could not read this chat's repository (git: " + String(hc.output || "").slice(0, 200) + "); it is kept as it is" };
+    if (hc.code === 1) {
+      const un = await gitIn(dir, ["rev-list", "-n", "1", "--branches", "--not", "--remotes"], o);
+      if (un.code !== 0 || String(un.stdout ?? un.output).trim()) return { ok: false, why: "this chat's repository could not be opened, and it holds commits not yet pushed; it is kept as it is" };
+    }
+    if (hc.code === 1) {
       keptExclude = await readFile(join(gitDir, "info", "exclude"), "utf8").catch(() => "");
       await rm(gitDir, { recursive: true, force: true });
       has = false;
@@ -2043,11 +2104,13 @@ export async function prepareRepo({ dir, repo, base, branch, token, headers = []
       // the chat's branch when GitHub has it, in the same fetch), no tags. The rest of the history (50 commits, as before)
       // comes in the background once the turn has begun (deepenLater); what compares with the main branch waits for it.
       const both = branch && branch !== base && headListed(firstLook, branch);
-      const f = await gitNet(dir, ["fetch", "--depth", "1", "--no-tags", url, "+refs/heads/" + base + ":refs/remotes/origin/" + base, ...(both ? ["+refs/heads/" + branch + ":refs/remotes/origin/" + branch] : [])], { ...o, token, headers }, netWaits);
+      const f = await gitNet(dir, ["fetch", "--depth", "1", "--no-tags", url, "+refs/heads/" + base + ":refs/remotes/origin/" + base, ...(both ? ["+refs/heads/" + branch + ":refs/remotes/origin/" + branch] : [])], { ...o, ...GIT_FETCH_O, token, headers }, netWaits);
       if (f.code !== 0) return failed("could not clone " + repo + ": " + f.output.slice(0, 300));
       fetchedFirst = both;
       shallowNew = [base, ...(both ? [branch] : [])];
-      const co = await checkout(["-q", "-B", base, "refs/remotes/origin/" + base]);
+      // (Forced: a first copy cut off part way left its files behind, untracked; this chat never had a finished copy, so they
+      // are the repository's own and are written again. Batch 14.)
+      const co = await checkout(["-q", "-f", "-B", base, "refs/remotes/origin/" + base]);
       if (co.code !== 0) return failed("could not open " + base + ": " + co.output.slice(0, 200));
     }
     await gitIn(dir, ["config", "user.name", "Coder (Go Farther)"], o);
@@ -2089,7 +2152,7 @@ export async function prepareRepo({ dir, repo, base, branch, token, headers = []
     if (!onCopy(remoteHas)) return { ok: false, why: "could not reach " + repo + " on GitHub: " + remoteHas.output.slice(0, 200) };
     note = away(remoteHas);
   } else if (remoteHas.stdout.trim()) {
-    const f = fetchedFirst ? { code: 0, output: "" } : await gitNet(dir, ["fetch", "--depth", "50", url, "+refs/heads/" + branch + ":refs/remotes/origin/" + branch], { ...o, token, headers }, netWaits);
+    const f = fetchedFirst ? { code: 0, output: "" } : await gitNet(dir, ["fetch", "--depth", "50", url, "+refs/heads/" + branch + ":refs/remotes/origin/" + branch], { ...o, ...GIT_FETCH_O, token, headers }, netWaits);
     if (f.code !== 0 && !onCopy(f)) return { ok: false, why: "could not fetch the branch " + branch + ": " + f.output.slice(0, 200) };
     if (f.code !== 0) note = away(f);
     else if (cur !== branch) {
@@ -2106,7 +2169,7 @@ export async function prepareRepo({ dir, repo, base, branch, token, headers = []
   const done = await finishPrepare({ dir, repo, gitDir, o, root, note });
   // THE REST OF THE HISTORY, AFTER (2026-11-16): the branches cloned one commit deep get their 50 commits in the background,
   // as the first clone had before; localChanges (See changes, the diff against the main branch) waits for it.
-  if (done.ok && shallowNew) deepenLater(dir, () => gitNet(dir, ["fetch", "--depth", "50", "--no-tags", url, ...shallowNew.map((b) => "+refs/heads/" + b + ":refs/remotes/origin/" + b)], { ...o, token, headers }, netWaits));
+  if (done.ok && shallowNew) deepenLater(dir, () => gitNet(dir, ["fetch", "--depth", "50", "--no-tags", url, ...shallowNew.map((b) => "+refs/heads/" + b + ":refs/remotes/origin/" + b)], { ...o, ...GIT_FETCH_O, token, headers }, netWaits));
   return done.ok && fetched ? { ...done, fetched: true } : done;
 }
 /**
@@ -2123,7 +2186,7 @@ async function repoFromCopy({ dir, url, repo, base, branch, gitDir, o, token, he
   const look = String(one.stdout ?? one.output);
   if (!headListed(look, base)) return no(repo + " has no branch named " + base);
   const both = !!branch && branch !== base && headListed(look, branch);
-  const f = await gitNet(dir, ["fetch", "--depth", "50", "--no-tags", url, "+refs/heads/" + base + ":refs/remotes/origin/" + base, ...(both ? ["+refs/heads/" + branch + ":refs/remotes/origin/" + branch] : [])], { ...o, token, headers }, netWaits);
+  const f = await gitNet(dir, ["fetch", "--depth", "50", "--no-tags", url, "+refs/heads/" + base + ":refs/remotes/origin/" + base, ...(both ? ["+refs/heads/" + branch + ":refs/remotes/origin/" + branch] : [])], { ...o, ...GIT_FETCH_O, token, headers }, netWaits);
   if (f.code !== 0) return no("could not fetch " + repo + ": " + f.output, gitBusy(f.output));
   const co = await checkout(["-q", "-f", "-B", base, "refs/remotes/origin/" + base]);
   if (co.code !== 0) return no("could not open " + base + ": " + co.output);
@@ -3064,7 +3127,7 @@ export async function localChanges({ dir, repo, against, token = "", headers = [
   await historyReady(dir);
   const ref = "refs/remotes/origin/" + against;
   if ((await gitIn(dir, ["rev-parse", "--verify", "-q", ref], o)).code !== 0) {
-    const f = await gitIn(dir, ["fetch", "--depth", "50", remote + repo + ".git", "+refs/heads/" + against + ":" + ref], { ...o, token, headers });
+    const f = await gitIn(dir, ["fetch", "--depth", "50", remote + repo + ".git", "+refs/heads/" + against + ":" + ref], { ...o, ...GIT_FETCH_O, token, headers });
     if (f.code !== 0) return { ok: false, why: repo + " has no branch named " + against + " that Coder could fetch" };
   }
   const mb = await gitIn(dir, ["merge-base", ref, "HEAD"], o);
@@ -4224,7 +4287,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     // THE SUBPROCESS ENVIRONMENT SCRUB (Bash docs pass 6; coder-scrub.mjs, Claude Code's CLAUDE_CODE_SUBPROCESS_ENV_SCRUB): with the
     // environment's CODER_SUBPROCESS_ENV_SCRUB on, or in a job started from GitHub unless it is off (Claude Code's scrub is on
     // in GitHub Actions unless the variable says otherwise), credentials leave the variables the commands and hooks get.
-    const varsGiven = body.setup && body.setup.vars && typeof body.setup.vars === "object" ? body.setup.vars : {};
+    const varsGiven = ownerCoderVars(body.setup && body.setup.vars && typeof body.setup.vars === "object" ? body.setup.vars : {});
     const scrubOn = varOn(varsGiven.CODER_SUBPROCESS_ENV_SCRUB) || (body.github === true && !varOff(varsGiven.CODER_SUBPROCESS_ENV_SCRUB));
     if (scrubOn) { scrubVars(repoSet.env); scrubVars(ownerVars); }
     // THE SCRIPT CAPS, with the scrub on (Claude Code's CLAUDE_CODE_SCRIPT_CAPS, here CODER_SCRIPT_CAPS): each one's count kept
@@ -4258,10 +4321,11 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     // (A setting for Coder itself, read from the owner's variables as given: names starting with CODER_ never reach the
     // commands, see safeVars.)
     // (And under them the repository's own command settings, by Claude Code's names: withRepoOwn, Bash docs pass 8.)
-    const ownerRaw = body.setup && body.setup.vars && typeof body.setup.vars === "object" ? body.setup.vars : {};
+    const ownerTyped = body.setup && body.setup.vars && typeof body.setup.vars === "object" ? body.setup.vars : {};
+    const ownerRaw = ownerCoderVars(ownerTyped);
     const rawVars = withRepoOwn(ownerRaw, repoSet.own);
     const fromRepo = (n) => !Object.hasOwn(ownerRaw, n) && Object.hasOwn(repoSet.own, n);
-    const setBy = (n) => (fromRepo(n) ? "this repository's .claude/settings.json sets " + REPO_OWN_FROM[n] : "this chat's environment sets " + n);
+    const setBy = (n) => (fromRepo(n) ? "this repository's .claude/settings.json sets " + REPO_OWN_FROM[n] : "this chat's environment sets " + ownerNameFor(ownerTyped, n));
     // THE POWERSHELL TOOL (coder-ps.mjs; Claude Code's CLAUDE_CODE_USE_POWERSHELL_TOOL, opt-in on Linux), on a machine with pwsh;
     // without one, the owner is told (Claude Code: "the tool requires PowerShell 7 or later: install pwsh").
     const psWanted = varOn(rawVars.CODER_USE_POWERSHELL_TOOL);
@@ -5176,7 +5240,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       const gloopyOpts = gloopy ? { system: GLOOPY_SYSTEM, zone: typeof body.ownerZone === "string" ? body.ownerZone.slice(0, 64) : "", browserRules: Array.isArray(body.rules) ? body.rules : [], sites: Array.isArray(body.sites) ? body.sites : [], monitor: body.monitor === true, granted: typeof body.grant === "string" && body.grant ? [body.grant.slice(0, 300)] : [], schedules, permissions, pages, savedLogins: savedLoginsOf(body), savedCards: gloopy ? savedCardsOf(body) : [], contacts: permissions && permissions.share === "deny" ? [] : contactsOf(body), webhooks, hookBase, workNote: workNoteFor(project), marked: body.marked || null, taught: body.taught || null, attached: gloopy && Array.isArray(body.attached) ? body.attached.filter((x) => x && typeof x.id === "string").slice(0, 10) : [], files: fileList, helper: { system: HELPER_SYSTEM, tools: HELPER_TOOLS, browserTool: HELPER_BROWSER_TOOL, context: "TODAY is " + new Date().toISOString().slice(0, 10) + " (UTC). Files you write go in " + home0 + "/helpers/ (write makes the folder; give the file tools full paths)." }, opening: body.opening === "note" ? "note" : "user", background: body.background === true, checkWrites: true, denied: Array.isArray(body.denied) ? body.denied.filter((x) => typeof x === "string").slice(-20) : [], tools: hasBrowser ? GLOOPY_TOOLS : GLOOPY_TOOLS.filter((x) => !BROWSER_TOOL_NAMES.includes(x.function.name)), holdBack: GLOOPY_HELD_BACK, nudges: false, who: "Gloopy", github: false, context: gloopyNow(typeof body.memory === "string" ? body.memory : ""), hooks: [], checker: false, rules: null, sessionRules: null } : {};
       // (The saved chat's pictures put back first, and the job's sent to the Worker at its end: picsIn, picsOut. 2026-11-14.)
       const picsTo = { live, fetchFn: liveFetch, project, known: new Set() };
-      picsIn(Array.isArray(body.messages) ? body.messages : [], picsTo).then((msgsIn) => runCoder(turnDeps, { notices, lost, stalls, ...(takeUp ? { takeUp: { ...takeUp, ...(envNote ? { note: envNote } : {}) } } : {}), timeouts: t.tmo, outLimits: t.outLimits, cmdShell: t.shell, compactVars: compactVarsFor(rawVars), noBg: t.noBg, diskWarnGib: PREFS.diskWarnGib, memWarnGib: PREFS.memWarnGib, searchLimits: t.searchLimits, hooks: turnHooks, autoMode: autoModeIn(body.autoMode), denyInstead: PREFS.denyInstead === true, tasksOff: varOff(rawVars.CODER_ENABLE_TASKS), stopCap: stopCapOf(rawVars.CODER_STOP_HOOK_BLOCK_CAP), box: !!t.box, autoOff: PREFS.autoOff === true || repoSet.autoOff, suggest: !gloopy && PREFS.suggestOff !== true && process.env.CODER_ENABLE_PROMPT_SUGGESTION !== "false", fileEdits: repoSet.defaultMode === "acceptEdits", startMode: repoSet.defaultMode, resumed, lastAt: Number(body.lastAt) || 0, hostLists: nn.mode === "full" ? null : nn.mode === "none" ? "none" : walled ? "on" : "off", rmChecksOff: { subst: varOn(rawVars.CODER_DISABLE_SUBSTITUTION_RM_PROMPT), inline: varOn(rawVars.CODER_DISABLE_INLINE_SHELL_RM_PROMPT), mounted: varOn(rawVars.CODER_DISABLE_MOUNTED_DRIVE_RM_PROMPT), timeout: varOn(rawVars.CODER_DISABLE_DANGEROUS_RM_TIMEOUT) }, powershell: psOn ? { bypass: !varOn(rawVars.CODER_POWERSHELL_RESPECT_EXECUTION_POLICY), defaultShell: String(rawVars.CODER_DEFAULT_SHELL || "").trim().toLowerCase() === "powershell", parseMs: Number(rawVars.CODER_PWSH_PARSE_TIMEOUT_MS) > 0 ? Math.min(Number(rawVars.CODER_PWSH_PARSE_TIMEOUT_MS), 60000) : 0 } : null, planExit: body.prePlanMode === "acceptEdits" ? "acceptEdits" : "auto", respondToBash: !varOff(rawVars.CODER_RESPOND_TO_BASH_COMMANDS), promptNotify: !varOn(rawVars.CODER_DISABLE_PERMISSION_PROMPT_NOTIFY_HOOKS), readBlock: varOn(rawVars.CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockReads, writeBlock: varOn(rawVars.CODER_BLOCK_WRITES_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockWrites, connectors: mcpCall ? connectors : [], connectorNotes: mcpCall && Array.isArray(body.connectorNotes) ? body.connectorNotes.slice(0, 10) : [], connectorsWaiting: Array.isArray(body.connectorsWaiting) ? body.connectorsWaiting.map(String).slice(0, 20) : [], connectorsFailed: Array.isArray(body.connectorsFailed) ? body.connectorsFailed.slice(0, 20) : [], connectorsGone: body.connectorsGone && typeof body.connectorsGone === "object" && !Array.isArray(body.connectorsGone) ? body.connectorsGone : null, checker, checkerInPlan: !varOff(rawVars.CODER_USE_AUTO_MODE_DURING_PLAN), checkWhere: { key: project, repo: String(body.repo || ""), branch: String(body.branch || (body.repo ? "coder/" + project : "")) }, emailMark: typeof body.emailMark === "string" && /^\d{1,3}:[0-9a-f]{64}(?:,\d{1,3}:[0-9a-f]{64})?$/.test(body.emailMark) ? body.emailMark : "", editDiff: varOn(rawVars.CODER_BASH_EDIT_DIFF), mode: t.mode, rules: withRepoRules(body.rules, repoSet), sessionRules: body.sessionRules && typeof body.sessionRules === "object" ? body.sessionRules : null, shell: typeof body.shell === "string" ? body.shell.slice(0, 100_000) : "", messages: msgsIn, text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), ...(body.compact && typeof body.compact === "object" ? { compact: { focus: String(body.compact.focus || "").slice(0, 300) } } : {}), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, readOnly: { main: body.readOnly === true, extra: extras.filter((x) => x.readOnly).map((x) => x.repo.toLowerCase()) }, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), replyTo: body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null, ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }) , ...gloopyOpts }))
+      picsIn(Array.isArray(body.messages) ? body.messages : [], picsTo).then((msgsIn) => runCoder(turnDeps, { notices, lost, stalls, ...(takeUp ? { takeUp: { ...takeUp, ...(envNote ? { note: envNote } : {}) } } : {}), timeouts: t.tmo, outLimits: t.outLimits, cmdShell: t.shell, compactVars: compactVarsFor(rawVars), noBg: t.noBg, diskWarnGib: warnGibFrom(body.setup && body.setup.vars, "DISK", PREFS.diskWarnGib), memWarnGib: warnGibFrom(body.setup && body.setup.vars, "MEMORY", PREFS.memWarnGib), searchLimits: t.searchLimits, hooks: turnHooks, autoMode: autoModeIn(body.autoMode), denyInstead: PREFS.denyInstead === true, tasksOff: varOff(rawVars.CODER_ENABLE_TASKS), stopCap: stopCapOf(rawVars.CODER_STOP_HOOK_BLOCK_CAP), box: !!t.box, autoOff: PREFS.autoOff === true || repoSet.autoOff, suggest: !gloopy && PREFS.suggestOff !== true && process.env.CODER_ENABLE_PROMPT_SUGGESTION !== "false", fileEdits: repoSet.defaultMode === "acceptEdits", startMode: repoSet.defaultMode, resumed, lastAt: Number(body.lastAt) || 0, hostLists: nn.mode === "full" ? null : nn.mode === "none" ? "none" : walled ? "on" : "off", rmChecksOff: { subst: varOn(rawVars.CODER_DISABLE_SUBSTITUTION_RM_PROMPT), inline: varOn(rawVars.CODER_DISABLE_INLINE_SHELL_RM_PROMPT), mounted: varOn(rawVars.CODER_DISABLE_MOUNTED_DRIVE_RM_PROMPT), timeout: varOn(rawVars.CODER_DISABLE_DANGEROUS_RM_TIMEOUT) }, powershell: psOn ? { bypass: !varOn(rawVars.CODER_POWERSHELL_RESPECT_EXECUTION_POLICY), defaultShell: String(rawVars.CODER_DEFAULT_SHELL || "").trim().toLowerCase() === "powershell", parseMs: Number(rawVars.CODER_PWSH_PARSE_TIMEOUT_MS) > 0 ? Math.min(Number(rawVars.CODER_PWSH_PARSE_TIMEOUT_MS), 60000) : 0 } : null, planExit: body.prePlanMode === "acceptEdits" ? "acceptEdits" : "auto", respondToBash: !varOff(rawVars.CODER_RESPOND_TO_BASH_COMMANDS), promptNotify: !varOn(rawVars.CODER_DISABLE_PERMISSION_PROMPT_NOTIFY_HOOKS), readBlock: varOn(rawVars.CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockReads, writeBlock: varOn(rawVars.CODER_BLOCK_WRITES_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockWrites, connectors: mcpCall ? connectors : [], connectorNotes: mcpCall && Array.isArray(body.connectorNotes) ? body.connectorNotes.slice(0, 10) : [], connectorsWaiting: Array.isArray(body.connectorsWaiting) ? body.connectorsWaiting.map(String).slice(0, 20) : [], connectorsFailed: Array.isArray(body.connectorsFailed) ? body.connectorsFailed.slice(0, 20) : [], connectorsGone: body.connectorsGone && typeof body.connectorsGone === "object" && !Array.isArray(body.connectorsGone) ? body.connectorsGone : null, checker, checkerInPlan: !varOff(rawVars.CODER_USE_AUTO_MODE_DURING_PLAN), checkWhere: { key: project, repo: String(body.repo || ""), branch: String(body.branch || (body.repo ? "coder/" + project : "")) }, emailMark: typeof body.emailMark === "string" && /^\d{1,3}:[0-9a-f]{64}(?:,\d{1,3}:[0-9a-f]{64})?$/.test(body.emailMark) ? body.emailMark : "", editDiff: varOn(rawVars.CODER_BASH_EDIT_DIFF), mode: t.mode, rules: withRepoRules(body.rules, repoSet), sessionRules: body.sessionRules && typeof body.sessionRules === "object" ? body.sessionRules : null, shell: typeof body.shell === "string" ? body.shell.slice(0, 100_000) : "", messages: msgsIn, text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), ...(body.compact && typeof body.compact === "object" ? { compact: { focus: String(body.compact.focus || "").slice(0, 300) } } : {}), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, readOnly: { main: body.readOnly === true, extra: extras.filter((x) => x.readOnly).map((x) => x.repo.toLowerCase()) }, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), replyTo: body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null, ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }) , ...gloopyOpts }))
         // (Its job is over: a connector's question still waiting closes, coder-elicit.mjs.)
         .finally(() => { t.over = true; })
         // The last steps are sent BEFORE the end is handed out, so the Worker never saves the job while some are on their way.
@@ -5381,7 +5445,12 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
             if (net.limited) fwOn = firewall(true, RUN_UID);
           }
           if (!net.limited && fwOn) fwOn = !firewall(false, RUN_UID);
-          if (!list.length && !net.limited && proxyP) { const p0 = await proxyP; p0.setSecrets([]); p0.setNetwork(null); }
+          if (!list.length && !net.limited && proxyP) {
+            // (Full with no keys: commands still going through the gate are let through, and new ones go direct, as a job
+            // that starts on Full. Batch 14: Claude Code's sessions follow the new setting.)
+            const p0 = await proxyP; p0.setSecrets([]); p0.setNetwork(net);
+            if (t.extraEnv) { for (const k of Object.keys(p0.env())) delete t.extraEnv[k]; delete t.extraEnv.CODER_NET_LIMITED; }
+          }
           // The room follows at once: its internet link only with Full access, the pipe to the gate whenever the gate runs.
           if (room && Number.isInteger(RUN_UID)) {
             const gate = list.length || net.limited ? await proxyFor() : null;
@@ -5636,7 +5705,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       }
       // THE OWNER'S STOP: the turn's own commands end, its background ones go on (like Claude Code's, which keep running when
       // you interrupt Claude; they end with the background list's Stop, /bgstop); the turn's end ends anything else of the AI's.
-      if (url.pathname === "/stop" && req.method === "POST") { if (t) { if (!t.stop) t.stopAt = Date.now(); t.stop = true; endForeground(t); if (t.release) t.release(); } return send(200, { ok: true, running: !!(t && t.running) }); }
+      if (url.pathname === "/stop" && req.method === "POST") { if (t) { if (!t.stop) t.stopAt = Date.now(); t.stop = true; endForeground(t); if (t.release) t.release(); } return send(200, { ok: true, running: !!(t && t.running), finished: !!(t && t.result && !t.claimed) }); }
       // THE ENVIRONMENT'S COPY IS SAVED (or could not be): the job waiting for it goes on.
       if (url.pathname === "/go" && req.method === "POST") { const was = !!(t && t.release); if (was) t.release(typeof body.note === "string" ? body.note : ""); return send(200, { ok: true, went: was }); }
       // UNDO A JOB (owner, 2026-11-05, "add 2"): its commit is reverted (a new

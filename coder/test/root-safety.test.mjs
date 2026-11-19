@@ -700,7 +700,7 @@ test("CD94 root runs git by its full name with system folders only, never into s
   assert.equal(GIT_BIN, "/usr/bin/git");
   assert.equal(GIT_PATH, "/usr/sbin:/usr/bin:/sbin:/bin");
   const server = readFileSync(HERE("container/server.mjs"), "utf8");
-  assert.match(server, /spawn\(GIT_BIN, \[\.\.\.safe, \.\.\.args\]/);
+  assert.match(server, /bin = GIT_BIN, [\s\S]*spawn\(bin, \[\.\.\.safe, \.\.\.args\]/);
   assert.doesNotMatch(server, /spawn\("git"/, "git found by name");
   assert.doesNotMatch(server, /"chown", \["-R", RUN_UID/, "chown -R of the work tree");
   // A repository's own .gitmodules (`ignore = none`) overrides the -c setting

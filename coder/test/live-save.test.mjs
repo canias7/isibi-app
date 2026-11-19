@@ -182,7 +182,7 @@ async function chatWithMachine() {
     if (u.pathname === "/state") return Response.json({ running: !machine.result, events: [], next: 0, ...(machine.result ? { result: machine.result } : {}) });
     if (u.pathname === "/claim") return Response.json({ ok: !!machine.result });
     if (u.pathname === "/push") return Response.json({ ok: true, pushed: true, changed: true, sha: "abc1234" });
-    if (u.pathname === "/stop") return Response.json({ ok: true, running: false });
+    if (u.pathname === "/stop") return Response.json({ ok: true, running: false, ...(machine.result ? { finished: true } : {}) });
     return Response.json({ ok: true });
   } });
   const deps = { fetchFn: async () => new Response("{}", { status: 404 }), authUser: async () => ({ id: UID, email: "me@x.y" }), container: box };
@@ -315,4 +315,19 @@ test("CD122 a job saved as usual leaves nothing behind; Stop with the machine go
   assert.match(worker, /\} else if \(url\.pathname === LIVE_PATH\) \{[\s\S]{0,200}res = await handleLive\(request, env, \{ waitUntil: \(p\) => ctx\.waitUntil\(p\) \}\);/);
   const page = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
   assert.match(page, /if \(r\.status === 200 && r\.data && r\.data\.reload && S\.project && S\.project\.id === id\) \{ stopPoll\(\); S\.running = false; return reloadChat\(id\); \}/);
+});
+
+test("batch 14: Stop pressed just as a job finished keeps the finished job: its answer and done line are saved", async () => {
+  const c = await chatWithMachine();
+  await c.go("projects/" + ID + "/message", { method: "POST", body: JSON.stringify({ text: "Fix it" }) });
+  c.machine.result = { status: "done", summary: "Fixed", messages: [{ role: "user", content: "Fix it" }, { role: "assistant", content: "Fixed." }] };
+  const stop = await (await c.go("projects/" + ID + "/stop", { method: "POST", body: "{}" })).json();
+  assert.deepEqual(stop, { ok: true, reload: true });
+  const meta = JSON.parse(c.bucket.m.get("coder/" + UID + "/" + ID + "/meta.json"));
+  assert.equal(meta.status, "running", "not ended as lost");
+  const saved = await (await c.go("projects/" + ID + "/state?since=0")).json();
+  assert.equal(saved.project.status, "idle");
+  const msgs = JSON.parse(c.bucket.m.get("coder/" + UID + "/" + ID + "/messages.json"));
+  assert.equal(msgs.at(-1).content, "Fixed.");
+  assert.ok(c.machine.seen.includes("/claim"), "the result was picked up");
 });

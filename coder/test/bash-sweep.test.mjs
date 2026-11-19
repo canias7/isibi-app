@@ -249,7 +249,7 @@ test("CD296 (docs check: Claude Code's CLAUDE_CODE_DISABLE_BACKGROUND_TASKS, \"r
   assert.match(src, /stopAtTimeout: !!sleepFirst \|\| \(t\.noBg && !monitor\)/, "(a monitor still runs: Claude Code's Monitor does, CD381)");
   assert.match(src, /if \(t && t\.noBg\) return send\(200, \{ ok: false, why: "background commands are off in this chat's environment \(CODER_DISABLE_BACKGROUND_TASKS\)" \}\);/);
   assert.match(src, /BACKGROUND COMMANDS ARE OFF \(" \+ setBy\("CODER_DISABLE_BACKGROUND_TASKS"\) \+ "\)/);
-  assert.match(src, /const setBy = \(n\) => \(fromRepo\(n\) \? "this repository's \.claude\/settings\.json sets " \+ REPO_OWN_FROM\[n\] : "this chat's environment sets " \+ n\);/);
+  assert.match(src, /const setBy = \(n\) => \(fromRepo\(n\) \? "this repository's \.claude\/settings\.json sets " \+ REPO_OWN_FROM\[n\] : "this chat's environment sets " \+ ownerNameFor\(ownerTyped, n\)\);/);
   const S = await import("../container/server.mjs");
   for (const v of ["1", "true", "YES", "on"]) assert.equal(S.varOn(v), true, v);
   for (const v of ["", "0", "false", undefined]) assert.equal(S.varOn(v), false, String(v));

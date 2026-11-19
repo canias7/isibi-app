@@ -47,6 +47,6 @@ test("CD560 the environment's CODER_TEST_NETWORK_GATE_FAIL makes the network gat
   // message: a network change mid-message that needs the gate fails as the gate would.
   const src = await readFile(new URL("../container/server.mjs", import.meta.url), "utf8");
   assert.match(src, /t\.gateTestFail = varOn\(varsGiven\.CODER_TEST_NETWORK_GATE_FAIL\);/);
-  assert.match(src, /const varsGiven = body\.setup && body\.setup\.vars && typeof body\.setup\.vars === "object" \? body\.setup\.vars : \{\};/);
+  assert.match(src, /const varsGiven = ownerCoderVars\(body\.setup && body\.setup\.vars && typeof body\.setup\.vars === "object" \? body\.setup\.vars : \{\}\);/);
   assert.match(src, /if \(t\.gateTestFail && \(list\.length \|\| net\.limited\)\) throw new Error\(GATE_TEST_FAIL\);\n\s+if \(list\.length \|\| net\.limited\) \{\n\s+const px = await proxyFor\(\);/);
 });

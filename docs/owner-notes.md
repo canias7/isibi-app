@@ -4,6 +4,16 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-19: Claude Code fixes, batch 14
+
+- Eight of the ten audit items in this batch fixed, each with a test; two skipped (below). Gloopy, connectors and MCP were not touched. Not deployed and not merged yet, so none of it is tried live in the browser yet.
+- **Saved work is never thrown away:** if git cannot read a chat's repository, or the repository holds commits not yet pushed, Coder now stops with a message and keeps it, instead of clearing it. A first download that was cut off part way no longer blocks every later message.
+- **Big repositories:** Coder's own download of a repository is no longer stopped after 3 minutes. It is stopped only if it has made no progress for 3 minutes.
+- **Stop:** pressing Stop just as a job finishes now keeps the finished job (its answer and its commit), as in Claude Code.
+- **Network:** switching a running job to Full now really lets its commands reach every site at once, instead of only from the next message.
+- **Settings:** when a repository's settings file sets the summary size both ways, the variable now wins, as in Claude Code. The command-output limit now reads numbers written as `64_000`, `64,000` or `1e5`. Claude Code's own switch names (like `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS`) now work in the Environment window too. The low-disk and low-memory warnings can now be set per environment with Claude Code's variables (`CLAUDE_CODE_WARN_DISK_FREE_GIB`, `CLAUDE_CODE_WARN_MEMORY_FREE_GIB`); these beat the Settings choice.
+- **Skipped:** reply language, effort and effort cap from a repository's settings file (the starting effort could raise Grok spending, so it needs your word); a switch to turn off the file snapshots behind Rewind (it changes the machine, the server and the page together, so it is left for its own batch).
+
 ## 2026-11-19: Claude Code fixes, batch 13
 
 - Six of the ten audit items in this batch fixed, each with a test; four skipped (below). Gloopy, connectors and MCP were not touched. Not deployed and not merged yet, so none of it is tried live in the browser yet.

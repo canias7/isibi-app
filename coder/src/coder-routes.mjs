@@ -2894,6 +2894,9 @@ export async function handleCoder(request, env, ctx, deps) {
     }
     let st = null;
     try { st = await post("/stop", { project: id }).then((r) => r.json()); } catch { st = null; }
+    // The job finished just as Stop was pressed: its result waits on the machine, and the page's next look saves it as
+    // usual (Claude Code keeps the work done so far). Claude Code fixes, batch 14.
+    if (meta.status === "running" && st && st.finished) return json({ ok: true, reload: true });
     // Nothing is running on the machine (or it is gone): the chat is freed now.
     if (meta.status === "running" && (!st || st.running === false)) {
       // What the job saved as it went is kept (like Claude Code).

@@ -112,7 +112,7 @@ test("CD380b Stop's choice: on (the default), stopping a background command also
   A.DISK_TOLD.clear();
   assert.deepEqual(await run(0), { told: false, shown: false }, "off");
   assert.match(server, /diskFree: \(\) => \{ try \{ const f = statfsSync\(dir\); return Number\(f\.bavail\) \* Number\(f\.bsize\); \} catch \{ return null; \} \},/);
-  assert.match(server, /noBg: t\.noBg, diskWarnGib: PREFS\.diskWarnGib,/);
+  assert.match(server, /noBg: t\.noBg, diskWarnGib: warnGibFrom\(body\.setup && body\.setup\.vars, "DISK", PREFS\.diskWarnGib\),/);
 });
 
 test("CD380c the page: Settings in the gear's menu opens a dialog with the three, each saved when it changes", () => {

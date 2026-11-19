@@ -348,7 +348,7 @@ test("CD414 a repository's .claude/settings.json sets Coder's own command settin
   assert.deepEqual([SV.REPO_OWN_FROM.CODER_SHELL, SV.REPO_OWN_FROM.CODER_DISABLE_BACKGROUND_TASKS, SV.REPO_OWN_FROM.CODER_BASH_OUTPUT_MAX_CHARS, SV.REPO_OWN_FROM.BASH_MAX_OUTPUT_LENGTH], ["CLAUDE_CODE_SHELL", "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS", "bashOutputMaxChars", "BASH_MAX_OUTPUT_LENGTH"]);
   // Wired: every one of Coder's settings is read from them, after the repository's file is.
   const src = readFileSync(new URL("../container/server.mjs", import.meta.url), "utf8");
-  assert.match(src, /const ownerRaw = body\.setup && body\.setup\.vars && typeof body\.setup\.vars === "object" \? body\.setup\.vars : \{\};\n\s+const rawVars = withRepoOwn\(ownerRaw, repoSet\.own\);/);
+  assert.match(src, /const ownerRaw = ownerCoderVars\(ownerTyped\);\n\s+const rawVars = withRepoOwn\(ownerRaw, repoSet\.own\);/);
   assert.ok(src.indexOf("const repoSet = repoSettings(dir") < src.indexOf("const rawVars = withRepoOwn("));
   assert.match(src, /"Every command starts there \(" \+ \(fromRepo\("CODER_BASH_MAINTAIN_PROJECT_WORKING_DIR"\) \? "this repository's \.claude\/settings\.json sets CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR" : "the owner's variables set CODER_BASH_MAINTAIN_PROJECT_WORKING_DIR"\)/);
 });
@@ -704,4 +704,21 @@ test("CD418 hook input as Claude Code's common fields give it: prompt_id, one pe
   assert.ok(Number.isInteger(a[1].duration_ms) && a[1].duration_ms >= 0, "duration_ms on a failure");
   assert.equal("prompt_id" in (await run(""))[0], false, "no message of the owner's: none");
   assert.deepEqual(Object.keys(H.hookInput("Stop", { session: "s", promptId: "p-1" })), ["session_id", "prompt_id", "cwd", "scratchpad_dir", "permission_mode", "hook_event_name"]);
+});
+
+test("batch 14: CLAUDE_CODE_AUTO_COMPACT_WINDOW beats autoCompactWindow; output limit reads 64_000 and 1e5", async () => {
+  const { mkdtempSync, mkdirSync, writeFileSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const SV = await import("../container/server.mjs");
+  const mk = (a, b) => { const d = mkdtempSync(join(tmpdir(), "coder-b14-")); mkdirSync(join(d, ".claude")); writeFileSync(join(d, ".claude", "settings.json"), JSON.stringify(a)); if (b) writeFileSync(join(d, ".claude", "settings.local.json"), JSON.stringify(b)); return d; };
+  assert.equal(SV.repoSettings(mk({ autoCompactWindow: 300000, env: { CLAUDE_CODE_AUTO_COMPACT_WINDOW: "500000" } })).own.CODER_AUTO_COMPACT_WINDOW, "500000");
+  assert.equal(SV.repoSettings(mk({ env: { CLAUDE_CODE_AUTO_COMPACT_WINDOW: "500000" } }, { autoCompactWindow: 300000 })).own.CODER_AUTO_COMPACT_WINDOW, "500000", "in either file");
+  assert.equal(SV.repoSettings(mk({ autoCompactWindow: 300000 })).own.CODER_AUTO_COMPACT_WINDOW, "300000", "the key alone still works");
+  for (const v of ["64_000", "64,000", "64000"]) assert.deepEqual(SV.bashOutputLimits({ BASH_MAX_OUTPUT_LENGTH: v }).readBack, 64000, v);
+  assert.equal(SV.bashOutputLimits({ BASH_MAX_OUTPUT_LENGTH: "1e5" }).readBack > 30000, true);
+  assert.equal(SV.bashOutputLimits({ CODER_BASH_OUTPUT_MAX_CHARS: "64_000" }).inlineMax, 64000);
+  const def = SV.bashOutputLimits({});
+  assert.deepEqual(SV.bashOutputLimits({ BASH_MAX_OUTPUT_LENGTH: "abc" }), def);
+  assert.deepEqual(SV.bashOutputLimits({ BASH_MAX_OUTPUT_LENGTH: "0" }), def);
 });

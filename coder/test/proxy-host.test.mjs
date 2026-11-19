@@ -313,3 +313,17 @@ test("CD286 (tool 4, changelog pass; Claude Code 2.1.224 and 2.1.251: a blocked 
   const agent = readFileSync(new URL("../container/coder-agent.mjs", import.meta.url), "utf8");
   assert.match(agent, /if \(r && typeof r\.netNote === "string" && r\.netNote\) text \+= "\\n\\n" \+ r\.netNote;/);
 });
+
+test("batch 14: a running job switched to Full with no keys: the gate lets everything through and new commands go direct", async () => {
+  const { readFileSync } = await import("node:fs");
+  const { hostAllowed, normNetwork } = await import("../container/coder-secrets.mjs");
+  const full = { ...normNetwork({ mode: "full" }), limited: false };
+  assert.equal(hostAllowed("example.com", full, []), true, "Full lets example.com through the gate");
+  assert.equal(hostAllowed("example.com", normNetwork(null), []), false, "the gate's default list (what it used to fall back to) blocks it");
+  const src = readFileSync(new URL("../container/server.mjs", import.meta.url), "utf8");
+  const at = src.indexOf("if (!list.length && !net.limited && proxyP) {");
+  assert.ok(at > 0);
+  const branch = src.slice(at, at + 600);
+  assert.match(branch, /p0\.setNetwork\(net\)/, "the gate gets the new setting, not none");
+  assert.match(branch, /for \(const k of Object\.keys\(p0\.env\(\)\)\) delete t\.extraEnv\[k\]/, "the gate's proxy settings leave new commands");
+});

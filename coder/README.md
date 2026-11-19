@@ -988,7 +988,11 @@ the account menu, keeps nine choices on the account (`prefsOf`, `prefsChange` in
   1, 2, 5, 10 or 20 GB; off unless chosen, as in Claude Code): Coder is told once,
   in Claude Code's words, when the work disk has less free than that;
 - `memWarnGib`: the low-memory warning (Claude Code's `CLAUDE_CODE_WARN_MEMORY_FREE_GIB`:
-  1, 2, 4 or 8 GB; off unless chosen);
+  1, 2, 4 or 8 GB; off unless chosen). For one environment, either can also be set
+  with the variable `CLAUDE_CODE_WARN_DISK_FREE_GIB` / `CLAUDE_CODE_WARN_MEMORY_FREE_GIB`
+  (or Coder's `CODER_WARN_DISK_FREE_GIB` / `CODER_WARN_MEMORY_FREE_GIB`) in the
+  Environment window: any whole number of GB, 0 for off; it beats the Settings choice.
+  A repository's settings file cannot set them, as in Claude Code;
 - `hooks`: the owner's own hooks, as JSON in Claude Code's shape (none by default);
 - `autoMode`: the owner's rules for Auto mode's checker (none by default);
 - `denyInstead`: refuse a step that would ask, instead of asking (off);
@@ -1184,6 +1188,10 @@ them"). Tests: `test/pass6.test.mjs` (CD387 to CD398).
   `sandbox.network.deniedDomains`, `hostDenied`): refused by the gate in every
   setting, Full and a saved key's sites included, in Coder's words (`DENIED`);
   Full with blocked sites goes through the gate (`netWalled`).
+- *Claude Code's names in the Environment window* (`ownerCoderVars`, batch 14):
+  a Claude Code switch such as `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS` typed in the
+  Environment window works as Coder's own `CODER_` name does; when both are typed,
+  the `CODER_` one wins. The Claude Code name still reaches commands as a variable.
 - *The subprocess environment scrub and script caps* (`coder-scrub.mjs`; Claude
   Code's `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB` and `CLAUDE_CODE_SCRIPT_CAPS`, here
   `CODER_SUBPROCESS_ENV_SCRUB` and `CODER_SCRIPT_CAPS`): credentials by Claude
