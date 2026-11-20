@@ -1173,6 +1173,16 @@ them"). Tests: `test/pass6.test.mjs` (CD387 to CD398).
   (`heldNote`); their `env` reaches the commands under the owner's own
   variables, minus what a repository shouldn't set (`REPO_ENV_OFF`); their read
   and write blocks and `disableAutoMode` turn on. Never in a job from GitHub.
+  Also read (2026-11-20): `attribution` and `includeCoAuthoredBy` (hide or
+  replace the Coder-Chat trailer and the pull request's "Made with Coder" line:
+  `attributionFrom`, `commitMarks`, `madeWith`), `language` ("Always respond in
+  …" in Coder's instructions) and `maxEffortLevel` (caps the chat's effort:
+  `capEffort`). Not `effortLevel` (waits for the owner: it could raise spending)
+  and not `outputStyle` (Coder has no named styles).
+- *Instruction files* follow `@path` imports (four hops, not in code, never
+  outside the project: `importTokens`, `importTarget`), and a file a Read deny
+  rule covers is held back with Claude Code's "Instruction file not loaded"
+  note (`instructionWithhold`, `withheldNotes`).
 - *`disableAllHooks`* by Claude Code's settings precedence: the repository's
   local file, then its shared one, then the owner's.
 - *The working folders' instructions* (`extraInstructions`): with the

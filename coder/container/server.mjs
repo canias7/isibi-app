@@ -35,7 +35,7 @@ import { hooksFrom, hooksFor, hookInput, hookShell, splitHookOut, asyncHookTexts
 import { autoModeSetting } from "./coder-checker.mjs";
 /** The owner's auto mode rules as the Worker sent them, checked again here (autoModeSetting), or null. */
 export const autoModeIn = (v) => { if (!v || typeof v !== "object" || Array.isArray(v)) return null; const a = autoModeSetting(JSON.stringify(v)); return a.ok && a.value ? a.value : null; };
-import { normMode, MODES, ruleSaved, gitRepoTop, setRepoOf } from "./coder-perms.mjs";
+import { normMode, MODES, ruleSaved, gitRepoTop, setRepoOf, fileToolDecision } from "./coder-perms.mjs";
 // (Read-only git asks in a repository that is not the project's: git's folder found on this machine. 2026-11-19.)
 setRepoOf((d) => gitRepoTop(d, existsSync));
 import { webFetchSettings } from "./coder-webfetch.mjs";
@@ -1070,8 +1070,30 @@ export function withRepoOwn(vars, own) {
  * blocks when a file turns one on ("a repository can turn the block on for itself but can't lift yours"), and auto mode off
  * when one says "disable". `held`: what waits for trust, for Claude Code's warning. Nothing in a job from GitHub.
  */
+/** The job's model and effort, under the repository's cap (said in the chat when it lowers the effort). */
+export function effortFor(body, repoSet, env, t) {
+  const cap = repoSet && repoSet.maxEffort;
+  const want = body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) };
+  const c = capEffort(want.effort, cap);
+  if (!c.capped) return want;
+  const got = pickModel(want.model, c.effort);
+  if (t && Array.isArray(t.events)) t.events.push({ at: Date.now(), type: "note", text: "Effort: " + got.effort + " (this repository's maxEffortLevel caps it at " + cap + ")" });
+  return got;
+}
+/** Claude Code's effort levels, lowest first ("max" is no cap). */
+export const EFFORT_ORDER = ["low", "medium", "high", "xhigh", "max"];
+/**
+ * A CHAT'S EFFORT UNDER THE REPOSITORY'S maxEffortLevel (M-c-42; Claude Code: "any higher effort runs at the cap"): the effort,
+ * or the cap when the effort is higher (no effort given counts as Grok's own default, high). → { effort, capped }.
+ */
+export function capEffort(effort, cap) {
+  const e = typeof effort === "string" && effort ? effort : "";
+  if (!cap || cap === "max" || !EFFORT_ORDER.includes(cap)) return { effort: e, capped: false };
+  const at = EFFORT_ORDER.indexOf(e || "high");
+  return at > EFFORT_ORDER.indexOf(cap) ? { effort: cap, capped: true } : { effort: e, capped: false };
+}
 export function repoSettings(root, { trust = false, github = false, several = false } = {}) {
-  const out = { deny: [], ask: [], allow: [], dirs: [], env: {}, own: {}, held: [], blockReads: false, blockWrites: false, autoOff: false, defaultMode: "", plansDir: "", mdExcludes: [] };
+  const out = { deny: [], ask: [], allow: [], dirs: [], env: {}, own: {}, held: [], blockReads: false, blockWrites: false, autoOff: false, defaultMode: "", plansDir: "", mdExcludes: [], attribution: null, language: "", maxEffort: "" };
   // (None from a job started from GitHub, and none in a chat with several repositories: Claude Code's cloud session then works
   // from a folder outside all of them and reads no repository's .claude/settings.json or settings.local.json. Bash docs pass 8.)
   if (github || several) return out;
@@ -1108,6 +1130,12 @@ export function repoSettings(root, { trust = false, github = false, several = fa
     // (Claude Code's plansDirectory, "Any file": the later file's, settings.local.json over settings.json. 2026-11-14.)
     if (typeof j.plansDirectory === "string" && j.plansDirectory.length <= 1000) out.plansDir = j.plansDirectory;
     // (Claude Code's claudeMdExcludes, "Arrays merge across layers"; coderMdExcludes, Coder's name for it. M-f-14.)
+    // (Claude Code's language and maxEffortLevel, the later file over the earlier. M-c-42. Its effortLevel waits for the owner:
+    // it could start a chat above the Low default, which costs more.)
+    if (typeof j.language === "string" && j.language.trim() && j.language.length <= 100) out.language = j.language.replace(/[\u0000-\u001f\u007f]/g, " ").trim();
+    if (typeof j.maxEffortLevel === "string" && EFFORT_ORDER.includes(j.maxEffortLevel)) out.maxEffort = j.maxEffortLevel;
+    // (Claude Code's attribution and includeCoAuthoredBy, the later file over the earlier. M-c-40.)
+    out.attribution = attributionFrom(j, out.attribution);
     for (const k of ["claudeMdExcludes", "coderMdExcludes"]) for (const x of Array.isArray(j[k]) ? j[k] : []) if (typeof x === "string" && x.trim() && x.length <= 400) out.mdExcludes.push(x.trim());
   }
   const cap = (a, n) => [...new Set(a)].slice(0, n);
@@ -2506,7 +2534,7 @@ export function crashedConvo(now, given) {
   return out;
 }
 
-export async function pushRepo({ dir, repo, branch, token, headers = [], message, trailer = "", remote = DEFAULT_REMOTE, gitRoot = GIT_ROOT, root = PROJECT_ROOT, noPush = false, netWaits = GIT_NET_WAITS, commitOnly = false }) {
+export async function pushRepo({ dir, repo, branch, token, headers = [], message, trailer = "", text = "", remote = DEFAULT_REMOTE, gitRoot = GIT_ROOT, root = PROJECT_ROOT, noPush = false, netWaits = GIT_NET_WAITS, commitOnly = false }) {
   const o = { gitDir: gitDirFor(dir, gitRoot), remote, root };
   // THE AUDIT (2026-11-06): a project folder that fails the check is refused
   // before anything is read, and nothing of the AI's user runs while root works.
@@ -2533,7 +2561,7 @@ export async function pushRepo({ dir, repo, branch, token, headers = [], message
     // moved to another commit); the index alone shows it, without looking in any folder.
     const committed = !!String(st.stdout ?? st.output).trim() || (await gitIn(dir, ["diff", "--cached", "--quiet", "--ignore-submodules=none"], o)).code === 1;
     if (committed) {
-      const c = await gitIn(dir, ["commit", "-q", "--no-verify", "-m", String(message || "Changes by Coder").slice(0, 300), ...(trailer ? ["--trailer", trailer] : [])], o);
+      const c = await gitIn(dir, ["commit", "-q", "--no-verify", "-m", String(message || "Changes by Coder").slice(0, 300), ...(text ? ["-m", String(text).slice(0, 1000)] : []), ...(trailer ? ["--trailer", trailer] : [])], o);
       if (c.code !== 0) return { why: "could not commit: " + c.output.slice(0, 200) };
     }
     return { committed };
@@ -2593,7 +2621,8 @@ export async function pushMidTurn({ body, project, root, gitRoot, gitVia, remote
   try {
     const g = gitFrom(body, { via: gitVia, remote });
     const msg = String(message || "Changes by Coder").replace(/\s+/g, " ").trim().slice(0, 120) || "Changes by Coder";
-    const main = await pushRepo({ dir: join(root, project), repo: String(body.repo || ""), branch: String(body.branch || "coder/" + project), message: msg, trailer: chatTrailer(body.chatUrl), ...g, gitRoot, root });
+    const attribution = attributionOf(join(root, project), body);
+    const main = { ...(await pushRepo({ dir: join(root, project), repo: String(body.repo || ""), branch: String(body.branch || "coder/" + project), message: msg, ...commitMarks(body.chatUrl, attribution), ...g, gitRoot, root })), ...(attribution ? { attribution } : {}) };
     const extra = [];
     for (const [i, x] of extraRepos(body).entries()) {
       const xdir = join(root, project + "-x" + (i + 1));
@@ -2929,12 +2958,68 @@ export function mdExcluded(excludes, dir, rel) {
     return globAny([p], rel);
   });
 }
-export async function repoInstructions(dir, { excludes = [], extra = false } = {}) {
-  const notes = [], later = [];
+/**
+ * WHERE AN @ IMPORT IN AN INSTRUCTION FILE LEADS (M-f-01; Claude Code's memory.md: "CLAUDE.md files can import additional
+ * files using `@path/to/import` syntax", "Relative paths resolve relative to the file containing the import"): its path in
+ * the project, or "" for one outside it (or in a home folder). `from`: the naming file's path in the project.
+ */
+export function importTarget(dir, from, token) {
+  let t = String(token || "").replace(/[),;:!?\]]+$/, "").replace(/\.$/, "");
+  if (!t || t.includes("\0") || t.startsWith("~")) return "";
+  if (t.startsWith("/")) { const top = String(dir).replace(/\/+$/, "") + "/"; if (!t.startsWith(top)) return ""; t = t.slice(top.length); }
+  const r = join(dirname(from), t).replace(/^\.\//, "");
+  if (!r || r === "." || r.startsWith("..") || isAbsolute(r)) return "";
+  return r;
+}
+/** The @ imports on one line of an instruction file, outside its `code spans` (memory.md: "Import parsing skips Markdown code spans and fenced code blocks"). */
+export function importTokens(line) {
+  const bare = String(line).replace(/(`+)[\s\S]*?\1/g, " ");
+  const out = [];
+  for (const m of bare.matchAll(/(?:^|\s)@((?:\.{1,2}\/|\/|~\/)?[A-Za-z0-9_.\-][^\s`]*)/g)) out.push(m[1]);
+  return out;
+}
+/** How deep imports may go (memory.md: "Imported files can recursively import other files, with a maximum depth of four hops"). */
+export const IMPORT_HOPS = 4;
+export async function repoInstructions(dir, { excludes = [], extra = false, withhold = null } = {}) {
+  const notes = [], later = [], withheld = [];
   let left = NOTES_MAX;
+  // (A file the job's Read deny rules cover is not given to Grok, and the chat is told, as Claude Code's "Instruction file not
+  // loaded (a Read deny rule covers it)". M-r2-18. `withhold(rel)`: why it is held back, or "".)
+  const held = (rel) => { const why = typeof withhold === "function" ? withhold(rel) : ""; if (why && !withheld.some((w) => w.path === rel)) withheld.push({ path: rel, why }); return !!why; };
+  const seen = new Set();
+  // (A file's @ imports, put in after the line that names them, up to four hops; each file once. M-f-01.)
+  const expand = async (rel, loaded, hops) => {
+    if (!loaded || hops >= IMPORT_HOPS || !loaded.text.includes("@")) return loaded;
+    const src = loaded.text.split("\n"), out = [], lines = [];
+    let fence = "";
+    for (let i = 0; i < src.length; i++) {
+      const l = src[i], at = loaded.lines[i] || i + 1;
+      out.push(l); lines.push(at);
+      const f = /^ {0,3}(`{3,}|~{3,})/.exec(l);
+      if (fence) { if (f && f[1][0] === fence[0] && f[1].length >= fence.length) fence = ""; continue; }
+      if (f) { fence = f[1]; continue; }
+      for (const tok of importTokens(l)) {
+        const target = importTarget(dir, rel, tok);
+        if (!target || seen.has(target) || mdExcluded(excludes, dir, target)) continue;
+        if (held(target)) continue;
+        const raw = await plainText(dir, target, (NOTES_MAX + 1) * 4);
+        if (raw === null) continue;
+        seen.add(target);
+        const sub = await expand(target, withoutComments(raw), hops + 1);
+        for (const x of sub.text.split("\n")) { out.push(x); lines.push(at); }
+      }
+    }
+    return { text: out.join("\n"), lines };
+  };
   // Read with room for the comments that are left out (they cost Coder nothing, as in Claude Code). A file the settings'
   // claudeMdExcludes names is not read at all.
-  const load = async (rel, max) => { if (mdExcluded(excludes, dir, rel)) return null; const raw = await plainText(dir, rel, max * 4); return raw === null ? null : withoutComments(raw); };
+  const load = async (rel, max) => {
+    if (mdExcluded(excludes, dir, rel) || seen.has(rel)) return null;
+    const raw = await plainText(dir, rel, max * 4);
+    if (raw === null || held(rel)) return null;
+    seen.add(rel);
+    return expand(rel, withoutComments(raw), 0);
+  };
   const now = (name, loaded) => {
     if (loaded === null) return false;
     if (left <= 0) { notes.push({ name, text: "[Not loaded here: the repository's instructions already come to " + NOTES_MAX.toLocaleString("en-US") + " characters. Read " + name + " with the read tool.]" }); return true; }
@@ -3010,7 +3095,22 @@ export async function repoInstructions(dir, { excludes = [], extra = false } = {
   };
   // (An added folder: only its own top files, as memory.md lists them.)
   if (!extra) await walk("", 0);
-  return { notes, later };
+  return withheld.length ? { notes, later, withheld } : { notes, later };
+}
+/** repoInstructions' `withhold` for a job's rules: "a Read deny rule covers it" for a file a Read deny rule covers (its path in `dir`). */
+export function instructionWithhold(dir, rules) {
+  if (!rules || !Array.isArray(rules.deny) || !rules.deny.length) return null;
+  return (rel) => {
+    const d = fileToolDecision("read", join(dir, rel), { rules, root: dir });
+    return d && d.verdict === "deny" ? "a Read deny rule covers it" : "";
+  };
+}
+/** The chat's notes for instruction files held back (repoInstructions' `withheld`), in Claude Code's words: a few, then a count. */
+export function withheldNotes(withheld) {
+  const list = Array.isArray(withheld) ? withheld : [];
+  const out = list.slice(0, 3).map((w) => "Instruction file not loaded (" + w.why + "):\npath: " + saidDir(w.path));
+  if (list.length > 3) out.push("and " + (list.length - 3) + " more instruction file" + (list.length - 3 === 1 ? "" : "s") + " not loaded");
+  return out;
 }
 /** The instruction files read at the start of a job (repoInstructions' `notes`). */
 export async function repoNotes(dir) {
@@ -3945,6 +4045,37 @@ export function coderMarks(project, chatUrl, effort = "") {
  * `Coder-Chat: <link>` on each commit Coder makes for the chat, the link from Coder's Worker (none when the environment turns
  * it off), checked as the commands' GOFARTHER_CODER_CHAT_URL is.
  */
+/**
+ * A REPOSITORY'S ATTRIBUTION KEYS (M-c-40; Claude Code's settings: `attribution: false` hides everything, `attribution.commit`
+ * and `attribution.pr` replace the commit and pull-request text (an empty string hides it), `attribution.sessionUrl: false`
+ * drops the session link; the older `includeCoAuthoredBy: false` hides both unless commit or pr is set). `prev`: the earlier
+ * file's, which this file's keys override. → null (no keys) or { off, commit, pr, sessionUrl, coAuthor }.
+ */
+export function attributionFrom(j, prev = null) {
+  if (!j || typeof j !== "object") return prev;
+  let a = prev ? { ...prev } : null;
+  const take = () => (a = a || {});
+  if (j.attribution === false) { take(); a.off = true; }
+  else if (j.attribution && typeof j.attribution === "object" && !Array.isArray(j.attribution)) {
+    const x = j.attribution;
+    take(); a.off = false;
+    if (typeof x.commit === "string") a.commit = x.commit.slice(0, 1000);
+    if (typeof x.pr === "string") a.pr = x.pr.slice(0, 1000);
+    if (typeof x.sessionUrl === "boolean") a.sessionUrl = x.sessionUrl;
+  }
+  if (typeof j.includeCoAuthoredBy === "boolean") { take(); a.coAuthor = j.includeCoAuthoredBy; }
+  return a;
+}
+/** What a commit carries for a repository's attribution: Coder's chat-link trailer (unless hidden) and the repository's own commit text. */
+export function commitMarks(chatUrl, attr) {
+  const a = attr || {};
+  const hidden = a.off === true || (a.coAuthor === false && typeof a.commit !== "string");
+  const trailer = hidden || a.sessionUrl === false ? "" : chatTrailer(chatUrl);
+  const text = !hidden && typeof a.commit === "string" ? a.commit.trim() : "";
+  return { trailer, ...(text ? { text } : {}) };
+}
+/** The attribution of the chat's own repository (none from a GitHub-started job or a chat with several repositories, as for the other keys). */
+export const attributionOf = (dir, body) => { try { return repoSettings(dir, { trust: false, github: body.github === true, several: extraRepos(body).length > 0 }).attribution; } catch { return null; } };
 export const chatTrailer = (chatUrl) => (coderMarks("", chatUrl).GOFARTHER_CODER_CHAT_URL ? "Coder-Chat: " + chatUrl : "");
 /**
  * NO OPENTELEMETRY SETTINGS IN THE COMMANDS (Bash docs pass 8; Claude Code 2.1.322 deletes every OTEL_* variable, and
@@ -4393,8 +4524,12 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     // THIS REPO (kept between chats by the Worker), told to the AI each turn.
     // The memory folder sits in a root-owned place, so it cannot be swapped.
     // (Which instruction files the settings leave out: the repository's .claude/settings.json and the owner's, merged. M-f-14.)
-    const mdExcludes = [...repoSettings(dir, { trust: !!(body.rules && body.rules.trust === true), github: body.github === true, several: extraRepos(body).length > 0 }).mdExcludes, ...(body.rules && Array.isArray(body.rules.mdExcludes) ? body.rules.mdExcludes.filter((x) => typeof x === "string" && x.trim()).slice(0, 100) : [])];
-    const ins = await repoInstructions(dir, { excludes: mdExcludes });
+    const rsIns = repoSettings(dir, { trust: !!(body.rules && body.rules.trust === true), github: body.github === true, several: extraRepos(body).length > 0 });
+    const mdExcludes = [...rsIns.mdExcludes, ...(body.rules && Array.isArray(body.rules.mdExcludes) ? body.rules.mdExcludes.filter((x) => typeof x === "string" && x.trim()).slice(0, 100) : [])];
+    // (A file the job's Read deny rules cover is held back, as Claude Code does. M-r2-18.)
+    const insRules = withRepoRules(body.rules, rsIns);
+    const ins = await repoInstructions(dir, { excludes: mdExcludes, withhold: instructionWithhold(dir, insRules) });
+    for (const text of withheldNotes(ins.withheld)) t.events.push({ at: Date.now(), type: "note", text });
     const notes = ins.notes;
     // The instruction files that load later (path rules, a subfolder's own file), as read before any command ran.
     const later = ins.later;
@@ -5479,7 +5614,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         t.answerDone = true;
         return { status: "error", messages, crashed: true, summary: why };
       };
-      picsIn(Array.isArray(body.messages) ? body.messages : [], picsTo).then((msgsIn) => runCoder(turnDeps, { notices, lost, stalls, ...(takeUp ? { takeUp: { ...takeUp, ...(envNote ? { note: envNote } : {}) } } : {}), timeouts: t.tmo, outLimits: t.outLimits, cmdShell: t.shell, compactVars: compactVarsFor(rawVars), noBg: t.noBg, diskWarnGib: warnGibFrom(body.setup && body.setup.vars, "DISK", PREFS.diskWarnGib), memWarnGib: warnGibFrom(body.setup && body.setup.vars, "MEMORY", PREFS.memWarnGib), searchLimits: t.searchLimits, hooks: turnHooks, autoMode: autoModeIn(body.autoMode), denyInstead: PREFS.denyInstead === true, tasksOff: varOff(rawVars.CODER_ENABLE_TASKS), mentionsOff: varOn(rawVars.CODER_DISABLE_FILE_MENTIONS), stopCap: stopCapOf(rawVars.CODER_STOP_HOOK_BLOCK_CAP), box: !!t.box, autoOff: PREFS.autoOff === true || repoSet.autoOff, suggest: !gloopy && PREFS.suggestOff !== true && process.env.CODER_ENABLE_PROMPT_SUGGESTION !== "false", fileEdits: repoSet.defaultMode === "acceptEdits", startMode: repoSet.defaultMode, resumed, lastAt: Number(body.lastAt) || 0, hostLists: nn.mode === "full" ? null : nn.mode === "none" ? "none" : walled ? "on" : "off", rmChecksOff: { subst: varOn(rawVars.CODER_DISABLE_SUBSTITUTION_RM_PROMPT), inline: varOn(rawVars.CODER_DISABLE_INLINE_SHELL_RM_PROMPT), mounted: varOn(rawVars.CODER_DISABLE_MOUNTED_DRIVE_RM_PROMPT), timeout: varOn(rawVars.CODER_DISABLE_DANGEROUS_RM_TIMEOUT) }, powershell: psOn ? { bypass: !varOn(rawVars.CODER_POWERSHELL_RESPECT_EXECUTION_POLICY), defaultShell: String(rawVars.CODER_DEFAULT_SHELL || "").trim().toLowerCase() === "powershell", parseMs: Number(rawVars.CODER_PWSH_PARSE_TIMEOUT_MS) > 0 ? Math.min(Number(rawVars.CODER_PWSH_PARSE_TIMEOUT_MS), 60000) : 0 } : null, planExit: body.prePlanMode === "acceptEdits" ? "acceptEdits" : "auto", respondToBash: !varOff(rawVars.CODER_RESPOND_TO_BASH_COMMANDS), promptNotify: !varOn(rawVars.CODER_DISABLE_PERMISSION_PROMPT_NOTIFY_HOOKS), readBlock: varOn(rawVars.CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockReads, writeBlock: varOn(rawVars.CODER_BLOCK_WRITES_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockWrites, connectors: mcpCall ? connectors : [], connectorNotes: mcpCall && Array.isArray(body.connectorNotes) ? body.connectorNotes.slice(0, 10) : [], connectorsWaiting: Array.isArray(body.connectorsWaiting) ? body.connectorsWaiting.map(String).slice(0, 20) : [], connectorsFailed: Array.isArray(body.connectorsFailed) ? body.connectorsFailed.slice(0, 20) : [], connectorsGone: body.connectorsGone && typeof body.connectorsGone === "object" && !Array.isArray(body.connectorsGone) ? body.connectorsGone : null, checker, checkerInPlan: !varOff(rawVars.CODER_USE_AUTO_MODE_DURING_PLAN), checkWhere: { key: project, repo: String(body.repo || ""), branch: String(body.branch || (body.repo ? "coder/" + project : "")) }, emailMark: typeof body.emailMark === "string" && /^\d{1,3}:[0-9a-f]{64}(?:,\d{1,3}:[0-9a-f]{64})?$/.test(body.emailMark) ? body.emailMark : "", editDiff: varOn(rawVars.CODER_BASH_EDIT_DIFF), mode: t.mode, rules: withRepoRules(body.rules, repoSet), sessionRules: body.sessionRules && typeof body.sessionRules === "object" ? body.sessionRules : null, customTitle: !gloopy && typeof body.customTitle === "string" ? body.customTitle.slice(0, 200) : "", shell: typeof body.shell === "string" ? body.shell.slice(0, 100_000) : "", messages: msgsIn, text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), ...(body.compact && typeof body.compact === "object" ? { compact: { focus: String(body.compact.focus || "").slice(0, 300) } } : {}), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, readOnly: { main: body.readOnly === true, extra: extras.filter((x) => x.readOnly).map((x) => x.repo.toLowerCase()) }, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), replyTo: body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null, ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }) , skills: gloopy || body.github === true ? [] : (() => { try { return readSkills(dir); } catch { return []; } })(), ...gloopyOpts }))
+      picsIn(Array.isArray(body.messages) ? body.messages : [], picsTo).then((msgsIn) => runCoder(turnDeps, { notices, lost, stalls, ...(takeUp ? { takeUp: { ...takeUp, ...(envNote ? { note: envNote } : {}) } } : {}), timeouts: t.tmo, outLimits: t.outLimits, cmdShell: t.shell, compactVars: compactVarsFor(rawVars), noBg: t.noBg, diskWarnGib: warnGibFrom(body.setup && body.setup.vars, "DISK", PREFS.diskWarnGib), memWarnGib: warnGibFrom(body.setup && body.setup.vars, "MEMORY", PREFS.memWarnGib), searchLimits: t.searchLimits, hooks: turnHooks, autoMode: autoModeIn(body.autoMode), denyInstead: PREFS.denyInstead === true, tasksOff: varOff(rawVars.CODER_ENABLE_TASKS), mentionsOff: varOn(rawVars.CODER_DISABLE_FILE_MENTIONS), stopCap: stopCapOf(rawVars.CODER_STOP_HOOK_BLOCK_CAP), box: !!t.box, autoOff: PREFS.autoOff === true || repoSet.autoOff, suggest: !gloopy && PREFS.suggestOff !== true && process.env.CODER_ENABLE_PROMPT_SUGGESTION !== "false", fileEdits: repoSet.defaultMode === "acceptEdits", startMode: repoSet.defaultMode, resumed, lastAt: Number(body.lastAt) || 0, hostLists: nn.mode === "full" ? null : nn.mode === "none" ? "none" : walled ? "on" : "off", rmChecksOff: { subst: varOn(rawVars.CODER_DISABLE_SUBSTITUTION_RM_PROMPT), inline: varOn(rawVars.CODER_DISABLE_INLINE_SHELL_RM_PROMPT), mounted: varOn(rawVars.CODER_DISABLE_MOUNTED_DRIVE_RM_PROMPT), timeout: varOn(rawVars.CODER_DISABLE_DANGEROUS_RM_TIMEOUT) }, powershell: psOn ? { bypass: !varOn(rawVars.CODER_POWERSHELL_RESPECT_EXECUTION_POLICY), defaultShell: String(rawVars.CODER_DEFAULT_SHELL || "").trim().toLowerCase() === "powershell", parseMs: Number(rawVars.CODER_PWSH_PARSE_TIMEOUT_MS) > 0 ? Math.min(Number(rawVars.CODER_PWSH_PARSE_TIMEOUT_MS), 60000) : 0 } : null, planExit: body.prePlanMode === "acceptEdits" ? "acceptEdits" : "auto", respondToBash: !varOff(rawVars.CODER_RESPOND_TO_BASH_COMMANDS), promptNotify: !varOn(rawVars.CODER_DISABLE_PERMISSION_PROMPT_NOTIFY_HOOKS), readBlock: varOn(rawVars.CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockReads, writeBlock: varOn(rawVars.CODER_BLOCK_WRITES_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockWrites, connectors: mcpCall ? connectors : [], connectorNotes: mcpCall && Array.isArray(body.connectorNotes) ? body.connectorNotes.slice(0, 10) : [], connectorsWaiting: Array.isArray(body.connectorsWaiting) ? body.connectorsWaiting.map(String).slice(0, 20) : [], connectorsFailed: Array.isArray(body.connectorsFailed) ? body.connectorsFailed.slice(0, 20) : [], connectorsGone: body.connectorsGone && typeof body.connectorsGone === "object" && !Array.isArray(body.connectorsGone) ? body.connectorsGone : null, checker, checkerInPlan: !varOff(rawVars.CODER_USE_AUTO_MODE_DURING_PLAN), checkWhere: { key: project, repo: String(body.repo || ""), branch: String(body.branch || (body.repo ? "coder/" + project : "")) }, emailMark: typeof body.emailMark === "string" && /^\d{1,3}:[0-9a-f]{64}(?:,\d{1,3}:[0-9a-f]{64})?$/.test(body.emailMark) ? body.emailMark : "", editDiff: varOn(rawVars.CODER_BASH_EDIT_DIFF), mode: t.mode, rules: withRepoRules(body.rules, repoSet), sessionRules: body.sessionRules && typeof body.sessionRules === "object" ? body.sessionRules : null, language: gloopy ? "" : repoSet.language, customTitle: !gloopy && typeof body.customTitle === "string" ? body.customTitle.slice(0, 200) : "", shell: typeof body.shell === "string" ? body.shell.slice(0, 100_000) : "", messages: msgsIn, text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), ...(body.compact && typeof body.compact === "object" ? { compact: { focus: String(body.compact.focus || "").slice(0, 300) } } : {}), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, readOnly: { main: body.readOnly === true, extra: extras.filter((x) => x.readOnly).map((x) => x.repo.toLowerCase()) }, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), replyTo: body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null, ...effortFor(body, repoSet, env, t) , skills: gloopy || body.github === true ? [] : (() => { try { return readSkills(dir); } catch { return []; } })(), ...gloopyOpts }))
         // (Its job is over: a connector's question still waiting closes, coder-elicit.mjs.)
         .finally(() => { t.over = true; })
         // The last steps are sent BEFORE the end is handed out, so the Worker never saves the job while some are on their way.
@@ -5981,7 +6116,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         const rv = await nestedAway(dir, o.gitDir, async () => { const r = await gitIn(dir, ["revert", "--no-edit", sha], o); if (r.code !== 0) await gitIn(dir, ["revert", "--abort"], o); return r; }, (why) => ({ code: -1, output: why }));
         if (rv.code !== 0) { return send(409, { ok: false, why: "it could not be undone cleanly (later changes touch the same lines): " + rv.output.slice(0, 200) }); }
         // (The revert's own commit carries the chat's link too.)
-        const tr = chatTrailer(body.chatUrl);
+        const tr = commitMarks(body.chatUrl, attributionOf(dir, body)).trailer;
         if (tr) await gitIn(dir, ["commit", "--amend", "-q", "--no-edit", "--no-verify", "--trailer", tr], o);
         // (The files the undo put back, for the chat's line: "Undid the last job: a.txt is back as it was.")
         // (With --name-status: a file the job had made is removed by the undo, and the line says so: the owner, 2026-11-17.)
@@ -6025,7 +6160,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
           if (!x.ok || !x.restored.length) return x;
           const st = await gitIn(dir, ["diff", "--cached", "--quiet"], o);
           if (st.code === 0) return { ...x, restored: [] };
-          const tr = chatTrailer(body.chatUrl);
+          const tr = commitMarks(body.chatUrl, attributionOf(dir, body)).trailer;
           const c = await gitIn(dir, ["commit", "-q", "--no-verify", "-m", String(body.message || "Rewind: files back as they were before an earlier message").slice(0, 300), ...(tr ? ["--trailer", tr] : [])], o);
           if (c.code !== 0) return { ok: false, why: "could not commit: " + String(c.output).slice(0, 200) };
           return x;
@@ -6055,7 +6190,9 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         try {
         // (`commitOnly`: the turn's end commits here and pushes nothing; owner, 2026-11-16.)
         const commitOnly = body.commitOnly === true;
-        const main = await pushRepo({ dir: join(root, project), repo: String(body.repo || ""), branch: String(body.branch || "coder/" + project), message: String(body.message || ""), trailer: chatTrailer(body.chatUrl), noPush: body.noPush === true, commitOnly, ...gitFrom(body, { via: gitVia, remote }), gitRoot, root });
+        const attribution = attributionOf(join(root, project), body);
+        const main0 = await pushRepo({ dir: join(root, project), repo: String(body.repo || ""), branch: String(body.branch || "coder/" + project), message: String(body.message || ""), ...commitMarks(body.chatUrl, attribution), noPush: body.noPush === true, commitOnly, ...gitFrom(body, { via: gitVia, remote }), gitRoot, root });
+        const main = attribution ? { ...main0, attribution } : main0;
         // The chat's other repositories are saved the same way, each to the chat's branch in its own repository.
         const extra = [];
         for (const [i, x] of extraRepos(body).entries()) {

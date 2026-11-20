@@ -820,3 +820,34 @@ test("LM51 a command's own list: a bracketed IPv6 address covers that address, o
   }
   assert.equal(N.listCovers(["[2606:4700::1111]"], "2606:4700::1112", 443), false);
 });
+
+test("MC42 a repository's language (Claude Code's language key) puts \"Always respond in <language>.\" in Coder's instructions; none: no line; maxEffortLevel caps a higher effort, and the chat is told; effortLevel is not read", async () => {
+  const fr = await job([say("Hola.")], { extra: { language: "Spanish" } });
+  assert.match(String(fr.seen[0].messages[0].content), /\n\nAlways respond in Spanish\.$/);
+  const none = await job([say("Hi.")]);
+  assert.doesNotMatch(String(none.seen[0].messages[0].content), /Always respond in/);
+  const S = await import("../container/server.mjs");
+  const { mkdtemp, mkdir, writeFile, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const d = await mkdtemp(join(tmpdir(), "coder-lang-"));
+  await mkdir(join(d, ".claude"));
+  await writeFile(join(d, ".claude/settings.json"), JSON.stringify({ language: "French", maxEffortLevel: "high", effortLevel: "xhigh" }));
+  await writeFile(join(d, ".claude/settings.local.json"), JSON.stringify({ language: "Spanish", maxEffortLevel: "low" }));
+  const rs = S.repoSettings(d);
+  assert.equal(rs.language, "Spanish");
+  assert.equal(rs.maxEffort, "low");
+  assert.equal(S.repoSettings(d, { github: true }).language, "");
+  assert.deepEqual(S.capEffort("high", "low"), { effort: "low", capped: true });
+  assert.deepEqual(S.capEffort("low", "medium"), { effort: "low", capped: false });
+  assert.deepEqual(S.capEffort("xhigh", "max"), { effort: "xhigh", capped: false });
+  assert.deepEqual(S.capEffort("", "medium"), { effort: "medium", capped: true }, "Grok's own default is high");
+  const t = { events: [] };
+  const got = S.effortFor({ model: "grok-4.7", effort: "high" }, rs, {}, t);
+  assert.equal(got.effort, "low");
+  assert.match(t.events[0].text, /^Effort: low \(this repository's maxEffortLevel caps it at low\)$/);
+  const free = { events: [] };
+  assert.equal(S.effortFor({ model: "grok-4.7", effort: "high" }, S.repoSettings("/nonexistent-dir"), {}, free).effort, "high");
+  assert.equal(free.events.length, 0);
+  await rm(d, { recursive: true, force: true });
+});

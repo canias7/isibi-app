@@ -247,7 +247,7 @@ export async function pushChat(env, bucket, uid, id, meta, post, { note = true, 
   const bad = (Array.isArray(p.extra) ? p.extra : []).filter((x) => !x.ok).map((x) => x.repo + ": " + String(x.why || "the push failed").slice(0, 120));
   const cur = (await getJson(bucket, keyOf(uid, id, "meta.json"), null)) || meta;
   const left = Number(p.unpushed) || 0;
-  const next = { ...cur, pushed: cur.pushed || !!p.pushed || !!p.sha, unpushed: left, unpushedSince: left ? cur.unpushedSince || Date.now() : 0, commits: (Array.isArray(cur.commits) ? cur.commits : []).map((c) => (c && c.local ? { ...c, local: undefined } : c)) };
+  const next = { ...cur, attribution: p.attribution && typeof p.attribution === "object" ? p.attribution : null, pushed: cur.pushed || !!p.pushed || !!p.sha, unpushed: left, unpushedSince: left ? cur.unpushedSince || Date.now() : 0, commits: (Array.isArray(cur.commits) ? cur.commits : []).map((c) => (c && c.local ? { ...c, local: undefined } : c)) };
   await saveMeta(bucket, uid, next);
   if (typeof mark === "function") await Promise.resolve(mark(left)).catch(() => {});
   const text = (p.pushed ? pushedNote(meta, null) : "Nothing new to push: GitHub already has the branch " + meta.branch) + (bad.length ? " · not pushed in " + bad.join("; ") : "");
@@ -353,7 +353,19 @@ export async function chatLinkFor(env, bucket, uid, meta, id) {
 export async function compactOffFor(env, bucket, uid, meta) {
   try { const data = await readEnvData(env, bucket, uid, await envIdOf(bucket, uid, meta)); return compactSettings((data && data.vars) || {}).off; } catch { return false; }
 }
-export const madeWith = (link) => "\n\nMade with Coder" + (link ? ": " + link : ".");
+/**
+ * THE LINE AT THE END OF A PULL REQUEST: "Made with Coder: <chat link>", or what the repository's attribution keys say
+ * (M-c-40; Claude Code's `attribution.pr`, an empty string hides it; `attribution: false` hides everything;
+ * `includeCoAuthoredBy: false` hides it unless pr is set; `sessionUrl: false` leaves out the link).
+ */
+export const madeWith = (link, attr = null) => {
+  const a = attr && typeof attr === "object" ? attr : {};
+  if (a.off === true) return "";
+  if (typeof a.pr === "string") { const t = a.pr.trim().slice(0, 1000); return t ? "\n\n" + t + (link && a.sessionUrl !== false ? "\n\n" + link : "") : ""; }
+  if (a.coAuthor === false) return "";
+  const l = a.sessionUrl === false ? "" : link;
+  return "\n\nMade with Coder" + (l ? ": " + l : ".");
+};
 /**
  * THE OWNER'S ! COMMANDS, KEPT ON THEIR ACCOUNT FOR EACH REPOSITORY (Claude Code's shell mode: "type a partial command and
  * press Tab to complete from previous ! commands in the current project"): the page's Tab completes from them, in any chat
@@ -2140,6 +2152,8 @@ export async function handleCoder(request, env, ctx, deps) {
       // PUSHED ONLY AT A STOPPING POINT (owner, 2026-11-16, like Claude Code's cloud sessions): Coder's push_branch, a pull
       // request asked for, a review to post, or a job from GitHub (auto-fix, @coder, a review); else committed on the machine.
       let unpushed = Number(meta.unpushed) || 0, unpushedSince = Number(meta.unpushedSince) || 0;
+      // (The repository's attribution keys, as the machine read them at the last save: M-c-40.)
+      let attribution = meta.attribution && typeof meta.attribution === "object" ? meta.attribution : null;
       const extraNotes = [];
       // What an auto-fix asked for in the chat changes on the chat (autofixFor).
       const afMeta = {};
@@ -2170,6 +2184,7 @@ export async function handleCoder(request, env, ctx, deps) {
       else if (!t && !meta.readOnly) { pushNote = "Not sent to GitHub: the connection has ended. Connect GitHub again and send a message to push it."; unpushed = Math.max(unpushed, 1); if (!unpushedSince) unpushedSince = Date.now(); }
       else {
         const p = await post("/push", { project: id, repo: meta.repo, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn), message: turnTitle(s.result), chatUrl: chatLink, extra: extraFor(meta), ...(meta.readOnly ? { noPush: true } : pushNow ? {} : { commitOnly: true }) }).then((r) => r.json()).catch(() => ({ ok: false, why: "the machine could not be reached" }));
+        if (p && p.ok !== false) attribution = p.attribution && typeof p.attribution === "object" ? p.attribution : null;
         // THE CHAT'S OTHER REPOSITORIES (2026-11-06): each saved to the chat's branch in its own repository, and its pull request when Coder was asked for one.
         for (const x of Array.isArray(p.extra) ? p.extra : []) {
           const line = !x.ok ? "Not sent to GitHub in " + x.repo + ": " + String(x.why || "the push failed").slice(0, 160) : x.kept ? (x.changed ? keptNote(x.repo) : "") : x.local ? "" : x.pushed ? "Pushed to the branch " + meta.branch + " in " + x.repo : "";
@@ -2180,7 +2195,7 @@ export async function handleCoder(request, env, ctx, deps) {
           if (!x) { extraNotes.push("No pull request in " + String(want.repo).slice(0, 100) + ": it is not one of this chat's repositories."); continue; }
           if (x.readOnly) { extraNotes.push(noPrNote(x.repo)); continue; }
           if (!t) { extraNotes.push("No pull request in " + x.repo + ": connect GitHub again first."); continue; }
-          const made = await openPullRequest(t.token, x.repo, { head: meta.branch, base: x.base, title: String(want.title || "Changes by Coder").slice(0, 200), body: String(want.body || "").slice(0, 8000) + madeWith(chatLink), draft: want.draft === true }, fetchFn).catch(() => null);
+          const made = await openPullRequest(t.token, x.repo, { head: meta.branch, base: x.base, title: String(want.title || "Changes by Coder").slice(0, 200), body: String(want.body || "").slice(0, 8000) + madeWith(chatLink, attribution), draft: want.draft === true }, fetchFn).catch(() => null);
           if (made && made.number) { prs = { ...prs, [x.repo]: made }; extraNotes.push((want.draft === true ? "Draft pull request #" : "Pull request #") + made.number + " opened in " + x.repo + ": " + made.url); }
           else extraNotes.push("The pull request in " + x.repo + " could not be opened on GitHub: " + prFailNote(x.repo, x.base, meta.branch, made, "is its branch saved?"));
         }
@@ -2241,7 +2256,7 @@ export async function handleCoder(request, env, ctx, deps) {
         const open = pr ? await prStillOpen(t.token, meta.repo, pr, fetchFn) : null;
         if (open) { pr = open; pushNote = (pushNote ? pushNote + " · " : "") + "Pull request #" + pr.number + " updated: " + pr.url; }
         else {
-          const made = await openPullRequest(t.token, meta.repo, { head: meta.branch, base: meta.base, title: String(want.title || "Changes by Coder").slice(0, 200), body: String(want.body || "").slice(0, 8000) + madeWith(chatLink), draft: want.draft === true }, fetchFn).catch(() => null);
+          const made = await openPullRequest(t.token, meta.repo, { head: meta.branch, base: meta.base, title: String(want.title || "Changes by Coder").slice(0, 200), body: String(want.body || "").slice(0, 8000) + madeWith(chatLink, attribution), draft: want.draft === true }, fetchFn).catch(() => null);
           pr = made && made.number ? made : null;
           pushNote = (pushNote ? pushNote + " · " : "") + (pr ? (want.draft === true ? "Draft pull request #" : "Pull request #") + pr.number + " opened: " + pr.url : "The pull request could not be opened on GitHub: " + prFailNote(meta.repo, meta.base, meta.branch, made));
         }
@@ -2338,7 +2353,7 @@ export async function handleCoder(request, env, ctx, deps) {
       // A PLAN'S TITLE (Claude Code: accepting a plan titles the session after it, unless it was already named): only for a
       // chat the owner, a hook or rename_chat has not named.
       const planTitle = !hookTitle.title && meta.titleCustom !== true && typeof s.result.planTitle === "string" && s.result.planTitle.trim() ? { title: s.result.planTitle.trim().replace(/\s+/g, " ").slice(0, 80) } : {};
-      const ended = { ...meta, ...modeNow, ...hookTitle, ...planTitle, ...(sessionRules ? { sessionRules } : {}), background, saved: meta.turn, ...(cwd ? { cwd } : {}), pr, prs, pushed, commits, unpushed, unpushedSince: unpushed ? unpushedSince : 0, refetch: false, ...(keptHere ? { kept: true } : {}), waiting: asked ? asked.type : null, ran: Math.max(0, Date.now() - Number(meta.at || Date.now())), usage: usageSummary(s.result.usage, meta.turn), summary: String(s.result.summary || "").slice(0, 4000) || meta.summary || "", status: s.result.status === "done" ? "idle" : s.result.status, at: Date.now(), jobReplyTo: null, ...afMeta };
+      const ended = { ...meta, ...modeNow, ...hookTitle, ...planTitle, ...(sessionRules ? { sessionRules } : {}), background, saved: meta.turn, ...(cwd ? { cwd } : {}), attribution, pr, prs, pushed, commits, unpushed, unpushedSince: unpushed ? unpushedSince : 0, refetch: false, ...(keptHere ? { kept: true } : {}), waiting: asked ? asked.type : null, ran: Math.max(0, Date.now() - Number(meta.at || Date.now())), usage: usageSummary(s.result.usage, meta.turn), summary: String(s.result.summary || "").slice(0, 4000) || meta.summary || "", status: s.result.status === "done" ? "idle" : s.result.status, at: Date.now(), jobReplyTo: null, ...afMeta };
       // A JOB PAUSED ON A CARD LEFT OPEN (coder-park.mjs; Claude Code: "Questions stay open until you answer them", and in its
       // cloud "you can still answer when you come back"): the chat is idle, waiting on that card (`parked`, `waiting` for the
       // notifications), its record kept beside the chat for the answer that takes the turn up again.
@@ -2489,7 +2504,7 @@ export async function handleCoder(request, env, ctx, deps) {
     if (!meta.pushed) return json({ error: "Coder has not saved any changes to GitHub yet." }, 400);
     let pr = meta.pr ? await prStillOpen(t.token, meta.repo, meta.pr, fetchFn) : null;
     let made = null;
-    if (!pr) { made = await openPullRequest(t.token, meta.repo, { head: meta.branch, base: meta.base, title: "Coder: " + commitTitle(meta.summary || meta.title || "changes"), body: String(meta.summary || "").slice(0, 4000) + madeWith(await chatLinkFor(env, bucket, uid, meta, id)) }, fetchFn).catch(() => null); pr = made && made.number ? made : null; }
+    if (!pr) { made = await openPullRequest(t.token, meta.repo, { head: meta.branch, base: meta.base, title: "Coder: " + commitTitle(meta.summary || meta.title || "changes"), body: String(meta.summary || "").slice(0, 4000) + madeWith(await chatLinkFor(env, bucket, uid, meta, id), meta.attribution) }, fetchFn).catch(() => null); pr = made && made.number ? made : null; }
     if (!pr) return json({ error: "GitHub would not open the pull request: " + prFailNote(meta.repo, meta.base, meta.branch, made, "there may be nothing new on the branch compared with " + meta.base) }, 502);
     const next = { ...meta, pr, at: Date.now() };
     await saveMeta(bucket, uid, next);

@@ -382,8 +382,8 @@ test("CD304 (the owner, 2026-11-09: \"yes i want that\"; Claude Code's Claude-Se
   assert.equal(p.ok, true, p.why);
   assert.equal(git(bare, "log", "-1", "--format=%B", "coder/shop-abcd").trim(), "Added the home page\n\nCoder-Chat: " + link);
   const src = serverSrc();
-  assert.match(src, /trailer: chatTrailer\(body\.chatUrl\), noPush: body\.noPush === true,/);
-  assert.match(src, /const tr = chatTrailer\(body\.chatUrl\);\n\s+if \(tr\) await gitIn\(dir, \["commit", "--amend", "-q", "--no-edit", "--no-verify", "--trailer", tr\], o\);/, "the undo's commit too");
+  assert.match(src, /\.\.\.commitMarks\(body\.chatUrl, attribution\), noPush: body\.noPush === true,/);
+  assert.match(src, /const tr = commitMarks\(body\.chatUrl, attributionOf\(dir, body\)\)\.trailer;\n\s+if \(tr\) await gitIn\(dir, \["commit", "--amend", "-q", "--no-edit", "--no-verify", "--trailer", tr\], o\);/, "the undo's commit too");
   // Coder's Worker: the link, unless the chat's environment turns it off; on every save, undo and pull request.
   const R = await import("../src/coder-routes.mjs");
   const E = await import("../src/coder-environments.mjs");
@@ -400,8 +400,61 @@ test("CD304 (the owner, 2026-11-09: \"yes i want that\"; Claude Code's Claude-Se
   assert.equal((routes.match(/chatUrl: await chatLinkFor\(env, bucket, uid, meta, id\)/g) || []).length, 4, "two undos, Rewind's restore (2026-11-13) and a push (pushChat, 2026-11-16)");
   // (The save reads the link once, with its other reads, and uses it for its commit, its undo and its pull requests: 2026-11-16.)
   assert.equal((routes.match(/chatUrl: chatLink,/g) || []).length, 2, "the save and its undo");
-  assert.equal((routes.match(/madeWith\(chatLink\)/g) || []).length, 2, "the save's pull requests");
+  assert.equal((routes.match(/madeWith\(chatLink, attribution\)/g) || []).length, 2, "the save's pull requests");
   assert.ok(routes.includes("gitWork ? chatLinkFor(env, bucket, uid, meta, id) : \"\","));
-  assert.equal((routes.match(/madeWith\(await chatLinkFor\(env, bucket, uid, meta, id\)\)/g) || []).length, 1, "the third way a pull request is opened");
+  assert.equal((routes.match(/madeWith\(await chatLinkFor\(env, bucket, uid, meta, id\), meta\.attribution\)/g) || []).length, 1, "the third way a pull request is opened");
   assert.doesNotMatch(routes, /"\\n\\nMade with Coder\."/);
+});
+
+test("MC40 a repository's attribution keys (Claude Code's attribution and includeCoAuthoredBy in .claude/settings.json) change or hide the commit trailer and the pull request's last line; no keys: as before", async () => {
+  const S = await import("../container/server.mjs");
+  const R = await import("../src/coder-routes.mjs");
+  const link = "https://gofarther.dev/?chat=shop-abcd", tr = "Coder-Chat: " + link;
+  // No keys: today's output.
+  assert.deepEqual(S.commitMarks(link, null), { trailer: tr });
+  assert.equal(R.madeWith(link, null), "\n\nMade with Coder: " + link);
+  // attribution: false hides everything.
+  const off = S.attributionFrom({ attribution: false });
+  assert.deepEqual(S.commitMarks(link, off), { trailer: "" });
+  assert.equal(R.madeWith(link, off), "");
+  // sessionUrl: false drops the link from both.
+  const noUrl = S.attributionFrom({ attribution: { sessionUrl: false } });
+  assert.deepEqual(S.commitMarks(link, noUrl), { trailer: "" });
+  assert.equal(R.madeWith(link, noUrl), "\n\nMade with Coder.");
+  // commit and pr replace the text; pr "" hides the line.
+  const own = S.attributionFrom({ attribution: { commit: "Generated with AI", pr: "Made by our bot" } });
+  assert.deepEqual(S.commitMarks(link, own), { trailer: tr, text: "Generated with AI" });
+  assert.equal(R.madeWith(link, own), "\n\nMade by our bot\n\n" + link);
+  assert.equal(R.madeWith(link, S.attributionFrom({ attribution: { pr: "" } })), "");
+  // includeCoAuthoredBy: false hides both unless commit or pr is set.
+  const co = S.attributionFrom({ includeCoAuthoredBy: false });
+  assert.deepEqual(S.commitMarks(link, co), { trailer: "" });
+  assert.equal(R.madeWith(link, co), "");
+  const coPr = S.attributionFrom({ includeCoAuthoredBy: false, attribution: { pr: "PR text" } });
+  assert.equal(R.madeWith("", coPr), "\n\nPR text");
+  // The later file over the earlier: settings.local.json's false beats settings.json's text.
+  assert.deepEqual(S.attributionFrom({ attribution: false }, S.attributionFrom({ attribution: { commit: "x" } })).off, true);
+  // Read from the repository's file, for a one-repository chat only.
+  const { mkdtemp: mk, writeFile: wf, mkdir: md, rm } = await import("node:fs/promises");
+  const d = await mk(join(tmpdir(), "coder-attr-"));
+  await md(join(d, ".claude"));
+  await wf(join(d, ".claude/settings.json"), JSON.stringify({ attribution: { commit: "Generated with AI", sessionUrl: false } }));
+  assert.deepEqual(S.repoSettings(d).attribution, { off: false, commit: "Generated with AI", sessionUrl: false });
+  assert.equal(S.repoSettings(d, { github: true }).attribution, null);
+  assert.equal(S.repoSettings(d, { several: true }).attribution, null);
+  // For real: the commit carries the repository's text, and no link.
+  const { remote, bare } = await (async () => { const r = await fakeRemote(); return { remote: r.remote, bare: join(r.remote, "ana/shop.git") }; })();
+  const gitRoot = await mk(join(tmpdir(), "coder-git-")), root = await mk(join(tmpdir(), "coder-w-"));
+  const dir = join(root, "shop-abcd");
+  assert.equal((await S.prepareRepo({ dir, repo: "ana/shop", base: "main", branch: "coder/shop-abcd", token: "", remote, gitRoot, root })).ok, true);
+  await wf(join(dir, "index.html"), "<h1>Shop</h1>\n");
+  const p = await S.pushRepo({ dir, repo: "ana/shop", branch: "coder/shop-abcd", token: "", message: "Added the home page", ...S.commitMarks(link, S.repoSettings(d).attribution), remote, gitRoot, root });
+  assert.equal(p.ok, true, p.why);
+  assert.equal(git(bare, "log", "-1", "--format=%B", "coder/shop-abcd").trim(), "Added the home page\n\nGenerated with AI");
+  // The Worker keeps what the machine reports and uses it on every pull request.
+  const routes = readFileSync(new URL("../src/coder-routes.mjs", import.meta.url), "utf8");
+  assert.equal((routes.match(/madeWith\(chatLink, attribution\)/g) || []).length, 2);
+  assert.match(routes, /madeWith\(await chatLinkFor\(env, bucket, uid, meta, id\), meta\.attribution\)/);
+  assert.match(readFileSync(new URL("../src/coder-envapi.mjs", import.meta.url), "utf8"), /madeWith\(link, meta\.attribution\)/);
+  for (const x of [d, gitRoot, root]) await rm(x, { recursive: true, force: true });
 });

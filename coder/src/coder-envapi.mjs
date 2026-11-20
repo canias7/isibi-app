@@ -245,7 +245,7 @@ export async function prOpenNow(env, bucket, uid, id, meta, body, { fetchFn = fe
   let pr = open, existed = !!open;
   if (!pr) {
     const link = await chatLinkFor(env, bucket, uid, meta, id).catch(() => "");
-    pr = await openPullRequest(t.token, repo, { head: meta.branch, base, title, body: String(body.body || "").slice(0, 8000) + madeWith(link), draft: body.draft === true }, fetchFn).catch(() => null);
+    pr = await openPullRequest(t.token, repo, { head: meta.branch, base, title, body: String(body.body || "").slice(0, 8000) + madeWith(link, meta.attribution), draft: body.draft === true }, fetchFn).catch(() => null);
   }
   if (!pr || !pr.number) return { error: "error: GitHub did not open the pull request: " + prFailNote(repo, base, meta.branch, pr, "is there a commit on " + meta.branch + " that " + base + " lacks?") };
   const cur = (await getJson(bucket, metaKey(uid, id), null)) || meta;

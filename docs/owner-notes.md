@@ -4,6 +4,16 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-20: Bigger Claude Code fixes, part 7
+
+- **A repository can change or hide Coder's credit line:** like Claude Code, a repository's `.claude/settings.json` can now say `"attribution": false` (no "Coder-Chat" line on commits and no "Made with Coder" line on pull requests), give its own commit or pull-request text, or keep the lines but leave out the chat link. The older `includeCoAuthoredBy: false` works too. With none of these set, nothing changes: your chat link stays on, as you chose.
+- **Instruction files can pull in other files:** a CODER.md (or AGENTS.md, or a rules file) that says `@AGENTS.md` or `@docs/guide.md` now loads that file too, as Claude Code does: paths count from the file's own folder, up to four steps deep, each file once, never from outside the project, and an `@` inside code is left alone.
+- **Instruction files your rules forbid are no longer given to Grok:** if a "do not read" rule covers an instruction file, Coder now leaves it out and says so in the chat ("Instruction file not loaded (a Read deny rule covers it)"), as Claude Code does.
+- **A repository's language and effort cap:** a repository's settings file can now set `language` (Coder always answers in it) and `maxEffortLevel` (a higher effort is lowered to the cap, and the chat says so). These cost nothing extra.
+- **Waiting for your answer:** Claude Code also lets a project's settings file set the *starting* effort (`effortLevel`). That could make a project run Grok above your Low default, which costs more. Should Coder copy that one too, or keep only the language and the cap?
+- **Switching a running job's network to Full:** already fixed in an earlier pass; nothing new needed.
+- No change to how the page looks. Full test suite passes, apart from the two older stop tests (IN4, IN9) that already failed before. Not deployed or merged; not yet tried live in the browser.
+
 ## 2026-11-20: Bigger Claude Code fixes, part 6
 
 - **Undo works after a failed push:** if Coder's push to GitHub failed but its commit was already made (and a later push sent it), the job could not be undone, rewound or turned into a pull request, because Coder only remembered commits from pushes that worked. Now the commit is remembered as soon as it is made, as Claude Code's checkpoints are, and marked "not on GitHub yet" until a push sends it.
