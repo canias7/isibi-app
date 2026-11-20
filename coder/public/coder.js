@@ -3743,12 +3743,17 @@
   // start of the box lists Coder's commands with a line each; ↑↓ to move, Enter or Tab or a click to pick, Esc to close.
   const SLASH = [['/compact', 'Shrink this chat into a short summary (add what to keep after it)'], ['/permissions', 'Choose the mode: Auto, Accept edits or Plan', ['allowed-tools']], ['/rewind', 'Go back to an earlier message', ['checkpoint', 'undo']]];
   // As Claude Code's / list: from the start of a name, of a word inside it, or of one of its other names; '-', '_' and ':' ignored.
+  // THE REPOSITORY'S SKILLS (Claude Code's "/skill-name"; the machine names them at each message): after Coder's own commands.
+  function skillsSlash() {
+    const ev = [...(S.events || [])].reverse().find((e) => e && e.type === 'skills' && Array.isArray(e.list));
+    return ev ? ev.list.filter((x) => x && /^[A-Za-z0-9][\w-]{0,63}$/.test(String(x.name || '')) && !SLASH.some(([c]) => c === '/' + x.name)).slice(0, 50).map((x) => ['/' + x.name, String(x.description || 'Skill').slice(0, 200), [], true]) : [];
+  }
   function slashMatches() {
     if (GLOOPY || S.slashOff || !/^\/[\w:-]*$/.test(S.draft || '')) return [];
     const flat = (t) => t.toLowerCase().replace(/[-_:]/g, '');
     const q = flat(S.draft.slice(1));
     const hit = (name) => flat(name).startsWith(q) || name.toLowerCase().split(/[-_:]/).slice(1).some((w) => w.startsWith(q));
-    return SLASH.filter(([c, , other]) => hit(c.slice(1)) || (other || []).some(hit));
+    return [...SLASH, ...skillsSlash()].filter(([c, , other]) => hit(c.slice(1)) || (other || []).some(hit));
   }
   function slashHTML() {
     const list = slashMatches();
@@ -3763,6 +3768,7 @@
   }
   function pickSlash(c) {
     S.slashSel = 0;
+    if (c !== '/compact' && skillsSlash().some(([n]) => n === c)) { S.draft = c + ' '; draw(); const i = S.root.querySelector('#cdIn'); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } return; }
     if (c === '/compact') { S.draft = '/compact '; draw(); const i = S.root.querySelector('#cdIn'); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } return; }
     S.draft = ''; draw(); send(c);
   }

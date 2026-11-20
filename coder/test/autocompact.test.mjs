@@ -376,3 +376,21 @@ test("B4-5 a command over 10,000 characters goes straight to its card, without t
     assert.ok(ms < 1000, "took " + ms + " ms");
   }
 });
+
+test("B5-1 a picture Grok refuses is removed, the note shown, and the turn goes on; a second refusal ends the turn (Claude Code's errors page)", async () => {
+  const refuse = () => Object.assign(new Error("400 Bad Request: the image could not be processed (dimensions too large)"), { status: 400 });
+  const c = chat();
+  const r = await c.run([say("", [call("read", { file_path: "shot.png" }, "r1")]), say("all done")], { text: "look", fail: (n) => (n === 2 ? refuse() : null) });
+  assert.ok(r.events.some((e) => e.type === "note" && e.text === "API Error: an image in the conversation could not be processed and was removed."));
+  assert.ok(!r.events.some((e) => e.type === "error"));
+  assert.equal(r.r.summary, "all done");
+  assert.equal(c.sent.length, 3);
+  assert.ok(!JSON.stringify(c.sent[2].messages).includes("data:image/png"), "the resend has no picture");
+  assert.ok(!JSON.stringify(c.messages).includes("data:image/png"), "the saved chat keeps no copy");
+  const c2 = chat();
+  const r2 = await c2.run([say("", [call("read", { file_path: "shot.png" }, "r1")]), say("all done")], { text: "look", fail: (n) => (n >= 2 ? refuse() : null) });
+  assert.ok(r2.events.some((e) => e.type === "error"));
+  assert.equal(c2.sent.length, 3);
+  assert.ok(!A.imageRefused(Object.assign(new Error("503 image service down"), { status: 503 })));
+  assert.ok(!A.imageRefused(new Error("prompt is too long")));
+});

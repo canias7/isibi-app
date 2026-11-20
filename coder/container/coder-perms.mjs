@@ -969,7 +969,7 @@ export function parseRule(text) {
   // (TaskCreate, TaskGet, TaskList and TaskUpdate: Coder's task list since 2026-11-14, the owner: "Do all the talk to you
   // tools execpt for the notify one"; whole-tool rules, as TodoWrite's. EnterPlanMode, Coder's enter_plan_mode, too. And
   // ToolSearch, Coder's tool_search: denied, tool search is off, as Claude Code's MCP docs say; coder-toolsearch.mjs.)
-  const m = /^(Bash|WebFetch|Read|Edit|Write|Grep|Glob|LSP|Monitor|WebSearch|TaskStop|KillShell|KillBash|AskUserQuestion|ExitPlanMode|EnterPlanMode|TodoWrite|TaskCreate|TaskGet|TaskList|TaskUpdate|PowerShell|ToolSearch)(?:\(([\s\S]*)\))?$/.exec(String(text || "").trim());
+  const m = /^(Bash|WebFetch|Read|Edit|Write|Grep|Glob|LSP|Monitor|WebSearch|TaskStop|KillShell|KillBash|AskUserQuestion|ExitPlanMode|EnterPlanMode|TodoWrite|TaskCreate|TaskGet|TaskList|TaskUpdate|PowerShell|ToolSearch|Skill)(?:\(([\s\S]*)\))?$/.exec(String(text || "").trim());
   if (!m) return null;
   // (TaskStop's old names, KillShell and KillBash, name it still: Claude Code 2.1.322 keeps them as its aliases.)
   if (m[1] === "KillShell" || m[1] === "KillBash") m[1] = "TaskStop";

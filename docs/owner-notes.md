@@ -4,6 +4,14 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-20: Bigger Claude Code fixes, part 2
+
+- **A picture the AI refuses no longer breaks the chat:** if Grok refuses a picture (too big, for example), Coder now removes that picture, shows "API Error: an image in the conversation could not be processed and was removed.", and carries on. Before, the picture stayed in the chat and every later message failed. If the resend is refused too, the turn stops as before.
+- **Repository skills:** Coder now reads a repository's skills (.claude/skills/<name>/SKILL.md and .claude/commands/*.md), as Claude Code does. Coder is told each skill's name and description and loads one when the task fits (a "Skill" step in the chat). You can run one yourself by typing /skill-name; once Coder has answered a message in that chat, the repository's skills also show in the / menu under Coder's own commands. Skill(name) rules in your permission rules can deny a skill or ask first. The extra front-matter options (allowed tools, separate helper, hooks, paths) are not read yet.
+- **Push and pull request follow your rules:** Coder's own Push and pull request steps (and its push before it answers) now count as `git push` and `gh pr create`, so a Bash(git push *) or Bash(gh pr create *) rule that denies or asks now applies, and in Auto mode the safety checker looks at the push first (so "don't push" in the chat is respected). With no rule, a push to the chat's own branch still goes without a card, as in Claude Code's cloud sessions.
+- **Already done earlier, nothing to change:** a repository set to start in Plan mode while Auto is off, and long unusual commands going straight to their card.
+- Full test suite passes. Not deployed or merged; not yet tried live in the browser.
+
 ## 2026-11-20: Bigger Claude Code fixes, part 1
 
 - **Chat named after its plan:** when you approve Coder's plan, a chat you have not named yourself now takes the plan's title (its first real heading, or its first line), as Claude Code does. No extra AI call. A chat you, a hook or Coder renamed keeps its name. The chat shows "Renamed chat ... after its approved plan".

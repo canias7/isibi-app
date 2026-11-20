@@ -560,8 +560,8 @@ export const BINARY_EXTS = new Set([".png", ".jpg", ".jpeg", ".gif", ".bmp", ".i
 export const binaryExt = (p) => { const s = String(p || ""); return BINARY_EXTS.has(s.slice(s.lastIndexOf(".")).toLowerCase()); };
 /**
  * Claude Code's words for it, the extension as its path ends ("This tool cannot read binary files. The file appears to be a
- * binary .zip file. …"); its "Use a skill for this file type if one is available, or a shell command …" without the skill,
- * as Coder has no skills.
+ * binary .zip file. …"); its "Use a skill for this file type if one is available, or a shell command …" without the skill
+ * part (a repository's skills, coder-skills.mjs, are its own and rarely read files).
  */
 export const BINARY_REFUSED = (ext) => "This tool cannot read binary files. The file appears to be a binary " + ext + " file. Use a shell command or script that can read the format.";
 /** A path in single quotes, for a command shown to Coder. */

@@ -58,6 +58,7 @@ import { outputRewrite, checkHookInput, sameInput } from "./coder-hookcheck.mjs"
 import { psDescription, psCommand, psSleepWhat } from "./coder-ps.mjs";
 import { psParseResult, psParseFail, psExitOf, PS_PARSE_RETRYABLE, psCommands, psFileRedirections, psCmdlet, psWriteTargets } from "./coder-psparse.mjs";
 import { posix as pathPosix } from "node:path";
+import { readSkills as _readSkills, skillsListing, skillLoaded, slashSkill, skillRule, SKILL_TOOL } from "./coder-skills.mjs";
 import { checkAction, actionShown, autoDenied, checkUnavailable, blockedShown, limitWhy, checkerState, countBlock, countAllowed, resume, droppedInAuto, NO_VERDICT, NO_VERDICT_STOP, NOT_RUN_ROW, STOPPED_NO_VERDICT, noVerdictTold, noVerdictStopTold, NO_VERDICT_STOP_SHOWN, noVerdictWait, rmUnanswered, rmAnswered, noPromptDenied } from "./coder-checker.mjs";
 import { psDecision, psPlanFile, toolGlob, MODES, MODE_NAMES, normMode, bashDecision, MONITOR_SETTINGS, namedForMonitor, fetchDecision, fileToolDecision, fileRuleHit, readCommand, fileCommandTargets, parseRule, allowRuleCovers, readBlockWhy, sensitiveWhy, linkOutWhy, ruleAskWhy, askedWhy, hookAskWhy, hookAskTold, planWriteWhy, planCallWhy, ccPath, RULE_MAX, REJECTED, REJECTED_SAID, NOT_NOW, PLAN_NOTE, PLAN_EXITED, AUTO_NOTE, AUTO_EXITED, planApproved, wholeReadOnly, movesWorkTree, monitorRules, partsAllowedByRules, discardsWork, wsDecision, wsProblem, wsAskText, wholeRule, MONITOR_BASH_DENIED, toolSearchParamRule, toolSearchParamDenied } from "./coder-perms.mjs";
 // (Claude Code's plan mode and ExitPlanMode, with its plan file: the owner, 2026-11-14, "Do all the talk to you tools execpt
@@ -2019,6 +2020,27 @@ export const TOOLS_V = createHash("sha256").update(JSON.stringify([...STOCK_TOOL
  * A REQUEST GROK REFUSED AS TOO LONG FOR ITS WINDOW (Claude Code's "Prompt is too long", which its reactive compaction answers;
  * the cache fix's follow-up, 2026-11-14): a refusal whose words say the prompt or the context is longer than the model takes.
  */
+// A PICTURE THE AI SERVICE REFUSED (Claude Code's errors page: "an image in the conversation could not be processed and was
+// removed", and the conversation goes on): a 400-type error that names an image or a picture.
+export const imageRefused = (e) => { const m = String((e && e.message) || e || ""); const st = Number(e && e.status) || 0; return !(st >= 500) && !(st && st !== 400 && st !== 413 && st !== 422) && /\b(?:image|picture|img)s?\b/i.test(m) && /\b400\b|invalid|could not|unable|unsupported|too (?:large|big)|exceed|dimension|decode|process|refus|reject|bad request/i.test(m) && !tooLongError(e); };
+export const IMAGE_REMOVED_NOTE = "API Error: an image in the conversation could not be processed and was removed.";
+/**
+ * Removes the refused picture from the conversation (in place): the newest one, pictures Coder read before the owner's own.
+ * Answers whether one was removed.
+ */
+export function dropRefusedPicture(convo) {
+  const has = (m) => m && Array.isArray(m.images) && m.images.length;
+  let i = -1;
+  for (let j = convo.length - 1; j >= 0; j--) if (has(convo[j]) && convo[j].readPics) { i = j; break; }
+  if (i < 0) for (let j = convo.length - 1; j >= 0; j--) if (has(convo[j])) { i = j; break; }
+  if (i < 0) return false;
+  const m = convo[i];
+  const keep = m.images.slice(0, -1);
+  const { images: _gone, ...rest } = m;
+  const note = " [A picture here could not be processed and was removed.]";
+  convo[i] = keep.length ? { ...m, images: keep, content: String(m.content || "") + note } : { ...rest, content: String(m.content || "") + note };
+  return true;
+}
 export const tooLongError = (e) => { const m = String((e && e.message) || e || ""); return !(e && e.status >= 500) && /prompt is too long|(?:maximum|max) (?:prompt|context) length|context (?:length|window) (?:exceeded|limit)|too many tokens|exceeds? (?:the )?(?:maximum|context|token|model)|input is too long|request too large|prompt length/i.test(m); };
 
 /** Gloopy's lines as it works (2026-11-12): one in the chat at most this often; the others in the status line only. */
@@ -2047,7 +2069,7 @@ export function ruleHoldsSecret(rule) {
   }
   return false;
 }
-export async function runCoder(deps, { notices = [], lost = [], stalls = [], promptNotify = true, timeouts = null, outLimits = null, noBg = false, respondToBash = true, shell = "", cmdShell = "", compactVars = null, messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, mode = "auto", rules = null, editDiff = false, readBlock = false, writeBlock = false, checker = false, checkerInPlan = true, checkWhere = null, emailMark = "", diskWarnGib = 0, memWarnGib = 0, hooks = null, autoMode = null, denyInstead = false, autoOff = false, planExit = "auto", hostLists = null, powershell = null, connectors = [], connectorNotes = [], connectorsWaiting = [], connectorsFailed = [], connectorsGone = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS , rmChecksOff = null, fileEdits = true, startMode = "", resumed = false, lastAt = 0, sessionRules = null, customTitle = "", compact = null, system = CODER_SYSTEM, tools = null, nudges = true, who = "Coder", browserRules: rulesIn = [], granted: grantedIn = [], schedules = [], opening = "user", permissions: permsIn = null, sites: sitesIn = [], monitor = false, ownerSaid: ownerSaidList = null, asHelper = false, helper = null, pages = [], savedLogins = [], savedCards = [], contacts = [], webhooks = [], hookBase = "/api/coder/gloopy-hook/", attached = [], workNote = "", marked = null, taught = null, files: keptFiles = [], background = false, checkWrites = false, denied: deniedIn = [], zone = "", searchLimits = null, takeUp = null, tasksOff = false, mentionsOff = false, holdBack = null, suggest = false, stopCap = STOP_BLOCK_CAP, box = false } = {}) {
+export async function runCoder(deps, { notices = [], lost = [], stalls = [], promptNotify = true, timeouts = null, outLimits = null, noBg = false, respondToBash = true, shell = "", cmdShell = "", compactVars = null, messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, mode = "auto", rules = null, editDiff = false, readBlock = false, writeBlock = false, checker = false, checkerInPlan = true, checkWhere = null, emailMark = "", diskWarnGib = 0, memWarnGib = 0, hooks = null, autoMode = null, denyInstead = false, autoOff = false, planExit = "auto", hostLists = null, powershell = null, connectors = [], connectorNotes = [], connectorsWaiting = [], connectorsFailed = [], connectorsGone = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS , rmChecksOff = null, fileEdits = true, startMode = "", resumed = false, lastAt = 0, sessionRules = null, customTitle = "", compact = null, system = CODER_SYSTEM, tools = null, nudges = true, who = "Coder", browserRules: rulesIn = [], granted: grantedIn = [], schedules = [], opening = "user", permissions: permsIn = null, sites: sitesIn = [], monitor = false, ownerSaid: ownerSaidList = null, asHelper = false, helper = null, pages = [], savedLogins = [], savedCards = [], contacts = [], webhooks = [], hookBase = "/api/coder/gloopy-hook/", attached = [], workNote = "", marked = null, taught = null, files: keptFiles = [], background = false, checkWrites = false, denied: deniedIn = [], zone = "", searchLimits = null, takeUp = null, tasksOff = false, mentionsOff = false, holdBack = null, suggest = false, stopCap = STOP_BLOCK_CAP, box = false, skills = [] } = {}) {
   // ANOTHER AGENT ON THE SAME ENGINE (owner, 2026-11-09: Gloopy, container/gloopy-agent.mjs): its own instructions
   // (`system`), the tools it is offered (`tools`; a call to any other is refused), no reminders about Coder's setup script
   // (`nudges`), and its name in the chat's own lines (`who`). Coder's defaults are unchanged.
@@ -2058,6 +2080,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   const webFetch = { off: "", cacheTtlMs: WEBFETCH_CACHE_TTL_MS, deadlineMs: WEBFETCH_DEADLINE_MS, ...(deps && deps.webFetch && typeof deps.webFetch === "object" ? deps.webFetch : {}) };
   const webCacheKey = deps && typeof deps.chatId === "string" && deps.chatId ? "chat:" + deps.chatId : "job:" + randomUUID();
   if (Array.isArray(tools)) tools = webFetchTools(tools, webFetch);
+  // THE REPOSITORY'S SKILLS (coder-skills.mjs; the audit, 2026-11-20): Coder's chats only, never Gloopy's or a job from GitHub.
+  const skillList = Array.isArray(skills) && !Array.isArray(tools) && !github ? skills.filter((s) => s && typeof s.name === "string" && typeof s.body === "string").slice(0, 50) : [];
   const offered = Array.isArray(tools) ? new Set(tools.map((t) => t && t.function && t.function.name).filter(Boolean)) : null;
   // GLOOPY'S TOOLS HELD BACK UNTIL NEEDED (the owner, 2026-11-15: "yes fix it too"; gloopy-agent.mjs GLOOPY_HELD_BACK): those
   // of `holdBack` it is offered are named in tool search's note and sent only once tool_search has loaded them, from then on
@@ -3271,7 +3295,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   let compactions = 0, summarizeAgainAt = 0;
   // (Claude Code's auto-compact in this job, autoCompact below: its failures in a row, its refills in a row and the round of the
   // last one, how many it made, and whether a request refused as too long was summarized and sent again.)
-  let compactFailures = 0, rapidRefills = 0, lastCompactRound = null, autoCompacted = 0, reactiveTried = false;
+  let compactFailures = 0, rapidRefills = 0, lastCompactRound = null, autoCompacted = 0, reactiveTried = false, imageDropTried = false;
   // PICTURES (owner, 2026-11-05): sent to Grok with this message only; the saved
   // history keeps a note in their place (so it stays small).
   const pics = (Array.isArray(images) ? images : []).filter((x) => x && /^image\/(png|jpeg|webp|gif)$/.test(x.type) && typeof x.data === "string").slice(0, 4);
@@ -3372,7 +3396,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   // or the machine's zsh), as Claude Code's Bash description names the user's shell; `shell` is the owner's own `!` command,
   // which it had been given by mistake, so it never said zsh. The cache fix's follow-up, 2026-11-14.)
   const ownOffered = (t) => { if (t && t.function) tsCatalog.set(t.function.name, t); return !(t && t.function && (toolDenied(t.function.name) || (denyInstead === true && PROMPT_TOOLS.includes(t.function.name)))); };
-  const chatTools = [...withPs(toolsFor(github ? GITHUB_TOOLS : CODER_TOOLS, { noBg: noBg === true, inlineMax: Math.min(lim.inlineMax, lim.readBack), bgMaxMs: timeouts && timeouts.bgMaxMs, defaultMs: timeouts && timeouts.defaultMs, maxMs: timeouts && timeouts.maxMs, bgDefaultMs: timeouts && timeouts.bgDefaultMs, shell: cmdShell })).map(withHosts).filter(ownOffered),...(mcpDeferred ? [searchTool(mcpTools)] : []), ...mcpUpfront.map((t) => asFn(t))];
+  const chatTools = [...withPs(toolsFor(github ? GITHUB_TOOLS : CODER_TOOLS, { noBg: noBg === true, inlineMax: Math.min(lim.inlineMax, lim.readBack), bgMaxMs: timeouts && timeouts.bgMaxMs, defaultMs: timeouts && timeouts.defaultMs, maxMs: timeouts && timeouts.maxMs, bgDefaultMs: timeouts && timeouts.bgDefaultMs, shell: cmdShell })).map(withHosts).filter(ownOffered),...(mcpDeferred ? [searchTool(mcpTools)] : []), ...mcpUpfront.map((t) => asFn(t)), ...(skillList.length && !github && !offered && !toolDenied("skill") && skillsListing(skillList) ? [SKILL_TOOL] : [])];
   // (WebFetch turned off, or its cache's own time: webFetchTools. 2026-11-14.)
   chatTools.splice(0, chatTools.length, ...webFetchTools(chatTools, webFetch));
   // (web_search with Claude Code's `mode`, and its note as its own part of the system prompt while the tool is offered,
@@ -3603,11 +3627,19 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       // (A picture too small for Grok goes enlarged, or not at all, with a note: fitOwnerPics.)
       const fitted = pics.length ? await fitOwnerPics(pics, (x) => appTool(deps, "fit_picture", { type: x.type, data: x.data }).then((r) => (r.code === 0 ? r.output : JSON.stringify({ why: "it could not be enlarged" })))) : { send: [], notes: [] };
       const picNote = fitted.notes.length ? "\n\n(Note from Coder's app: " + fitted.notes.join(" ") + ")" : "";
+      // THE SKILLS CODER MAY LOAD (Claude Code lists each skill's name and description; told again only when the list changed).
+      // (And the page's / menu: the skills the owner may run, Claude Code's "/skill-name".)
+      if (skillList.some((x) => x.user)) emit({ type: "skills", list: skillList.filter((x) => x.user).map((x) => ({ name: x.name, description: scrub(x.description).slice(0, 200) })) });
+      { const ls = skillList.length && !toolDenied("skill") ? skillsListing(skillList) : ""; const told = [...convo].reverse().find((m) => m && typeof m.skillsList === "string"); if (ls && (!told || told.skillsList !== ls)) convo.push({ role: "user", appNote: true, skillsList: ls, content: "(Note from Coder's app, not the owner:\n" + ls + ")" }); }
       convo.push({ role: "user", content: text.trim() + picNote, ...(fitted.send.length ? { images: fitted.send.map((x) => "data:" + x.type + ";base64," + x.data) } : {}) });
       // The chat shows what the owner typed (`shown`); Coder also gets the notes added to it. (A scheduled run of Gloopy's,
       // 2026-11-09, opens with a note in the chat, not as the owner's own message.)
       emit({ type: opening === "note" ? "note" : "user", text: typed, ...(pics.length ? { images: pics.length } : {}), ...(Array.isArray(attached) && attached.length ? { files: attached.slice(0, 10).map((f) => ({ id: String(f.id || ""), name: plain(String(f.name || "")).slice(0, 120), size: Number(f.size) || 0 })) } : {}) });
       if (up && up.context.length) convo.push({ role: "user", appNote: true, content: hookNote("UserPromptSubmit", up.context) });
+      // THE OWNER'S /skill-name (Claude Code: "invoke it directly with /skill-name"): the skill's whole text goes to Coder with
+      // the message, as Claude Code loads it, unless a rule denies that skill.
+      const sl = skillList.length ? slashSkill(text, skillList) : null;
+      if (sl && !toolDenied("skill") && !skillRule(ownRules, "deny", sl.skill.name, parseRule)) { convo.push({ role: "user", appNote: true, content: "<command-name>/" + sl.skill.name + "</command-name>\n" + skillLoaded(sl.skill, sl.args) }); emit({ type: "note", text: "Loaded the skill " + sl.skill.name + "." }); }
     }
     // (No "Not signed in yet" note on every message: owner, 2026-11-16. Like Claude Code, Coder knows which connectors
     // wait for a sign-in and says so only when a request needs one.)
@@ -3872,6 +3904,49 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     const text = (p.pushed ? "ok: pushed to GitHub now" + (p.sha ? " (commit " + String(p.sha).slice(0, 7) + ")" : "") : "ok: nothing new to push; GitHub already has the branch") + (good.length ? "; " + good.join("; ") : "") + (bad.length ? "; not pushed in " + bad.join("; ") : "") + ".";
     emit({ type: "result", id, code: 0, output: text.slice(3) });
     return { ok: true, text };
+  };
+  // CODER'S PUSH AND PULL REQUEST AS THE COMMANDS THEY ARE (the audit, 2026-11-20; Claude Code's auto-mode docs: "These rules
+  // match commands that begin with `git push` or `gh pr create`"): in Claude Code a push is `git push` and a pull request is
+  // `gh pr create`, so a Bash(git push *) or Bash(gh pr create *) deny or ask rule applies to them, and in Auto the checker
+  // sees them (an owner's "don't push" in the chat blocks one). Coder's push_branch, pull_request and the push before its
+  // answer go through the same: a deny rule refuses, an ask rule asks on a card, and in Auto the checker judges the command.
+  // (Without a rule, a push to the chat's own branch goes as Claude Code's cloud session's does, with no card.)
+  // → { go: true } or { go: false, why, shown?, outcome?, a? }.
+  const pushCommandOf = (kind, title) => (kind === "pull_request" ? "gh pr create --title " + JSON.stringify(String(title || "").slice(0, 200)) : "git push origin " + String((checkWhere && checkWhere.branch) || "HEAD"));
+  const pushGate = async (id, kind, title = "") => {
+    if (github || offered) return { go: true };
+    const command = pushCommandOf(kind, title);
+    const m = modeNow();
+    let d = null;
+    try { d = bashDecision(command, { mode: m, rules: ownRules, cwd: deps.root || "/", workdirs: [deps.root || "/"], home: deps.home || "" }); } catch { d = null; }
+    if (d && d.verdict === "deny" && d.rule) return { go: false, why: d.why };
+    if (d && d.verdict === "ask" && d.rule) {
+      const card = { tool: "bash", id, what: scrub(command).slice(0, 300), why: d.why, told: d.told || "" };
+      const a = canAsk() ? await askOwner(card) : await noOneHooks(card);
+      if (!a) return { go: false, why: d.told || d.why };
+      const o = answerOutcome(a);
+      if (o === "go") return { go: true };
+      return { go: false, outcome: o, a, why: o === "said" ? saidReply(a) : REJECTED };
+    }
+    if (checker && modeChecks(m)) {
+      const v = await checkAction(deps, { model, convo, skipId: id, context, notes: checkerNotes, action: actionShown("bash", { command }), mode: m === "plan" ? "plan" : "auto", repo: (checkWhere && checkWhere.repo) || "", branch: (checkWhere && checkWhere.branch) || "", workdir: deps.root || "", auto: autoMode });
+      if (v && v.usage) usage.push(v.usage);
+      if (v && !v.error && v.decision === "block") { const why0 = "[" + v.rule + "]" + (v.reason ? " " + v.reason : ""); return { go: false, why: autoDenied(why0), shown: blockedShown(v.rule, v.reason) }; }
+      // (No verdict: the owner is asked, as Claude Code asks when its checker cannot answer.)
+      if (v && v.error) {
+        if (!canAsk()) return { go: false, why: checkUnavailable(model || "The classifier", "Bash", typeof v.why === "string" ? v.why : "") };
+        const a = await askOwner({ tool: "bash", id, what: scrub(command).slice(0, 300), why: "The auto mode checker could not decide about this push." });
+        const o = a ? answerOutcome(a) : "no";
+        if (o !== "go") return { go: false, outcome: o, a, why: o === "said" ? saidReply(a) : REJECTED };
+      }
+    }
+    return { go: true };
+  };
+  /** A refused push or pull request, shown under its step and told to Coder. */
+  const pushRefused = (id, kind, g, reply) => {
+    emit({ type: "bash", id, tool: kind, verb: kind === "pull_request" ? "Pull request" : "Push", command: scrub(pushCommandOf(kind, "")).slice(0, 200) });
+    emit({ type: "result", id, code: -1, ran: false, output: String(g.shown || g.why || "not run").slice(0, 400) });
+    if (reply) reply(String(g.why || "not run"));
   };
   // (The tools the last request sent, so the suggestion's request is the same and its cache holds.)
   let lastTools = null;
@@ -4482,6 +4557,11 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         if (ac === "blocked" || ac === "thrashing") return end("done", { summary: lastSaid || (ac === "blocked" ? contextLimitShown({ compactOff: cset.off, autoOff: cset.autoOff }) : THRASHING) });
         if (ac === "failed") failWhy = compactWhy;
       }
+      if (!failWhy && !imageDropTried && imageRefused(e) && dropRefusedPicture(convo)) {
+        imageDropTried = true;
+        emit({ type: "note", text: IMAGE_REMOVED_NOTE });
+        rounds--; continue;
+      }
       emit({ type: "error", text: failWhy ? "Prompt is too long \u00b7 automatic compaction failed: " + failWhy : apiErrorText(e, scrub) });
       // STOPFAILURE HOOKS (Claude Code: "Runs when the turn ends due to an API error"; "Output and exit code are ignored"),
       // matched on the error's kind (rate_limit, server_error, …).
@@ -4596,6 +4676,14 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       // answer with the push's result in front of it. Once per turn.
       if (changedNow && !endPushed) {
         endPushed = true; endTitle = commitTitle;
+        const g = await pushGate("endpush-" + rounds, "push_branch");
+        if (!g.go) {
+          pushRefused("endpush-" + rounds, "push_branch", g, null);
+          const last = convo[convo.length - 1];
+          if (last && last.role === "assistant" && !last.tool_calls) convo.pop();
+          convo.push({ role: "user", appNote: true, content: "(Note from Coder's app, not the owner: before you finish, the push of your changes to the chat's branch was not made: " + String(g.why || "not allowed").slice(0, 600) + " Your changes stay on this machine. Now give your answer, and say so.)" });
+          continue;
+        }
         const r = await pushNowStep("endpush-" + rounds, commitTitle || "Changes by Coder");
         if (!r || !r.ok) pushRequest = true;
         const last = convo[convo.length - 1];
@@ -7175,6 +7263,26 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         const text = typeof r.text === "string" ? r.text : typeof r.error === "string" ? r.error : "error: Coder's server did not answer";
         emit({ type: "result", id: c.id, code: r.ok ? 0 : 1, output: text.slice(0, 2000) });
         reply(text);
+      } else if (c.name === "skill" && skillList.length) {
+        // CLAUDE CODE'S SKILL TOOL (coder-skills.mjs): the skill's whole text, for Coder to follow; Skill(name) deny and ask rules
+        // apply, as Claude Code's do. A skill marked disable-model-invocation is the owner's to run with /name only.
+        const nm = String((c.args && c.args.skill) || "").trim().replace(/^\//, "");
+        const sk = skillList.find((x) => x.name.toLowerCase() === nm.toLowerCase());
+        emit({ type: "bash", id: c.id, tool: "skill", verb: "Skill", command: scrub(nm).slice(0, 80) });
+        if (!sk || !sk.model) { const m = "Unknown skill: " + nm.slice(0, 80); emit({ type: "result", id: c.id, code: 1, output: m }); reply(m); continue; }
+        if (skillRule(ownRules, "deny", sk.name, parseRule)) { const m = "Permission to use Skill with skill " + sk.name + " has been denied."; emit({ type: "result", id: c.id, code: -1, ran: false, output: m }); reply(m); continue; }
+        const askR = skillRule(ownRules, "ask", sk.name, parseRule);
+        if (askR) {
+          const card = { tool: "skill", id: c.id, what: "Load the skill " + sk.name, why: ruleAskWhy(askR, modeNow(), "tool"), told: askedWhy("Skill") };
+          const a = canAsk() ? await askOwner(card) : await noOneHooks(card);
+          if (!a) { reply(card.told); continue; }
+          const o = answerOutcome(a);
+          if (o === "stop") return stopNow(reply);
+          if (o === "said") { reply(saidReply(a)); continue; }
+          if (o === "no" || o === "time") { reply(REJECTED); return noEnd(i, "stopped: the owner said no"); }
+        }
+        emit({ type: "result", id: c.id, code: 0, output: "Loaded " + sk.name });
+        reply("Launching skill: " + sk.name + "\n\n" + skillLoaded(sk, String((c.args && c.args.args) || "")));
       } else if (c.name === "rename_chat") {
         if (github) { reply("error: the chat is renamed from gofarther.dev, not from GitHub"); continue; }
         const title = chatTitleOf(scrub(String(c.args.title || "")));
@@ -7210,6 +7318,10 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // PUSHED NOW (2026-11-16, like Claude Code's cloud session, whose git push goes through its GitHub proxy at once):
         // committed and pushed by the machine with the job's git pass; queued for the turn's end only when that cannot be
         // done here (a job started from GitHub, as before, or an older machine).
+        if (!github) {
+          const g = await pushGate(c.id, "push_branch");
+          if (!g.go) { if (g.outcome === "stop") return stopNow(reply); if (g.outcome === "no") { reply(REJECTED); return noEnd(i, "stopped: the owner said no"); } pushRefused(c.id, "push_branch", g, reply); continue; }
+        }
         const now = github ? null : await pushNowStep(c.id, String((c.args && c.args.message) || ""));
         if (now && now.ok) { reply(now.text); continue; }
         pushRequest = true;
@@ -7227,6 +7339,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // OPENED NOW (2026-11-16, like Claude Code's cloud session: its pull request exists mid-turn, and its comments can be
         // read in the same turn): pushed by the machine, then opened by Coder's server with the owner's token (never here).
         if (!github && typeof deps.pushNow === "function" && typeof deps.envApi === "function") {
+          const g = await pushGate(c.id, "pull_request", one.title);
+          if (!g.go) { if (g.outcome === "stop") return stopNow(reply); if (g.outcome === "no") { reply(REJECTED); return noEnd(i, "stopped: the owner said no"); } pushRefused(c.id, "pull_request", g, reply); continue; }
           const p = await pushNowStep(c.id, one.title);
           if (p.ok) {
             let r;
