@@ -1343,3 +1343,60 @@ test("MD03 the variables box: an empty value stays empty and the next line is it
   const many = Array.from({ length: 60 }, (_, i) => "V" + i + "=" + i).join("\n");
   assert.equal(Object.keys(parseEnv(many)).length, 60, "all 60 kept, so the route's 'at most 50 variables' refusal fires");
 });
+
+test("EN-marks (audit L-second-01): with the admin sandbox, the setup's notes are kept beside its kept layer on the chat's disk, so a deploy with the same tools (a new machine version) does not run the setup again, and new tools or a new disk do; without it, the machine's own disk as before", async () => {
+  const { setupMarksDir } = await import("../container/server.mjs");
+  const { layerDir, makeUpper } = await import("../container/coder-sandbox.mjs");
+  const data = await mkdtemp(join(tmpdir(), "coder-data-"));
+  const T1 = "registry.fly.io/gofarther-coder:coder-tools-aaaaaaaaaaaa", T2 = "registry.fly.io/gofarther-coder:coder-tools-bbbbbbbbbbbb";
+  const a = await setupMarksDir({ sandbox: true, data, image: "v1", tools: T1, setupRoot: "/srv/x", gitRoot: "/g" });
+  assert.ok(a.startsWith(join(data, ".coder-admin") + "/"), a);
+  assert.equal(a, layerDir({ data, image: "v1", tools: T1 }));
+  // A new machine version, same tools: the same place, so the notes survive the deploy.
+  assert.equal(await setupMarksDir({ sandbox: true, data, image: "v2", tools: T1, setupRoot: "/srv/x" }), a);
+  await writeFile(join(a, "shop-1.setup-done"), "x");
+  makeUpper({ data, image: "v2", tools: T1 });
+  assert.ok(existsSync(join(a, "shop-1.setup-done")), "kept with the layer");
+  // New tools: the layer is made fresh and its notes go with it, so the setup runs again.
+  const b = await setupMarksDir({ sandbox: true, data, image: "v2", tools: T2 });
+  assert.notEqual(b, a);
+  makeUpper({ data, image: "v2", tools: T2 });
+  assert.ok(!existsSync(join(a, "shop-1.setup-done")), "gone with the old layer");
+  // No admin sandbox (apt on the system disk): the machine's own disk, as before.
+  assert.equal(await setupMarksDir({ sandbox: false, data, setupRoot: "/srv/x", gitRoot: "/g" }), "/srv/x");
+  assert.equal(await setupMarksDir({ sandbox: true, data: null, gitRoot: "/g" }), "/g");
+  // The machine uses it for all three notes.
+  const src = readFileSync(HERE("container/server.mjs"), "utf8");
+  assert.match(src, /const marksRoot = await setupMarksDir\(\{ sandbox, data, image, tools, setupRoot, gitRoot \}\);/);
+  for (const n of ["setup-last", "setup-done", "setup-due"]) assert.match(src, new RegExp("join\\(marksRoot, project \\+ \"\\." + n + "\"\\)"));
+  await rm(data, { recursive: true, force: true });
+});
+
+test("EN-before (audit L-second-02): a setup script that runs in a chat that already has unsaved new files hides only what the setup made from saves, never the chat's own files", async () => {
+  const { createApp, untrackedNow } = await import("../container/server.mjs");
+  const { remote } = await fakeRemote();
+  const gitRoot = await mkdtemp(join(tmpdir(), "coder-git-")), memRoot = await mkdtemp(join(tmpdir(), "coder-mem-")), bgRoot = await mkdtemp(join(tmpdir(), "coder-bgr-"));
+  const root = await mkdtemp(join(tmpdir(), "coder-root-"));
+  const { base, close } = await serve(createApp({ root, send: async () => ({ message: { role: "assistant", content: "Done." } }), remote, gitRoot, memRoot, bgRoot, proxyDir: await mkdtemp(join(tmpdir(), "coder-pxe-")) }));
+  const run = async (project, setup) => {
+    await fetch(base + "/turn", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project, text: "go", messages: [{ role: "user", content: "before" }, { role: "assistant", content: "ok" }], repo: "ana/shop", base: "main", branch: "coder/" + project, token: "", ...(setup ? { setup } : {}) }) });
+    let s; for (let i = 0; i < 200; i++) { s = await (await fetch(base + "/state?project=" + project + "&since=0")).json(); if (s.result) break; await new Promise((ok) => setTimeout(ok, 50)); }
+    await fetch(base + "/claim", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project }) });
+    return s;
+  };
+  try {
+    await run("shop-b1", null);
+    const dir = join(root, "shop-b1");
+    assert.ok(existsSync(join(dir, "README.md")), "the chat's checkout");
+    // The chat's own unsaved new file, then the setup runs (it was due here).
+    await writeFile(join(dir, "report-draft.md"), "draft\n");
+    await writeFile(join(gitRoot, "shop-b1.setup-last"), JSON.stringify({ script: "x", net: { mode: "full", hosts: [], defaults: true } }));
+    await writeFile(join(gitRoot, "shop-b1.setup-due"), String(Date.now()));
+    const s = await run("shop-b1", { script: "cd shop && mkdir -p tooling && echo m > tooling/m.js", network: { mode: "full" } });
+    assert.equal(s.events.filter((e) => e.tool === "setup").length, 1);
+    const ex = await readFile(join(gitRoot, "shop-b1", "info", "exclude"), "utf8");
+    assert.match(ex, /# made by the setup script \(Coder\)\n\/tooling\/$/m);
+    assert.doesNotMatch(ex, /report-draft/);
+    assert.ok((await untrackedNow(dir, gitRoot, remote, root)).includes("report-draft.md"), "still saved with the chat's work");
+  } finally { await close(); for (const d of [gitRoot, memRoot, bgRoot, root]) await rm(d, { recursive: true, force: true }); }
+});

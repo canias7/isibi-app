@@ -49,7 +49,7 @@ import { cleanEnv, PROJECT_ID, PROJECT_ROOT, APT_NAME_RE, DEV_HOME, SETUP_SCRIPT
 import { bashEndBytes } from "./coder-checks.mjs";
 import { startProxy, okHost, firewall, blockedNote } from "./coder-proxy.mjs";
 import { makeRoom, roomArgs, roomGate, roomInternet, gateForApt, NSENTER, SETPRIV } from "./coder-room.mjs";
-import { sandboxBase, makeLower, makeUpper, startSandbox, sandboxArgs, sandboxWhy, SBX_BASE, SBX_RANGE, TOOLS_REF } from "./coder-sandbox.mjs";
+import { sandboxBase, makeLower, makeUpper, layerDir, startSandbox, sandboxArgs, sandboxWhy, SBX_BASE, SBX_RANGE, TOOLS_REF } from "./coder-sandbox.mjs";
 import { pauseAI, endOthers, resumeAI, aiProcesses, markOf, TASK_MARK } from "./coder-freeze.mjs";
 import { globMatch, globAny, expandBraces } from "./coder-globs.mjs";
 import { searchSettingsFrom } from "./coder-search.mjs";
@@ -3519,8 +3519,10 @@ export function unpackWork(dir, buf, { uid = RUN_UID, gid = RUN_GID } = {}) {
 // Each chat's machine is a small VM there, stopped when quiet with its disk
 // kept, like Claude Code's. The chat's files live on that kept disk
 // (CODER_DATA, e.g. /data): its projects, git folders and memory. The marks
-// of the setup script stay on the machine's own disk (SETUP_ROOT), which is
-// fresh after a restart, so the setup (and its installed packages) runs again.
+// of the setup script sit beside what it installed (setupMarksDir): with the
+// admin sandbox, next to its kept layer on that disk, so a deploy with the same
+// tools does not run it again; without it, on the machine's own disk
+// (SETUP_ROOT), fresh after an update, where apt's packages were lost too.
 export const KEEPALIVE_MS = 15000;
 /**
  * THE LIVE VIEW AS A STREAM (live test, 2026-11-10): one request carries the page's pictures for up to SCREEN_STREAM_MS;
@@ -4009,14 +4011,38 @@ export function busyState(map, now = Date.now(), jobs = JOBS) {
 }
 
 /** Stop every background command a turn left running (its whole process group). */
-/** Files that are new right now (not tracked, not ignored) go in the git folder's info/exclude. */
-export async function ignoreNew(dir, gitRoot = GIT_ROOT, remote = DEFAULT_REMOTE, root = PROJECT_ROOT) {
+/**
+ * WHERE A CHAT'S SETUP NOTES (.setup-last, .setup-done, .setup-due) ARE KEPT (audit L-second-01): beside what the setup
+ * installed. With the admin sandbox and a kept disk, root's folder next to the sandbox's kept layer (coder-sandbox.mjs
+ * layerDir: gone with the layer, when the tools change or the disk is new); otherwise the machine's own disk (`setupRoot`,
+ * else the git folder), where apt's packages are and are lost at an update.
+ */
+export async function setupMarksDir({ sandbox = false, data = null, image = "", tools = "", setupRoot = null, gitRoot = GIT_ROOT } = {}) {
+  const there = sandbox && data ? layerDir({ data, image, tools }) : null;
+  if (there) {
+    try { await mkdir(there, { recursive: true, mode: 0o711 }); return there; } catch { /* the machine's own disk, as before */ }
+  }
+  return setupRoot || gitRoot;
+}
+/** What a command approved after the machine restarted answers when the folder it was asked in can no longer be entered (M-g-03). */
+export function cwdGoneSaid(folder, home) {
+  return "Not run: the folder this command was approved in (" + saidDir(folder) + ") no longer exists after the machine restarted. Your commands now start in " + saidDir(home) + "; ask again if it should run there.";
+}
+/** The files in a chat's checkout that are new right now (not tracked, not ignored), as git status names them. */
+export async function untrackedNow(dir, gitRoot = GIT_ROOT, remote = DEFAULT_REMOTE, root = PROJECT_ROOT) {
   const o = { gitDir: gitDirFor(dir, gitRoot), remote, root };
   // Nested repositories are kept out of this status too (the audit, 2026-11-06).
   const k = await keepOut(dir, o);
   if (!k.ok) return [];
   const st = await nestedAway(dir, o.gitDir, () => gitIn(dir, ["status", "--porcelain", "--untracked-files=normal", "--ignore-submodules=all", ...k.pathspec], o), () => ({ code: -1, output: "", stdout: "" }));
-  const fresh = String(st.stdout ?? st.output).split("\n").filter((l) => l.startsWith("?? ")).map((l) => l.slice(3).replace(/^"|"$/g, "")).filter(Boolean);
+  return String(st.stdout ?? st.output).split("\n").filter((l) => l.startsWith("?? ")).map((l) => l.slice(3).replace(/^"|"$/g, "")).filter(Boolean);
+}
+/** Files that are new right now (not tracked, not ignored, and not in `before`) go in the git folder's info/exclude. */
+export async function ignoreNew(dir, gitRoot = GIT_ROOT, remote = DEFAULT_REMOTE, root = PROJECT_ROOT, { before = null } = {}) {
+  // (`before`: the untracked files the chat had before the setup ran (untrackedNow); only paths new since then are the
+  // setup's, so a chat's own unsaved new files are never hidden from its saves: audit L-second-02.)
+  const had = Array.isArray(before) ? new Set(before) : null;
+  const fresh = (await untrackedNow(dir, gitRoot, remote, root)).filter((f) => !had || !had.has(f));
   if (!fresh.length) return [];
   const file = join(gitDirFor(dir, gitRoot), "info", "exclude");
   await mkdir(dirname(file), { recursive: true });
@@ -4814,6 +4840,11 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     if (!keepHome && askedCwd && askedCwd !== home0 && Array.isArray(body.messages) && body.messages.length) {
       const ok = await cwdInside(askedCwd, workRoots, { seen: t.seen });
       if (ok) t.cwd = ok; else t.cwdWas = askedCwd;
+      // A COMMAND APPROVED AFTER A RESTART RUNS WHERE IT WAS ASKED, OR NOT AT ALL (Claude Code's changelog: "Fixed a shell
+      // command approved after a self-hosted runner or cloud session restart running in the session's start folder, not the
+      // folder it was asked in; if that folder can't be entered, it is not run"): the paused card's own command is answered
+      // "Not run" instead of running in the project's folder (audit M-g-03).
+      if (!ok && takeUp && takeUp.call && (takeUp.call.name === "bash" || takeUp.call.name === "powershell")) t.cwdGoneFor = askedCwd;
     }
     // ROOT IS DONE PREPARING: the background commands of before go on.
     if (t.resume) { t.resume(); t.resume = null; }
@@ -4832,8 +4863,12 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     // messages, yet Coder kept saying the broken line was still there). The
     // last setup this chat's machine saw is kept, and a change is told to Coder
     // in the message itself, so it stays in the chat's history.
-    // The setup's marks sit where the installed packages do (Fly.io: the machine's own disk, not the chat's kept disk), so a fresh machine runs the setup again.
-    const lastFile = join(setupRoot || gitRoot, project + ".setup-last");
+    // The setup's marks sit where the installed packages do (audit L-second-01): with the admin sandbox, beside its kept layer
+    // on the chat's disk (setupMarksDir), so a deploy with the same tools does not run the setup again (Claude Code's wake with
+    // files kept) and new tools or a new disk do (its rebuilt machine); without it, on the machine's own disk, where apt's
+    // packages are, so a fresh machine runs the setup again.
+    const marksRoot = await setupMarksDir({ sandbox, data, image, tools, setupRoot, gitRoot });
+    const lastFile = join(marksRoot, project + ".setup-last");
     let lastEnv = null; try { lastEnv = JSON.parse(await readFile(lastFile, "utf8")); } catch { lastEnv = null; }
     const netNow = { mode: net.mode, hosts: net.hosts, defaults: net.defaults };
     // THE SETUP SCRIPT RUNS ONCE ON A MACHINE, AS CLAUDE CODE'S (2026-11-14, the owner: "Fix base on Claude Code docs,
@@ -4845,8 +4880,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     // run it, or start from the environment's saved copy, which is made again when the script or the network changes and
     // after about seven days (takeCopy, src/coder-fly.mjs). One that could not run when it was due (no admin sandbox) is
     // still due (".setup-due").
-    const mark = join(setupRoot || gitRoot, project + ".setup-done"); // root-owned folder: never a link the AI made
-    const dueFile = join(setupRoot || gitRoot, project + ".setup-due");
+    const mark = join(marksRoot, project + ".setup-done"); // root-owned folder: never a link the AI made
+    const dueFile = join(marksRoot, project + ".setup-due");
     // What ran here: "<setupSha> <when> <ok|failed|copied> <the script's own sha>" (a mark from before: its first two).
     const [doneSha = "", , doneHow = "", doneScript = ""] = (await readFile(mark, "utf8").catch(() => "")).trim().split(" ");
     const scriptSha = createHash("sha256").update(script).digest("hex");
@@ -4881,6 +4916,10 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         const userPart = script;
         // (What is beside the checkouts before it runs: what is new after it, the setup made. noteSetupMade.)
         const rootBefore = fresh && body.repo ? await readdir(root).catch(() => null) : null;
+        // (And each repository's untracked files now: the chat's own, never marked as the setup's. L-second-02.)
+        const setupDirs = [dir, ...extras.map((x) => x.dir)];
+        const untrackedBefore = new Map();
+        for (const d of setupDirs) untrackedBefore.set(d, await untrackedNow(d, gitRoot, remote, root).catch(() => null));
         const t0 = Date.now();
         let r = { code: 0, output: "" };
         // IN THE ADMIN SANDBOX (like Claude Code, where the whole script runs as admin): all of it, as
@@ -4901,7 +4940,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         // `npm ci` would have committed node_modules): new files from the setup go
         // in the git folder's own ignore list (root's folder, not the repo). (Each of the chat's repositories': the script starts
         // above them all now, E7.)
-        for (const d of [dir, ...extras.map((x) => x.dir)]) await ignoreNew(d, gitRoot, remote, root);
+        for (const d of setupDirs) await ignoreNew(d, gitRoot, remote, root, { before: untrackedBefore.get(d) });
         // WHAT IT MADE, NOTED FOR THE ENVIRONMENT'S SAVED COPY (2026-11-18): a chat that starts from this disk's copy keeps it,
         // and nothing of this chat's own (takeCopy, repoFromCopy).
         if (rootBefore) await noteSetupMade(dir, rootBefore, { gitRoot, remote, root }).catch(() => null);
@@ -5299,6 +5338,12 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
           // its folder was reset, as Claude Code runs a hook from a fallback folder and leaves the session's as it is. Bash
           // docs pass 9.)
           let hookHome = false;
+          // (The taken-up card's command, whose folder could not be entered after the machine restarted: not run. Its call is the
+          // first of Grok's own commands in the job taken up again; a hook or a tool's own step never takes the mark.)
+          if (t.cwdGoneFor && here && !tool && !hook) {
+            const was = t.cwdGoneFor; t.cwdGoneFor = "";
+            return { code: 1, notStarted: true, output: cwdGoneSaid(was, home0) };
+          }
           if (here && t.cwd !== home0) {
             const ok = await cwdInside(t.cwd, workRoots, { seen: t.seen });
             if (ok) t.cwd = ok; else if (hook) hookHome = true;

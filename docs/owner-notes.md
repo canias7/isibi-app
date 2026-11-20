@@ -4,6 +4,15 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-20: Bigger Claude Code fixes, part 8
+
+- **A command you approve after the machine restarted no longer runs in the wrong folder:** if Coder had moved into a folder (say `sub`), asked you about a command there, and the machine restarted before you said Yes, the command used to run in the project's top folder instead. Now, like Claude Code, it runs in the folder it was asked in, and if that folder is gone it is not run at all; Coder is told why and can ask again.
+- **A deploy no longer makes every chat run its setup script again:** the setup's "already ran" notes used to sit on the machine's system disk, which a deploy replaces, so every old chat ran its setup again at its next message. They now sit next to what the setup installed on the chat's own disk, so they last exactly as long as the installed tools: same tools after a deploy, no re-run (Claude Code's "wake with files kept"); new tools or a new disk, it runs again (Claude Code's "rebuilt machine"). One last re-run per chat can still happen right after this change is deployed, because the old notes were already on the replaced disk.
+- **A setup script can no longer hide a chat's own unsaved files:** when the setup ran in a chat that already had new, unsaved files, those files were marked as "made by the setup" and left out of every save, push and pull request. Now Coder notes which new files were already there before the setup runs and leaves out only what the setup itself made.
+- **Waiting for your answer: named answer styles.** Claude Code lets you pick a ready-made answer style (Concise, Explanatory, Learning or Proactive) with `/output-style`, and a repository can add its own styles. Coder only remembers styles you ask for in words ("always keep it short"). Should Coder add the ready-made styles and `/output-style`, and follow a repository's own style files, while keeping your saved styles?
+- **Waiting for your answer: desktop app updates.** Claude's desktop app updates itself. Making Coder's do the same needs a newer Electron and an update library (a big download), and on Mac it only works if the app is signed with an Apple Developer account ($99 a year). Do you want that, or Windows-only self-updates with a "new version available" link on Mac for now?
+- No change to how the page looks. Full test suite passes, apart from the two older stop tests (IN4, IN9) that already failed before. Not deployed or merged; not yet tried live in the browser.
+
 ## 2026-11-20: Bigger Claude Code fixes, part 7
 
 - **A repository can change or hide Coder's credit line:** like Claude Code, a repository's `.claude/settings.json` can now say `"attribution": false` (no "Coder-Chat" line on commits and no "Made with Coder" line on pull requests), give its own commit or pull-request text, or keep the lines but leave out the chat link. The older `includeCoAuthoredBy: false` works too. With none of these set, nothing changes: your chat link stays on, as you chose.

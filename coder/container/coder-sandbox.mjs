@@ -138,6 +138,21 @@ export const TOOLS_REF = /^registry\.fly\.io\/[a-z0-9][a-z0-9-]*[a-z0-9]:coder-t
  * version: a layer kept from another version loses what it had there. Answers
  * { upper, work }, or null.
  */
+/** The kept layer's name: one per tools image (`tools`), else per Coder version (`image`). */
+export function layerTag({ image, tools = "" } = {}) {
+  const key = TOOLS_REF.test(String(tools || "")) ? String(tools) : String(image || "image");
+  return createHash("sha256").update(key).digest("hex").slice(0, 16);
+}
+/**
+ * WHERE THE SETUP SCRIPT'S NOTES LIVE WITH THE ADMIN SANDBOX (audit L-second-01): root's own folder beside the kept layer on
+ * the chat's disk (<data>/.coder-admin/<tag>), so they last exactly as long as what the setup installed: a deploy with the
+ * same tools keeps them (a wake with files kept, as Claude Code's), new tools or a new disk lose them (a rebuilt machine).
+ * Null without a kept disk.
+ */
+export function layerDir({ data, image, tools = "" } = {}) {
+  if (typeof data !== "string" || !/^\/[\w-]+(\/[\w-]+)*$/.test(data)) return null;
+  return join(data, ".coder-admin", layerTag({ image, tools }));
+}
 export function makeUpper({ data, image, tools = "" } = {}) {
   if (typeof data !== "string" || !/^\/[\w-]+(\/[\w-]+)*$/.test(data)) return null;
   try {
@@ -145,8 +160,7 @@ export function makeUpper({ data, image, tools = "" } = {}) {
     mkdirSync(top, { recursive: true, mode: 0o711 });
     chownSync(top, 0, 0);
     chmodSync(top, 0o711);
-    const key = TOOLS_REF.test(String(tools || "")) ? String(tools) : String(image || "image");
-    const tag = createHash("sha256").update(key).digest("hex").slice(0, 16);
+    const tag = layerTag({ image, tools });
     for (const old of readdirSync(top)) if (old !== tag) rmSync(join(top, old), { recursive: true, force: true });
     const here = join(top, tag);
     mkdirSync(here, { recursive: true, mode: 0o711 });

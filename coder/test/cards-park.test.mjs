@@ -648,3 +648,52 @@ test("CP-held (L-machine-09): a turn taken up again whose round then ends early 
     assert.match(all, /background command/i, "the news is in the saved conversation after " + answer.choice);
   }
 });
+
+test("CP-cwd (audit M-g-03): a command approved after the machine restarted runs in the folder it was asked in; when that folder can no longer be entered it is not run, as Claude Code's (\"if that folder can't be entered, it is not run\"), and its result names the missing folder", async () => {
+  const http = await import("node:http");
+  const { mkdtemp, mkdir, rm } = await import("node:fs/promises");
+  const { existsSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { createApp } = await import("../container/server.mjs");
+  const root = await mkdtemp(join(tmpdir(), "coder-root-")), mem = await mkdtemp(join(tmpdir(), "coder-mem-")), git = await mkdtemp(join(tmpdir(), "coder-git-")), bgr = await mkdtemp(join(tmpdir(), "coder-bgr-"));
+  let n = 0;
+  const steps = [say("I'll write it.", [call("bash", { command: "node -e \"require('fs').writeFileSync('made.txt','hi')\"", description: "Write" }, "w1")]), say("Done.")];
+  const seen = [];
+  const srv = http.createServer(createApp({ root, memRoot: mem, gitRoot: git, bgRoot: bgr, parkMs: 300, send: async (req) => { seen.push(req); return steps[Math.min(n++, steps.length - 1)]; } }));
+  await new Promise((ok) => srv.listen(0, "127.0.0.1", ok));
+  const base = "http://127.0.0.1:" + srv.address().port;
+  const post = (p, b) => fetch(base + p, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(b) }).then(async (r) => ({ status: r.status, data: await r.json() }));
+  const waitFor = async (project, f) => { for (let i = 0; i < 400; i++) { const st = await fetch(base + "/state?project=" + project + "&since=0").then((r) => r.json()); const v = f(st); if (v) return v; await new Promise((ok) => setTimeout(ok, 25)); } return null; };
+  const parkOne = async (project) => {
+    n = 0;
+    await post("/turn", { project, text: "write it", messages: [], mode: "acceptEdits", rules: { allow: [] } });
+    const st = await waitFor(project, (s) => s.result && s);
+    assert.equal(st.result.status, "parked");
+    await post("/claim", { project });
+    return st;
+  };
+  try {
+    for (const keep of [false, true]) {
+      const project = keep ? "shop-cwk" : "shop-cwg";
+      const st = await parkOne(project);
+      const top = join(root, project), sub = join(top, "sub");
+      await mkdir(sub, { recursive: true });
+      // The machine restarts: the folder the card was asked in is kept, or it is gone.
+      if (!keep) await rm(sub, { recursive: true, force: true });
+      seen.length = 0;
+      await post("/turn", { project, text: "", shown: "", messages: st.result.messages, cwd: sub, mode: "acceptEdits", rules: { allow: [] }, resume: { ...st.result.parked, answer: { choice: "yes", comment: "" } } });
+      const done = await waitFor(project, (s) => s.result && s);
+      assert.equal(done.result.status, "done");
+      const res = seen[0].messages.find((m) => m.role === "tool" && m.tool_call_id === "w1").content;
+      if (keep) {
+        assert.ok(existsSync(join(sub, "made.txt")), "run in the folder it was asked in");
+        assert.ok(!existsSync(join(top, "made.txt")));
+      } else {
+        assert.ok(!existsSync(join(top, "made.txt")), "nothing run in the project's top folder");
+        assert.match(res, /Not run: the folder this command was approved in \(.*\/sub\) no longer exists after the machine restarted\. Your commands now start in /);
+      }
+      await post("/claim", { project });
+    }
+  } finally { await new Promise((ok) => srv.close(ok)); }
+});

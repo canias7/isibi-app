@@ -352,8 +352,8 @@ test("CD128 the machine on Fly.io: its answers say they are its own; asked for i
   for (const p of Object.values(d)) assert.equal((await stat(p)).mode & 0o777, 0o755);
   for (const bad of [undefined, "", "data", "/data/../etc", "/da ta"]) assert.deepEqual(dataDirs(bad), {}, String(bad));
   const server = readFileSync(new URL("../container/server.mjs", import.meta.url), "utf8");
-  assert.match(server, /const mark = join\(setupRoot \|\| gitRoot, project \+ "\.setup-done"\);/);
-  assert.match(server, /const lastFile = join\(setupRoot \|\| gitRoot, project \+ "\.setup-last"\);/);
+  assert.match(server, /const mark = join\(marksRoot, project \+ "\.setup-done"\);/);
+  assert.match(server, /const lastFile = join\(marksRoot, project \+ "\.setup-last"\);/);
   assert.match(readFileSync(new URL("../container/Dockerfile", import.meta.url), "utf8"), /mkdir -p \/srv\/coder-git \/srv\/coder-memory \/srv\/coder-bg \/srv\/coder-setup/);
 });
 
