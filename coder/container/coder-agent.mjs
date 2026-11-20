@@ -632,7 +632,30 @@ export function cardLines(command) {
     if (x.length <= 300) { shown.push(x); continue; }
     for (let k = 0; k < x.length; k += 296) shown.push((k ? "… " : "") + x.slice(k, k + 296));
   }
-  return { lines: shown.slice(0, 40), ...(shown.length > 40 ? { more: shown.length - 40 } : {}) };
+  // (ALL OF IT, up to a generous cap, audit I31: Claude Code's prompt scrolls to show everything; past the cap the card says
+  // how much is left out and offers no "don't ask again", as Claude Code withholds it when it cannot show everything.)
+  let n = 0, bytes = 0;
+  while (n < shown.length && n < CARD_LINES_MAX && bytes + shown[n].length <= CARD_BYTES_MAX) bytes += shown[n++].length + 1;
+  return { lines: shown.slice(0, n), ...(shown.length > n ? { more: shown.length - n } : {}) };
+}
+/** How much of a command or file change a permission card carries: every line up to these caps. */
+export const CARD_LINES_MAX = 2000, CARD_BYTES_MAX = 200_000;
+/**
+ * What a card shows of a write's or an edit's change: the lines it takes out ("-") then the ones it puts in ("+"), each
+ * list up to the caps on its own, so the new lines always show. `cut`: something was left out (a list past its cap, or a
+ * line over 2,000 characters), so the card offers no "don't ask again".
+ */
+export function changeLines(kind, gone, come) {
+  let cut = false, more = 0;
+  const one = (l) => { const x = scrub(l); if (x.length > 2000) { cut = true; return x.slice(0, 2000) + "\u2026"; } return x; };
+  const take = (list, mark) => {
+    const out = []; let bytes = 0;
+    for (const l of list) { const x = mark + one(l); if (out.length >= CARD_LINES_MAX / 2 || bytes + x.length > CARD_BYTES_MAX / 2) break; out.push(x); bytes += x.length + 1; }
+    if (out.length < list.length) { cut = true; more += list.length - out.length; }
+    return out;
+  };
+  const lines = [...take(gone, "-"), ...take(come, "+")];
+  return { kind, add: come.length, del: gone.length, lines, ...(more ? { more } : {}), ...(cut ? { cut: true } : {}) };
 }
 /**
  * WHAT CLAUDE CODE SAYS WHEN ITS rm CHECK STOPS A COMMAND, away from a terminal (Claude Code 2.1.319's own words, when it
@@ -1404,6 +1427,20 @@ export const CODER_TOOLS = Object.freeze([
     parameters: { type: "object", properties: { title: { type: "string" } }, required: ["title"] },
   } },
 ]);
+/** A chat's title from an approved plan (Claude Code titles the session after the plan): its first Markdown heading, else its
+ * first non-empty line, as plain text on one line, at most 80 characters; "" when there is none. */
+export function planTitleOf(plan) {
+  const lines = String(plan || "").replace(/\r\n?/g, "\n").split("\n").map((l) => l.trim()).filter(Boolean);
+  // (A section heading such as "Context" or "Steps", the headings Claude Code's own plan template uses, names no plan: the
+  // first line of words is taken instead.)
+  const generic = /^#{1,6}\s+(?:the\s+)?(?:plan|implementation plan|context|background|summary|overview|goals?|steps|approach|changes|files|verification|testing|tests|notes|risks|next steps)\s*:?\s*$/i;
+  const head = lines.find((l) => /^#{1,6}\s+\S/.test(l) && !generic.test(l));
+  let t = head || lines.find((l) => !/^#{1,6}\s/.test(l) && !/^(?:[-*_]\s*){3,}$/.test(l) && !/^```/.test(l)) || "";
+  t = t.replace(/^#{1,6}\s+/, "").replace(/^(?:[-*+]\s+|\d+[.)]\s+|>\s*)/, "").replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1").replace(/[*_`~]+/g, "").replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim();
+  t = t.replace(/^plan:\s*/i, "").trim();
+  if (t.length > 80) t = t.slice(0, 79).replace(/\s+\S*$/, "") + "\u2026";
+  return t;
+}
 /** A chat's title as rename_chat takes it: plain text on one line, 1-80 characters, or "" when it is not one. */
 export function chatTitleOf(v) {
   const t = String(typeof v === "string" ? v : "").replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim();
@@ -2181,7 +2218,10 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   // (A rule that looks like it holds a secret, such as a key or a password in the command, lasts for this chat only and is not
   // saved with the repository's rules: Claude Code 2.1.323, "an allow rule that looks like it holds a secret ... lasts for the
   // session only and isn't saved".)
-  const addRule = (r) => { if (typeof r === "string" && parseRule(r) && !ownRules.allow.includes(r)) { ownRules.allow.push(r); if (!ruleHoldsSecret(r)) rulesAdded.push(r); else if (!hookSession.allow.includes(r) && hookSession.allow.length < 50) hookSession.allow.push(r); } };
+  // (A rule kept as the owner's is also sent as a step, {type: "rule"}, so Coder's Worker stores it at once from the live save,
+  // not only when the job ends: audit M-g-12, Claude Code's "rules added at a tool prompt ... looking saved when the settings
+  // file couldn't be written".)
+  const addRule = (r) => { if (typeof r === "string" && parseRule(r) && !ownRules.allow.includes(r)) { ownRules.allow.push(r); if (!ruleHoldsSecret(r)) { rulesAdded.push(r); if (!github) emit({ type: "rule", rule: r }); } else if (!hookSession.allow.includes(r) && hookSession.allow.length < 50) hookSession.allow.push(r); } };
   // RULES A PERMISSIONREQUEST HOOK ADDS (Bash docs pass 9): for the "session", the chat's, which Coder's Worker keeps for its
   // next messages too (Claude Code: "session: in-memory only, cleared when the session ends"; Coder's had lasted one message);
   // for a settings file, the repository's saved rules, as "don't ask again" ones are.
@@ -2258,10 +2298,41 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
    * A PERMISSIONREQUEST HOOK'S updatedPermissions (Bash docs pass 8; Claude Code's "permission update entries"): addRules,
    * replaceRules and removeRules on the job's rules (an allow rule whose destination is a settings file kept as the owner's
    * "don't ask again" is), setMode ("default" and "manual" are Coder's Accept edits; dontAsk and bypassPermissions do not
-   * exist in Coder). Working folders are not changed by one.
+   * exist in Coder). addDirectories and removeDirectories (Claude Code's "Adds working directories" / "Removes working
+   * directories") change this job's working folders through Coder's machine (deps.addWorkdirs / deps.removeWorkdirs, which
+   * check them as the owner's extra folders are checked); they take effect before Coder's next step (settleDirs). Never the
+   * project folder or the chat's other repositories. Every destination changes this job only.
    */
+  const dirsPending = [];
+  const settleDirs = async () => { while (dirsPending.length) { const p = dirsPending.shift(); try { await p; } catch { /* said in its note */ } } };
+  const changeDirs = (u) => {
+    const add = u.type === "addDirectories";
+    const asked = (Array.isArray(u.directories) ? u.directories : []).filter((d) => typeof d === "string" && d.trim() && d.length <= 400).map((d) => d.trim()).slice(0, 20);
+    if (!asked.length) return;
+    const fn = add ? deps.addWorkdirs : deps.removeWorkdirs;
+    if (typeof fn !== "function") { emit({ type: "note", text: "A PermissionRequest hook asked to " + (add ? "add" : "remove") + " working folders (" + asked.join(", ").slice(0, 300) + "), which Coder could not do here.", hook: "PermissionRequest" }); return; }
+    dirsPending.push((async () => {
+      let r = {};
+      try { r = (await fn(asked)) || {}; } catch { r = {}; }
+      const done = (Array.isArray(r.dirs) ? r.dirs : []).filter((d) => typeof d === "string" && d.startsWith("/"));
+      for (const d of done) {
+        const k = workdirs.indexOf(d);
+        if (add && k < 0) workdirs.push(d);
+        if (!add && k > 0) workdirs.splice(k, 1);
+      }
+      const kept = Array.isArray(r.kept) ? r.kept.filter((d) => typeof d === "string") : [];
+      const missing = Array.isArray(r.missing) ? r.missing.filter((d) => typeof d === "string") : [];
+      const parts = [];
+      if (done.length) parts.push("A PermissionRequest hook " + (add ? "added" : "removed") + " working folders: " + done.join(", ").slice(0, 300) + ".");
+      if (kept.length) parts.push("Not removed (the project folder and the chat's repositories stay): " + kept.join(", ").slice(0, 300) + ".");
+      if (missing.length) parts.push(missing.length === 1 ? "Not added: " + missing[0].slice(0, 200) + " is not a folder where Coder's commands run." : "Not added: " + missing.join(", ").slice(0, 300) + " are not folders where Coder's commands run.");
+      if (!parts.length) parts.push("A PermissionRequest hook asked to " + (add ? "add" : "remove") + " working folders (" + asked.join(", ").slice(0, 300) + "); nothing changed.");
+      emit({ type: "note", text: parts.join(" "), hook: "PermissionRequest" });
+    })());
+  };
   const applyUpdates = (list) => {
     for (const u of Array.isArray(list) ? list : []) {
+      if (u && (u.type === "addDirectories" || u.type === "removeDirectories")) { changeDirs(u); continue; }
       if (u.type === "setMode") { const m = String(u.mode || ""); const to = m === "default" || m === "manual" ? "acceptEdits" : MODES.includes(m) ? m : ""; if (to && to !== modeNow()) setMode(to, "hook"); continue; }
       if (u.type !== "addRules" && u.type !== "replaceRules" && u.type !== "removeRules") continue;
       const kind = ["allow", "deny", "ask"].includes(u.behavior) ? u.behavior : "";
@@ -2721,6 +2792,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   // WHAT HOOKS SET FOR THE CHAT: its title (sessionTitle, from SessionStart and UserPromptSubmit), and the files FileChanged
   // hooks watch (watchPaths, from SessionStart, CwdChanged and FileChanged; kept by Coder's machine between messages).
   let sessionTitle = "";
+  let planTitle = ""; // (the title an approved plan gave an unnamed chat)
   // session_title for SessionStart / UserPromptSubmit hooks: the chat's custom name, when it has one (Claude Code's).
   const titleOn = () => { const t = sessionTitle || String(customTitle || "").trim(); return t ? { session_title: t } : {}; };
   const kept0 = deps.hookWatch && typeof deps.hookWatch.get === "function" ? deps.hookWatch.get() : null;
@@ -3911,7 +3983,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   let jobOver = false;
   // (After Claude Code's auto-compact, the Worker drops the Rewind marks of what was summarized: every one before this job's
   // end, as the whole conversation was.)
-  const end = (status, extra = {}) => ((jobOver = true), { status, messages: convo.map(saved), rounds, usage, summary: "", ...(autoCompacted ? { compact: { done: true, auto: true, from: 0, to: (Array.isArray(messages) ? messages.length : 0) + 1 } } : {}), ...(approvalRequest ? { approvalRequest } : {}), ...(signinRequest ? { signinRequest } : {}), ...(cardRequest ? { cardRequest } : {}), ...(handoffRequest ? { handoffRequest } : {}), ...(keyRequest ? { keyRequest } : {}), ...(scheduleRemovals.length ? { scheduleRemovals } : {}), ...(scheduleAdds.length ? { scheduleAdds } : {}), ...(scheduleEdits.length ? { scheduleEdits } : {}), ...(schedulePauses.length ? { schedulePauses } : {}), ...(signedIn.length ? { signedIn } : {}), ...(webhookAdds.length ? { webhookAdds } : {}), ...(webhookRemovals.length ? { webhookRemovals } : {}), ...(pageRequests.length ? { pageRequests } : {}), edited: [...edited], ...(editedCut ? { editedCut: true } : {}), ...(prRequest ? { prRequest } : {}), ...(pushRequest ? { push: true } : {}), ...(midPushes.length ? { midPushes } : {}), ...(midNotes.length ? { midNotes } : {}), ...(undoRequest ? { undoRequest } : {}), ...(reviewPost ? { reviewPost } : {}), ...(prExtra.length ? { prExtra } : {}), ...(autofixRequest ? { autofixRequest } : {}), ...(reviewReplies.length ? { reviewReplies } : {}), ...(github ? {} : { mode: modeNow() }), ...(rulesAdded.length ? { rulesAdded } : {}), ...(hadSession || ["allow", "ask", "deny"].some((k) => hookSession[k].length) ? { sessionRules: { allow: hookSession.lost ? [] : hookSession.allow, ask: hookSession.ask, deny: hookSession.deny } } : {}), ...(Object.values(hookSaved).some((l) => l.length) ? { rulesSaved: hookSaved } : {}), ...(sessionTitle ? { sessionTitle } : {}), ...extra });
+  const end = (status, extra = {}) => ((jobOver = true), { status, messages: convo.map(saved), rounds, usage, summary: "", ...(autoCompacted ? { compact: { done: true, auto: true, from: 0, to: (Array.isArray(messages) ? messages.length : 0) + 1 } } : {}), ...(approvalRequest ? { approvalRequest } : {}), ...(signinRequest ? { signinRequest } : {}), ...(cardRequest ? { cardRequest } : {}), ...(handoffRequest ? { handoffRequest } : {}), ...(keyRequest ? { keyRequest } : {}), ...(scheduleRemovals.length ? { scheduleRemovals } : {}), ...(scheduleAdds.length ? { scheduleAdds } : {}), ...(scheduleEdits.length ? { scheduleEdits } : {}), ...(schedulePauses.length ? { schedulePauses } : {}), ...(signedIn.length ? { signedIn } : {}), ...(webhookAdds.length ? { webhookAdds } : {}), ...(webhookRemovals.length ? { webhookRemovals } : {}), ...(pageRequests.length ? { pageRequests } : {}), edited: [...edited], ...(editedCut ? { editedCut: true } : {}), ...(prRequest ? { prRequest } : {}), ...(pushRequest ? { push: true } : {}), ...(midPushes.length ? { midPushes } : {}), ...(midNotes.length ? { midNotes } : {}), ...(undoRequest ? { undoRequest } : {}), ...(reviewPost ? { reviewPost } : {}), ...(prExtra.length ? { prExtra } : {}), ...(autofixRequest ? { autofixRequest } : {}), ...(reviewReplies.length ? { reviewReplies } : {}), ...(github ? {} : { mode: modeNow() }), ...(rulesAdded.length ? { rulesAdded } : {}), ...(hadSession || ["allow", "ask", "deny"].some((k) => hookSession[k].length) ? { sessionRules: { allow: hookSession.lost ? [] : hookSession.allow, ask: hookSession.ask, deny: hookSession.deny } } : {}), ...(Object.values(hookSaved).some((l) => l.length) ? { rulesSaved: hookSaved } : {}), ...(sessionTitle ? { sessionTitle } : {}), ...(planTitle && !sessionTitle ? { planTitle } : {}), ...extra });
   // A ROUND THAT ENDS EARLY (round 5; the owner, 2026-11-14: "Yes pls"; coder-parallel.mjs). Claude Code 2.1.325, in its cloud
   // sessions: the owner's No without words is its deny with "interrupt", which aborts the turn; their Stop aborts it as
   // "remote-cancel". Its executor keeps what each call of the reply had returned by then, gives a call still running its
@@ -4932,6 +5004,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       refusedPrev = (calls[i] && calls[i].id) || "";
       if (hookEnd) { for (const rest of calls.slice(i)) convo.push({ role: "tool", tool_call_id: rest.id, content: "not run: a hook ended this turn" }); return endByHook(hookEnd); }
       // (Coder's group that starts with this call: its calls that need nothing but to run start now, coder-parallel.mjs.)
+      // (Working folders a PermissionRequest hook added or removed: in place before the next step.)
+      if (dirsPending.length) await settleDirs();
       if (!offered && !closing && i >= groupTo) await startGroup(i);
       const c = calls[i];
       // (The call taken up again after its job paused: as it was when its card showed, in the mode its card was shown in,
@@ -5388,7 +5462,9 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         let approval = null;
         // (Or answered already by its PermissionRequest hooks where no one can answer: `hookAnswer`, above.)
         if (hookAnswer || rmWhy || ask || dec.verdict === "ask" || limitCard) {
-          const once = !!(rmWhy || ask || dec.byRule);
+          // (A command too long for the card to show whole gets only a one-time Yes, as Claude Code: "Claude Code offers those
+          // options only when the prompt can show you everything they would allow".)
+          const once = !!(rmWhy || ask || dec.byRule || cardLines(command).more);
           const suggested = limitCard ? limitCard.suggest : dec.suggest;
           // (`told`: Claude Code's message for a rule's or a hook's ask, or at the limit of blocks, where it differs from the card's
           // line: round 6.)
@@ -6651,9 +6727,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         const changeShown = () => {
           const rows = (x) => { const l = typeof x === "string" && x !== "" ? x.split(/\r?\n/) : []; if (l.length > 1 && l[l.length - 1] === "") l.pop(); return l; };
           const gone = c.name === "edit" ? rows(args.old_string) : [], come = rows(c.name === "edit" ? args.new_string : args.content);
-          const cut = (l) => { const x = scrub(l); return x.length > 300 ? x.slice(0, 300) + "…" : x; };
-          const all = [...gone.map((l) => "-" + cut(l)), ...come.map((l) => "+" + cut(l))];
-          return { kind: c.name === "edit" ? "update" : "create", add: come.length, del: gone.length, lines: all.slice(0, 40), ...(all.length > 40 ? { more: all.length - 40 } : {}) };
+          return changeLines(c.name === "edit" ? "update" : "create", gone, come);
         };
         if (why && !ownerAllowed(convo, guarded) && (github || !canAsk()) && !emailNo) {
           const shownPath = scrub(visibleChars(guarded)).slice(0, 300);
@@ -6966,6 +7040,9 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           // (What Coder and the hooks get of it, with the owner's values hidden, as before.)
           const said = scrub(String(txt).replace(/\r\n?/g, "\n"));
           toolFacts.set(c.id, { plan: file && !edited && fromFile === null ? null : said, isAgent: false, ...(file && !unsaved ? { filePath: savedAt } : {}), ...(file && edited ? { planWasEdited: true } : {}) });
+          // THE CHAT NAMED AFTER ITS PLAN (Claude Code: "Accepting a plan also gives the session a generated title based on the
+          // plan, unless you've already named the session"; 2026-11-20): its first heading, else its first line, no model call.
+          if (!github && !sessionTitle && !String(customTitle || "").trim()) { const pt = planTitleOf(said); if (pt) { planTitle = pt; emit({ type: "renamed", text: pt, by: "plan" }); } }
           return planApproved(said, { file: file && !unsaved ? savedAt : "", edited: !!file && edited, unsaved });
         };
         // (A hook's approval goes back to the mode Coder entered Plan from in this job, Claude Code's prePlanMode; else to the

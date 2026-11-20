@@ -625,9 +625,16 @@ export function askedFor(meta) {
 }
 /** The qids of queued messages a job's steps show it read. */
 export const readQidsOf = (steps) => (Array.isArray(steps) ? steps : []).filter((e) => e && e.type === "user" && e.queued && e.qid).map((e) => String(e.qid));
+/** What the chat says when a rule taken on a card could not be stored (audit M-g-12). */
+export const RULE_NOT_SAVED = "That rule could not be saved, so Coder will ask again next time.";
+/** The rules a job's steps say were taken on a card ("Yes, and don't ask again"), as stored (at most 20). */
+export const ruleStepsOf = (events) => [...new Set((Array.isArray(events) ? events : []).filter((e) => e && e.type === "rule" && typeof e.rule === "string" && e.rule.length <= 2000).map((e) => e.rule))].slice(0, 20);
 async function endLostJob(env, bucket, uid, meta, note) {
   const id = meta.id;
   const kept = await readLive(env, bucket, uid, id, meta.turn).catch(() => ({ events: [], messages: null }));
+  // (Rules taken on a card in the lost job: stored, in case the live save could not.)
+  const lostRules = ruleStepsOf(kept.events);
+  if (lostRules.length) await changeRules(bucket, uid, meta.repo, "allow", lostRules, { add: true }).catch(() => {});
   const steps = hideIn(kept.events, kept.events.length ? await hiddenValues(env, bucket, uid, meta).catch(() => []) : []);
   const ev = { at: Date.now(), lost: true, ...note };
   const old = await getJson(bucket, keyOf(uid, id, "events.json"), []);
@@ -2237,6 +2244,12 @@ export async function handleCoder(request, env, ctx, deps) {
         if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(saving); else await saving;
         // (No note in the chat about it: owner, 2026-11-16, Claude Code shows none.)
       }
+      // THE RULES "Yes, and don't ask again" ADDED (stored already from the live save as each was taken; again here as a backup):
+      // one that cannot be stored is said in the chat, not shown as saved (audit M-g-12).
+      if (Array.isArray(s.result.rulesAdded) && s.result.rulesAdded.length) {
+        const stored = await changeRules(bucket, uid, meta.repo, "allow", s.result.rulesAdded.slice(0, 20), { add: true }).then(() => true, () => false);
+        if (!stored) fresh.push({ at: Date.now(), type: "note", warn: true, text: RULE_NOT_SAVED });
+      }
       // THE OWNER'S VARIABLE VALUES are never kept in the chat (nor posted to GitHub from it).
       hideIn(fresh, hidden);
       // THE OWNER'S /compact, MADE: Rewind's marks inside what was summarized go, as before (marksAfter).
@@ -2272,14 +2285,16 @@ export async function handleCoder(request, env, ctx, deps) {
       // with enter_plan_mode, Claude Code's EnterPlanMode: saved as the owner's mode menu saves it. 2026-11-14.)
       const switched = fresh.filter((e) => e && e.type === "mode" && MODES.includes(e.mode) && (e.by === "card" || e.by === "plan" || e.by === "autoOff" || e.by === "settings" || e.by === "hook" || e.by === "enterPlan")).at(-1);
       const modeNow = switched && Number(switched.at || 0) > Number(meta.modeAt || 0) ? { mode: switched.mode } : {};
-      if (Array.isArray(s.result.rulesAdded) && s.result.rulesAdded.length) await changeRules(bucket, uid, meta.repo, "allow", s.result.rulesAdded.slice(0, 20), { add: true }).catch(() => {});
       // RULES A PERMISSIONREQUEST HOOK ADDED (Bash docs pass 9): for a settings file, the repository's saved rules; for the
       // "session", the chat's own, sent with each of its next messages (Claude Code: in memory for the session).
       for (const kind of ["ask", "deny"]) { const l = s.result.rulesSaved && Array.isArray(s.result.rulesSaved[kind]) ? s.result.rulesSaved[kind].filter((x) => typeof x === "string").slice(0, 20) : []; if (l.length) await changeRules(bucket, uid, meta.repo, kind, l, { add: true }).catch(() => {}); }
       const sessionRules = sessionRulesOf(s.result.sessionRules);
       // A HOOK'S TITLE FOR THE CHAT (Claude Code's sessionTitle, from a SessionStart or UserPromptSubmit hook): the chat's name.
       const hookTitle = typeof s.result.sessionTitle === "string" && s.result.sessionTitle.trim() ? { title: s.result.sessionTitle.trim().replace(/\s+/g, " ").slice(0, 200), titleCustom: true } : {};
-      const ended = { ...meta, ...modeNow, ...hookTitle, ...(sessionRules ? { sessionRules } : {}), background, saved: meta.turn, ...(cwd ? { cwd } : {}), pr, prs, pushed, commits, unpushed, unpushedSince: unpushed ? unpushedSince : 0, refetch: false, ...(keptHere ? { kept: true } : {}), waiting: asked ? asked.type : null, ran: Math.max(0, Date.now() - Number(meta.at || Date.now())), usage: usageSummary(s.result.usage, meta.turn), summary: String(s.result.summary || "").slice(0, 4000) || meta.summary || "", status: s.result.status === "done" ? "idle" : s.result.status, at: Date.now(), jobReplyTo: null, ...afMeta };
+      // A PLAN'S TITLE (Claude Code: accepting a plan titles the session after it, unless it was already named): only for a
+      // chat the owner, a hook or rename_chat has not named.
+      const planTitle = !hookTitle.title && meta.titleCustom !== true && typeof s.result.planTitle === "string" && s.result.planTitle.trim() ? { title: s.result.planTitle.trim().replace(/\s+/g, " ").slice(0, 80) } : {};
+      const ended = { ...meta, ...modeNow, ...hookTitle, ...planTitle, ...(sessionRules ? { sessionRules } : {}), background, saved: meta.turn, ...(cwd ? { cwd } : {}), pr, prs, pushed, commits, unpushed, unpushedSince: unpushed ? unpushedSince : 0, refetch: false, ...(keptHere ? { kept: true } : {}), waiting: asked ? asked.type : null, ran: Math.max(0, Date.now() - Number(meta.at || Date.now())), usage: usageSummary(s.result.usage, meta.turn), summary: String(s.result.summary || "").slice(0, 4000) || meta.summary || "", status: s.result.status === "done" ? "idle" : s.result.status, at: Date.now(), jobReplyTo: null, ...afMeta };
       // A JOB PAUSED ON A CARD LEFT OPEN (coder-park.mjs; Claude Code: "Questions stay open until you answer them", and in its
       // cloud "you can still answer when you come back"): the chat is idle, waiting on that card (`parked`, `waiting` for the
       // notifications), its record kept beside the chat for the answer that takes the turn up again.

@@ -399,3 +399,37 @@ test("CD-title session_title: SessionStart and UserPromptSubmit hooks get the ch
   assert.match(read("src/coder-routes.mjs"), /const next = \{ \.\.\.now, title, titleCustom: true \}/);
   assert.match(read("container/server.mjs"), /customTitle: !gloopy && typeof body\.customTitle === "string"/);
 });
+
+test("HD1 a PermissionRequest hook's addDirectories and removeDirectories (Claude Code's permission update entries) change the job's working folders: checked by Coder's machine, in place before the next step; the project folder stays", async () => {
+  const PR = { PermissionRequest: [{ matcher: "Bash", hooks: [{ type: "command", command: "dirs.sh" }] }] };
+  const allow = (upd) => ({ stdout: JSON.stringify({ hookSpecificOutput: { hookEventName: "PermissionRequest", decision: { behavior: "allow", updatedPermissions: upd } } }) });
+  const asked = [];
+  const machine = (wd) => ({
+    addWorkdirs: async (p) => { asked.push(["add", p]); const dirs = p.filter((d) => d === "/tmp/x"); wd.push(...dirs); return { dirs, missing: p.filter((d) => d !== "/tmp/x") }; },
+    removeWorkdirs: async (p) => { asked.push(["remove", p]); return { dirs: p.filter((d) => d === "/tmp/x"), kept: p.filter((d) => d === "/work/shop") }; },
+  });
+  // (The owner answers only once the card's hooks have had their turn, so the hook's answer is the one taken.)
+  const ask = async (pid, o = {}) => { if (o.gone) for (let w = 0; w < 50 && !o.gone(); w++) await new Promise((ok) => setTimeout(ok, 2)); return o.gone && o.gone() ? { choice: "gone" } : { choice: "yes" }; };
+  const steps = [say("", [call("bash", { command: "touch /tmp/x/a" }, "b1"), call("bash", { command: "touch /tmp/x/b" }, "b2")]), say("ok")];
+  // Added: the second write under /tmp/x is inside the working folders in Accept edits, so no card and no hook for it.
+  let wd = [];
+  let t = await loop(steps, PR, { mode: "acceptEdits", hookRun: (i) => (i.hook_event_name === "PermissionRequest" ? allow([{ type: "addDirectories", directories: ["/tmp/x", "/nope"], destination: "session" }]) : {}), more: { ask, otherRoots: wd, ...machine(wd) } });
+  assert.deepEqual(t.ran, ["touch /tmp/x/a", "touch /tmp/x/b"]);
+  assert.equal(t.hookCalls.filter((h) => h.input.hook_event_name === "PermissionRequest").length, 1, "the second write needed no answer");
+  assert.deepEqual(asked, [["add", ["/tmp/x", "/nope"]]]);
+  const note = t.events.find((e) => e.type === "note" && /working folders/.test(e.text));
+  assert.equal(note.text, "A PermissionRequest hook added working folders: /tmp/x. Not added: /nope is not a folder where Coder's commands run.");
+  // Without it (the hook adds nothing), the second write asks too.
+  t = await loop(steps, PR, { mode: "acceptEdits", hookRun: (i) => (i.hook_event_name === "PermissionRequest" ? allow([]) : {}), more: { ask, otherRoots: [] } });
+  assert.equal(t.hookCalls.filter((h) => h.input.hook_event_name === "PermissionRequest").length, 2);
+  // Removed: the project folder is kept and said.
+  asked.length = 0;
+  t = await loop([say("", [call("bash", { command: "touch /tmp/y/a" }, "b1"), call("bash", { command: "ls" }, "b2")]), say("ok")], PR, { mode: "acceptEdits", hookRun: (i) => (i.hook_event_name === "PermissionRequest" ? allow([{ type: "removeDirectories", directories: ["/tmp/x", "/work/shop"], destination: "session" }]) : {}), more: { ask, otherRoots: ["/tmp/x"], ...machine([]) } });
+  assert.deepEqual(asked, [["remove", ["/tmp/x", "/work/shop"]]]);
+  assert.ok(t.events.some((e) => e.type === "note" && e.text === "A PermissionRequest hook removed working folders: /tmp/x. Not removed (the project folder and the chat's repositories stay): /work/shop."));
+  // Coder's machine gives the job both, with a live list of its other working folders.
+  const server = read("container/server.mjs");
+  assert.match(server, /addWorkdirs: async \(paths\) => \{\n\s+const got = await extraDirsOf\(paths, home \|\| DEV_HOME, \{ seen: t\.seen \}\);/);
+  assert.match(server, /const otherRoots = workRoots\.slice\(1\);/);
+  assert.match(server, /removeWorkdirs: async/);
+});

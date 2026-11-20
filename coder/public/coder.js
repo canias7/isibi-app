@@ -2637,14 +2637,15 @@
         // A PROTECTED FILE CODER WANTS TO WRITE (the owner, 2026-11-09: "do that"; like Claude Code's prompt for them): the
         // lines it would write, then Allow or Don't allow, which become the owner's next message.
         const live = !S.running && !S.events.slice(i + 1).some((x) => x.type === 'user');
-        const lines = e.change && Array.isArray(e.change.lines) ? e.change.lines.filter((l) => typeof l === 'string').slice(0, 40) : [];
+        const allW = e.change && Array.isArray(e.change.lines) ? e.change.lines.filter((l) => typeof l === 'string') : [];
         const more = e.change && Number.isInteger(e.change.more) && e.change.more > 0 ? e.change.more : 0;
         const upd = !!(e.change && e.change.kind === 'update');
+        const keyW = 'w:' + i, lines = cardShown(allW, keyW);
         out.push('<div class="cd-secret cd-envchange cd-writeask"><div class="cd-secret-icon">' + ICON.lock + '</div><b class="cd-secret-t">Allow Coder to change ' + esc(e.path) + '?</b>' +
           '<p class="cd-secret-p">This file can make code run on your computer when you pull the branch, or change how the project is built, so Coder asks you first (Claude Code does too). What it would ' + (upd ? 'change' : 'write') + ':</p>' +
           // AN EDIT'S CHANGE (edit, tool 3, 2026-11-09: edit asks for these files too): the lines it takes out in red, the
           // ones it puts in in green, as under each edit's step.
-          '<pre class="cd-envchange-pre">' + (!lines.length ? (upd ? '(nothing)' : '(an empty file)') : upd ? lines.map((l) => '<span class="cd-wl' + (l[0] === '+' ? ' cd-dl-add' : l[0] === '-' ? ' cd-dl-del' : '') + '">' + esc(l) + '</span>').join('') : lines.map((l, k) => '<span class="cd-ne-n">' + (k + 1) + '</span>' + esc(l.slice(1))).join('\n')) + (more ? '\n… ' + more + ' more line' + (more === 1 ? '' : 's') : '') + '</pre>' +
+          '<pre class="cd-envchange-pre">' + (!lines.length ? (upd ? '(nothing)' : '(an empty file)') : upd ? lines.map((l) => '<span class="cd-wl' + (l[0] === '+' ? ' cd-dl-add' : l[0] === '-' ? ' cd-dl-del' : '') + '">' + esc(l) + '</span>').join('') : lines.map((l, k) => '<span class="cd-ne-n">' + (k + 1) + '</span>' + esc(l.slice(1))).join('\n')) + '</pre>' + cardMore(allW, keyW, more) +
           (live ? '<div class="cd-secret-btns"><button type="button" class="cd-secret-no" data-writeask-no="' + i + '">Don\'t allow</button><button type="button" class="cd-secret-save" data-writeask-ok="' + i + '">Allow</button></div>' : '') +
         '</div>');
       }
@@ -2653,13 +2654,14 @@
         // one that writes through a link out of the project (Bash docs pass 3), or one over 10,000 characters. The command,
         // then Allow or Don't allow, which become the owner's next message.
         const live = !S.running && !S.events.slice(i + 1).some((x) => x.type === 'user');
-        const lines = Array.isArray(e.lines) ? e.lines.filter((l) => typeof l === 'string').slice(0, 40) : [];
+        const allR = Array.isArray(e.lines) ? e.lines.filter((l) => typeof l === 'string') : [];
         const more = Number.isInteger(e.more) && e.more > 0 ? e.more : 0;
+        const keyR = 'r:' + i, lines = cardShown(allR, keyR);
         const paths = Array.isArray(e.paths) ? e.paths.filter((p) => typeof p === 'string').slice(0, 10) : [];
         const prot = e.kind === 'protected' && paths.length, link = e.kind === 'link' && paths.length, rblock = e.kind === 'readblock';
         out.push('<div class="cd-secret cd-envchange cd-writeask cd-runask"><div class="cd-secret-icon">' + ICON.lock + '</div><b class="cd-secret-t">' + (prot || link ? 'Allow Coder to change ' + esc(paths.join(', ')) + '?' : 'Allow Coder to run this command?') + '</b>' +
           '<p class="cd-secret-p">' + (prot ? 'This command writes ' + (paths.length === 1 ? 'a file' : 'files') + ' that can make code run on your computer when you pull the branch, or change how the project is built' : link ? 'This command writes through a link that leads out of the project' : rblock ? 'This command reads outside the project (or can\'t be traced), which your read-block setting asks about first' : 'This command is over 10,000 characters, more than Coder\'s checks read through') + ', so Coder asks you first (Claude Code does too).' + (e.desc ? ' What it does: ' + esc(e.desc) + '.' : '') + ' The command:</p>' +
-          '<pre class="cd-envchange-pre">' + esc(lines.join('\n')) + (more ? '\n… ' + more + ' more line' + (more === 1 ? '' : 's') : '') + '</pre>' +
+          '<pre class="cd-envchange-pre">' + esc(lines.join('\n')) + '</pre>' + cardMore(allR, keyR, more) +
           (live ? '<div class="cd-secret-btns"><button type="button" class="cd-secret-no" data-runask-no="' + i + '">Don\'t allow</button><button type="button" class="cd-secret-save" data-runask-ok="' + i + '">Allow</button></div>' : '') +
         '</div>');
       }
@@ -2917,7 +2919,7 @@
       else if (e.type === 'diagnostics') out.push(diagnosticsHTML(e, i));
       else if (e.type === 'notify') out.push('<div class="cd-localnote">Notified you: ' + esc(e.text) + '</div>');
       // RENAMED CHAT, Claude Code's "Renamed session" step.
-      else if (e.type === 'renamed') out.push('<div class="cd-localnote cd-renamed"><b>Renamed chat</b> · This chat is now named “' + esc(e.text) + '”.</div>');
+      else if (e.type === 'renamed') out.push('<div class="cd-localnote cd-renamed"><b>Renamed chat</b> · This chat is now named “' + esc(e.text) + '”' + (e.by === 'plan' ? ', after its approved plan' : '') + '.</div>');
       // ITS MONITOR PAUSED THE RUN (2026-11-10; dots' "a pause can surface a warning for the owner to review").
       else if (e.type === 'paused') out.push('<div class="cd-paused" role="status"><b>Gloopy paused this task</b><p>' + esc(e.why || 'Something in it looked wrong.') + '</p><p class="cd-paused-how">Its monitor watches over each run and stops when something looks off. Tell Gloopy how to carry on, or leave it.</p></div>');
     });
@@ -3977,11 +3979,23 @@
   // (web_search's card since it became Coder's own tool, 2026-11-14: its title here; its text is the card's `what`, Claude Code's
   // "Coder wants to search the web for: …", shown as any other tool's.)
   const PERM_TITLE = { bash: 'Bash command', powershell: 'PowerShell command', monitor: 'WebSocket watch', write: 'Write file', edit: 'Edit file', read: 'Read file', grep: 'Search files', glob: 'Find files', lsp: 'Code lookup', web_fetch: 'Fetch', web_search: 'Web search', pull_request: 'Pull request', pr_comments: 'Review comments', auto_fix: 'Auto-fix', undo_last_job: 'Undo', connector: 'Connector' };
+  // A CARD'S LINES, ALL OF THEM (audit I31; Claude Code's prompts scroll to show everything): the first 40, then "Show all N
+  // lines" opens the rest in the same scrolling box. `left` lines the machine could not send (past its cap) are said.
+  const CARD_FIRST = 40;
+  function cardShown(lines, key) { return S.cardAll && S.cardAll[key] ? lines : lines.slice(0, CARD_FIRST); }
+  function cardMore(lines, key, left) {
+    const all = !!(S.cardAll && S.cardAll[key]);
+    return (lines.length > CARD_FIRST && !all ? '<button type="button" class="cd-card-all" data-card-all="' + esc(key) + '">Show all ' + lines.length + ' lines</button>' : '') +
+      (left > 0 ? '<p class="cd-card-left">' + left + ' more line' + (left === 1 ? ' is' : 's are') + ' too long to show here, so this can only be allowed once.</p>' : '');
+  }
   function permOptions(e) {
     // (A plan too long to show withholds approval: only "No, keep planning", as Claude Code's prompt. The owner, 2026-11-14.)
     if (e.tool === 'plan' && e.withheld) return [['no', 'No, keep planning']];
     if (e.tool === 'plan') return [['auto', 'Yes, and use auto mode'], ['acceptEdits', 'Yes, and accept edits'], ['no', 'No, keep planning']].filter(([c]) => !(S.autoOff && c === 'auto'));
     const o = [['yes', 'Yes']];
+    // (Not everything could be shown: only a one-time Yes, as Claude Code withholds "don't ask again" then.)
+    const partial = Number(e.more) > 0 || !!(e.change && (Number(e.change.more) > 0 || e.change.cut === true));
+    if (partial) { o.push(['no', e.tool === 'web_fetch' ? 'No, and tell Coder what to do differently' : 'No']); return o; }
     if (Array.isArray(e.rules) && e.rules.length) o.push(['always', 'Yes, and don\'t ask again for ' + e.rules.map((r) => '<code>' + esc(ruleShown(r)) + '</code>').join(' and ')]);
     if (e.toAuto && !S.autoOff) o.push(['auto', 'Yes, and switch to auto mode']);
     o.push(['no', e.tool === 'web_fetch' ? 'No, and tell Coder what to do differently' : 'No']);
@@ -4068,16 +4082,18 @@
     else if (planEditing) body = '<textarea class="cd-perm-note cd-plan-text" data-plan-text="' + esc(e.pid) + '" rows="14" spellcheck="false" aria-label="Edit the plan">' + esc(S.planEdits[e.pid]) + '</textarea>';
     else if (plan) body = '<div class="cd-plan-body">' + prose(planText.replace(/^(#{1,4}[ \t]+.*)$/gm, '\n$1\n')) + '</div>' + (live && !sent ? '<button type="button" class="cd-plan-edit" data-plan-edit="' + esc(e.pid) + '">Edit plan</button>' : '');
     else if (e.tool === 'bash' || e.tool === 'powershell') {
-      const lines = Array.isArray(e.lines) ? e.lines.filter((l) => typeof l === 'string').slice(0, 40) : [];
-      body = (e.desc ? '<p class="cd-perm-desc">' + esc(e.desc) + '</p>' : '') + '<pre class="cd-perm-pre">' + esc(lines.join('\n')) + (Number(e.more) > 0 ? '\n… ' + Number(e.more) + ' more line' + (Number(e.more) === 1 ? '' : 's') : '') + '</pre>' +
+      const lines = Array.isArray(e.lines) ? e.lines.filter((l) => typeof l === 'string') : [];
+      const key = 'p:' + e.pid;
+      body = (e.desc ? '<p class="cd-perm-desc">' + esc(e.desc) + '</p>' : '') + '<pre class="cd-perm-pre">' + esc(cardShown(lines, key).join('\n')) + '</pre>' + cardMore(lines, key, Number(e.more) > 0 ? Number(e.more) : 0) +
         // (Its own hosts, Claude Code's allowed_domains: approving covers them too.)
         (Array.isArray(e.hosts) && e.hosts.length ? '<p class="cd-perm-desc cd-perm-hosts" style="max-height:9em;overflow:auto">Also opens, for this command only: ' + e.hosts.map((h) => '<code>' + esc(h) + '</code>').join(', ') + '</p>' : '');
     } else if (e.tool === 'write' || e.tool === 'edit') {
       // What the write or edit would do, as under each write's and edit's step.
-      const lines = e.change && Array.isArray(e.change.lines) ? e.change.lines.filter((l) => typeof l === 'string').slice(0, 40) : [];
+      const all = e.change && Array.isArray(e.change.lines) ? e.change.lines.filter((l) => typeof l === 'string') : [];
       const more = e.change && Number(e.change.more) > 0 ? Number(e.change.more) : 0;
       const upd = !!(e.change && e.change.kind === 'update');
-      body = '<p class="cd-perm-desc">' + esc(e.path || '') + '</p><pre class="cd-perm-pre">' + (!lines.length ? (upd ? '(nothing)' : '(an empty file)') : upd ? lines.map((l) => '<span class="cd-wl' + (l[0] === '+' ? ' cd-dl-add' : l[0] === '-' ? ' cd-dl-del' : '') + '">' + esc(l) + '</span>').join('') : lines.map((l, k) => '<span class="cd-ne-n">' + (k + 1) + '</span>' + esc(l.slice(1))).join('\n')) + (more ? '\n… ' + more + ' more line' + (more === 1 ? '' : 's') : '') + '</pre>';
+      const key = 'p:' + e.pid, lines = cardShown(all, key);
+      body = '<p class="cd-perm-desc">' + esc(e.path || '') + '</p><pre class="cd-perm-pre">' + (!lines.length ? (upd ? '(nothing)' : '(an empty file)') : upd ? lines.map((l) => '<span class="cd-wl' + (l[0] === '+' ? ' cd-dl-add' : l[0] === '-' ? ' cd-dl-del' : '') + '">' + esc(l) + '</span>').join('') : lines.map((l, k) => '<span class="cd-ne-n">' + (k + 1) + '</span>' + esc(l.slice(1))).join('\n')) + '</pre>' + cardMore(all, key, more);
     } else if (e.tool === 'web_fetch') body = '<pre class="cd-perm-pre">' + esc(e.url || '') + '</pre>';
     // A WebSocket a monitor would open (Claude Code's Monitor `ws`): what it watches, and its address.
     else if (e.tool === 'monitor') body = (e.desc ? '<p class="cd-perm-desc">' + esc(e.desc) + '</p>' : '') + '<pre class="cd-perm-pre">' + esc(e.url || '') + '</pre>';
@@ -5278,6 +5294,8 @@
     on('[data-perm-note]', 'keydown', (e) => { if (e.key === 'Enter') e.preventDefault(); });
     // THE PLAN, EDITED ON ITS CARD BEFORE IT IS APPROVED (Claude Code's "edit it directly before Claude proceeds"; the owner,
     // 2026-11-14): Edit plan opens it as text; what is typed is kept for the answer.
+    // (A card's "Show all N lines": the rest of its lines in the same scrolling box.)
+    on('[data-card-all]', 'click', (e) => { S.cardAll = { ...(S.cardAll || {}), [e.currentTarget.dataset.cardAll]: true }; draw(); });
     on('[data-plan-edit]', 'click', (e) => {
       const pid = e.currentTarget.dataset.planEdit, card = S.events.find((x) => x.type === 'permission' && x.pid === pid);
       S.planEdits = { ...(S.planEdits || {}), [pid]: String((card && card.plan) || '') };

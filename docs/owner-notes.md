@@ -4,6 +4,15 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-20: Bigger Claude Code fixes, part 1
+
+- **Chat named after its plan:** when you approve Coder's plan, a chat you have not named yourself now takes the plan's title (its first real heading, or its first line), as Claude Code does. No extra AI call. A chat you, a hook or Coder renamed keeps its name. The chat shows "Renamed chat ... after its approved plan".
+- **Approval cards show everything:** a command or file change on an approval card used to stop at 40 lines. Now the card gets all of it (up to 2,000 lines). It shows the first 40, then a "Show all N lines" button opens the rest in the same scrolling box. If something is still too long to show, the card says so and offers only a one-time Yes, with no "don't ask again", as Claude Code does.
+- **Hooks can add or remove working folders:** a PermissionRequest hook that approves something can now also add or remove working folders for the rest of that job (Claude Code's addDirectories / removeDirectories). Coder checks each folder the same way it checks your saved extra folders, never removes the project folder, and says what changed in the chat.
+- **"Don't ask again" rules are saved straight away:** a rule you take on a card is now stored when you take it, not only when the job ends. If it cannot be stored, the chat says "That rule could not be saved, so Coder will ask again next time." A job cut off mid-way still stores its rules.
+- **Waiting for you:** Claude Code lets an "agent" hook (a helper AI that checks Coder's work) run commands such as the tests; Coder's can only read and search. Shall Coder's helper run commands too, under the same safety rules and sandbox as Coder's own, refusing anything that would need your approval?
+- Full test suite passes. Not deployed or merged; not yet tried live in the browser.
+
 ## 2026-11-20: Claude Code fixes, batch 26
 
 - **Repository settings:** a repository's own .claude/settings.json can now set four more things, as Claude Code allows: loading instructions from extra working folders, how many times Coder retries a failed call to Grok, and the safety option that strips credentials from commands (with its script limits). A repository can only turn that safety option on, never off. Tests: batch26.test.mjs.

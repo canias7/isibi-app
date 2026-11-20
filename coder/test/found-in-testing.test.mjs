@@ -1488,7 +1488,7 @@ test("CD248 Coder's docs page (the owner, 2026-11-08: \"start making a section f
   assert.ok(page.includes("A file over <b>" + T.EDIT_MAX_BYTES / 1048576 + " MB</b>"));
   assert.match(T.EDIT_NOTEBOOK, /replace it whole with write, or change a cell with a short python3 script/);
   assert.ok(page.includes("Coder replaces it whole with write, or changes a cell with a short script"));
-  assert.match(agentSrc, /x\.length > 300 \? x\.slice\(0, 300\) \+ "…"/);
+  assert.match(agentSrc, /if \(x\.length > 2000\) \{ cut = true; return x\.slice\(0, 2000\) \+ "\\u2026"; \}/);
   assert.ok(page.includes("A very long line is cut short, with <code>&hellip;</code> at its end"));
   const server = readFileSync(HERE("container/server.mjs"), "utf8");
   assert.match(server, /has\("CODER\.md"\) \? "CODER\.md" : !found && has\("AGENTS\.md"\) \? "AGENTS\.md"/);
@@ -2284,7 +2284,8 @@ test("CD266 a read-only file is edited all the same and stays read-only, as Clau
   let k = 0;
   await runCoder({ exec: machine(proj), emit: (e) => events.push(e), send: async () => (++k === 1 ? say("", [call("edit", { path: ".husky/pre-commit", old_string: "npm test", new_string: long }, "e1")]) : say("Done.")) }, { text: "add the check" });
   const card = events.find((e) => e.type === "writeask");
-  assert.deepEqual(card.change.lines, ["-npm test", "+" + long.slice(0, 300) + "…"]);
+  // (Whole since audit I31: a card carries lines up to 2,000 characters; one longer is cut with "…" and marks the change cut.)
+  assert.deepEqual(card.change.lines, ["-npm test", "+" + long]);
 });
 
 test("CD267 a Windows-line-ending file's change has no hidden \"\\r\" on its lines, under the step and on the card for a protected file, and a line whose ending alone changed is not counted as changed (live test, 2026-11-09: copying the change gave a blank line after each line; Claude Code's own record of the same edit: \"-first\", \"+FIRST\"; the owner: \"Yes fix\")", async () => {

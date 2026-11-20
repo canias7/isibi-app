@@ -19,7 +19,7 @@
 
 import { seal, unseal } from "./coder-github.mjs";
 import { pushesFor, notifyOwner } from "./coder-push.mjs";
-import { hiddenValues } from "./coder-routes.mjs";
+import { hiddenValues, changeRules, ruleStepsOf } from "./coder-routes.mjs";
 
 export const LIVE_PATH = "/api/coder/live";
 /**
@@ -171,6 +171,7 @@ export async function handleLive(request, env, { fetchFn = fetch, waitUntil = nu
   // Only up to the end of this part (and of what the chat keeps): the rest comes in the next sending.
   const part = Math.floor(from / LIVE_PART), start = part * LIVE_PART;
   const take = events.slice(0, Math.max(0, Math.min(start + LIVE_PART, LIVE_MAX_EVENTS) - from));
+  let ruleFailed = null;
   if (take.length) {
     const key = partKey(uid, id, turn, part);
     const had = (await readBox(env, bucket, key)) || { start, events: [] };
@@ -182,6 +183,13 @@ export async function handleLive(request, env, { fetchFn = fetch, waitUntil = nu
     // may be pushed to the owner's devices: Coder's own notify, its question, a key or an approval it needs,
     // the end of a long job.
     const fresh = take.slice(Math.max(0, start + known.length - from));
+    // RULES TAKEN ON A CARD ("Yes, and don't ask again"), STORED NOW, not only at the job's end (audit M-g-12): one that cannot
+    // be stored is told back to the machine, which says so in the chat.
+    const rules = ruleStepsOf(fresh);
+    if (rules.length && meta.repo) {
+      const ok = await changeRules(bucket, uid, meta.repo, "allow", rules, { add: true }).then(() => true, () => false);
+      if (!ok) ruleFailed = rules;
+    }
     const list = fresh.length ? pushesFor(fresh, meta, now) : [];
     if (list.length) {
       // HIDDEN AS IN THE SAVED CHAT (Claude Code: "Improved how secrets are masked in push notifications"): the owner's
@@ -196,7 +204,7 @@ export async function handleLive(request, env, { fetchFn = fetch, waitUntil = nu
   // (`whole`: the job's auto-compact summarized the conversation, so this is all of it, the summary first, not the job's part
   // after the saved chat: kept so, 2026-11-14.)
   if (Array.isArray(body.messages)) { const list = body.messages.filter((x) => x && typeof x === "object"); await putBox(env, bucket, convoKey(uid, id, turn), body.whole === true ? { whole: true, messages: list } : list); }
-  return Response.json({ ok: true, have: from + take.length });
+  return Response.json({ ok: true, have: from + take.length, ...(ruleFailed ? { ruleFailed } : {}) });
 }
 
 async function keysUnder(bucket, prefix) {

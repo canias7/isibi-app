@@ -538,7 +538,7 @@ test("PM17 the plan's card as the page draws it (its own functions): the plan wi
   const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
   const prose = new Function("esc", grab("noColor") + grab("inline") + grab("blocks") + grab("prose") + "return prose;")(esc);
   const S = { events: [], running: true };
-  const { permOptions, permHTML } = new Function("S", "esc", "prose", "ICON", "PERM_TITLE", "blockLeft", "ruleShown", grab("permOptions") + grab("permDone") + grab("permHTML") + "return { permOptions, permHTML };")(S, esc, prose, { plan: "P", term: "T" }, {}, () => "", (r) => r);
+  const { permOptions, permHTML } = new Function("S", "esc", "prose", "ICON", "PERM_TITLE", "blockLeft", "ruleShown", "const CARD_FIRST = 40;" + grab("cardShown") + grab("cardMore") + grab("permOptions") + grab("permDone") + grab("permHTML") + "return { permOptions, permHTML };")(S, esc, prose, { plan: "P", term: "T" }, {}, () => "", (r) => r);
   const card = { type: "permission", pid: "p1abc", tool: "plan", plan: "## Context\nFix the cart.\n" };
   S.events = [card];
   let h = permHTML(card);
@@ -1144,4 +1144,29 @@ test("WD3 the owner changes the mode while Coder works: only Claude Code 2.1.325
   assert.equal(A.modeChangeNote("plan", "plan"), "");
   assert.equal(A.modeChangeNote("plan", "auto"), "(Note from Coder's app, not the owner:\n" + P.PLAN_EXITED + ")");
   assert.doesNotMatch(read("container/coder-agent.mjs"), /The owner's permission mode is now/);
+});
+
+test("PM-T1 an approved plan names an unnamed chat after the plan (Claude Code: \"Accepting a plan also gives the session a generated title based on the plan, unless you've already named the session\"), with no model call; a named chat keeps its name", async () => {
+  assert.equal(A.planTitleOf(PLAN), "The cart total is wrong when a coupon is used.", "a section heading such as Context names no plan");
+  assert.equal(A.planTitleOf("# Add **dark** mode to [the page](x)\n\n## Steps\n1. css"), "Add dark mode to the page");
+  assert.equal(A.planTitleOf("1. Fix total() in cart.js\n2. Test"), "Fix total() in cart.js");
+  assert.equal(A.planTitleOf(""), "");
+  assert.ok(A.planTitleOf("word ".repeat(40)).length <= 80);
+  // Unnamed: the 'renamed' step and the turn's planTitle; no extra request to the model.
+  let t = await loop([say("", [call("exit_plan_mode", { plan: "# Fix the coupon total\n\n## Steps\n1. Fix total()" }, "x1")]), say("Done.")], { plan: null, answers: [{ choice: "auto" }] });
+  assert.equal(t.r.planTitle, "Fix the coupon total");
+  assert.deepEqual(t.events.filter((e) => e.type === "renamed").map((e) => [e.text, e.by]), [["Fix the coupon total", "plan"]]);
+  assert.equal(t.seen.length, 2, "no model call for the title");
+  // Named by the owner (customTitle): no title from the plan.
+  t = await loop([say("", [call("exit_plan_mode", { plan: "# Fix the coupon total" }, "x1")]), say("Done.")], { plan: null, answers: [{ choice: "auto" }], extra: { customTitle: "My cart work" } });
+  assert.equal(t.r.planTitle, undefined);
+  assert.ok(!t.events.some((e) => e.type === "renamed"));
+  // Not approved: no title.
+  t = await loop([say("", [call("exit_plan_mode", { plan: "# Fix the coupon total" }, "x1")]), say("Done.")], { plan: null, answers: [{ choice: "no" }] });
+  assert.equal(t.r.planTitle, undefined);
+  // The Worker takes it only for a chat not named by the owner, a hook or rename_chat; the page says why.
+  const routes = read("src/coder-routes.mjs");
+  assert.match(routes, /const planTitle = !hookTitle\.title && meta\.titleCustom !== true && typeof s\.result\.planTitle === "string"/);
+  assert.match(routes, /\.\.\.hookTitle, \.\.\.planTitle,/);
+  assert.match(read("public/coder.js"), /e\.by === 'plan' \? ', after its approved plan' : ''/);
 });

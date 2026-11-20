@@ -873,6 +873,9 @@
 .cd-perm-dn { margin-left: auto; flex: none; max-width: 45%; font-size: 12px; font-weight: 500; color: #57534e; background: #f5f3ee; border: 1px solid #ece9e2; border-radius: 999px; padding: 2px 9px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cd-perm-desc { font-size: 13.5px; color: #1f1e1d; margin: 0 0 6px; overflow-wrap: anywhere; }
 .cd-perm-pre { background: #faf9f6; border: 1px solid #ece9e2; border-radius: 10px; padding: 9px 12px; font: 12.5px/1.5 "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 260px; overflow: auto; margin: 0 0 8px; color: #1f1e1d; }
+.cd-card-all { display: inline-block; margin: -2px 0 8px; padding: 3px 10px; border: 1px solid #e5e3dd; border-radius: 8px; background: #fff; color: #1f1e1d; font: inherit; font-size: 12.5px; cursor: pointer; }
+.cd-card-all:hover { background: #f4f2ec; }
+.cd-card-left { margin: 0 0 8px; font-size: 12.5px; color: #8a5a00; }
 .cd-perm-pre .cd-wl { display: block; margin: 0 -12px; padding: 0 12px; white-space: pre-wrap; }
 .cd-perm-why { font-size: 12.5px; color: #6b6a66; margin: 0 0 8px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
 .cd-perm-q { font-size: 13.5px; font-weight: 600; color: #1f1e1d; margin: 10px 0 6px; }

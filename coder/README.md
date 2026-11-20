@@ -1395,8 +1395,12 @@ first). Tests: `test/pass8.test.mjs` (CD408 on).
   ask rule shows the owner the card (no hook again), and the page shows the step
   once, with the new command. Its `updatedPermissions` apply (`applyUpdates`):
   addRules, replaceRules and removeRules on the job's rules (an allow rule for a
-  settings file kept as the owner's "don't ask again"), and setMode; working
-  folders are left alone. Its `permission_suggestions` are Claude Code's
+  settings file kept as the owner's "don't ask again"), setMode, and
+  addDirectories / removeDirectories, which change this job's working folders
+  (checked by Coder's machine as the owner's extra folders are, `addWorkdirs` /
+  `removeWorkdirs`; in place before Coder's next step; whatever the
+  destination, for this job only, never saved; the project folder and the
+  chat's other repositories are never removed). Its `permission_suggestions` are Claude Code's
   `{toolName, ruleContent}` entries (`ruleEntry`, `entryRule`). An exec-form
   hook gets `${CLAUDE_PROJECT_DIR}` as the path in `command` and each of `args`,
   a PowerShell shell-form hook `${env:CLAUDE_PROJECT_DIR}` (`hookShell`). A

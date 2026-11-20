@@ -3755,6 +3755,8 @@ export function liveSender(t, live, fetchFn, { every = LIVE_EVERY_MS, convoEvery
       refused = 0;
       const j = await r.json().catch(() => ({}));
       sent = Number.isInteger(j.have) && j.have >= 0 && j.have <= t.events.length ? j.have : sent + events.length;
+      // (A rule taken on a card that Coder's Worker could not store: said in the chat, so it does not look saved. Audit M-g-12.)
+      if (Array.isArray(j.ruleFailed) && j.ruleFailed.length) t.events.push({ at: now(), type: "note", warn: true, text: "That rule could not be saved, so Coder will ask again next time." });
       if (withConvo) { convoSent = convoKey; convoAt = now(); }
     }
   };
@@ -4588,6 +4590,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     addDirs.push(...[...new Set([...ownAdded, ...repoAdded])].filter((d) => !workRoots.includes(d)));
     repoOnlyDirs.push(...repoAdded.filter((d) => !ownAdded.includes(d)));
     workRoots.push(...addDirs);
+    // (The job's other working folders as one live list: a PermissionRequest hook's addDirectories changes it mid-job.)
+    const otherRoots = workRoots.slice(1);
     // ONE THAT IS NOT THERE IS SAID, not left out without a word (round 5).
     for (const said of [missingDirsSaid(ownAdded.missing, "your rules", !!t.box), missingDirsSaid(repoAdded.missing, "this repository's .claude/settings.json", !!t.box)]) if (said) t.events.push({ at: Date.now(), type: "note", text: said });
     // THE WORKING FOLDERS' OWN INSTRUCTIONS, with CODER_ADDITIONAL_DIRECTORIES_CODER_MD on (see extraInstructions): read by root
@@ -5229,7 +5233,30 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         // this job's own (t.bg), each with everything it started (its process group).
         // THE AI'S HOME AND THE CHAT'S OTHER REPOSITORIES (the rm check's home folder and additional working directories).
         home: home || DEV_HOME,
-        otherRoots: workRoots.slice(1),
+        otherRoots,
+        // WORKING FOLDERS A PERMISSIONREQUEST HOOK ADDS OR REMOVES (Claude Code's addDirectories / removeDirectories): checked
+        // as the owner's extra folders are (extraDirsOf, where the commands see them), for this job only; the project folder and
+        // the chat's other repositories are never removed.
+        addWorkdirs: async (paths) => {
+          const got = await extraDirsOf(paths, home || DEV_HOME, { seen: t.seen });
+          const dirs = got.filter((d) => !workRoots.includes(d));
+          for (const d of dirs) { workRoots.push(d); addDirs.push(d); otherRoots.push(d); }
+          return { dirs, missing: got.missing };
+        },
+        removeWorkdirs: async (paths) => {
+          const fixed = [dir, ...extras.map((x) => x.dir)];
+          const asked = await Promise.all(paths.map((p) => realpath(p).catch(() => p)));
+          const dirs = [], kept = [];
+          for (const d of asked) {
+            if (workRoots.slice(0, fixed.length).includes(d) || fixed.includes(d)) { kept.push(d); continue; }
+            const k = addDirs.indexOf(d);
+            if (k < 0) continue;
+            addDirs.splice(k, 1);
+            for (const l of [workRoots, otherRoots, repoOnlyDirs]) { const j = l.indexOf(d); if (j >= 0) l.splice(j, 1); }
+            dirs.push(d);
+          }
+          return { dirs, kept };
+        },
         // CODER'S OWN FOLDERS A READ MAY REACH under the read block (a background command's log, a long output's file).
         ownDirs: [bgDir, outDir],
         // CODER'S MEMORY FILE, which stays writable under the write block (Claude Code's auto memory does).
