@@ -4,6 +4,16 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-20: A first phone app with real phone screens (Expo), in its own folder
+
+- What you asked for: Coder's phone app with real native screens instead of the web page inside an app.
+- It is in a new folder, `coder/expo/` (React Native with Expo). The current phone app, `coder/mobile/`, is untouched. Nothing on the server changed: the new app talks to gofarther.dev like the web page does.
+- What works in this first version: sign in with an emailed code; your chats and a new chat with a repository picker; a chat with your messages, Coder's answers, its steps folded into one line, live updates while Coder works, the message box, Stop, the permission and question cards, and the mode, model and effort pickers; a basic Settings screen with Sign out. Same colours and the same typewriter logo (also the app icon).
+- Not yet: pictures and files, line comments, rewind, the changes view, push and pull requests, rules, connectors, notifications, environments, Gloopy.
+- How to try it: install Expo Go on your phone, run `npx expo start` in `coder/expo`, and scan the code (steps in `coder/expo/README.md`). Real installable builds (EAS) come later.
+- 19 automated tests pass (sign-in, the API calls, the chat's rows and cards, and the main screens), and the typecheck passes. Screenshots were taken from a web copy with stand-in data; it has not been tried on a phone or against the live site yet.
+- On the branch `claude/expo-app` only; not merged.
+
 ## 2026-11-18: Fixed: a new chat's second message could empty its disk (audit T1)
 
 - Your words: "ok fix that one".
