@@ -20,7 +20,7 @@
 // The conversation is kept in the OpenAI chat shape (`messages`, with
 // `tool_calls` and `tool` answers), which Grok speaks natively; the next
 // message continues from the same messages.
-import { summaryRequest, summaryMessage, cutPoint, isSummary, viewedFile, filesTouched, compactSettings, compactLimits, compactLevel, conversationTokens, COMPACT_FAILURES_MAX, REFILL_TURNS, REFILL_TIMES, PRECOMPACT_OUTPUT_MAX, CHARS_PER_TOKEN, COMPACTED_SHOWN, THRASHING, contextLimitShown, compactPrompt, summaryText, hasSummary, dropOldestRounds, tokenGap, COMPACT_PTL_RETRIES, COMPACT_TOO_LONG, tooShortToCompact, TOO_SHORT_TO_COMPACT } from "./coder-compact.mjs";
+import { recordedSystem, summaryRequest, summaryMessage, cutPoint, isSummary, viewedFile, filesTouched, compactSettings, compactLimits, compactLevel, conversationTokens, COMPACT_FAILURES_MAX, REFILL_TURNS, REFILL_TIMES, PRECOMPACT_OUTPUT_MAX, CHARS_PER_TOKEN, COMPACTED_SHOWN, THRASHING, contextLimitShown, compactPrompt, summaryText, hasSummary, dropOldestRounds, tokenGap, COMPACT_PTL_RETRIES, COMPACT_TOO_LONG, tooShortToCompact, TOO_SHORT_TO_COMPACT } from "./coder-compact.mjs";
 // A command that views one file counts as reading it (moved to coder-compact.mjs, which the Worker uses too).
 export { viewedFile };
 import { retryLine, apiErrorText, modelWindow, CUT_OFF_ERROR } from "./coder-model.mjs";
@@ -1776,6 +1776,7 @@ export function splitSuggest(said) {
   const next = m[2].replace(/\s+/g, " ").trim().replace(/^["“]|["”]$/g, "").slice(0, 200);
   return { text: s.slice(0, m.index).replace(/\s+$/, ""), next };
 }
+export { recordedSystem };
 export const CODER_SYSTEM = `You are Coder, the owner's assistant. You help with whatever they ask: questions, ideas, writing, research, planning and hands-on work. You also have your own Linux machine with the owner's project, so you can read and change files, run commands, browse the web and build things.
 The project lives in the folder your commands start in (WHERE YOUR COMMANDS RUN, when given below, names it and where your commands are now). When the work is code, work like a developer at a terminal: look first (ls, cat, grep), then change files, then run and test what you changed.
 
@@ -3405,6 +3406,13 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     chatTools.splice(0, chatTools.length, ...searchModeTools(chatTools));
     if (chatTools.some((t) => t && t.function && t.function.name === "web_search")) system += "\n\n" + SEARCH_MODE_NOTE;
   }
+  // THE SYSTEM PROMPT A CHAT STARTED WITH (Claude Code: "builds the system prompt once, on a conversation's first request ...
+  // and records it in the session. Until the conversation is compacted, every later request uses that recorded prompt"):
+  // Coder's own chats record the text on the first answer (`systemSent`, never sent to Grok) and keep using it after a
+  // deploy changes Coder's instructions, until a summary; then the build's own text is used and recorded again.
+  const sysKeep = !offered && !github;
+  const sysRecorded = () => (sysKeep ? recordedSystem(convo) : null);
+  const sysMark = () => (sysKeep && sysRecorded() === null ? { systemSent: system } : {});
   // (In the task tools' place, before bash; a rule on them doesn't touch it, one on TodoWrite does.)
   if (todosOn) { const rest = chatTools.filter((t) => !(t && t.function && isTaskTool(t.function.name))); const at = rest.findIndex((t) => t && t.function && t.function.name === "bash"); if (!toolDenied("todo_write")) rest.splice(at < 0 ? rest.length : at, 0, TODO_WRITE_TOOL); chatTools.splice(0, chatTools.length, ...rest); }
   // CLAUDE CODE'S TOOL SEARCH IN CODER'S CHATS (coder-toolsearch.mjs; the owner, 2026-11-14: "yes start on that"): the tools
@@ -3778,7 +3786,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     return { sending, keptOnly, upfrontNew };
   };
   /** The system message of every request of the chat: Coder's instructions, and a job from GitHub's own note (its context is in the conversation: ctxOn). */
-  const systemText = () => system + (github ? "\n\n" + GITHUB_NOTE : "") + (!ctxOn && context ? "\n\n" + context : "");
+  const systemText = () => (sysRecorded() ?? system) + (github ? "\n\n" + GITHUB_NOTE : "") + (!ctxOn && context ? "\n\n" + context : "");
   // (The tools of this job's last request to Grok: a summary's request carries them, so its prefix is that request's.)
   let lastSentTools = null;
   /**
@@ -4038,7 +4046,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   // The saved history keeps a note in place of each picture.
   const noPics = (m) => (m.images ? { role: m.role, content: m.content + "\n[" + m.images.length + " picture" + (m.images.length > 1 ? "s" : "") + " attached]", ...(m.appNote === true ? { appNote: true } : {}) } : m);
   /** A message as a job's size counts it: no pictures, and not the record of its request's tools (`toolLocks`, never sent). */
-  const unsent = (m) => { const x = noPics(m); if (!x || (!x.toolLocks && x.tokens === undefined)) return x; const { toolLocks: _l, toolLocksV: _v, tokens: _t, ...rest } = x; return rest; };
+  const unsent = (m) => { const x = noPics(m); if (!x || (!x.toolLocks && x.tokens === undefined && x.systemSent === undefined)) return x; const { toolLocks: _l, toolLocksV: _v, tokens: _t, systemSent: _s, ...rest } = x; return rest; };
   // THE CONVERSATION SO FAR, for the machine to save as it goes (like Claude Code, 2026-11-06).
   // THE SAVED CHAT IS THE CONVERSATION AS SENT (the owner, 2026-11-14: "yes copy claude code"; Claude Code's transcript keeps
   // every tool result and image block whole): in Coder's chats each answer, note and picture is saved as Grok was sent it, so
@@ -4574,7 +4582,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     // (The owner's Stop while Grok answered, sendOrStop: its answer is not kept, cut by the Stop or come after the Stop's time,
     // as one Claude Code's Stop would have cut; then its mark of a model's answer cut short. Round 6.)
     // (The chat's record of what that request carried goes on the mark, as its answer is not kept: the cache fix.)
-    if (!offered && (answer === STOP_SEEN || ((await stopped()) && stopSaidAt() > 0 && stopSaidAt() < answeredAt))) { convo.push({ ...interruptedNote(false), ...(tsUpfrontNew ? { toolsDeclared: tsUpfrontNew } : {}), ...(tsLocksNew ? { toolLocks: tsLocksNew, toolLocksV: TOOLS_V } : {}) }); emit({ type: "stopped" }); return end("stopped"); }
+    if (!offered && (answer === STOP_SEEN || ((await stopped()) && stopSaidAt() > 0 && stopSaidAt() < answeredAt))) { convo.push({ ...interruptedNote(false), ...(tsUpfrontNew ? { toolsDeclared: tsUpfrontNew } : {}), ...(tsLocksNew ? { toolLocks: tsLocksNew, toolLocksV: TOOLS_V } : {}), ...sysMark() }); emit({ type: "stopped" }); return end("stopped"); }
     }
     // PICTURES STAY FOR THE WHOLE JOB (live test, 2026-11-05: sending them only
     // in the first round made Grok invent a picture when it answered after a few
@@ -4586,7 +4594,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     // turn ends with Claude Code's error, so the owner can reply "continue".
     if (!back && answer && answer.cutOff && answer.message) {
       const cutSaid = typeof answer.message.content === "string" ? answer.message.content : "";
-      convo.push({ role: "assistant", content: cutSaid, ...(tsUpfrontNew ? { toolsDeclared: tsUpfrontNew } : {}), ...(tsLocksNew ? { toolLocks: tsLocksNew, toolLocksV: TOOLS_V } : {}) });
+      convo.push({ role: "assistant", content: cutSaid, ...(tsUpfrontNew ? { toolsDeclared: tsUpfrontNew } : {}), ...(tsLocksNew ? { toolLocks: tsLocksNew, toolLocksV: TOOLS_V } : {}), ...sysMark() });
       if (cutSaid.trim()) { emit({ type: "text", text: scrub(cutSaid.trim()) }); lastSaid = scrub(cutSaid.trim()).slice(0, 4000); }
       emit({ type: "error", text: CUT_OFF_ERROR });
       return end("send", { why: "output token maximum" });
@@ -4599,7 +4607,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     // (And, in Coder's chats, what that request really used, as Claude Code keeps each answer's usage: what it read and the
     // answer it wrote, its reasoning left out, as Grok is not sent that again. Auto-compact counts from it: autoCompact.)
     const used = !offered && !back && answer && answer.usage && Number(answer.usage.in) > 0 ? Number(answer.usage.in) + Math.max(0, (Number(answer.usage.out) || 0) - (Number(answer.usage.reasoning) || 0)) : 0;
-    if (!back) convo.push({ role: "assistant", content: msg.content == null ? "" : msg.content, ...(Array.isArray(msg.tool_calls) && msg.tool_calls.length ? { tool_calls: msg.tool_calls } : {}), ...(tsUpfrontNew ? { toolsDeclared: tsUpfrontNew } : {}), ...(tsLocksNew ? { toolLocks: tsLocksNew, toolLocksV: TOOLS_V } : {}), ...(used > 0 ? { tokens: used } : {}) });
+    if (!back) convo.push({ role: "assistant", content: msg.content == null ? "" : msg.content, ...(Array.isArray(msg.tool_calls) && msg.tool_calls.length ? { tool_calls: msg.tool_calls } : {}), ...(tsUpfrontNew ? { toolsDeclared: tsUpfrontNew } : {}), ...(tsLocksNew ? { toolLocks: tsLocksNew, toolLocksV: TOOLS_V } : {}), ...sysMark(), ...(used > 0 ? { tokens: used } : {}) });
     // AN ANSWER IN WORDS WITH NO COMMAND finishes the turn: it is the summary
     // (or the answer to a question, or a greeting).
     saidAll += "\n" + said;

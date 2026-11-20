@@ -34,6 +34,7 @@
 //                                                the branch is pushed and the pull request opened
 //   POST /api/coder/projects/:id/stop
 import { pickModel, CODER_MODELS } from "../container/coder-model.mjs";
+import { recordedSystem } from "../container/coder-compact.mjs";
 /**
  * THE EFFORT SAVED ON AN ACCOUNT, AS IT COUNTS NOW (owner, 2026-11-10: "can you do the effort level on low and make sure
  * it's actually on low"). Coder's default became Low. A "high" saved before then was the old default (a save of the
@@ -855,6 +856,16 @@ export function capHistory(messages, max = HISTORY_MAX) { return capHistoryInfo(
  */
 export function capHistoryInfo(messages, max = HISTORY_MAX) {
   if (!Array.isArray(messages)) return { messages: [], dropped: 0, text: "[]" };
+  // THE SYSTEM PROMPT THE CHAT STARTED WITH (`systemSent`, Claude Code's recorded prompt) stays when older steps go:
+  // it moves to the first answer kept, unless a summary came after it.
+  const r = capHistoryInfoRaw(messages, max), had = recordedSystem(messages);
+  if (!r.dropped || !had || recordedSystem(r.messages) !== null) return r;
+  const at = r.messages.findIndex((m) => m && m.role === "assistant");
+  if (at < 0) return r;
+  const out = r.messages.map((m, i) => (i === at ? { ...m, systemSent: had } : m));
+  return { messages: out, dropped: r.dropped, text: JSON.stringify(out) };
+}
+function capHistoryInfoRaw(messages, max) {
   let out = messages, dropped = 0, text = JSON.stringify(out);
   // A PICTURE STILL IN THE SAVED CHAT ITSELF (its machine could not keep it apart on the Worker: coder-live.mjs) goes first,
   // with a note in its place, as the saved chat had before 2026-11-14: never the conversation for it.

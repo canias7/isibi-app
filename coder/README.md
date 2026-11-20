@@ -656,6 +656,8 @@ code in **each user's own GitHub**.
    settings in front (`RB_SAFE_ENV`) and its inline-code map (`RB_RUNNERS`).
 
    **The auto mode checker** (owner, 2026-11-10: "yea do the paid second model too"):
+   It sees commands, web fetches and web searches only; file changes (write, edit) are
+   not sent to it (Claude Code on a computer skips them too; its cloud checks them).
    Claude Code's auto mode classifier, `container/coder-checker.mjs`. In Auto (and a
    job from GitHub), a bash command that the owner's narrow allow rules do not approve
    in full, and a web fetch of a page no rule or documentation site covers, is

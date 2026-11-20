@@ -388,3 +388,36 @@ test("CP10 the cache breaks only at a summary: a job that fills the conversation
   startsWith(at("m2#3"), at("m3#1"));
   assert.ok(C.isSummary(c.messages[0]), "the saved chat starts with it");
 });
+
+test("CP-SYS a Coder chat keeps the system prompt it started with (Claude Code records it on the first request) until a summary; the record is never sent", async () => {
+  const deps = (seen) => ({ send: async (req) => { seen.push(req); return say("ok"); }, exec: async () => ({ code: 0, output: "" }), emit: () => {}, here: () => ROOT, root: ROOT, where: (p) => p, ask: async () => ({ choice: "yes" }) });
+  const seen = [];
+  const r1 = await A.runCoder(deps(seen), { text: "hi", mode: "acceptEdits", noBg: true, system: "SYSTEM A" });
+  const firstAnswer = r1.messages.find((m) => m.role === "assistant");
+  assert.ok(firstAnswer.systemSent.startsWith("SYSTEM A"), "recorded on the first answer");
+  assert.ok(seen[0].messages[0].content.startsWith("SYSTEM A"));
+  // A deploy changes Coder's instructions: the chat goes on with A.
+  const r2 = await A.runCoder(deps(seen), { text: "next", mode: "acceptEdits", noBg: true, system: "SYSTEM B", messages: r1.messages });
+  assert.ok(seen.at(-1).messages[0].content.startsWith("SYSTEM A"), "the recorded prompt, not the new build's");
+  assert.ok(!seen.at(-1).messages[0].content.includes("SYSTEM B"));
+  assert.equal(r2.messages.filter((m) => m.systemSent).length, 1, "recorded once");
+  const { instructions, input } = M.toResponsesInput(seen.at(-1).messages);
+  assert.ok(!JSON.stringify(input).includes("systemSent") && !JSON.stringify(input).includes("SYSTEM A"), "never in the request's input");
+  assert.ok(instructions.startsWith("SYSTEM A"));
+  // After a summary, the build's own prompt is used and recorded again.
+  const sum = C.summaryMessage("s", "the earlier jobs", [], r2.messages);
+  assert.equal(C.recordedSystem([...r2.messages, sum]), null);
+  const r3 = await A.runCoder(deps(seen), { text: "after the summary", mode: "acceptEdits", noBg: true, system: "SYSTEM B", messages: [sum] });
+  assert.ok(seen.at(-1).messages[0].content.startsWith("SYSTEM B"));
+  assert.ok(C.recordedSystem(r3.messages).startsWith("SYSTEM B"));
+});
+
+test("CP-SYS2 the saved chat's size cap keeps the recorded system prompt when it drops the older steps", async () => {
+  const R = await import("../src/coder-routes.mjs");
+  const big = "x".repeat(3000);
+  const msgs = [{ role: "user", content: "one " + big }, { role: "assistant", content: "a", systemSent: "SYSTEM A" }, { role: "user", content: "two " + big }, { role: "assistant", content: "b" }, { role: "user", content: "three" }, { role: "assistant", content: "c" }];
+  const r = R.capHistoryInfo(msgs, 4000);
+  assert.ok(r.dropped > 0);
+  assert.equal(C.recordedSystem(r.messages), "SYSTEM A");
+  assert.equal(JSON.parse(r.text).find((m) => m.systemSent).systemSent, "SYSTEM A");
+});

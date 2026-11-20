@@ -4,6 +4,13 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-20: Bigger Claude Code fixes, part 3
+
+- **Old chats keep their instructions after a deploy:** like Claude Code, a chat now remembers the instructions it started with and keeps using them after a deploy changes Coder's instructions. The new instructions take effect after the chat's next summary (or in a new chat). This keeps Grok's cache working for old chats. The saved copy is never sent to Grok.
+- **Help page wording fixed:** the docs page no longer says Auto's second AI checks "each step". It now says it checks commands, web fetches and web searches; file changes, and steps your own rules or hooks allow, skip it.
+- **Waiting for your answer:** AI-made chat titles (one small extra Grok call per new chat), removing the 60-step / 45-minute cap per message, and having the checker also look at file changes in Auto (one small Grok call per file change) all cost money, so they are not done yet.
+- **Not done yet:** putting back files git ignores (like .env.local) with Restore code and Undo. It touches four parts of Undo/Rewind and is left for its own pass.
+
 ## 2026-11-20: Bigger Claude Code fixes, part 2
 
 - **A picture the AI refuses no longer breaks the chat:** if Grok refuses a picture (too big, for example), Coder now removes that picture, shows "API Error: an image in the conversation could not be processed and was removed.", and carries on. Before, the picture stayed in the chat and every later message failed. If the resend is refused too, the turn stops as before.

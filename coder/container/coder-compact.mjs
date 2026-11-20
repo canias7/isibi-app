@@ -431,6 +431,19 @@ export function filesTouched(messages, max = REREAD_LIST_MAX) {
 /** Is this one of those summary messages (marked, or one from before 2026-11-14, by how it starts)? */
 export const isSummary = (m) => !!m && m.role === "user" && (m.compactSummary === true || (typeof m.content === "string" && m.content.startsWith(SUMMARY_TAG)));
 /**
+ * THE SYSTEM PROMPT A CHAT'S REQUESTS USE (Claude Code records the prompt on a conversation's first request and keeps it
+ * until the conversation is compacted): the first `systemSent` on an answer after the chat's last summary, or null.
+ */
+export function recordedSystem(messages) {
+  let out = null;
+  for (const m of Array.isArray(messages) ? messages : []) {
+    if (!m || typeof m !== "object") continue;
+    if (isSummary(m)) out = null;
+    else if (out === null && m.role === "assistant" && typeof m.systemSent === "string" && m.systemSent) out = m.systemSent;
+  }
+  return out;
+}
+/**
  * A NOTE Coder's app added for Coder (the files the owner @-mentioned, the pictures a read opened, a reminder before it
  * finishes), marked `appNote`: not a message of the owner's, so a summary never starts at one or calls it the owner's.
  */

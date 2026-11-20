@@ -2337,3 +2337,10 @@ test("CD268 a long line on the card for a protected file wraps, so the \"…\" t
   assert.match(css, /\n\.cd-writeask \.cd-envchange-pre \{ overflow-wrap: anywhere; \}\n/);
   assert.match(css, /\.cd-envchange-pre\{[^}]*white-space:pre-wrap/, "lines wrap where they have spaces; overflow-wrap breaks the ones without");
 });
+
+test("docs page says which steps Auto's second AI checks, not 'each step'", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const html = await readFile(new URL("../public/docs.html", import.meta.url), "utf8");
+  assert.ok(!html.includes("a second AI checks each step before it runs"));
+  assert.ok(html.includes("A second AI checks each command, web fetch and web search before it runs; file changes, and steps your own allow rules or hooks approve, skip that check."));
+});
