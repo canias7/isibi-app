@@ -395,6 +395,20 @@ export function askedPath(line, root) {
  * Read deny rules as ripgrep's globs, from where it runs, in both its spellings (Claude Code's DHr and DW): a folder searched
  * from inside, its path as asked for and its real one; a file's search folder, as it is and followed.
  */
+/**
+ * THE READ DENY GLOBS WORKED OUT AGAIN RIGHT BEFORE RIPGREP STARTS (audit M-a-26, 2026-11-20; Claude Code's errors page:
+ * "Refusing to search <path>: a path one of its Read deny rules is written through changed while the search was being
+ * prepared"): a link the rules are written through, swapped between the two, refuses the search. (Every result is still
+ * checked against the rules by its real place, as before; this only closes the split second before the search starts.)
+ * `searchTest.between`: for tests, run between the two.
+ */
+export const searchTest = { between: null };
+export const denyChangedText = (p) => "Refusing to search " + p + ": a path one of its Read deny rules is written through changed while the search was being prepared. Retry.";
+function denyGlobsAgain(deny, root, p, first) {
+  if (typeof searchTest.between === "function") searchTest.between();
+  const again = rootDenyGlobs(deny, root);
+  if (again.length !== first.length || again.some((g, i) => g !== first[i])) throw new SearchError(denyChangedText(p));
+}
 const rootDenyGlobs = (deny, root) => {
   const real = (d) => { try { return realpathSync(d); } catch { return d; } };
   const from = root.relativeOutput || root.spawnCwd === root.canonical ? [root.canonical, root.lexical] : [root.spawnCwd, real(root.spawnCwd)];
@@ -599,11 +613,12 @@ export async function grepTool(args, env) {
   if (a.type) rg.push("--type", a.type);
   // `glob`, split at spaces, and at commas outside braces (Claude Code: "*.{ts,tsx}" is one glob, "*.ts,*.tsx" two).
   if (a.glob) for (const w of a.glob.split(/\s+/)) for (const g of w.includes("{") && w.includes("}") ? [w] : w.split(",")) if (g) rg.push("--glob", g);
-  for (const g of rootDenyGlobs(env.deny, root)) rg.push("--iglob", g);
+  const globs0 = rootDenyGlobs(env.deny, root);
+  for (const g of globs0) rg.push("--iglob", g);
   // (And .git once more, last: a later glob of the call's own, such as "*", would take it back, and Coder never searches it.)
   rg.push("--glob", "!.git");
   let run;
-  try { run = await runRipgrep(rg, root.target, { cwd: root.spawnCwd, inheritFd: root.inheritFd, timeoutMs: timeoutOf(env) }); } finally { await root.close(); }
+  try { denyGlobsAgain(env.deny, root, target, globs0); run = await runRipgrep(rg, root.target, { cwd: root.spawnCwd, inheritFd: root.inheritFd, timeoutMs: timeoutOf(env) }); } finally { await root.close(); }
   // (Each path as the one asked for: Claude Code's wNr.)
   let lines = (mode === "content" ? contentLines(run.lines, { contextBreaks: [a.context, a["-C"], a["-B"], a["-A"]].some((x) => typeof x === "number" && x > 0), onlyMatching: a["-o"] === true }) : nullEntries(run.lines, mode)).map((l) => askedPath(l, root));
   // READ DENY RULES AND .git, BEFORE THE PAGE IS CUT: a line, path or count of a file they cover is left out.
@@ -756,10 +771,11 @@ export async function globTool(args, env) {
   // RIPGREP'S ARGUMENTS (Claude Code's CPr): the files, oldest first, gitignored and hidden ones too unless the environment
   // says otherwise; Read deny rules left out; .git never (Coder's).
   const rg = ["--files", "--null", "--glob", pattern, "--sort=modified", ...(env.noIgnore !== false ? ["--no-ignore"] : []), ...(env.hidden !== false ? ["--hidden"] : [])];
-  for (const g of rootDenyGlobs(env.deny, root)) rg.push("--iglob", g);
+  const globs0 = rootDenyGlobs(env.deny, root);
+  for (const g of globs0) rg.push("--iglob", g);
   rg.push("--glob", "!.git");
   let run;
-  try { run = await runRipgrep(rg, root.target, { cwd: root.spawnCwd, inheritFd: root.inheritFd, timeoutMs: timeoutOf(env) }); } finally { await root.close(); }
+  try { denyGlobsAgain(env.deny, root, dir, globs0); run = await runRipgrep(rg, root.target, { cwd: root.spawnCwd, inheritFd: root.inheritFd, timeoutMs: timeoutOf(env) }); } finally { await root.close(); }
   // (Each path as the one asked for, Claude Code's Jia; nothing in .git, whatever the pattern: Coder's.)
   const found = nullEntries(run.lines, "files_with_matches").map((p) => askedPath(p, root)).filter((p) => !inGit(p));
   // THE CAP, PAST READ DENY RULES (Claude Code's CPr: with deny rules, files are judged in order until 100 are kept, so the

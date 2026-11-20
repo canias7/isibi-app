@@ -24,7 +24,7 @@ import { recordedSystem, summaryRequest, summaryMessage, cutPoint, isSummary, vi
 // A command that views one file counts as reading it (moved to coder-compact.mjs, which the Worker uses too).
 export { viewedFile };
 import { retryLine, apiErrorText, modelWindow, CUT_OFF_ERROR } from "./coder-model.mjs";
-import { commandProblem, capOutput, readTimeout, scrub, splitSetup, MAX_OUTPUT_CHARS, MAX_COMMAND_CHARS, MAX_TIMEOUT_S, DEFAULT_TIMEOUT_S, bashResultText, BASH_INLINE_MAX, BASH_READ_BACK, ccDuration, secretVar } from "./coder-checks.mjs";
+import { commandProblem, capOutput, capText, readTimeout, scrub, splitSetup, MAX_OUTPUT_CHARS, MAX_COMMAND_CHARS, MAX_TIMEOUT_S, DEFAULT_TIMEOUT_S, bashResultText, BASH_INLINE_MAX, BASH_READ_BACK, ccDuration, secretVar } from "./coder-checks.mjs";
 import { SLEEP_BLOCK_S, exitMeaning, sleepBlocked, leadsWithSleep, writeTargets, dangerousRm, realPath, leadsTo, pathExists, RM_UNCHECKED, RM_UNCHECKED_NO_RM, rmCardReason } from "./coder-bashcheck.mjs";
 import { textReasons } from "./coder-shell.mjs";
 import { accountEmailRefused, emailRefused, refusedNow, REMOTE_TOOLS } from "./coder-privacy.mjs";
@@ -1067,6 +1067,31 @@ export function factsAnswer(raw) {
  * chat, each with Claude Code's severity (error, warning, info, hint), and the `<new-diagnostics>` note Grok gets after the
  * round (`diagnostics`, "" when none).
  */
+/**
+ * A CHANGE'S DIFF LINES AS THE PAGE SHOWS THEM (audit I11, 2026-11-20): key-shaped text blanked, and a removed line and the
+ * added line paired with it that blanking makes the same are shown once, marked "(hidden text changed)", rather than as two
+ * identical lines (Grok itself gets the file unchanged, like Claude Code's tools).
+ */
+export function hiddenDiff(lines) {
+  const out = [];
+  for (let i = 0; i < lines.length;) {
+    if (!lines[i].startsWith("-")) { out.push(scrub(lines[i])); i++; continue; }
+    let j = i; while (j < lines.length && lines[j].startsWith("-")) j++;
+    let k = j; while (k < lines.length && lines[k].startsWith("+")) k++;
+    const del = lines.slice(i, j), add = lines.slice(j, k), pairs = Math.min(del.length, add.length);
+    const kept = [], added = [];
+    for (let m = 0; m < del.length; m++) {
+      const d = scrub(del[m]), a = m < pairs ? scrub(add[m]) : null;
+      if (a !== null && d.slice(1) === a.slice(1) && del[m].slice(1) !== add[m].slice(1)) { kept.push(" " + d.slice(1) + "  (hidden text changed)"); continue; }
+      kept.push(d); if (a !== null) added.push(a);
+    }
+    for (let m = pairs; m < add.length; m++) added.push(scrub(add[m]));
+    // (A pair shown once stays where the removed line was; the other added lines follow, as before.)
+    out.push(...kept, ...added);
+    i = k;
+  }
+  return out;
+}
 export function writeAnswer(raw) {
   raw = String(raw || "");
   if (!raw.startsWith(WRITE_MARK)) return { text: raw, change: null, problems: [], problemsAll: 0, diagnostics: "" };
@@ -1075,7 +1100,7 @@ export function writeAnswer(raw) {
     const c = j && j.change, n = (x) => (Number.isInteger(x) && x >= 0 ? x : 0);
     const change = c && (c.kind === "create" || c.kind === "update") ? {
       kind: c.kind, add: n(c.add), del: n(c.del),
-      lines: (Array.isArray(c.lines) ? c.lines : []).filter((l) => typeof l === "string").slice(0, WRITE_SHOW_LINES).map((l) => scrub(l.slice(0, 1001))),
+      lines: hiddenDiff((Array.isArray(c.lines) ? c.lines : []).filter((l) => typeof l === "string").slice(0, WRITE_SHOW_LINES).map((l) => l.slice(0, 1001))),
       ...(n(c.more) ? { more: n(c.more) } : {}), ...(c.big === true ? { big: true } : {}),
     } : null;
     const problems = (Array.isArray(j && j.problems) ? j.problems : []).filter((p) => p && typeof p.message === "string").slice(0, 20).map((p) => ({
@@ -1121,7 +1146,7 @@ export async function mentionNote(deps, paths, { emit = () => {}, touch = () => 
     } else {
       if (!r.output.trim()) continue; // nothing came back (the read tool always says something about a file)
       const got = readAnswer(r.output);
-      const text = capOutput(got.text, READ_LARGE_CHARS + 2000);
+      const text = capText(got.text, READ_LARGE_CHARS + 2000);
       if (/\n\[PARTIAL view: /.test(text) || text.length > left) {
         shownOut = /\n\[PARTIAL view: /.test(text) ? "longer than one read gives (about 100,000 characters)" : "the @-mentioned files already come to " + MENTIONS_CHARS.toLocaleString("en-US") + " characters";
         part = "--- " + sayPath(deps, p) + ": not included (" + shownOut + "). Read it yourself with the read tool (offset and limit) ---";
@@ -1189,7 +1214,7 @@ export async function rereadFiles(deps, kept, touched, emit = () => {}, { lead =
     done.add(f.path);
     const r = await appTool(deps, "read", { path: f.path });
     if (r.code !== 0 || r.output.startsWith(PICS_MARK)) continue;
-    const text = capOutput(r.output, READ_LARGE_CHARS + 2000);
+    const text = capText(r.output, READ_LARGE_CHARS + 2000);
     const big = text.length > REREAD_ONE || /\n\[PARTIAL view: /.test(text) || used + text.length > most;
     if (!big) used += text.length;
     const id = stepId("rr");
@@ -2368,8 +2393,9 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       if (u.type === "replaceRules") { const from = u.destination === "session" || kind === "allow" ? hookSession[kind] : hookSaved[kind] || []; for (const r of from) { const k = ownRules[kind].indexOf(r); if (k >= 0) ownRules[kind].splice(k, 1); } from.splice(0); }
       for (const r of list0) {
         if (u.type === "removeRules") { const k = ownRules[kind].indexOf(r); if (k >= 0) ownRules[kind].splice(k, 1); for (const l of [hookSession[kind], hookSaved[kind] || []]) { const j = l.indexOf(r); if (j >= 0) l.splice(j, 1); } continue; }
-        if (kind === "allow" && u.destination !== "session") addRule(r);
-        else {
+        // A hook's allow rule lasts for this chat only, whatever destination it names (Claude Code's cloud: each session gets a
+        // fresh machine, so a rule a hook writes to a settings file never reaches a later session). Only "Always allow" on a card saves.
+        {
           if (!ownRules[kind].includes(r)) ownRules[kind].push(r);
           const keep = u.destination === "session" || kind === "allow" ? hookSession[kind] : hookSaved[kind];
           if (keep && !keep.includes(r)) { if (keep.length < 50) keep.push(r); else if (keep === hookSession.deny || keep === hookSession.ask) hookSession.lost = true; }
@@ -5657,7 +5683,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           // (Moved there as the turn ended, Claude Code's backgroundedByTurnAbort: its words for one started there, then the notes
           // of one moved, with no note of output held back, as it has none for that; what it printed so far first. Round 6.)
           const byTurn = !!(r && r.byTurnEnd);
-          const sofarText = !inBg && !byUser && r.output ? scrub(noCwdMarks(String(r.output))).replace(/^(\s*\n)+/, "").trimEnd() : "";
+          const sofarText = !inBg && !byUser && r.output ? noCwdMarks(String(r.output)).replace(/^(\s*\n)+/, "").trimEnd() : "";
           const sofar = sofarText ? sofarText + "\n" : "";
           const parts = [c.monitor ? monitorStarted(job || "?", monitorMs(c.args.timeout)) : inBg || byTurn ? "Command running in background with ID: " + (job || "?") + ". Output is being written to: " + r.log + "." : byUser ? "Command was manually backgrounded by user with ID: " + (job || "?") + ". Output is being written to: " + r.log + "." : "Command did not complete within its " + timeoutS + "s timeout and was moved to the background (ID: " + (job || "?") + "). Output is being written to: " + r.log + "."];
           if (!byUser && !c.monitor) parts.push(BG_NOTICE);
@@ -5681,7 +5707,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
               text = "The command printed a picture (" + String(r.pictureType || "image") + "): it is attached right after these results.";
             }
           }
-          if (!text) text = bashResultText({ output: withDiskNote(noCwdMarks(String((r && r.output) || "")), r), isError, code, size: r && Number.isFinite(r.size) ? r.size : null, file: r && typeof r.file === "string" ? r.file : "", inlineMax: lim.inlineMax, readBack: lim.readBack, truncatedAt: r && Number(r.truncatedAt) > 0 ? Number(r.truncatedAt) : 0, ...(r && typeof r.end === "string" ? { end: r.end, endAt: Number(r.endAt) || 0 } : {}), ...(c.ps ? { tool: "PowerShell" } : {}) });
+          if (!text) text = bashResultText({ output: withDiskNote(noCwdMarks(String((r && r.output) || "")), r), isError, code, size: r && Number.isFinite(r.size) ? r.size : null, file: r && typeof r.file === "string" ? r.file : "", inlineMax: lim.inlineMax, readBack: lim.readBack, truncatedAt: r && Number(r.truncatedAt) > 0 ? Number(r.truncatedAt) : 0, ...(r && typeof r.end === "string" ? { end: r.end, endAt: Number(r.endAt) || 0 } : {}), ...(c.ps ? { tool: "PowerShell" } : {}), hide: (x) => x });
           // A MONITOR WHOSE COMMAND ENDED IN ITS FIRST SECOND: what it printed comes back here, at once, and no events follow.
           if (c.monitor) text = "Monitor \"" + (desc || "monitor") + "\" ended at once: its command exited with code " + code + " in its first second, so no events follow." + (String((r && r.output) || "").trim() ? " What it printed:\n" + text : " It printed nothing.");
         }
@@ -5694,7 +5720,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // agent proxy's note only to a command that failed, after a blank line: "[agent-proxy] While this command ran, …").
         if (isError && r && typeof r.failNote === "string" && r.failNote) text = text.trimEnd() + "\n\n" + r.failNote;
         bashFacts.set(c.id, { ...(bg && job ? { backgroundTaskId: job } : {}), ...(bg && r && r.byUser ? { backgroundedByUser: true } : {}), ...(bg && r && r.byTurnEnd ? { backgroundedByTurnAbort: true } : {}), ...(bg && !inBg && !(r && r.byUser) && !(r && r.byTurnEnd) ? { timedOutAfterMs: timeoutS * 1000 } : {}), ...(interp ? { returnCodeInterpretation: interp } : {}) });
-        emit({ type: "result", id: c.id, code, output: text.length > MAX_OUTPUT_CHARS ? capOutput(text) : text, ...(bg ? { background: true, ...(job ? { job } : {}) } : r && r.timedOut ? { timedOut: true } : {}), ...(r && r.notStarted ? { notStarted: true } : {}), ...(!bg && !isError && code !== 0 ? { ok: true } : {}), ...(thumbs.length ? { thumbs } : {}), ...(files ? { files } : {}) });
+        emit({ type: "result", id: c.id, code, output: capOutput(text), ...(bg ? { background: true, ...(job ? { job } : {}) } : r && r.timedOut ? { timedOut: true } : {}), ...(r && r.notStarted ? { notStarted: true } : {}), ...(!bg && !isError && code !== 0 ? { ok: true } : {}), ...(thumbs.length ? { thumbs } : {}), ...(files ? { files } : {}) });
         // A COMMAND THAT VIEWED ONE FILE counts as reading it (like Claude Code's): that file's folder instructions load.
         // Its path counts from where the command ran (such a command never changes folders).
         let viewed = "";
@@ -7045,7 +7071,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         if (search && code === 0 && typeof deps.saveText === "function" && raw.length > (c.name === "grep" ? GREP_INLINE_MAX : GLOB_INLINE_MAX)) {
           let f = "";
           try { f = String(deps.saveText(raw) || ""); } catch { f = ""; }
-          if (f) raw = bashResultText({ output: raw, size: raw.length, file: f, inlineMax: c.name === "grep" ? GREP_INLINE_MAX : GLOB_INLINE_MAX });
+          if (f) raw = bashResultText({ output: raw, size: raw.length, file: f, inlineMax: c.name === "grep" ? GREP_INLINE_MAX : GLOB_INLINE_MAX, hide: (x) => x });
         }
         const toolText = raw;
         // A READ THAT OPENED PICTURES (a picture, a PDF page with no text, a notebook's plots): its text, and
@@ -7061,11 +7087,11 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // A read is never cut here (it gives whole lines up to READ_CHARS itself, like Claude Code's Read), nor a search (its
         // own limits and the saved file above, Claude Code's); other tools' output is, to MAX_OUTPUT_CHARS.
         // (An lsp answer goes whole up to Claude Code's 100,000 characters; past that it is saved and its start shown: coder-lsp.mjs.)
-        let out = capOutput(raw, c.name === "read" ? READ_LARGE_CHARS + 2000 : c.name === "lsp" ? LSP_RESULT_MAX + 2000 : search ? (c.name === "grep" ? GREP_INLINE_MAX : GLOB_INLINE_MAX) + 2000 : undefined);
+        let out = capText(raw, c.name === "read" ? READ_LARGE_CHARS + 2000 : c.name === "lsp" ? LSP_RESULT_MAX + 2000 : search ? (c.name === "grep" ? GREP_INLINE_MAX : GLOB_INLINE_MAX) + 2000 : undefined);
         if (pics.length) roundPics.push({ path: scrub(String(args.path || "")).slice(0, 200), urls: pics.map((x) => "data:" + x.type + ";base64," + x.data), id: c.id });
         // The chat keeps a step's output to MAX_OUTPUT_CHARS (the review, 2026-11-08: whole reads made its record heavy).
         // A picture read opened is shown in the chat, small, under the step (like Claude Code's).
-        emit({ type: "result", id: c.id, code, output: out.length > MAX_OUTPUT_CHARS ? capOutput(out) : out, ...(thumbs.length ? { thumbs } : {}), ...(change ? { change } : {}), ...(problems.length ? { problems, problemsAll } : {}) });
+        emit({ type: "result", id: c.id, code, output: capOutput(out), ...(thumbs.length ? { thumbs } : {}), ...(change ? { change } : {}), ...(problems.length ? { problems, problemsAll } : {}) });
         // A FILE READ OR CHANGED: what the service adds for it (the repo's instructions for that file), for Coder only.
         let more = "";
         if (code === 0 && FILE_HOOK_TOOLS.has(c.name) && typeof deps.afterFile === "function") { try { more = String((await deps.afterFile({ tool: c.name, args: typeof deps.where === "function" && typeof args.path === "string" ? { ...args, path: toolFullPath(deps, args.path) } : args })) || ""); } catch { more = ""; } await markShownStart(deps, more); }

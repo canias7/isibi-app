@@ -252,22 +252,22 @@ function previewOf(s, n) {
 /** A preview never opens or closes the block it is in (Claude Code: "<\" for an opening angle bracket before persisted-output). */
 const untagged = (s) => s.replace(/<(?!\\)(?=[^A-Za-z0-9_\-<>]*?persisted[_-]output(?:[^A-Za-z0-9_-]|$))/giu, "<\\");
 /** The end Claude Code shows of a long output: from its file's last bytes, from a line start when one is in their first half. */
-function outputTail(end, endAt, total, back) {
+function outputTail(end, endAt, total, back, hide = scrub) {
   const k = bashEndBytes(back) - 1;
   if (typeof end !== "string" || !end || k <= 0 || total >= BASH_PERSIST_MAX || total <= back + k) return "";
   let buf = Buffer.from(end), at = Number(endAt) || 0;
   if (buf.length > k + 1) { let i = buf.length - (k + 1); while (i < buf.length && (buf[i] & 0xc0) === 0x80) i++; at += i; buf = buf.subarray(i); }
   if (at < back) return "";
   const got = buf.toString("utf8"), nl = got.indexOf("\n");
-  return scrub(nl !== -1 && nl < got.length / 2 ? got.slice(nl + 1) : got).replace(/^(\s*\n)+/, "").trimEnd();
+  return hide(nl !== -1 && nl < got.length / 2 ? got.slice(nl + 1) : got).replace(/^(\s*\n)+/, "").trimEnd();
 }
 /** How far past 10,000 characters a failure goes before it is cut (Claude Code 2.1.322: cut only past 11,024). */
 export const BASH_FAIL_SLACK = 1024;
-export function bashResultText({ output = "", isError = false, code = 0, size = null, file = "", inlineMax = BASH_INLINE_MAX, readBack = BASH_READ_BACK, truncatedAt = 0, tool = "Bash", end = "", endAt = 0, ends = true }) {
+export function bashResultText({ output = "", isError = false, code = 0, size = null, file = "", inlineMax = BASH_INLINE_MAX, readBack = BASH_READ_BACK, truncatedAt = 0, tool = "Bash", end = "", endAt = 0, ends = true, hide = scrub }) {
   // The output's last line break is no part of what is shown (Claude Code, tried: "2c2\n< b\n---\n> c" from diff), nor any
   // white space at its end; and from a command that worked, nor blank lines at its start (Claude Code 2.1.322: its Bash result
   // drops /^(\s*\n)+/ and trims the end; Bash docs pass 9).
-  const text = isError ? scrub(output).trimEnd() : scrub(output).replace(/^(\s*\n)+/, "").trimEnd();
+  const text = isError ? hide(output).trimEnd() : hide(output).replace(/^(\s*\n)+/, "").trimEnd();
   const total = Number.isFinite(size) && size !== null ? size : Buffer.byteLength(text);
   const inline = Number.isInteger(inlineMax) && inlineMax > 0 ? inlineMax : BASH_INLINE_MAX;
   const back = Number.isInteger(readBack) && readBack > 0 ? readBack : BASH_READ_BACK;
@@ -284,8 +284,8 @@ export function bashResultText({ output = "", isError = false, code = 0, size = 
     const firstPart = (s, n, cut) => { const p = previewOf(s, BASH_PREVIEW); return "<persisted-output>\n" + saved(n, cut) + "\n\nPreview (first 2KB):\n" + untagged(p.preview) + (p.more ? "\n...\n" : "\n") + "</persisted-output>"; };
     if (file && total > back) {
       // ITS FILE KEPT: what Claude Code reads back (the first `readBack` characters), and in a cloud session its end too.
-      const head = scrub(output).slice(0, back).replace(/^(\s*\n)+/, "").trimEnd();
-      const tail = ends && tool !== "PowerShell" ? outputTail(end, endAt, total, back) : "";
+      const head = hide(output).slice(0, back).replace(/^(\s*\n)+/, "").trimEnd();
+      const tail = ends && tool !== "PowerShell" ? outputTail(end, endAt, total, back, hide) : "";
       if (!tail) return firstPart(head, total, Number(truncatedAt) || 0);
       const start = previewOf(headChars(head, back - BASH_CUT_MARK.length - tail.length), BASH_PREVIEW - BASH_END_SHOWN).preview;
       const last = tailChars(tail, BASH_END_SHOWN);
@@ -297,7 +297,7 @@ export function bashResultText({ output = "", isError = false, code = 0, size = 
       const rest = text.slice(back).split("\n").length;
       return text.slice(0, back) + "\n\n... [" + rest + " lines truncated] ...";
     }
-    return file ? firstPart(text, text.length, 0) : capOutput(text, inline);
+    return file ? firstPart(text, text.length, 0) : capText(text, inline);
   }
   const full = ("Exit code " + code + "\n" + text.slice(0, back)).trimEnd();
   if (full.length <= BASH_FAIL_MAX + BASH_FAIL_SLACK) return full;
@@ -352,7 +352,19 @@ export function utf8Partial(buf) {
   return 0;
 }
 
-/** What a command printed, bounded: the head and the tail, the cut said. */
+/**
+ * What a tool gave, bounded: the head and the tail, the cut said, with nothing blanked. This is what Grok gets (audit I11,
+ * 2026-11-20: like Claude Code, which hands Claude a tool's result unchanged; key-shaped text is masked only where people see
+ * it). Before, Grok got "[hidden]" in place of anything key-shaped, and copied it into files it wrote back whole.
+ */
+export function capText(text, max = MAX_OUTPUT_CHARS) {
+  const t = String(text == null ? "" : text);
+  if (t.length <= max) return t;
+  const head = Math.floor(max * 0.6), tail = max - head;
+  const a = headChars(t, head), b = tailChars(t, tail);
+  return a + "\n… [" + (t.length - a.length - b.length) + " characters not shown] …\n" + b;
+}
+/** What a command printed, bounded and with key-shaped text blanked: for what the page shows and the saved chat. */
 export function capOutput(text, max = MAX_OUTPUT_CHARS) {
   const t = scrub(text);
   if (t.length <= max) return t;

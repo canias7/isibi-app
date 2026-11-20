@@ -117,7 +117,7 @@ test("CD430 an output file cut at its limit says so, in Claude Code's words (\"O
   assert.match(C.bashResultText({ output: big, size: 40_000, file: "/out/a.txt" }), /^<persisted-output>\nOutput too large \(39\.1KB\)\. Full output saved to: \/out\/a\.txt\n/);
   assert.match(C.bashResultText({ output: big, size: 90 * 1024 * 1024, file: "/out/a.txt", truncatedAt: 64 * 1024 * 1024 }), /^<persisted-output>\nOutput exceeded the 64MB persist limit; only the first 64MB were saved to: \/out\/a\.txt\n\nPreview \(first 2KB\):\n/);
   // (With the end of the file the machine read back, for Claude Code 2.1.325's start-and-end preview: round 4.)
-  assert.match(read("container/coder-agent.mjs"), /truncatedAt: r && Number\(r\.truncatedAt\) > 0 \? Number\(r\.truncatedAt\) : 0, \.\.\.\(r && typeof r\.end === "string" \? \{ end: r\.end, endAt: Number\(r\.endAt\) \|\| 0 \} : \{\}\), \.\.\.\(c\.ps \? \{ tool: "PowerShell" \} : \{\}\) \}\);/);
+  assert.match(read("container/coder-agent.mjs"), /truncatedAt: r && Number\(r\.truncatedAt\) > 0 \? Number\(r\.truncatedAt\) : 0, \.\.\.\(r && typeof r\.end === "string" \? \{ end: r\.end, endAt: Number\(r\.endAt\) \|\| 0 \} : \{\}\), \.\.\.\(c\.ps \? \{ tool: "PowerShell" \} : \{\}\), hide: \(x\) => x \}\);/);
 });
 
 test("CD431 a monitor at its deadline: how many events it delivered, and with none, Claude Code's \"widen the filter if silence was unexpected\"", () => {

@@ -628,3 +628,24 @@ test("MA06 content and count results are sorted by file path, so paging with hea
   }
   assert.deepEqual(S.byPath(["b\u00001:x", "--", "b\u00005:y", "--", "a\u00002:z"], (l) => (l === "--" ? null : l.slice(0, l.indexOf("\u0000")))), ["a\u00002:z", "b\u00001:x", "--", "b\u00005:y"]);
 });
+
+test("SR16b (audit M-a-26) the Read deny rules' globs are worked out again right before ripgrep starts, as Claude Code's are; a link a rule goes through, swapped in between, refuses the search in Claude Code's words (\"Refusing to search …: a path one of its Read deny rules is written through changed while the search was being prepared\")", { skip: !hasRg || process.platform !== "linux" }, async () => {
+  const d = mkdtempSync(join(tmpdir(), "sr-deny-"));
+  for (const x of ["a", "b"]) mkdirSync(join(d, x));
+  writeFileSync(join(d, "a/x.txt"), "TODO in a\n"); writeFileSync(join(d, "a/secret.txt"), "TODO secret\n"); writeFileSync(join(d, "b/x.txt"), "TODO in b\n");
+  symlinkSync(join(d, "a"), join(d, "link"));
+  const deny = { rules: ["Read(/" + join(d, "a/secret.txt").replace(/^\//, "/") + ")"], root: d };
+  // Nothing changes: searched as before.
+  assert.match((await grep(join(d, "link"), { pattern: "TODO", path: "x.txt" }, { deny })).text, /Found 1 file/);
+  // (The search runs from the chat's folder, here reached through the link, so the rule's glob depends on where the link leads.)
+  // The link moved between the two: refused, by grep and glob alike.
+  const flip = () => { rmSync(join(d, "link")); symlinkSync(join(d, "b"), join(d, "link")); };
+  const back = () => { rmSync(join(d, "link")); symlinkSync(join(d, "a"), join(d, "link")); };
+  try {
+    S.searchTest.between = flip;
+    assert.equal(await fails(grep(join(d, "link"), { pattern: "TODO", path: "x.txt" }, { deny })), S.denyChangedText(join(d, "link/x.txt")));
+    back();
+  } finally { S.searchTest.between = null; }
+  assert.equal(S.denyChangedText("/w/p"), "Refusing to search /w/p: a path one of its Read deny rules is written through changed while the search was being prepared. Retry.");
+  rmSync(d, { recursive: true, force: true });
+});

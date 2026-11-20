@@ -4,6 +4,15 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-20: Bigger Claude Code fixes, part 4
+
+- **Hook rules last for one chat:** when a repository's own hook approves a command and adds an "allow" rule, that rule now lasts only for the chat it was made in, as in Claude Code's cloud. Before, it was saved into your lasting rules for that repository. "Always allow" that you pick yourself on a card is still saved as before.
+- **Coder sees your files as they are:** text that only looks like a key (for example `pk_live_...` or a `Bearer ...` line) used to reach Grok as "[hidden]", so a file Coder rewrote whole could end up with "[hidden]" written into it. Now Grok gets what its tools give back, as Claude gets it in Claude Code, and the hiding happens only in what the chat shows you. In a change shown under a step, a line where only hidden text changed now shows once, marked "(hidden text changed)". To keep a real secret file away from Coder, add a rule such as `Read(./.env)`; the docs page now says so. Note: Grok (xAI) now sees key-shaped text in the files it reads.
+- **PowerShell safety:** a PowerShell command that defines its own function under the name of a built-in command is now refused, with a note asking Coder to pick another name, as Claude Code does. (Only matters when PowerShell is switched on.)
+- **Search safety:** a small timing gap in searches that respect your Read deny rules was closed the way Claude Code closes it; a search caught in it is refused and can simply be retried.
+- **Repository security rules written for Python:** a repository's security-check rules are written as Python patterns. Coder now reads them the Python way (flags like `(?i)` and `(?m)`, named groups, start and end markers), and a rule it still cannot read is named in the chat instead of being skipped silently.
+- Full test suite passes, apart from two older tests about stopping Grok mid-answer (IN4, IN9) that already failed before these changes. Not deployed or merged; not yet tried live in the browser.
+
 ## 2026-11-20: Bigger Claude Code fixes, part 3
 
 - **Old chats keep their instructions after a deploy:** like Claude Code, a chat now remembers the instructions it started with and keeps using them after a deploy changes Coder's instructions. The new instructions take effect after the chat's next summary (or in a new chat). This keeps Grok's cache working for old chats. The saved copy is never sent to Grok.

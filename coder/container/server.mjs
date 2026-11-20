@@ -3047,17 +3047,19 @@ export function laterNotes(later, dir, path, shown, tool = "read") {
  * fields): .coder/security-patterns.json, .yaml and .yml, and Claude Code's .claude/ ones, all that exist, up to 50 rules in all.
  * Read by root like the instruction files (plainText).
  */
+export const securityUnreadableNote = (names) => "This repository's security rules could not all be read: " + names.slice(0, 5).map((n) => String(n).replace(/^repo:/, "")).join(", ") + (names.length > 5 ? " and " + (names.length - 5) + " more" : "") + " (written for Python's patterns).";
 export async function repoSecurityRules(dir) {
-  const out = [], skipped = [];
+  const out = [], skipped = [], unreadable = [];
   // And Claude Code's own (the owner, 2026-11-09: "Go ahead and do those"; its security-guidance docs: ".claude/security-patterns.yaml
   // … also reads .claude/security-patterns.yml and .claude/security-patterns.json with the same schema"), so a repo set
   // up for Claude Code gets its checks here too. Up to 50 rules in all, as before.
   for (const [f, kind] of [[".coder/security-patterns.json", "json"], [".coder/security-patterns.yaml", "yaml"], [".coder/security-patterns.yml", "yaml"], [".claude/security-patterns.json", "json"], [".claude/security-patterns.yaml", "yaml"], [".claude/security-patterns.yml", "yaml"]]) {
     const text = await plainText(dir, f, 65536);
-    if (text !== null) { const got = parseRulesFile(text, kind); out.push(...got); skipped.push(...(got.skipped || [])); }
+    if (text !== null) { const got = parseRulesFile(text, kind); out.push(...got); skipped.push(...(got.skipped || [])); unreadable.push(...(got.unreadable || [])); }
   }
   const kept = out.slice(0, 50);
   Object.defineProperty(kept, "skipped", { value: skipped });
+  Object.defineProperty(kept, "unreadable", { value: unreadable });
   return kept;
 }
 /**
@@ -4339,6 +4341,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     const repoRules = await repoSecurityRules(dir);
     const secRules = [...BUILTIN_RULES, ...repoRules];
     if (repoRules.skipped && repoRules.skipped.length) t.events.push({ at: Date.now(), type: "note", text: "Security check: skipped " + repoRules.skipped.length + " of this repository's rules whose pattern could run too long (" + repoRules.skipped.slice(0, 5).join(", ") + ")." });
+    // (A rule whose Python pattern JavaScript can't read is said, not dropped in silence: audit M-e-43.)
+    if (repoRules.unreadable && repoRules.unreadable.length) t.events.push({ at: Date.now(), type: "note", text: securityUnreadableNote(repoRules.unreadable) });
     // (Once a chat, not once a job: kept beside the memory, as Claude Code's warning fires "once per pattern per file per
     // session". M-a-17. A chat's first message starts it fresh.)
     const shownSecFile = join(memRoot, project + ".security-shown.json");

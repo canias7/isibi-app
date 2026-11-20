@@ -57,8 +57,8 @@ test("CD161 a repo's own rules (.coder/security-patterns.json, .yaml or .yml, Cl
   const rules = C.parseRulesFile(yaml, "yaml");
   assert.deepEqual(rules.map((r) => [r.rule_name, r.substrings || String(r.regex), r.paths || r.exclude_paths || null]), [
     ["repo:internal_api_key", ["sk_live_", "AKIA"], null],
-    ["repo:tenant_unfiltered_query", "/\\.objects\\.all\\(\\)/m", ["**/src/tenants/**"]],
-    ["repo:no_console", "/console\\.log/m", ["scripts/**"]],
+    ["repo:tenant_unfiltered_query", "/\\.objects\\.all\\(\\)/", ["**/src/tenants/**"]],
+    ["repo:no_console", "/console\\.log/", ["scripts/**"]],
   ]);
   const w = (rel, text) => C.checkEdit(rel, text, rules, new Set());
   assert.match(w("app/settings.py", "KEY = 'sk_live_123'"), /- repo:internal_api_key: Hardcoded API key prefix\./);
@@ -140,4 +140,31 @@ test("CD160b the same warning for the same file is not given again in a later jo
   assert.notEqual(C.checkEdit("b.js", "eval(y)", C.BUILTIN_RULES, job2), "", "another file still warns");
   const fresh = await S.loadShownSec(file, true);
   assert.notEqual(C.checkEdit("a.js", "eval(y)", C.BUILTIN_RULES, fresh), "", "a new chat warns again");
+});
+
+test("CD161b (audit M-e-43) a repository rule's regex is read as the Python pattern it is (Claude Code: \"Python regex matched against the edited content\"): inline flags, named groups, \\A and \\Z, ^ and $ as Python means them; one JavaScript can't read is listed in the chat, not dropped silently", async () => {
+  const one = (regex) => C.parseRulesFile(JSON.stringify({ patterns: [{ rule_name: "r", regex, reminder: "x" }] }), "json");
+  const hit = (regex, text) => { const r = one(regex); assert.equal(r.length, 1, regex); return r[0].regex.test(text); };
+  const cases = [
+    ["(?i)password\\s*=", "PASSWORD = 1"], ["(?m)^eval", "x\neval(y)"], ["^eval", "x\neval(y)"], ["(?s)a.b", "a\nb"], ["a.b", "a\nb"],
+    ["(?x) foo  # a comment\n bar", "foobar"], ["(?P<q>['\"])x(?P=q)", "'x'"], ["(?P<q>['\"])x(?P=q)", "'x\""], ["\\Asecret", "secret here"],
+    ["\\Asecret", "a\nsecret"], ["end\\Z", "the end"], ["end\\Z", "the end\n"], ["end$", "the end\n"], ["end$", "end\nmore"], ["(?im)^TODO$", "x\ntodo\ny"],
+  ];
+  // What Python itself says, when it is here.
+  let py = null;
+  try { py = JSON.parse(execFileSync("python3", ["-I", "-c", "import json,re,sys; c=json.load(sys.stdin); print(json.dumps([bool(re.search(p,t)) for p,t in c]))"], { input: JSON.stringify(cases) }).toString()); } catch { py = null; }
+  const want = py || [true, true, false, true, false, true, true, false, true, false, true, true, true, false, true];
+  assert.deepEqual(cases.map(([p, t]) => hit(p, t)), want);
+  assert.deepEqual(C.pyToJs("(?i)abc"), { source: "abc", flags: "i" });
+  assert.equal(C.pyToJs("(?P<n>x)").source, "(?<n>x)");
+  // Not readable here: listed, not lost.
+  const bad = C.parseRulesFile(JSON.stringify({ patterns: [{ rule_name: "possessive", regex: "a++b", reminder: "x" }, { rule_name: "fine", regex: "ok", reminder: "x" }] }), "json");
+  assert.deepEqual([bad.map((r) => r.rule_name), bad.unreadable], [["repo:fine"], ["repo:possessive"]]);
+  const S = await import("../container/server.mjs");
+  const dir = await mkdtemp(join(tmpdir(), "coder-sec-py-"));
+  await mkdir(join(dir, ".claude"), { recursive: true });
+  await writeFile(join(dir, ".claude", "security-patterns.json"), JSON.stringify({ patterns: [{ rule_name: "atomic", regex: "(?>ab)c", reminder: "x" }] }));
+  const got = await S.repoSecurityRules(dir);
+  assert.deepEqual([got.length, got.unreadable], [0, ["repo:atomic"]]);
+  assert.equal(S.securityUnreadableNote(got.unreadable), "This repository's security rules could not all be read: atomic (written for Python's patterns).");
 });

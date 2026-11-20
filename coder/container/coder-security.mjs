@@ -74,6 +74,38 @@ export function riskyRegex(src) {
 /** How much of an edit each repository rule reads (the first 200 KB). */
 export const RULE_TEXT_MAX = 200 * 1024;
 
+/**
+ * A PYTHON PATTERN AS JAVASCRIPT READS IT (audit M-e-43, 2026-11-20; Claude Code's security-guidance docs: a rule's regex is a
+ * "Python regex matched against the edited content"). Leading inline flags (?aiLmsux) become JavaScript's (i, m, s; x drops
+ * unescaped blanks and # comments outside [...]; a, L and u change nothing here); (?P<name>...) is (?<name>...), (?P=name)
+ * \k<name>; \A and \Z are the very start and end; and without (?m), $ also matches before a last newline, as Python's does.
+ * No m flag is added, so ^ and $ mean what they mean in Python. What JavaScript still can't read (a scoped (?i:...) on this
+ * Node, a++, (?>...)) fails to compile and is reported by the caller.
+ */
+export function pyToJs(src) {
+  let p = String(src), flags = "";
+  for (let m; (m = /^\(\?([aiLmsux]+)\)/.exec(p));) { for (const f of m[1]) if (!flags.includes(f)) flags += f; p = p.slice(m[0].length); }
+  const verbose = flags.includes("x"), multi = flags.includes("m");
+  let out = "", inClass = false;
+  for (let i = 0; i < p.length; i++) {
+    const c = p[i];
+    if (c === "\\") {
+      const n = p[i + 1];
+      if (!inClass && n === "A") { out += "(?<![\\s\\S])"; i++; continue; }
+      if (!inClass && n === "Z") { out += "(?![\\s\\S])"; i++; continue; }
+      out += c + (n === undefined ? "" : n); i++; continue;
+    }
+    if (inClass) { if (c === "]") inClass = false; out += c; continue; }
+    if (c === "[") { inClass = true; out += c; if (p[i + 1] === "^") { out += "^"; i++; } if (p[i + 1] === "]") { out += "\\]"; i++; } continue; }
+    if (verbose && /\s/.test(c)) continue;
+    if (verbose && c === "#") { while (i < p.length && p[i] !== "\n") i++; continue; }
+    if (c === "(" && p.startsWith("(?P<", i)) { out += "(?<"; i += 3; continue; }
+    if (c === "(" && p.startsWith("(?P=", i)) { const e = p.indexOf(")", i); if (e > 0) { out += "\\k<" + p.slice(i + 4, e) + ">"; i = e; continue; } }
+    if (c === "$" && !multi) { out += "(?=\\n?(?![\\s\\S]))"; continue; }
+    out += c;
+  }
+  return { source: out, flags: [...flags].filter((f) => "ims".includes(f)).join("") };
+}
 export function cleanRule(r) {
   if (!r || typeof r !== "object") return null;
   const name = String(r.rule_name || "").trim().slice(0, 80);
@@ -84,7 +116,9 @@ export function cleanRule(r) {
   if (typeof r.regex === "string" && r.regex) {
     if (r.regex.length > 500) return null;
     if (riskyRegex(r.regex)) return { skipped: "repo:" + name };
-    try { out.regex = new RegExp(r.regex.replace(/^\(\?i\)/, ""), /^\(\?i\)/.test(r.regex) ? "im" : "m"); } catch { return null; }
+    // (Read as the Python pattern it is written as: pyToJs. One JavaScript still can't read is listed, not lost: audit M-e-43.)
+    const js = pyToJs(r.regex);
+    try { out.regex = new RegExp(js.source, js.flags); } catch { return { unreadable: "repo:" + name }; }
   } else {
     const subs = list(r.substrings);
     if (!subs.length) return null;
@@ -107,8 +141,9 @@ export function parseRulesFile(text, kind) {
     try { const j = JSON.parse(text); raw = Array.isArray(j) ? j : Array.isArray(j && j.patterns) ? j.patterns : []; } catch { raw = []; }
   } else raw = yamlPatterns(String(text));
   const all = raw.map(cleanRule).filter(Boolean);
-  const out = all.filter((r) => !r.skipped).slice(0, RULES_MAX);
+  const out = all.filter((r) => !r.skipped && !r.unreadable).slice(0, RULES_MAX);
   Object.defineProperty(out, "skipped", { value: all.filter((r) => r.skipped).map((r) => r.skipped) });
+  Object.defineProperty(out, "unreadable", { value: all.filter((r) => r.unreadable).map((r) => r.unreadable) });
   return out;
 }
 

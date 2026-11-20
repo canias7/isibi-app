@@ -14,7 +14,7 @@
 // arguments, commands with a list of safe options each (git log, grep, sed …), and a few exact ones; an unquoted glob is
 // allowed only for the commands whose every option only reads.
 import { psRuleMatches, psExactRule, psAllParts } from "./coder-ps.mjs";
-import { psParseFail, psCommands, psRedirections, psFileRedirections, psPatterns, psCmdlet, psSafetyWhy, psProviderWhy, psDynamicArgs, psWritesState, psCommandReadOnly, psPathArgs, psRecurse, psRemovalDenied, psRemovalWorkdir, psNameType, PS_FORMATTERS } from "./coder-psparse.mjs";
+import { psRedefines, psRedefinesWhy, psParseFail, psCommands, psRedirections, psFileRedirections, psPatterns, psCmdlet, psSafetyWhy, psProviderWhy, psDynamicArgs, psWritesState, psCommandReadOnly, psPathArgs, psRecurse, psRemovalDenied, psRemovalWorkdir, psNameType, PS_FORMATTERS } from "./coder-psparse.mjs";
 import { parseShell, unwrapped, unwrapSteps, progName, leadWords, basename, wrapperDirs, processWrappers } from "./coder-shell.mjs";
 import { FILE_RULE_TOOLS, TOOL_RULE_NAMES, fileRuleHit, folderReadAllowed, readRuleFor, starAllowTool, STAR_EDIT_TOOLS, fullPathFrom, ifPathMatches } from "./coder-filerules.mjs";
 import { docSite, pickDomainRule, webFetchRuleProblem } from "./coder-webfetch-sites.mjs";
@@ -2703,6 +2703,7 @@ export function psDecision(command, { mode = "auto", rules = {}, nativeReadOnly 
   if (d) return { verdict: "deny", rule: d.text, why: "Permission to use PowerShell with command " + cmd + " has been denied.", suggest: null };
   const gone = psRemovals(p, pieces, { pathAbs, cwd, home });
   if (gone.deny) return { verdict: "deny", why: gone.deny, suggest: null, removal: true };
+  { const same = psRedefines(p); if (same) return { verdict: "deny", why: psRedefinesWhy(same), suggest: null, redefines: true }; }
   const a = settingHit(rulesFor(rules.ask, "PowerShell", true)) || hit(rulesFor(rules.ask, "PowerShell", true), [...texts, ...pieces]);
   if (a) return { verdict: "ask", rule: a.text, why: ruleAskWhy(a.text, m), told: askedWhy("PowerShell"), suggest: null, byRule: true };
   // (The "don't ask again" rule each question offers is Claude Code's: the command itself for its safety checks, provider

@@ -273,6 +273,7 @@
           <li>Each chat has its own computer: Ubuntu 24.04, 4 CPUs and 16 GB of memory, with the tools Claude Code's has, and admin rights inside a sealed sandbox. It sleeps when it's quiet and keeps its disk, so what you installed stays.</li>
           <li>Commands run with no secrets in them. Your environment's keys are added on the way out, by Coder's server, and only for the sites they're for.</li>
           <li>What the computer can reach on the internet is set by the chat's environment.</li>
+          <li>Coder sees what its tools give back as it is, like Claude Code. Text that looks like a key is hidden only in what the chat shows you. To keep a real secret file from Coder, add a rule such as <code>Read(./.env)</code>: it stops both Coder's file tools and commands like <code>cat .env</code>.</li>
           <li>PowerShell can be turned on for an environment with <code>CODER_USE_POWERSHELL_TOOL=1</code>.</li>
         </ul>
       </section>

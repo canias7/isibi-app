@@ -620,7 +620,9 @@ test("CD417 hooks meeting commands, as Claude Code's hooks reference gives them:
   t = await loop([say("", [call("bash", { command: "npm install left-pad" }, "b1"), call("bash", { command: "npm install lodash" }, "b2")]), say("ok")], PR, { hookRun: (i) => (i.hook_event_name === "PermissionRequest" ? permReq({ behavior: "allow", updatedPermissions: [{ type: "addRules", rules: [{ toolName: "Bash", ruleContent: "npm install *" }], behavior: "allow", destination: "localSettings" }, { type: "addRules", rules: [{ toolName: "Bash", ruleContent: "npm ci" }], behavior: "allow", destination: "session" }] }) : {}) });
   assert.deepEqual(t.ran, ["npm install left-pad", "npm install lodash"]);
   assert.equal(t.hookCalls.filter((h) => h.input.hook_event_name === "PermissionRequest").length, 1, "the rule it added covered the second");
-  assert.deepEqual(t.r.rulesAdded, ["Bash(npm install *)"], "kept as the owner's; the session one not");
+  assert.deepEqual(t.r.rulesAdded || [], [], "I26: a hook's allow rule is never saved as the owner's, whatever destination it names");
+  assert.ok(t.r.sessionRules && t.r.sessionRules.allow.includes("Bash(npm install *)") && t.r.sessionRules.allow.includes("Bash(npm ci)"), "both kept with this chat only");
+  assert.ok(!t.events.some((e) => e.type === "rule"), "no saved-rule chip");
   t = await loop(one, PR, { hookRun: (i) => (i.hook_event_name === "PermissionRequest" ? permReq({ behavior: "allow", updatedPermissions: [{ type: "setMode", mode: "plan", destination: "session" }] }) : {}) });
   assert.deepEqual(t.events.filter((e) => e.type === "mode").map((e) => [e.mode, e.by]), [["plan", "hook"]]);
   // Its suggestions as Claude Code's entries.

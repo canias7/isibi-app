@@ -134,7 +134,7 @@ test("SW7 coder-psparse.mjs: Claude Code 2.1.325's parse script (a line break fi
   assert.ok(Q.PS_PARSE_SCRIPT.startsWith("\nfunction Write-Result($Json) {\n"));
   assert.ok(Q.PS_PARSE_SCRIPT.includes("        $hasStopParsing = $true; break\n    }\n}\n$hasStopParsingValue = $null -ne $ast.Find({ param($n) $n -is [System.Management.Automation.Language.StringConstantExpressionAst] -and ($n.Value -replace '[\\u2013\\u2014\\u2015]','-') -eq '--%' }, $true)\n\n$statements = [System.Collections.ArrayList]::new()\n"));
   assert.ok(Q.PS_PARSE_SCRIPT.includes("    hasStopParsing = $hasStopParsing\n    hasStopParsingValue = $hasStopParsingValue\n    originalCommand = $Command\n"));
-  assert.equal(Q.PS_PARSE_SCRIPT.length, 11128);
+  assert.equal(Q.PS_PARSE_SCRIPT.length, 11342); // (Claude Code's 11,128, plus the defined functions' names: audit M-g-04.)
   const raw = (more) => ({ valid: true, errors: [], statements: [], variables: [], hasStopParsing: false, originalCommand: "x", ...more });
   assert.equal(Q.psTransform(raw({ hasStopParsingValue: false })).hasStopParsing, false);
   assert.equal(Q.psTransform(raw({ hasStopParsingValue: true })).hasStopParsing, true);

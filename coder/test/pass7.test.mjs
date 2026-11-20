@@ -63,7 +63,7 @@ test("CD399 PowerShell read by PowerShell itself (Claude Code's parse script, wo
   assert.match(Q.PS_PARSE_SCRIPT, /^\nfunction Write-Result\(\$Json\) \{/);
   assert.match(Q.PS_PARSE_SCRIPT, /\$ast = \[System\.Management\.Automation\.Language\.Parser\]::ParseInput\(/);
   assert.match(Q.PS_PARSE_SCRIPT, /Write-Result \(\$output \| ConvertTo-Json -Depth 10 -Compress\)\n$/);
-  assert.equal(Q.PS_PARSE_SCRIPT.length, 11128);
+  assert.equal(Q.PS_PARSE_SCRIPT.length, 11342); // (Claude Code's 11,128, plus the defined functions' names: audit M-g-04.)
   assert.ok(Q.PS_PARSE_SCRIPT.includes("\n}\n$hasStopParsingValue = $null -ne $ast.Find({ param($n) $n -is [System.Management.Automation.Language.StringConstantExpressionAst] -and ($n.Value -replace '[\\u2013\\u2014\\u2015]','-') -eq '--%' }, $true)\n\n$statements = "));
   assert.ok(Q.PS_PARSE_SCRIPT.includes("\n    hasStopParsing = $hasStopParsing\n    hasStopParsingValue = $hasStopParsingValue\n    originalCommand = $Command\n"));
   const req = Q.psParseRequest("Get-ChildItem | Select-Object -First 5");
