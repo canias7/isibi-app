@@ -4,6 +4,16 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-19: Claude Code fixes, batch 22
+
+- Five of the ten audit items in this batch fixed, each with a test; five left for later (below). Gloopy, connectors and MCP were not touched. Not deployed or merged, so none of it has been tried live in the browser yet.
+- **Saved permission rules:** when a chat finishes, the "always allow" rules it reports are now only added. They can no longer remove your "never" or "ask" rules, so a Never rule always wins, as in Claude Code. Moving a rule yourself in the rules list still works.
+- **Auto-fix** now refuses a pull request whose branch is the repository's main (default) branch, with Claude Code's words: "cannot run on the default branch".
+- **Memory between chats:** a job started from GitHub (an @coder comment or auto-fix) no longer reads or changes the repository's memory, a safety tightening.
+- **Rewind and Undo:** when no file at all could be put back (every one skipped), the note now says "Failed to restore the code: No files were restored", and the later jobs are kept so you can try again.
+- **Context count after "Summarize up to here":** the messages kept after a summary no longer carry their old size, so the chat is counted at its new, smaller size.
+- **Left for later:** a waiting message lost in a rare race when a job ends; a mode pick made while a message is starting being undone; two chats on one repository overwriting each other's memory notes; folders in the @ list; and a /autocompact command. These need bigger changes (and page screenshots for the last two).
+
 ## 2026-11-19: Claude Code fixes, batch 21
 
 - Eight of the ten audit items in this batch fixed, each with a test; two skipped (below). Gloopy, connectors and MCP were not touched. Not deployed or merged, so none of it has been tried live in the browser yet.

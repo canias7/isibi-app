@@ -430,7 +430,7 @@ export function sessionRulesOf(x) {
 }
 /** What a turn's request carries of the chat's session rules (from PermissionRequest hooks): `{ sessionRules }` or nothing. */
 export const sessionRulesOn = (meta) => { const s = sessionRulesOf(meta && meta.sessionRules); return s ? { sessionRules: s } : {}; };
-export async function changeRules(bucket, uid, repo, kind, list, { remove = false } = {}) {
+export async function changeRules(bucket, uid, repo, kind, list, { remove = false, add = false } = {}) {
   const now = await rulesOf(bucket, uid, repo);
   if (kind === "dirs") {
     const dirs = (Array.isArray(list) ? list : []).map((x) => String(x || "").trim()).filter((x) => !dirProblem(x));
@@ -443,7 +443,8 @@ export async function changeRules(bucket, uid, repo, kind, list, { remove = fals
   if (!["allow", "ask", "deny"].includes(kind) || !want.length) return now;
   if (remove) now[kind] = now[kind].filter((x) => !want.includes(x));
   else {
-    for (const k of ["allow", "ask", "deny"]) if (k !== kind) now[k] = now[k].filter((x) => !want.includes(x));
+    // add: only add (a job's report); never take a rule off another list, so an allow never erases a Never rule.
+    if (!add) for (const k of ["allow", "ask", "deny"]) if (k !== kind) now[k] = now[k].filter((x) => !want.includes(x));
     now[kind] = [...new Set([...now[kind], ...want])].slice(-RULES_MAX);
   }
   await putJson(bucket, rulesKey(uid, repo), now);
@@ -732,6 +733,8 @@ export async function autofixFor(env, bucket, uid, meta, want, token, fetchFn = 
   if (!head.repo || !into.repo || head.repo.id !== into.repo.id) return { note: "Auto-fix was not turned on: pull request #" + number + " comes from a fork, whose branch Coder cannot push to." };
   const branch = String(head.ref || ""), base = String(into.ref || "");
   if (!BRANCH.test(branch) || !BRANCH.test(base)) return { note: "Auto-fix was not turned on: pull request #" + number + "'s branch has a name Coder cannot use." };
+  const deflt = String(into.repo.default_branch || head.repo.default_branch || "");
+  if (deflt && branch === deflt) return { note: "Auto-fix was not turned on: pull request #" + number + " cannot run on the default branch (" + deflt + ")." };
   const owner = await getJson(bucket, branchKey(meta.repo, branch), null);
   if (owner && !(owner.uid === uid && owner.id === meta.id)) return { note: "Auto-fix was not turned on: pull request #" + number + "'s branch belongs to another chat; turn it on there." };
   if (!owner) await bucket.put(branchKey(meta.repo, branch), JSON.stringify({ uid, id: meta.id }), { httpMetadata: { contentType: "application/json" } });
@@ -940,6 +943,11 @@ export function restorePlan(commits, turn) {
 }
 /** Claude Code's warning for the files a code restore skipped (2.1.323), naming them, as the chat can show them. */
 export const RESTORE_SKIP_WHY = "the tracked path is (or became) a link or other non-regular file, its directory changed since the checkpoint, or its backup could not be safely read";
+/** Every file skipped, none put back: a failure, as Claude Code says it (its backups stay, so Rewind can be tried again). */
+export function restoreNone(paths) {
+  const n = paths.length;
+  return "Failed to restore the code: No files were restored. " + n + " " + (n === 1 ? "path was" : "paths were") + " skipped for link safety: " + RESTORE_SKIP_WHY + ". Skipped files were left untouched: " + namesSaid(paths) + ".";
+}
 export function restoreSkipped(paths) {
   const n = paths.length;
   return "Restored the code, but skipped " + n + " " + (n === 1 ? "file" : "files") + ": " + RESTORE_SKIP_WHY + ". Skipped files were left untouched: " + namesSaid(paths) + ".";
@@ -1474,7 +1482,8 @@ export async function handleCoder(request, env, ctx, deps) {
         const st = ask ? await deps.copyState(copyNow).catch(() => null) : null;
         return { copyOn, setupKey, copyNow, st };
       });
-      const memoryP = soon(async () => { const mo = await bucket.get(memoryKey(uid, meta.repo)); return mo ? (await mo.text()).slice(0, MEMORY_MAX) : ""; });
+      // A job started from GitHub neither sees nor changes the repository's memory (Claude Code: memory stays on the machine that wrote it).
+      const memoryP = soon(async () => { if (body.fromGithub === true) return ""; const mo = await bucket.get(memoryKey(uid, meta.repo)); return mo ? (await mo.text()).slice(0, MEMORY_MAX) : ""; });
       mark("body");
       // THE SAME MESSAGE AGAIN (a browser sends it again when its connection drops; `mid`, the page's id for it): answered as
       // its first copy was, never started or queued twice.
@@ -2229,7 +2238,7 @@ export async function handleCoder(request, env, ctx, deps) {
       const memNew = typeof s.result.memory === "string" ? s.result.memory.slice(0, MEMORY_MAX) : null;
       await Promise.all([
         bucket.put(keyOf(uid, id, "messages.json"), capped.text, { httpMetadata: { contentType: "application/json" } }),
-        memNew !== null && memNew !== oldMemory ? bucket.put(memoryKey(uid, meta.repo), memNew, { httpMetadata: { contentType: "text/markdown" } }) : null,
+        memNew !== null && memNew !== oldMemory && meta.jobFromGithub !== true ? bucket.put(memoryKey(uid, meta.repo), memNew, { httpMetadata: { contentType: "text/markdown" } }) : null,
         putJson(bucket, keyOf(uid, id, "events.json"), keptEvents),
       ]);
       // The oldest history may have been trimmed: Rewind's marks move with it.
@@ -2253,10 +2262,10 @@ export async function handleCoder(request, env, ctx, deps) {
       // with enter_plan_mode, Claude Code's EnterPlanMode: saved as the owner's mode menu saves it. 2026-11-14.)
       const switched = fresh.filter((e) => e && e.type === "mode" && MODES.includes(e.mode) && (e.by === "card" || e.by === "plan" || e.by === "autoOff" || e.by === "settings" || e.by === "hook" || e.by === "enterPlan")).at(-1);
       const modeNow = switched && Number(switched.at || 0) > Number(meta.modeAt || 0) ? { mode: switched.mode } : {};
-      if (Array.isArray(s.result.rulesAdded) && s.result.rulesAdded.length) await changeRules(bucket, uid, meta.repo, "allow", s.result.rulesAdded.slice(0, 20)).catch(() => {});
+      if (Array.isArray(s.result.rulesAdded) && s.result.rulesAdded.length) await changeRules(bucket, uid, meta.repo, "allow", s.result.rulesAdded.slice(0, 20), { add: true }).catch(() => {});
       // RULES A PERMISSIONREQUEST HOOK ADDED (Bash docs pass 9): for a settings file, the repository's saved rules; for the
       // "session", the chat's own, sent with each of its next messages (Claude Code: in memory for the session).
-      for (const kind of ["ask", "deny"]) { const l = s.result.rulesSaved && Array.isArray(s.result.rulesSaved[kind]) ? s.result.rulesSaved[kind].filter((x) => typeof x === "string").slice(0, 20) : []; if (l.length) await changeRules(bucket, uid, meta.repo, kind, l).catch(() => {}); }
+      for (const kind of ["ask", "deny"]) { const l = s.result.rulesSaved && Array.isArray(s.result.rulesSaved[kind]) ? s.result.rulesSaved[kind].filter((x) => typeof x === "string").slice(0, 20) : []; if (l.length) await changeRules(bucket, uid, meta.repo, kind, l, { add: true }).catch(() => {}); }
       const sessionRules = sessionRulesOf(s.result.sessionRules);
       // A HOOK'S TITLE FOR THE CHAT (Claude Code's sessionTitle, from a SessionStart or UserPromptSubmit hook): the chat's name.
       const hookTitle = typeof s.result.sessionTitle === "string" && s.result.sessionTitle.trim() ? { title: s.result.sessionTitle.trim().replace(/\s+/g, " ").slice(0, 200) } : {};
@@ -2476,7 +2485,7 @@ export async function handleCoder(request, env, ctx, deps) {
       const ev = { at: Date.now(), type: "note", text: "Summarized conversation: " + (sumWay === "upto" ? "everything above this point" : "this point and everything below it") + " is now a summary for Coder" + (focus ? " (kept in focus: " + focus.slice(0, 160) + ")" : "") + ". The chat still shows it all." };
       const evAt = Math.max(0, Math.min(mark.ev, evs.length));
       const nextEvs = [...evs.slice(0, evAt), ev, ...evs.slice(evAt)].slice(-MAX_EVENTS);
-      await putJson(bucket, keyOf(uid, id, "messages.json"), capHistory([...msgs.slice(0, from), summaryMessage(sum, what + (focus ? ", focused on: " + focus : ""), filesTouched(msgs.slice(from, to)), msgs.slice(from, to)), ...msgs.slice(to)], historyMaxFor(meta)));
+      await putJson(bucket, keyOf(uid, id, "messages.json"), capHistory([...msgs.slice(0, from), summaryMessage(sum, what + (focus ? ", focused on: " + focus : ""), filesTouched(msgs.slice(from, to)), msgs.slice(from, to)), ...msgs.slice(to).map(({ tokens, ...m }) => m)], historyMaxFor(meta)));
       await putJson(bucket, keyOf(uid, id, "events.json"), nextEvs);
       const next = { ...meta, marks: marksAfter(meta.marks, { from, to, evAt }), at: Date.now() };
       await saveMeta(bucket, uid, next);
@@ -2502,7 +2511,8 @@ export async function handleCoder(request, env, ctx, deps) {
       removedFiles = Array.isArray(r.removed) ? r.removed.filter((x) => typeof x === "string") : [];
       skippedFiles = Array.isArray(r.skipped) ? r.skipped.filter((x) => typeof x === "string") : [];
       restoreLeft = leftOutNote(r.left);
-      commits = commits.filter((c) => !later.includes(c));
+      // Nothing put back and something skipped: a failure; the later jobs stay so Rewind can be tried again.
+      if (!(restored.length === 0 && skippedFiles.length > 0)) commits = commits.filter((c) => !later.includes(c));
     } else if (code && later.length) {
       const t = await userToken(env, bucket, uid, { fetchFn });
       if (!t) return json({ error: "Connect GitHub again first." }, 401);
@@ -2527,7 +2537,8 @@ export async function handleCoder(request, env, ctx, deps) {
     const codeSaid = !code ? "" : restored ? (restored.length ? "the code is back as it was (" + restored.length + " file" + (restored.length === 1 ? "" : "s") + " restored, " + savedTo + "; files only commands changed stay as they are)" : "the code had no changes to restore") : later.length ? "the code is back as it was (" + undone + " job" + (undone === 1 ? "" : "s") + " undone, saved to the branch " + meta.branch + ")" : "the code had no later changes";
     // (The changed-files box's Undo button reads like an undo, not a rewind: live side-by-side, 2026-11-17.)
     const undoSaid = !asUndo ? "" : restored && restored.length ? undoLine("Undid this turn's changes", restored, savedTo, removedFiles) : restored ? "Nothing to undo: this turn's changes were already gone." : later.length ? undoLine("Undid this turn's changes", later.flatMap((c) => (Array.isArray(c.edited) ? c.edited : [])), "saved to the branch " + meta.branch) : "Nothing to undo: this turn changed no files.";
-    const note = undoSaid ? undoSaid + (skippedFiles.length ? " " + restoreSkipped(skippedFiles) : "") + (restoreLeft ? " · " + restoreLeft : "") : "Rewound to before an earlier message: " + [codeSaid, chat ? "the chat after it is gone" : ""].filter(Boolean).join("; ") + "." + (skippedFiles.length ? " " + restoreSkipped(skippedFiles) : "") + (restoreLeft ? " · " + restoreLeft : "");
+    const noneBack = !!restored && restored.length === 0 && skippedFiles.length > 0;
+    const note = noneBack ? (chat ? "Rewound to before an earlier message: the chat after it is gone. " : "") + restoreNone(skippedFiles) + (restoreLeft ? " · " + restoreLeft : "") : undoSaid ? undoSaid + (skippedFiles.length ? " " + restoreSkipped(skippedFiles) : "") + (restoreLeft ? " · " + restoreLeft : "") : "Rewound to before an earlier message: " + [codeSaid, chat ? "the chat after it is gone" : ""].filter(Boolean).join("; ") + "." + (skippedFiles.length ? " " + restoreSkipped(skippedFiles) : "") + (restoreLeft ? " · " + restoreLeft : "");
     const ev = { at: Date.now(), type: "github", text: note };
     events = [...events, ev].slice(-MAX_EVENTS);
     // Code only: Coder is told, so it knows those changes are gone.

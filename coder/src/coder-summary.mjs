@@ -52,5 +52,5 @@ export async function compactHistory(messages, summarizeFn, { at = COMPACT_HISTO
   if (c <= 0) return { messages, from: 0, to: 0 };
   const text = await summarizeFn(messages.slice(0, c), "");
   if (!text) return { messages, from: 0, to: 0 };
-  return { messages: [summaryMessage(text, "the earlier jobs of this chat, summarized to make room", filesTouched(messages.slice(0, c)), messages.slice(0, c), { gloopy }), ...messages.slice(c)], from: 0, to: c };
+  return { messages: [summaryMessage(text, "the earlier jobs of this chat, summarized to make room", filesTouched(messages.slice(0, c)), messages.slice(0, c), { gloopy }), ...messages.slice(c).map(({ tokens, ...m }) => m)], from: 0, to: c };
 }
