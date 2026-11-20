@@ -1213,7 +1213,7 @@
     if (!pick || !S.project) return;
     let body;
     if (pick === 'sumfrom' || pick === 'sumupto') {
-      const focus = await askText('Summarize ' + (pick === 'sumfrom' ? 'from here' : 'up to here'), 'Anything the summary should keep? (Optional: leave it empty for a general summary.)', 'Summarize', '', { optional: true, max: 300 });
+      const focus = await askText('Summarize ' + (pick === 'sumfrom' ? 'from here' : 'up to here'), 'Anything the summary should keep? (Optional: leave it empty for a general summary.)', 'Summarize', '', { optional: true, max: 20000 });
       if (focus === null || !S.project) return;
       body = { turn, summarize: pick === 'sumfrom' ? 'from' : 'upto', focus };
     } else body = { turn, code: pick !== 'chat', chat: pick !== 'code', ...(o.undo && pick === 'code' ? { undo: true } : {}) };

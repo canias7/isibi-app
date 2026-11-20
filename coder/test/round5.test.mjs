@@ -379,6 +379,11 @@ test("CD532 the owner's /compact runs on the chat's machine with its hooks, as C
   // With no words after /compact, PreCompact's custom_instructions is null, as Claude Code's.
   t = await run({ hooks: { PreCompact: hk("manual") }, focus: "" });
   assert.deepEqual([t.hookCalls[0].trigger, t.hookCalls[0].custom_instructions], ["manual", null]);
+  // (Batch 21, M-b-27) Long, multi-line focus words reach PreCompact and the summary request whole, as typed.
+  const longFocus = "keep the API notes\n- and the totals " + "x".repeat(600);
+  t = await run({ hooks: { PreCompact: hk("manual") }, focus: longFocus });
+  assert.equal(t.hookCalls[0].custom_instructions, longFocus);
+  assert.ok(t.seen[0].messages.at(-1).content.includes(longFocus));
   // A PreCompact hook that blocks keeps the conversation whole: no summary made, the chat says why.
   t = await run({ hooks: { PreCompact: hk("manual") }, hookRun: () => ({ stdout: '{"decision":"block","reason":"not during a release"}' }) });
   assert.equal(t.seen.length, 0);

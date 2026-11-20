@@ -182,10 +182,19 @@ export async function queueReview(env, api, job, now = Date.now()) {
   return { ok: true, queued: true };
 }
 
-async function finishCheck(api, repo, id, { conclusion = "neutral", title, summary = "", text = "", annotations = [] }) {
-  if (!id) return null;
-  return api("/repos/" + repo + "/check-runs/" + Number(id), { method: "PATCH", body: { status: "completed", conclusion, completed_at: new Date().toISOString(), output: { title, summary: summary || title, ...(text ? { text } : {}), ...(annotations.length ? { annotations: annotations.slice(0, 50) } : {}) } } });
+// With no check (the earlier tries to make one failed) and the commit known, a last try makes a completed one, so a
+// finished review always shows a check (Claude Code: "a final try now adds a completed check").
+async function finishCheck(api, repo, id, { conclusion = "neutral", title, summary = "", text = "", annotations = [], sha = "" }) {
+  const body = { status: "completed", conclusion, completed_at: new Date().toISOString(), output: { title, summary: summary || title, ...(text ? { text } : {}), ...(annotations.length ? { annotations: annotations.slice(0, 50) } : {}) } };
+  if (!id) return sha ? api("/repos/" + repo + "/check-runs", { method: "POST", body: { name: CHECK_NAME, head_sha: sha, ...body } }).catch(() => null) : null;
+  return api("/repos/" + repo + "/check-runs/" + Number(id), { method: "PATCH", body });
 }
+
+/** The review model gave no readable answer (or ran out of time): the review did not finish. */
+export class ReviewUnfinished extends Error {
+  constructor(timedOut) { super(timedOut ? "The review model ran out of time." : "The review model did not answer."); this.timedOut = !!timedOut; }
+}
+const isTimeout = (e) => !!e && (e.name === "TimeoutError" || e.name === "AbortError" || /timed? ?out/i.test(String(e.message || e)));
 
 // ── EVERY MINUTE: THE QUEUED REVIEWS ─────────────────────────────────────────
 /** `d`: { token(installation), fetchFn?, send? (the model, in tests) }. */
@@ -223,7 +232,10 @@ export async function runReviewJobs(env, d, now = Date.now()) {
       await runReview(env, d, api, job, now);
     }
     catch (e) {
-      await finishCheck(api, job.repo, job.checkId, { title: "Code review failed", summary: String((e && e.message) || e).slice(0, 300) }).catch(() => null);
+      // DIDN'T FINISH is never "found no issues" (Claude Code: "Code review failed" / "Code review timed out"); the last
+      // result is not saved, so the next push or @coder review reviews again.
+      const timedOut = e instanceof ReviewUnfinished ? e.timedOut : isTimeout(e);
+      await finishCheck(api, job.repo, job.checkId, { title: timedOut ? "Code review timed out" : "Code review failed", summary: String((e && e.message) || e).slice(0, 300) + " Comment `@coder review` to run it again.", sha: job.sha }).catch(() => null);
       const st = (await getJson(bucket, prReviewKey(job.repo, job.number))) || {};
       await putJson(bucket, prReviewKey(job.repo, job.number), { ...st, running: null });
     }
@@ -264,6 +276,7 @@ export async function runReview(env, d, api, job, now = Date.now()) {
   if (checkId && job.sha !== sha) { await finishCheck(api, repo, checkId, { conclusion: "skipped", title: "Code review superseded by a newer one" }); checkId = null; }
   if (!checkId) { const c = await api("/repos/" + repo + "/check-runs", { method: "POST", body: { name: CHECK_NAME, head_sha: sha, status: "in_progress", output: { title: "Code review in progress...", summary: "Coder Review is reading the changes." } } }).catch(() => null); checkId = c && c.ok && c.data ? c.data.id : null; }
   else await api("/repos/" + repo + "/check-runs/" + Number(checkId), { method: "PATCH", body: { status: "in_progress", output: { title: "Code review in progress...", summary: "Coder Review is reading the changes." } } }).catch(() => null);
+  job.checkId = checkId;
   const done = async (out) => { await putJson(bucket, stateKey, { ...((await getJson(bucket, stateKey)) || {}), running: null, ...out }); };
 
   // THE CHANGES (up to 300 files).
@@ -285,7 +298,7 @@ export async function runReview(env, d, api, job, now = Date.now()) {
   // someone resolved an Important finding's thread since.
   if (!job.full && last && last.hash === hash && !resolved.some((f) => f.severity === "important")) {
     const important = open.filter((f) => f.severity === "important").length;
-    await finishCheck(api, repo, checkId, { conclusion: "skipped", title: important ? "Code review not repeated — earlier findings still open" : "Code review skipped — no new changes", summary: important ? "The pull request still adds and removes the same lines, and " + important + " Important finding" + (important === 1 ? " is" : "s are") + " still open. Push a fix, or resolve its thread and push again; or comment `@coder review`." : "The pull request still adds and removes the same lines, and no Important finding is open.", ...(important ? {} : { text: checkText([]) }) });
+    await finishCheck(api, repo, checkId, { sha, conclusion: "skipped", title: important ? "Code review not repeated — earlier findings still open" : "Code review skipped — no new changes", summary: important ? "The pull request still adds and removes the same lines, and " + important + " Important finding" + (important === 1 ? " is" : "s are") + " still open. Push a fix, or resolve its thread and push again; or comment `@coder review`." : "The pull request still adds and removes the same lines, and no Important finding is open.", ...(important ? {} : { text: checkText([]) }) });
     await done({ last: { ...last, sha, at: now, findings: open } });
     return { ok: true, kept: true };
   }
@@ -366,7 +379,7 @@ export async function runReview(env, d, api, job, now = Date.now()) {
   // THE CHECK RUN: neutral, never a failure; its details list every finding, then the counts as one line.
   const all = [...stillOpen.map((f) => ({ ...f, earlier: true })), ...found];
   const title = found.length ? "Code review found " + found.length + " issue" + (found.length === 1 ? "" : "s") : stillOpen.length ? "Code review found no new issues" : "Code review found no issues";
-  await finishCheck(api, repo, checkId, { title, summary: found.length ? countLine(found) : "No issues found." + (fixed.length ? " " + fixed.length + " earlier finding" + (fixed.length === 1 ? " is" : "s are") + " fixed." : ""), text: checkText(all), annotations: (inlineRefused ? found : offLine).filter((f) => f.line > 0).map((f) => ({ path: f.path, start_line: f.line, end_line: f.line, annotation_level: f.severity === "important" ? "failure" : f.severity === "nit" ? "warning" : "notice", title: SEV[f.severity][1] + ": " + f.title.slice(0, 200), message: (f.body || f.title).slice(0, 2000) })) });
+  await finishCheck(api, repo, checkId, { sha, title, summary: found.length ? countLine(found) : "No issues found." + (fixed.length ? " " + fixed.length + " earlier finding" + (fixed.length === 1 ? " is" : "s are") + " fixed." : ""), text: checkText(all), annotations: (inlineRefused ? found : offLine).filter((f) => f.line > 0).map((f) => ({ path: f.path, start_line: f.line, end_line: f.line, annotation_level: f.severity === "important" ? "failure" : f.severity === "nit" ? "warning" : "notice", title: SEV[f.severity][1] + ": " + f.title.slice(0, 200), message: (f.body || f.title).slice(0, 2000) })) });
   await done({ last: { sha, at: now, hash, findings: [...stillOpen.map(({ replies, ...f }) => f), ...posted] } });
   return { ok: true, found: found.length, posted: posted.length, fixed: fixed.length };
 }
@@ -465,7 +478,10 @@ export async function reviewWithModel(env, d, input) {
   const ask = async (system, user) => { const r = await send({ model: coderModel(env), effort, messages: [{ role: "system", content: system }, { role: "user", content: user }], tools: [], webSearch: false }); return parseJson(r && r.message && r.message.content); };
   const earlierAsk = input.earlier && input.earlier.length ? " Also, for each EARLIER FINDING listed at the end, say whether the new code fixes it, and, where a person replied, you may give one short follow-up reply: add \"earlier\":[{\"id\":123,\"fixed\":true,\"reply\":\"optional\"}] to the JSON." : "";
   const lenses = LENSES_FOR[level];
-  const answers = await Promise.all(lenses.map((lens, i) => ask(FIND_SYSTEM + " This pass looks above all for " + FIND_LENSES[lens] + "." + (i === 0 ? earlierAsk : ""), material).catch(() => null)));
+  const errs = [];
+  const answers = await Promise.all(lenses.map((lens, i) => ask(FIND_SYSTEM + " This pass looks above all for " + FIND_LENSES[lens] + "." + (i === 0 ? earlierAsk : ""), material).catch((e) => { errs.push(e); return null; })));
+  // NO PASS ANSWERED: the review did not finish (never "found no issues").
+  if (!answers.some((a) => a && Array.isArray(a.findings))) throw new ReviewUnfinished(errs.some(isTimeout));
   const candidates = [];
   for (const a of answers) for (const f of (a && Array.isArray(a.findings) ? a.findings : [])) { const c = cleanFinding(f); if (c) candidates.push(c); }
   const earlier = (answers[0] && Array.isArray(answers[0].earlier) ? answers[0].earlier : []).filter((x) => x && Number.isInteger(Number(x.id))).map((x) => ({ id: Number(x.id), fixed: x.fixed === true, ...(typeof x.reply === "string" && x.reply.trim() ? { reply: x.reply.trim().slice(0, 1000) } : {}) }));

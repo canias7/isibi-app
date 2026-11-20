@@ -416,3 +416,48 @@ test("CD-B20j a finding whose thread a person resolved is cleared: a push with n
   assert.equal(kept.title, "Code review skipped — no new changes");
   assert.match(kept.text, /<!-- coder-review-severity: \{"nit":0,"normal":0,"pre_existing":0\} -->/);
 });
+
+test("B21a M-g-28 a finished review always shows a check: when both earlier tries to make it failed, a last try adds a completed one; when GitHub refuses all, the review still posts", async () => {
+  const bucket = fakeBucket(), env = { CODER_BUCKET: bucket };
+  const key = R.reviewJobKey("ana/shop", 7);
+  for (const refuseAll of [false, true]) {
+    await bucket.put(key, JSON.stringify(jobOf({ checkId: null })));
+    bucket.m.delete(R.prReviewKey("ana/shop", 7));
+    const gh = fakeGithub({ files: FILES });
+    let tries = 0;
+    const f = async (url, init = {}) => { if (/\/check-runs$/.test(String(url)) && (init.method || "GET") === "POST" && (refuseAll || ++tries <= 1)) return J({ message: "no" }, 500); return gh.fetchFn(url, init); };
+    await R.runReviewJobs(env, { token: async () => "t", fetchFn: f, send: fakeModel(ONE).send }, Date.now());
+    assert.equal(gh.posts(/\/pulls\/7\/reviews$/).length, 1, "the review posted");
+    if (!refuseAll) {
+      const made = gh.posts(/\/check-runs$/);
+      assert.equal(made.length, 1);
+      assert.deepEqual([made[0].body.status, made[0].body.conclusion, made[0].body.head_sha, made[0].body.output.title], ["completed", "neutral", "h1", "Code review found 1 issue"]);
+    }
+  }
+});
+
+test("B21b I50 a review whose model never answered is 'Code review failed' (or 'timed out'), never 'found no issues', and the last result is kept; one good pass still posts", async () => {
+  const run = async (send) => {
+    const bucket = fakeBucket(), env = { CODER_BUCKET: bucket };
+    const before = { last: { sha: "h0", hash: "x", findings: [] } };
+    await bucket.put(R.prReviewKey("ana/shop", 7), JSON.stringify(before));
+    await bucket.put(R.reviewJobKey("ana/shop", 7), JSON.stringify(jobOf({ level: "standard" })));
+    const gh = fakeGithub({ files: FILES });
+    await R.runReviewJobs(env, { token: async () => "t", fetchFn: gh.fetchFn, send }, Date.now());
+    return { gh, st: JSON.parse(bucket.m.get(R.prReviewKey("ana/shop", 7))) };
+  };
+  for (const [send, title] of [
+    [async () => { throw new Error("down"); }, "Code review failed"],
+    [async () => ({ message: { role: "assistant", content: "not json" } }), "Code review failed"],
+    [async () => { const e = new Error("t"); e.name = "TimeoutError"; throw e; }, "Code review timed out"],
+  ]) {
+    const { gh, st } = await run(send);
+    assert.equal(gh.posts(/\/check-runs\/555$/).at(-1).body.output.title, title);
+    assert.equal(gh.posts(/\/issues\/7\/comments$/).length, 0, "no 'found no issues' note");
+    assert.equal(st.last.sha, "h0", "the last result is unchanged");
+  }
+  const m = fakeModel(ONE);
+  const oneGood = async (req) => { if (/security and data|integration/.test(req.messages[0].content) && !/check candidate/.test(req.messages[0].content)) throw new Error("down"); return m.send(req); };
+  const { gh } = await run(oneGood);
+  assert.equal(gh.posts(/\/pulls\/7\/reviews$/).length, 1);
+});

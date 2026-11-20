@@ -4,6 +4,17 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-19: Claude Code fixes, batch 21
+
+- Seven of the ten audit items in this batch fixed, each with a test; three skipped (below). Gloopy, connectors and MCP were not touched. Not deployed or merged, so none of it has been tried live in the browser yet.
+- **Code review:** a review whose AI never answered now ends as "Code review failed" (or "Code review timed out"), never "found no issues", and the next push or `@coder review` reviews again. If one AI pass fails but another answers, its findings are still posted. A finished review always shows its check on the pull request, even if GitHub refused the earlier tries to create it.
+- **A failed push at a job's end** (or an ended GitHub connection) now leaves the chat counting the work that is only on Coder's machine, so the Push button, the background push and Delete's warning all apply, instead of the work being quietly forgotten.
+- **A machine that restarts during a job** frees the chat at once, instead of showing "Setting up a cloud container" for up to 8 minutes.
+- **After a job is lost**, messages waiting in line now go out next (ones Coder had already read are not sent again), and on Fly.io Coder and you are told the job's file changes are still in the folder and will be saved with the next job, instead of "gone".
+- **Stop pressed while a message is still starting** (for example from another tab) now just cancels that message: the earlier message is no longer repeated, and Coder is not told a finished job was cut off.
+- **/compact and Rewind's Summarize** keep your focus words whole, as typed (was: squeezed to one line and cut at 300 characters).
+- Skipped, needing your design call on the page: queuing `/compact` and `/rewind` sent while Coder works (needs a new "Rewind opens when Coder finishes" line), and holding the message box while Undo or Rewind is working (refuse or queue, plus a new "Rewinding..." line).
+
 ## 2026-11-19: Claude Code fixes, batch 20
 
 - All ten audit items in this batch fixed, each with a test (one only in part, below). Gloopy, connectors and MCP were not touched. Not deployed or merged, so none of it has been tried live in the browser yet.

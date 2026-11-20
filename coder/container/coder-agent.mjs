@@ -3939,7 +3939,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   // goes to the summary as more instructions); the summary of the chat so far; then PostCompact hooks with it, and SessionStart
   // hooks as "compact", their context with the summary. Coder does not answer it: the job ends here.
   if (compact && typeof compact === "object") {
-    const focus = String(compact.focus || "").replace(/\s+/g, " ").trim().slice(0, 300);
+    const focus = String(compact.focus || "").trim().slice(0, 20000);
     emit({ type: "user", text: "/compact" + (focus ? " " + focus : ""), compact: true });
     const history = convo.slice();
     // (DISABLE_COMPACT turns the owner's /compact off too, as Claude Code's: "both automatic compaction and the manual /compact

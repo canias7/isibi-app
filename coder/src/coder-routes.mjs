@@ -612,6 +612,8 @@ export function askedFor(meta) {
   const a = meta && meta.asked && typeof meta.asked === "object" ? meta.asked : null;
   return a && a.turn === meta.turn && typeof a.text === "string" && a.text.trim() ? a : null;
 }
+/** The qids of queued messages a job's steps show it read. */
+export const readQidsOf = (steps) => (Array.isArray(steps) ? steps : []).filter((e) => e && e.type === "user" && e.queued && e.qid).map((e) => String(e.qid));
 async function endLostJob(env, bucket, uid, meta, note) {
   const id = meta.id;
   const kept = await readLive(env, bucket, uid, id, meta.turn).catch(() => ({ events: [], messages: null }));
@@ -632,9 +634,12 @@ async function endLostJob(env, bucket, uid, meta, note) {
     // sessions do the same. Before, the whole round was cut off. Batch 19, 2026-11-19.)
     const { messages: base, cut } = interruptedSteps(kept.whole === true ? kept.messages : [...(Array.isArray(saved) ? saved : []), ...(kept.messages || [])]);
     if (kept.whole === true) meta = { ...meta, marks: marksAfter(meta.marks, { from: 0, to: (Array.isArray(saved) ? saved.length : 0) + 1 }) };
+    // (Batch 21, L-ops-09: on Fly.io the chat's folder is on a kept disk, so the job's file changes are still there and ride
+    // into the next save; only Cloudflare's containers lost them.)
+    const keptDisk = lostKeepsFiles(env);
     const told = [
-      { role: "user", appNote: true, content: "(Note from Coder's app, not the owner: Coder's machine stopped during the last job, so the job ended there" + (typeof asked === "string" && asked && !(kept.messages && kept.messages.length) ? ". The owner had asked: \"" + asked.slice(0, 2000) + "\"" : "") + (cut.length ? ". It stopped while running " + [...new Set(cut)].slice(0, 5).join(", ") + ": the outcome of " + (cut.length > 1 ? "those steps" : "that step") + " is unknown, so check what " + (cut.length > 1 ? "they" : "it") + " did before running " + (cut.length > 1 ? "them" : "it") + " again" : "") + ". Its steps are kept in the chat, but the changes it made in the files since the last save are gone: the branch has only what was saved before.)" },
-      { role: "assistant", content: "Understood: that job was cut off, and its unsaved changes are gone." },
+      { role: "user", appNote: true, content: "(Note from Coder's app, not the owner: Coder's machine stopped during the last job, so the job ended there" + (typeof asked === "string" && asked && !(kept.messages && kept.messages.length) ? ". The owner had asked: \"" + asked.slice(0, 2000) + "\"" : "") + (cut.length ? ". It stopped while running " + [...new Set(cut)].slice(0, 5).join(", ") + ": the outcome of " + (cut.length > 1 ? "those steps" : "that step") + " is unknown, so check what " + (cut.length > 1 ? "they" : "it") + " did before running " + (cut.length > 1 ? "them" : "it") + " again" : "") + (keptDisk ? ". Its steps are kept in the chat. The files in the working folder are as that job left them, not committed yet; check git status before going on.)" : ". Its steps are kept in the chat, but the changes it made in the files since the last save are gone: the branch has only what was saved before.)") },
+      { role: "assistant", content: keptDisk ? "Understood: that job was cut off; its file changes so far are still in the folder, not saved yet." : "Understood: that job was cut off, and its unsaved changes are gone." },
     ];
     await putJson(bucket, keyOf(uid, id, "messages.json"), capHistory([...base, ...told], historyMaxFor(meta)));
   }
@@ -642,7 +647,9 @@ async function endLostJob(env, bucket, uid, meta, note) {
   await saveMeta(bucket, uid, idle);
   await dropLive(bucket, uid, id).catch(() => {});
   if (typeof bucket.delete === "function") await bucket.delete(watchKey(uid, id, meta.turn)).catch(() => {});
-  return { steps, ev, idle };
+  // (The queued messages the lost job had already read, batch 21: they are in the chat, never sent again.)
+  const readQids = readQidsOf(steps);
+  return { steps, ev, idle, readQids };
 }
 /**
  * A PAUSED CARD CLOSED WITHOUT ITS JOB (coder-park.mjs: the owner's Stop while it waited, or a Rewind or an Undo, which go on
@@ -749,6 +756,10 @@ export const STALE_MS = 15 * 60 * 1000;
  */
 /** How long a look at a machine in a job's first minute may wait before it counts as still starting (live, 2026-11-16). */
 export const START_LOOK_MS = 1200;
+/** Whether a lost job's file changes are still in the chat's folder (Fly.io's kept disk). */
+export const lostKeepsFiles = (env) => { try { return !!flyOn(env); } catch { return false; } };
+/** The owner's line when a job was lost. */
+export const lostJobLine = (env, start) => start + " What it did so far is above; " + (lostKeepsFiles(env) ? "its file changes so far are still in the folder and will be saved with the next job." : "its unsaved changes are gone.") + " Send your message again to carry on.";
 export const START_GRACE_MS = 8 * 60 * 1000;
 /**
  * A MESSAGE STILL STARTING (live test, 2026-11-12: after a card's answer, Gloopy's next turn never began; the message came
@@ -1377,6 +1388,21 @@ export async function handleCoder(request, env, ctx, deps) {
   // (This chat's own routes, called from here as the page calls them: an answer that takes a paused turn up again starts its
   // job as a message does, coder-park.mjs.)
   const self = (path, body) => { const headers = new Headers(request.headers); headers.set("content-type", "application/json"); return handleCoder(new Request(new URL(request.url).origin + "/api/coder/projects/" + encodeURIComponent(id) + path, body === undefined ? { method: "GET", headers } : { method: "POST", headers, body: JSON.stringify(body) }), env, ctx, deps); };
+  // WHAT WAITS IN LINE GOES OUT NEXT after a lost job too (batch 21, L-ops-08; Claude Code: "If you have messages queued,
+  // Claude Code sends them next"), in the order typed; the ones the lost job had read are dropped, never sent again.
+  const sendQueuedNext = async (readQids = []) => {
+    const read = new Set(readQids);
+    const queued = await getJson(bucket, keyOf(uid, id, "queue.json"), []);
+    const waiting = (Array.isArray(queued) ? queued : []).filter((q) => q && !read.has(q.qid));
+    if (waiting.length !== (Array.isArray(queued) ? queued.length : 0)) await putJson(bucket, keyOf(uid, id, "queue.json"), waiting);
+    const first = nextQueued(waiting);
+    if (!first.length) return false;
+    const r2 = await self("/message", { text: first.map((q) => q.text).join("\n\n"), fromQueue: true }).catch(() => null);
+    if (!r2 || r2.status !== 200) return false;
+    const sent = new Set(first.map((q) => q.qid));
+    await putJson(bucket, keyOf(uid, id, "queue.json"), (await getJson(bucket, keyOf(uid, id, "queue.json"), [])).filter((q) => q && !sent.has(q.qid)));
+    return true;
+  };
   // (A job that ended on the machine and is not saved yet is saved now, as the page's next look saves it: the chat as it is then.)
   const saveNow = async () => { await self("/state?since=1000000000").catch(() => null); return getJson(bucket, metaKey, null); };
   const action = parts[2] || "";
@@ -1602,7 +1628,7 @@ export async function handleCoder(request, env, ctx, deps) {
       // job of its own that Coder does not answer, so the owner's PreCompact, PostCompact and SessionStart ("compact") hooks run
       // around it, as Claude Code's do (round 5 of the live test, 2026-11-12: made here, away from the machine, they never ran).
       const compact = /^\/compact(?:\s+([\s\S]*))?$/i.exec(said);
-      const compactJob = compact && !notes && !pics.images.length ? { focus: String(compact[1] || "").replace(/\s+/g, " ").trim().slice(0, 300) } : null;
+      const compactJob = compact && !notes && !pics.images.length ? { focus: String(compact[1] || "").trim().slice(0, MAX_TEXT) } : null;
       if (compactJob) {
         const msgs = await getJson(bucket, keyOf(uid, id, "messages.json"), []);
         if (tooShortToCompact(msgs)) return json({ error: TOO_SHORT_TO_COMPACT }, 400);
@@ -1965,11 +1991,12 @@ export async function handleCoder(request, env, ctx, deps) {
     // after STALE_MS.
     const free = async (why) => {
       // What the job saved as it went is put back in the chat (like Claude Code); the page then loads the saved chat.
-      const { steps, ev, idle } = await endLostJob(env, bucket, uid, meta, { type: "error", text: why });
+      const { steps, ev, idle, readQids } = await endLostJob(env, bucket, uid, meta, { type: "error", text: why });
+      if (await sendQueuedNext(readQids)) return json({ ok: true, events: [ev], next: since, running: false, project: (await getJson(bucket, metaKey, idle)) || idle, reload: true });
       return json({ ok: true, events: [ev], next: since, running: false, project: idle, ...(steps.length ? { reload: true } : {}) });
     };
     if (!s) {
-      if (meta.status === "running" && Date.now() - (meta.at || 0) > STALE_MS) return free("Coder's machine stopped answering, so this job was ended. What it did so far is above; its unsaved changes are gone. Send your message again to carry on.");
+      if (meta.status === "running" && Date.now() - (meta.at || 0) > STALE_MS) return free(lostJobLine(env, "Coder's machine stopped answering, so this job was ended."));
       // The chat was already freed (by Stop, or another tab): nothing to wait for; the page loads the saved chat.
       if (meta.status !== "running") return json({ ok: true, events: [], next: since, running: false, project: meta, reload: true });
       // (A MACHINE NOT ANSWERING YET just after its start, 2026-11-16: it is still being set up, so the step is said, not an error.)
@@ -1978,8 +2005,11 @@ export async function handleCoder(request, env, ctx, deps) {
     }
     if (meta.status === "running" && !s.running && !s.result) {
       // STILL STARTING: the chat says "running" before the machine is handed the job (it may be waking up); not lost yet.
-      if (Date.now() - (meta.at || 0) < START_GRACE_MS) return json({ ok: true, events: [], next: since, running: true, project: meta, phase: "container", phaseAt: Number(meta.at) || 0 });
-      return free("Coder's machine restarted, so this job ended here. What it did so far is above; its unsaved changes are gone. Send your message again to carry on.");
+      // (Unless the machine already took this turn and has lost it, restarted: freed at once, as Claude Code's cloud session
+      // restarts right away, not after the 8-minute grace.)
+      const tookIt = !!(meta.timing && Number(meta.timing.machine) >= Number(meta.at || 0) && Number(meta.timing.machine) > 0);
+      if (!tookIt && Date.now() - (meta.at || 0) < START_GRACE_MS) return json({ ok: true, events: [], next: since, running: true, project: meta, phase: "container", phaseAt: Number(meta.at) || 0 });
+      return free(lostJobLine(env, "Coder's machine restarted, so this job ended here."));
     }
     // THE TURN ENDED: the chat is kept, and the work is committed on Coder's branch on its machine, once per turn. It is
     // pushed to GitHub only when needed (pushWanted below, or later: the Push button, Create PR, the safety net), and a
@@ -2071,7 +2101,7 @@ export async function handleCoder(request, env, ctx, deps) {
       }
       for (const n of meta.readOnly ? [] : Array.isArray(res.midNotes) ? res.midNotes.slice(0, 5) : []) if (typeof n === "string" && n) extraNotes.push(n.slice(0, 400));
       if (!gitWork) { /* nothing changed and nothing asked: no commit step (meta.unpushed stays as it is) */ }
-      else if (!t && !meta.readOnly) pushNote = "Not sent to GitHub: the connection has ended. Connect GitHub again and send a message to push it.";
+      else if (!t && !meta.readOnly) { pushNote = "Not sent to GitHub: the connection has ended. Connect GitHub again and send a message to push it."; unpushed = Math.max(unpushed, 1); if (!unpushedSince) unpushedSince = Date.now(); }
       else {
         const p = await post("/push", { project: id, repo: meta.repo, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn), message: commitTitle(s.result.commitTitle || s.result.summary), chatUrl: chatLink, extra: extraFor(meta), ...(meta.readOnly ? { noPush: true } : pushNow ? {} : { commitOnly: true }) }).then((r) => r.json()).catch(() => ({ ok: false, why: "the machine could not be reached" }));
         // THE CHAT'S OTHER REPOSITORIES (2026-11-06): each saved to the chat's branch in its own repository, and its pull request when Coder was asked for one.
@@ -2088,7 +2118,12 @@ export async function handleCoder(request, env, ctx, deps) {
           if (made && made.number) { prs = { ...prs, [x.repo]: made }; extraNotes.push((want.draft === true ? "Draft pull request #" : "Pull request #") + made.number + " opened in " + x.repo + ": " + made.url); }
           else extraNotes.push("The pull request in " + x.repo + " could not be opened on GitHub: " + prFailNote(x.repo, x.base, meta.branch, made, "is its branch saved?"));
         }
-        if (!p.ok) pushNote = (meta.readOnly ? "Not kept: " : "Not sent to GitHub: ") + String(p.why || "the push failed").slice(0, 200);
+        if (!p.ok) {
+          pushNote = (meta.readOnly ? "Not kept: " : "Not sent to GitHub: ") + String(p.why || "the push failed").slice(0, 200);
+          // (Batch 21, I01: work that exists on no remote is never forgotten, as Claude Code's: the chat counts it, so the Push
+          // button, the safety push and Delete's warning all apply.)
+          if (!meta.readOnly) { unpushed = Math.max(Number(p.unpushed) || 0, p.changed || p.sha ? 1 : 0, unpushed); if (unpushed && !unpushedSince) unpushedSince = Date.now(); }
+        }
         else if (meta.readOnly) {
           if (p.changed) {
             keptHere = true;
@@ -2434,7 +2469,7 @@ export async function handleCoder(request, env, ctx, deps) {
       const evs = await getJson(bucket, keyOf(uid, id, "events.json"), []);
       const [from, to] = sumWay === "upto" ? [0, Math.min(mark.msg, msgs.length)] : [Math.min(mark.msg, msgs.length), msgs.length];
       if (to - from < 1) return json({ error: sumWay === "upto" ? "There is nothing before this message to summarize." : "There is nothing from this message on to summarize." }, 400);
-      const focus = String(body.focus || "").replace(/\s+/g, " ").trim().slice(0, 300);
+      const focus = String(body.focus || "").trim().slice(0, MAX_TEXT);
       const sum = await summarizeFn(msgs.slice(from, to), focus);
       if (!sum) return json({ error: "The summary could not be made. Try again in a minute." }, 502);
       const what = sumWay === "upto" ? "everything before one of the owner's messages (Rewind: Summarize up to here)" : "one of the owner's messages and everything after it (Rewind: Summarize from here)";
@@ -2905,10 +2940,23 @@ export async function handleCoder(request, env, ctx, deps) {
     // The job finished just as Stop was pressed: its result waits on the machine, and the page's next look saves it as
     // usual (Claude Code keeps the work done so far). Claude Code fixes, batch 14.
     if (meta.status === "running" && st && st.finished) return json({ ok: true, reload: true });
+    // STOP WHILE THE MESSAGE IS STILL STARTING (batch 21, L-ops-10; Claude Code: Stop cancels the queued message, and nothing
+    // else): the chat goes back as it was, the message kept in it, then "Stopped". The previous job finished, so it is not
+    // a lost job and Coder is told nothing. The start in flight then finds itself stopped (its 409).
+    const startingNow = startingOf(meta);
+    if (startingNow && !(st && st.running)) {
+      const back = { ...meta, status: typeof startingNow.was === "string" && startingNow.was !== "running" ? startingNow.was : "idle", starting: null, at: Date.now() };
+      const userBack = typeof startingNow.text === "string" && startingNow.text.trim() ? [{ at: Number(startingNow.at) || Date.now(), type: "user", text: startingNow.text }] : [];
+      const evs = await getJson(bucket, keyOf(uid, id, "events.json"), []);
+      await putJson(bucket, keyOf(uid, id, "events.json"), [...(Array.isArray(evs) ? evs : []), ...userBack, { at: Date.now(), type: "stopped" }].slice(-MAX_EVENTS));
+      await saveMeta(bucket, uid, back);
+      return json({ ok: true, reload: true });
+    }
     // Nothing is running on the machine (or it is gone): the chat is freed now.
     if (meta.status === "running" && (!st || st.running === false)) {
       // What the job saved as it went is kept (like Claude Code).
-      await endLostJob(env, bucket, uid, meta, { type: "stopped" });
+      const { readQids } = await endLostJob(env, bucket, uid, meta, { type: "stopped" });
+      await sendQueuedNext(readQids);
       // The page loads the saved chat (it no longer waits for a machine that is gone).
       return json({ ok: true, reload: true });
     }

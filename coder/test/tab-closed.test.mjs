@@ -21,7 +21,7 @@ function fakeMachine() {
     if (u.pathname === "/turn") { m.running = true; m.result = null; m.claimed = false; m.events = [{ at: 1, type: "user", text: "make it" }]; return J({ ok: true }); }
     if (u.pathname === "/state") { const since = Number(u.searchParams.get("since")) || 0; return J({ running: m.running, events: m.events.slice(since), next: m.events.length, ...(m.result ? { result: m.result } : {}) }); }
     if (u.pathname === "/claim") { if (!m.result || m.claimed) return J({ ok: false }); m.claimed = true; return J({ ok: true }); }
-    if (u.pathname === "/push") return J({ ok: true, pushed: true, changed: true, sha: "abc1234" });
+    if (u.pathname === "/push") return J(m.pushAnswer || { ok: true, pushed: true, changed: true, sha: "abc1234" });
     return J({ ok: true });
   } });
   m.finish = () => { m.running = false; m.events.push({ at: 2, type: "done", text: "Made it." }); m.result = { status: "done", summary: "Made it", messages: [{ role: "user", content: "make it" }, { role: "assistant", content: "Made it." }] }; };
@@ -252,6 +252,8 @@ test("CD123 closing the tab while the machine sets up (clone, setup script) lose
   assert.equal((await go("projects/" + id + "/message", { method: "POST", body: JSON.stringify({ text: "go" }) })).status, 200);
   assert.deepEqual([during.meta.status, during.meta.turn, during.watched], ["running", 1, true]);
   // A MACHINE STILL WAKING UP (it does not have the job yet) is not taken for lost in the first minutes.
+  // (Batch 21: "not yet" is a record with no time the machine took the job; one that took it and lost it is freed at once, B21c.)
+  { const cur = JSON.parse(bucket.m.get(mk)); if (cur.timing) delete cur.timing.machine; await bucket.put(mk, JSON.stringify(cur)); }
   const st = await (await go("projects/" + id + "/state?since=0")).json();
   assert.equal(st.running, true);
   assert.equal(JSON.parse(bucket.m.get(mk)).status, "running");
@@ -378,4 +380,61 @@ test("CD281 (tool 4, part 3) shell mode on the Worker and the page: a message st
   const css = readFileSync(new URL("../public/coder.css", import.meta.url), "utf8");
   assert.match(css, /\.cd-compose\.is-shell \+ \.cd-shellhint \{ display: block; \}/);
   assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{ \.cd-bg-dot \{ animation: none; \} \}/);
+});
+
+test("B21c L-server-48 a machine that took this turn and then restarted (answers 'no job') frees the chat at once, not after the 8-minute grace; one that never took it still shows 'container'", async () => {
+  const { uid, id, bucket, go } = await setup();
+  const mk = "coder/" + uid + "/" + id + "/meta.json";
+  const at = Date.now() - 5000;
+  // The machine (fakeMachine) answers running: false, no result.
+  await bucket.put(mk, JSON.stringify({ ...JSON.parse(bucket.m.get(mk)), status: "running", turn: 1, at }));
+  let st = await (await go("projects/" + id + "/state?since=0")).json();
+  assert.deepEqual([st.running, st.phase], [true, "container"], "still waking: not lost");
+  await bucket.put(mk, JSON.stringify({ ...JSON.parse(bucket.m.get(mk)), status: "running", turn: 1, at, timing: { machine: at + 1000 } }));
+  st = await (await go("projects/" + id + "/state?since=0")).json();
+  assert.equal(st.running, false, "it had the job and lost it: freed at once");
+  assert.equal(JSON.parse(bucket.m.get(mk)).status, "idle");
+});
+
+test("B21d I01 a push at a job's end that GitHub refuses leaves the chat counting its unpushed work (so Push, the safety push and Delete's warning apply)", async () => {
+  const { uid, id, bucket, machine, go } = await setup();
+  machine.pushAnswer = { ok: false, why: "rejected", changed: true, unpushed: 1 };
+  assert.equal((await go("projects/" + id + "/message", { method: "POST", body: JSON.stringify({ text: "make it" }) })).status, 200);
+  machine.finish();
+  await (await go("projects/" + id + "/state?since=0")).json();
+  const meta = JSON.parse(bucket.m.get("coder/" + uid + "/" + id + "/meta.json"));
+  assert.equal(meta.status, "idle");
+  assert.equal(meta.unpushed, 1);
+  assert.ok(meta.unpushedSince > 0);
+});
+
+test("B21f L-ops-10 Stop while a message is still starting puts the chat back with the message kept and 'Stopped', and tells Coder nothing about a cut-off job", async () => {
+  const { uid, id, bucket, go } = await setup();
+  const mk = "coder/" + uid + "/" + id + "/meta.json";
+  const cur = JSON.parse(bucket.m.get(mk));
+  await bucket.put("coder/" + uid + "/" + id + "/messages.json", JSON.stringify([{ role: "user", content: "one" }, { role: "assistant", content: "Done one." }]));
+  await bucket.put(mk, JSON.stringify({ ...cur, status: "running", turn: 1, saved: 1, at: Date.now(), asked: { at: 1, text: "one" }, starting: { id: "tabc", mid: "m2", turn: 1, was: "idle", at: Date.now(), said: "two", text: "two" } }));
+  const r = await (await go("projects/" + id + "/stop", { method: "POST", body: "{}" })).json();
+  assert.deepEqual(r, { ok: true, reload: true });
+  const meta = JSON.parse(bucket.m.get(mk));
+  assert.deepEqual([meta.status, meta.starting], ["idle", null]);
+  const events = JSON.parse(bucket.m.get("coder/" + uid + "/" + id + "/events.json"));
+  assert.deepEqual(events.map((e) => [e.type, e.text]), [["user", "two"], ["stopped", undefined]], "no repeated earlier message");
+  const msgs = JSON.parse(bucket.m.get("coder/" + uid + "/" + id + "/messages.json"));
+  assert.equal(msgs.length, 2, "no 'cut off' note for Coder");
+});
+
+test("B21g L-ops-08 after a lost job, what waits in line goes out next (the ones the job had read are dropped, never sent again), and the line is empty", async () => {
+  const R2 = await import("../src/coder-routes.mjs");
+  assert.deepEqual(R2.readQidsOf([{ type: "user", text: "a" }, { type: "user", text: "b", queued: true, qid: "q1" }, { type: "bash" }]), ["q1"]);
+  const { uid, id, bucket, machine, go } = await setup();
+  const mk = "coder/" + uid + "/" + id + "/meta.json";
+  const at = Date.now() - 5000;
+  await bucket.put(mk, JSON.stringify({ ...JSON.parse(bucket.m.get(mk)), status: "running", turn: 1, at, timing: { machine: at + 1000 } }));
+  await bucket.put("coder/" + uid + "/" + id + "/queue.json", JSON.stringify([{ qid: "q2", text: "then this", at: 1 }]));
+  machine.seen.length = 0;
+  const st = await (await go("projects/" + id + "/state?since=0")).json();
+  assert.equal(st.reload, true);
+  assert.ok(machine.seen.includes("/turn"), "the waiting message started: " + machine.seen.join(" "));
+  assert.deepEqual(JSON.parse(bucket.m.get("coder/" + uid + "/" + id + "/queue.json")), []);
 });

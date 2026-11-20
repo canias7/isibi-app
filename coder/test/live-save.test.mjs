@@ -335,3 +335,14 @@ test("batch 14: Stop pressed just as a job finished keeps the finished job: its 
   assert.equal(msgs.at(-1).content, "Fixed.");
   assert.ok(c.machine.seen.includes("/claim"), "the result was picked up");
 });
+
+test("B21e L-ops-09 a lost job on Fly.io (the chat's disk is kept) says its file changes are still in the folder; elsewhere they are gone", async () => {
+  const R2 = await import("../src/coder-routes.mjs");
+  const fly = { CODER_MACHINES: "fly", FLY_API_TOKEN: "dummy-not-a-real-token", CODER_FLY_APP: "coder-app", CODER_FLY_IMAGE: "registry.fly.io/coder-app:v1" };
+  assert.equal(R2.lostKeepsFiles(fly), true);
+  assert.match(R2.lostJobLine(fly, "Coder's machine restarted, so this job ended here."), /its file changes so far are still in the folder and will be saved with the next job\. Send your message again/);
+  assert.doesNotMatch(R2.lostJobLine(fly, "x"), /gone/);
+  assert.match(R2.lostJobLine({}, "x"), /its unsaved changes are gone\./);
+  const src = (await import("node:fs")).readFileSync(new URL("../src/coder-routes.mjs", import.meta.url), "utf8");
+  assert.match(src, /keptDisk \? "Understood: that job was cut off; its file changes so far are still in the folder, not saved yet\."/);
+});
