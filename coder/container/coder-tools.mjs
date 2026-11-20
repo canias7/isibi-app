@@ -815,6 +815,9 @@ export async function toolRead({ path, offset, limit, pages = "", allow_large = 
   }
   // (A file with NUL bytes is read, with Claude Code 2.1.325's note, as any file that is not text: Coder had refused it as
   // binary, in its own words. Round 4.)
+  // A PART OF A BIG TEXT FILE (audit M-a-10): Claude Code refuses only a whole read of a big file and reads a larger one in
+  // pages with offset and limit. Over READ_MAX_BYTES, a read that names offset or limit streams the file instead of loading it.
+  if (kind.isFile() && kind.size > READ_MAX_BYTES && allow_large !== true && ((offset !== undefined && offset !== null && offset !== "") || Number(limit) > 0)) return readBigPart(abs, rel, offset, limit);
   await plainText(abs, rel, READ_MAX_BYTES, undefined, { anyBytes: true });
   const buf = await readFile(abs);
   const text = fileText(buf);
@@ -871,6 +874,32 @@ export async function toolRead({ path, offset, limit, pages = "", allow_large = 
   return gave(body + (asked
     ? "\n[lines " + from + "-" + last + " of " + total + "; read more with " + next + "]"
     : "\n[PARTIAL view: lines " + from + "-" + last + " of " + total + " (about " + kb(Buffer.byteLength(lines.slice(from - 1, last).join("\n")) + 1) + " of " + kb(size) + "). Read more with " + next + ". " + PARTIAL_HINT + "]") + oldText);
+}
+/** Lines offset..offset+limit-1 of a file over READ_MAX_BYTES, read as a stream: only those lines are kept in memory. */
+async function readBigPart(abs, rel, offset, limit) {
+  const from = Math.max(1, Math.floor(Number(offset) || 1));
+  const want = Number(limit) > 0 ? Math.min(Math.floor(Number(limit)), READ_LINES_MAX) : READ_LINES_MAX;
+  const end = from - 1 + want;
+  const rows = [];
+  let used = 0, n = 0, over = false;
+  const { createReadStream } = await import("node:fs");
+  const { createInterface } = await import("node:readline");
+  const rl = createInterface({ input: createReadStream(abs), crlfDelay: Infinity });
+  for await (const line of rl) {
+    n++;
+    if (n < from || n > end || over) continue;
+    const row = String(n).padStart(6) + "\t" + line;
+    if (used + row.length + 1 > READ_CHARS) { over = true; continue; }
+    rows.push(row);
+    used += row.length + 1;
+  }
+  if (from > n) return rel + " has " + n + " line" + (n === 1 ? "" : "s") + ": offset " + from + " is past its end.";
+  if (over) fail("lines " + from + "-" + Math.min(end, n) + " of " + rel + " come to more than about " + Math.round(READ_CHARS / 1000) + ",000 characters: ask for fewer lines (limit), or search with grep");
+  // Its time and size only are noted (too big to follow line by line), so a later change is still told.
+  await remember(abs, { length: Infinity }, { whole: false });
+  await markPart(abs);
+  const last = from - 1 + rows.length;
+  return rows.join("\n") + (last < n ? "\n[lines " + from + "-" + last + " of " + n + "; read more with offset " + (last + 1) + "]" : "");
 }
 /**
  * WHAT A PARTIAL VIEW ADDS (the owner, 2026-11-08: "ok yes"; Claude Code's own note, tried in this session: "Do NOT

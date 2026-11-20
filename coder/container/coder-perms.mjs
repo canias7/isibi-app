@@ -2868,6 +2868,8 @@ function psEditsOnly(p, all, { nativeReadOnly, inside }) {
     if (PS_FORMATTERS.has(n) || n === "measure-object" || n === "out-string" || n === "out-host") { if (psCommandReadOnly(c, { nativeReadOnly })) continue; return false; }
     if (psCommandReadOnly(c, { nativeReadOnly }) && psPathArgs(c).every((x) => inside(x) && !psQuoted(x))) continue;
     if (!EDITS.has(n)) return false;
+    // (A file command whose target Coder cannot see asks: an empty list is not "all inside". Audit I68.)
+    if (!psPathArgs(c).length) return false;
     if (!psPathArgs(c).every((x) => inside(x) && !psQuoted(x))) return false;
   }
   return true;

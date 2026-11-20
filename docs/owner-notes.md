@@ -4,6 +4,15 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-19: Claude Code fixes, batch 25
+
+- Three of the ten audit items in this batch fixed (one of them in part), each with a test; seven left (below). Gloopy, connectors and MCP were not touched. Not deployed or merged, so none of it has been tried live in the browser yet.
+- **Reading big files in parts:** Coder can now read a piece of a text file over 20 MB when it names where to start and how many lines, as Claude Code does; only that piece is held in memory. Reading such a file whole is still refused.
+- **Rules in subfolders:** a subfolder's own `.coder/rules` files now load once Coder reads or changes a file in that subfolder (a rule with `paths:` only for the files it names), like Claude Code's `.claude/rules` in subfolders.
+- **PowerShell deletes (in part):** short settings such as `-rf` or `-r -fo` no longer hide what a PowerShell delete is aimed at, so the checks for system folders, home and wildcards apply, and a file command whose target can't be seen now asks. A safety tightening. Still to do: the same checks for the Linux `rm` program run from PowerShell, and the protected-folder question for PowerShell deletes.
+- **Left for later (too big for this batch):** an activity log of what each chat's machine reached; Coder's own shell reader handling more command shapes without the "could not be checked" card; asking (instead of refusing) when a file tool reaches outside the project; page titles in web search results; keeping Undo working when a push fails; finding subfolder instruction files on demand without the count limits.
+- **Needs you:** checking websites against a list of dangerous sites before Coder opens them needs a list service of your own (for example Google Safe Browsing, with a key you sign up for). Want one, and which?
+
 ## 2026-11-19: Claude Code fixes, batch 24
 
 - Four of the ten audit items in this batch fixed, each with a test; six left (below). Gloopy, connectors and MCP were not touched. Not deployed or merged, so none of it has been tried live in the browser yet.

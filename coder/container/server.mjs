@@ -2894,6 +2894,28 @@ export async function repoInstructions(dir, { excludes = [], extra = false } = {
         const loaded = await load(rel + "/" + name, NOTE_ONE_MAX + 1);
         if (loaded !== null) { const text = loaded.text.slice(0, NOTE_ONE_MAX); later.push({ name: rel + "/" + name, dir: rel, text, ...(name === "AGENTS.md" ? { agents: true } : {}), ...(loaded.text.length > NOTE_ONE_MAX ? { cut: true, from: lineAfter(loaded, text) } : {}) }); }
       }
+      // A SUBFOLDER'S OWN .coder/rules (audit M-f-11; Claude Code's memory.md: "Rules files in a subdirectory's
+      // `.claude/rules/`" load on demand, like its CLAUDE.md): each .md file loads once a file under the subfolder is touched;
+      // one with `paths:` only for matching files, its globs read from that subfolder.
+      if (list.some((e) => e.dir && e.name === ".coder")) {
+        const sub = [];
+        const walkSub = async (r, depth) => {
+          for (const e of (await entriesOf(join(dir, r))).sort((a, b) => a.name.localeCompare(b.name))) {
+            if (sub.length >= RULES_MAX) return;
+            if (e.dir && depth < 5) await walkSub(r + "/" + e.name, depth + 1);
+            else if (e.file && /\.md$/i.test(e.name)) sub.push(r + "/" + e.name);
+          }
+        };
+        await walkSub(rel + "/.coder/rules", 0);
+        for (const r of sub) {
+          const loaded = await load(r, NOTE_ONE_MAX + 1);
+          if (loaded === null) continue;
+          const text = loaded.text.slice(0, NOTE_ONE_MAX);
+          const { globs, body } = ruleParts(text);
+          const more = loaded.text.length > NOTE_ONE_MAX ? { cut: true, from: lineAfter(loaded, text) } : {};
+          later.push(globs.length ? { name: r, globs: globs.map((g) => rel + "/" + String(g).replace(/^\.?\/+/, "")), text: body, ...more } : { name: r, dir: rel, text: body, ...more });
+        }
+      }
     }
     for (const e of list.filter((x) => x.dir && !SKIP_DIRS.has(x.name)).sort((a, b) => a.name.localeCompare(b.name))) {
       if (++dirs > WALK_DIRS_MAX || depth >= WALK_DEPTH) return;
