@@ -819,19 +819,45 @@ export function startingOf(meta) {
  * THE CHAT MARKED AS STARTING message `mid`. `held()`: still this start's (nobody stopped it or undid it meanwhile).
  * `release()`: the chat as it was before, only while it is still this start's, never over what came after.
  */
-async function claimStart(bucket, uid, meta, metaKey, mid, said = "") {
+/**
+ * THE CHAT AS STORED, WITH ITS VERSION (R2's etag): a write `onlyIf` that version is refused when the chat changed meanwhile
+ * (two messages at the same instant, audit L-ops-04, 2026-11-20; Claude Code queues the second, never loses the first).
+ */
+async function getVersioned(bucket, key) {
+  const o = await bucket.get(key);
+  if (!o) return { value: null, etag: "" };
+  let value = null; try { value = JSON.parse(await o.text()); } catch { value = null; }
+  return { value, etag: typeof o.etag === "string" ? o.etag : "" };
+}
+/** Write the chat only if it is still at `etag` (no etag known: an ordinary write). False when refused. */
+async function putMetaIf(bucket, key, meta, etag) {
+  const r = await bucket.put(key, JSON.stringify(meta), { httpMetadata: { contentType: "application/json" }, ...(etag ? { onlyIf: { etagMatches: etag } } : {}) });
+  return !(etag && r === null);
+}
+/**
+ * (`guard`: Coder's own chats, 2026-11-20. The mark is written only over the chat as it was read just now, and only while no
+ * other start has marked it; null when another message got there first, so this one waits in the queue instead.)
+ */
+async function claimStart(bucket, uid, meta, metaKey, mid, said = "", { guard = false } = {}) {
   const id = "t" + crypto.randomUUID().replace(/-/g, "").slice(0, 16);
   const at = Date.now();
-  await saveMeta(bucket, uid, { ...meta, status: "running", at, starting: { id, mid, turn: meta.turn, was: meta.status || "idle", at, ...(said ? { said: String(said).replace(/\s+/g, " ").trim().slice(0, 200), text: String(said).trim().slice(0, 4000) } : {}) } });
+  const marked = { ...meta, status: "running", at, starting: { id, mid, turn: meta.turn, was: meta.status || "idle", at, ...(said ? { said: String(said).replace(/\s+/g, " ").trim().slice(0, 200), text: String(said).trim().slice(0, 4000) } : {}) } };
+  if (guard) {
+    const now = await getVersioned(bucket, metaKey);
+    if (now.value && now.value.status === "running" && meta.status !== "running") return null;
+    if (now.value && Number(now.value.turn) !== Number(meta.turn)) return null;
+    if (!(await putMetaIf(bucket, metaKey, marked, now.etag))) return null;
+  } else await saveMeta(bucket, uid, marked);
   const ours = (cur) => { const s = startingOf(cur); return !!s && s.id === id; };
   return {
     id,
     held: async () => ours(await getJson(bucket, metaKey, null)),
+    // (Put back only over this start's own mark: a write refused because the chat changed meanwhile leaves the newer one.)
     release: async () => {
-      const cur = await getJson(bucket, metaKey, null);
-      if (!ours(cur) && !(cur && cur.status === "running" && cur.start === id)) return false;
-      await saveMeta(bucket, uid, { ...meta, starting: null });
-      return true;
+      const cur = await getVersioned(bucket, metaKey);
+      if (!ours(cur.value) && !(cur.value && cur.value.status === "running" && cur.value.start === id)) return false;
+      if (!guard) { await saveMeta(bucket, uid, { ...meta, starting: null }); return true; }
+      return putMetaIf(bucket, metaKey, { ...meta, starting: null }, cur.etag);
     },
   };
 }
@@ -1320,6 +1346,8 @@ export async function handleCoder(request, env, ctx, deps) {
       const d = String(body.add ?? body.remove ?? "").trim();
       if (body.add !== undefined && dirProblem(d)) return json({ error: dirProblem(d) }, 400);
       const rules = await changeRules(bucket, uid, r, "dirs", [d], { remove: body.remove !== undefined });
+      // (A folder added while Coder works counts from its next step, as Claude Code's /add-dir does: audit M-r2-40.)
+      await tellRunning(r, rules);
       return json({ ok: true, repo: r, rules, notices: notices(rules) });
     }
     const rule = String(body.add ?? body.remove ?? "").trim();
@@ -1713,7 +1741,24 @@ export async function handleCoder(request, env, ctx, deps) {
       // summary, the environment), and another message meanwhile waits in the queue. Any way this start ends without Coder's
       // machine taking it, the chat is put back as it was (only while it is still this start's).
       mark("checked");
-      claim = await claimStart(bucket, uid, meta, metaKey, mid, said);
+      claim = await claimStart(bucket, uid, meta, metaKey, mid, said, { guard: true });
+      if (!claim) {
+        // ANOTHER MESSAGE STARTED AT THE SAME INSTANT (audit L-ops-04, 2026-11-20): its mark stays, and this one waits in the
+        // queue as any message sent while Coder works does (Claude Code: "the message queues until Claude reads it").
+        const now = (await getJson(bucket, metaKey, null)) || meta;
+        const same = await sameMessage(bucket, metaKey, now, mid);
+        if (same.done) return same.done;
+        const queueable = now.status === "running" && !review && !wake && !takeUp && body.fromGithub !== true && body.autofix !== true && !notes && !pics.images.length && !!said && !/^\/compact\b/i.test(said);
+        if (!queueable) return json({ error: "Coder is still working on the last message" }, 409);
+        const queue = await getJson(bucket, keyOf(uid, id, "queue.json"), []);
+        const twin = mid ? queue.find((q) => q && q.mid === mid) : null;
+        if (twin) return json({ ok: true, queued: true, qid: twin.qid, queue, project: now });
+        if (queue.length >= QUEUE_MAX) return json({ error: QUEUE_MAX + " messages are already waiting for Coder. Wait for it to read them." }, 429);
+        const entry = { qid: newQid(), text: said, at: Date.now(), ...(shell !== null ? { shell: true } : {}), ...(mid ? { mid } : {}) };
+        const waiting = [...queue, entry];
+        await putJson(bucket, keyOf(uid, id, "queue.json"), waiting);
+        return json({ ok: true, queued: true, qid: entry.qid, queue: waiting, project: now });
+      }
       mark("claim");
       const unclaimed = async (res) => { await claim.release(); return res; };
       // NOT THIS START'S ANY MORE: Coder was stopped meanwhile (from another page), or another start took the chat at the same
@@ -1854,7 +1899,7 @@ export async function handleCoder(request, env, ctx, deps) {
       ]);
       // Not started after all: the chat is as it was (only while it is still this start's, never over a newer one).
       const notStarted = async () => {
-        await claim.release();
+        if (!(await claim.release())) return;
         if (typeof bucket.delete === "function") { if (jobValues.length) await bucket.delete(keyOf(uid, id, "hide.json")).catch(() => {}); await bucket.delete(watchKey(uid, id, next.turn)).catch(() => {}); }
         await dropLive(bucket, uid, id).catch(() => {});
       };

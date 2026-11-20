@@ -471,6 +471,24 @@ export function varsNote(vars) {
   return "\n\nENVIRONMENT VARIABLES the owner set in this chat's environment (available to your commands): " + names.join(", ") + (secret.length ? ". Never print the values of those that look secret: " + secret.join(", ") + " (the chat hides them)" : "");
 }
 /** A SAVED WORKING FOLDER THAT IS NOT THERE, said in the chat (round 5: it was left out without a word). "" for none. */
+/**
+ * A WORKING FOLDER ADDED WHILE A JOB RUNS (audit M-r2-40, 2026-11-20; Claude Code: "If you run /add-dir while Claude is
+ * responding, Claude's next tool call can access the directory"): the owner's folders from the rules sent mid-job, each not
+ * yet a working folder checked and added as at the job's start (the job's addWorkdirs: the same live lists its file tools,
+ * Accept edits and commands read at each step), with the same "not there" note, once per folder. Folders removed mid-job
+ * stay until the next message (Claude Code's docs describe only adding).
+ */
+export async function addRuleDirsNow(t, dirs) {
+  const add = t && t.turnDeps && typeof t.turnDeps.addWorkdirs === "function" ? t.turnDeps.addWorkdirs : null;
+  if (!add || !Array.isArray(dirs) || !dirs.length) return { dirs: [] };
+  const got = await add(dirs.filter((d) => typeof d === "string" && d.trim()).slice(0, 50));
+  t.dirsMissingSaid = t.dirsMissingSaid || new Set();
+  const fresh = (Array.isArray(got.missing) ? got.missing : []).filter((d) => !t.dirsMissingSaid.has(d));
+  for (const d of fresh) t.dirsMissingSaid.add(d);
+  const said = missingDirsSaid(fresh, "your rules", !!t.box);
+  if (said && Array.isArray(t.events)) t.events.push({ at: Date.now(), type: "note", text: said });
+  return { dirs: got.dirs || [] };
+}
 export function missingDirsSaid(missing, from, inBox = false) {
   const list = (Array.isArray(missing) ? missing : []).map((x) => saidDir(x)).filter(Boolean).slice(0, 10);
   if (!list.length) return "";
@@ -4824,6 +4842,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     // (The job's other working folders as one live list: a PermissionRequest hook's addDirectories changes it mid-job.)
     const otherRoots = workRoots.slice(1);
     // ONE THAT IS NOT THERE IS SAID, not left out without a word (round 5).
+    t.dirsMissingSaid = new Set(ownAdded.missing);
     for (const said of [missingDirsSaid(ownAdded.missing, "your rules", !!t.box), missingDirsSaid(repoAdded.missing, "this repository's .claude/settings.json", !!t.box)]) if (said) t.events.push({ at: Date.now(), type: "note", text: said });
     // THE WORKING FOLDERS' OWN INSTRUCTIONS, with CODER_ADDITIONAL_DIRECTORIES_CODER_MD on (see extraInstructions): read by root
     // only from a folder the sandbox shares with the machine (the chat's folders, dev's home); one of the sandbox's own (its
@@ -5939,7 +5958,9 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         if (!t || !t.running || t.result || t.answerDone) return send(200, { ok: false, notRunning: true });
         t.ownerRules = { allow: r.allow, ask: r.ask, deny: r.deny };
         t.rulesNext = withRepoRules(t.ownerRules, t.repoSet) || { allow: [], ask: [], deny: [] };
-        return send(200, { ok: true });
+        // (A working folder the owner added meanwhile: from Coder's next step, audit M-r2-40.)
+        const added = await addRuleDirsNow(t, r.dirs).catch(() => ({ dirs: [] }));
+        return send(200, { ok: true, dirs: added.dirs });
       }
       if (url.pathname === "/mode" && req.method === "POST") {
         if (!MODES.includes(body.mode)) return send(400, { ok: false, why: "bad mode" });

@@ -2284,7 +2284,11 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   let rulesSeen = null;
   // (And THE REPOSITORY'S HOOKS AND BLOCKS when its settings files change mid-job, Bash docs pass 9: from the next step on.)
   let hooksSeen = null, blocksSeen = null;
+  // (And WORKING FOLDERS THE OWNER ADDED meanwhile, audit M-r2-40: the machine adds them to deps.otherRoots; from the next
+  // tool call on they are working folders here too. Set once `workdirs` exists, below.)
+  let syncDirsNow = () => {};
   const freshRules = () => {
+    try { syncDirsNow(); } catch { /* the next call */ }
     if (typeof deps.rulesNow !== "function") return;
     let nr = null;
     try { nr = deps.rulesNow(); } catch { nr = null; }
@@ -2312,6 +2316,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   const autoPsRules = (rs) => ({ ...rs, allow: (rs.allow || []).filter((r) => !droppedInAuto(r, { classifyAllShell: !!(autoMode && autoMode.classifyAllShell === true) })) });
   // WHERE COMMANDS MAY CHANGE FILES WITHOUT ASKING in Accept edits: the project and the chat's other repositories.
   const workdirs = [deps.root, ...(Array.isArray(deps.otherRoots) ? deps.otherRoots : [])].filter((x) => typeof x === "string" && x);
+  syncDirsNow = () => { for (const d of Array.isArray(deps.otherRoots) ? deps.otherRoots : []) if (typeof d === "string" && d.startsWith("/") && !workdirs.includes(d)) workdirs.push(d); };
   // (The folder Coder's commands are in, where a relative file rule's path counts from first, as Claude Code's current folder:
   // round 4, 2026-11-14; coder-filerules.mjs relativeBases.)
   const ruleCwd = () => (typeof deps.here === "function" && String(deps.here() || "")) || deps.root || "/";

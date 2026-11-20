@@ -6,9 +6,13 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 function fakeBucket() {
-  const m = new Map();
-  return { m, async get(k) { return m.has(k) ? { text: async () => m.get(k) } : null; }, async put(k, v) { m.set(k, typeof v === "string" ? v : String(v)); }, async delete(k) { m.delete(k); },
+  // (R2's etags and onlyIf: a write onlyIf an older version is refused, as R2 refuses it, with null. `hold(k, v)`: a test's
+  // pause before a write lands.)
+  const m = new Map(), tags = new Map(); let n = 0;
+  const b = { m, hold: null, async get(k) { return m.has(k) ? { etag: tags.get(k) || "e0", text: async () => m.get(k) } : null; },
+    async put(k, v, o = {}) { if (b.hold) await b.hold(k, v); if (o.onlyIf && o.onlyIf.etagMatches && (tags.get(k) || "e0") !== o.onlyIf.etagMatches) return null; m.set(k, typeof v === "string" ? v : String(v)); tags.set(k, "e" + ++n); return { etag: tags.get(k) }; }, async delete(k) { m.delete(k); },
     async list({ prefix = "" } = {}) { return { objects: [...m.keys()].filter((k) => k.startsWith(prefix)).map((key) => ({ key })), truncated: false }; } };
+  return b;
 }
 
 /** A Coder chat (ana/shop) with GitHub connected, and a stand-in for its machine: the jobs it is handed, one at a time. */
@@ -172,4 +176,26 @@ test("CS5 (2026-11-13) a start cut off half-way (its request ended, and nothing 
   t.waited.length = 0;
   assert.equal((await t.send({ mid: "mWAIT00001", text: "Go." })).status, 200);
   assert.equal(t.waited.length, 1);
+});
+
+test("CS6 (audit L-ops-04, 2026-11-20) two different messages to one idle chat at the same instant: the first mark is held back until the second has started; the second's start stays running, and the first waits in the queue instead of undoing it", async () => {
+  const t = await setup();
+  const metaKey = "coder/" + t.uid + "/" + t.id + "/meta.json";
+  const gate = t.open(); let held = false;
+  t.bucket.hold = async (k, v) => { if (!held && k === metaKey && /"starting":\{"id"/.test(v)) { held = true; await gate.promise; } };
+  const first = t.send({ text: "Fix the header", mid: "mid-first-0001" });
+  await t.until(() => held);
+  const second = await t.send({ text: "Fix the footer", mid: "mid-second-001" });
+  const two = await second.json();
+  assert.equal(second.status, 200, JSON.stringify(two));
+  assert.ok(!two.queued, "the second message started");
+  gate.ok();
+  const r1 = await first, one = await r1.json();
+  assert.equal(r1.status, 200, JSON.stringify(one));
+  assert.equal(one.queued, true, "the first message waits in the queue");
+  assert.deepEqual(t.queue().map((q) => q.text), ["Fix the header"]);
+  assert.equal(t.handed.length, 1);
+  const m = t.meta();
+  assert.equal(m.status, "running");
+  assert.equal(m.start, t.handed[0].start, "the running start is the second's, not undone");
 });
