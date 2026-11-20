@@ -2306,7 +2306,17 @@ test("CD81 (owner: 'do the 3 of them', like Claude Code) the setup script runs w
   // The image keeps the package lists for that check; the Environment window says which lines get admin.
   const docker = readFileSync(HERE("container/Dockerfile"), "utf8");
   assert.doesNotMatch(docker, /rm -rf \/var\/lib\/apt\/lists/);
-  assert.match(readFileSync(HERE("public/coder.js"), "utf8"), /System packages: put each install on its own line, like <code>apt-get install -y jq<\/code>\. Coder installs those as admin/);
+  const page = readFileSync(HERE("public/coder.js"), "utf8");
+  assert.match(page, /The script runs as admin on Ubuntu 24\.04, so <code>apt-get install -y jq<\/code>, sudo and other admin commands work on any line\./);
+  assert.doesNotMatch(page, /other sudo commands don\\'t work/);
+});
+
+test("L-ops-56 (2026-11-20): on a machine with the admin sandbox, a proposed setup script with a sudo line outside a package line is not refused (it runs as admin, like Claude Code's)", async () => {
+  let n = 0; const seen = []; const events = [];
+  const was = "echo \"setup ok\" > setup-ran.txt";
+  const turns = [say("", [call("update_environment", setupArgs(was + "\nsudo systemctl restart postgresql", was, "pg"))]), say("done", [])];
+  await runCoder({ send: async (q) => { seen.push(q); return turns[n++] || say("done", []); }, exec: async () => ({ code: 0, output: "" }), emit: (e) => events.push(e), envApi: envApi(was), ask: async () => ({ choice: "park" }) }, { text: "restart postgres in the setup script", setupScript: was, box: true });
+  assert.doesNotMatch(JSON.stringify(seen.slice(1).map((q) => q.messages)), /other sudo or admin commands/);
 });
 
 test("CD82 (owner 2026-11-06) the chat's top bar stays on one line on a computer: a long branch or title is shortened with … and shown whole on hover", () => {

@@ -2724,10 +2724,22 @@ approval) with an inline comment for each finding on a line of the diff (🔴
 Important, 🟡 Nit, 🟣 Pre-existing, with "Why this was flagged"), the rest in
 its summary and as the check run's annotations; the check run concludes
 neutral, its details a table ending with `<!-- coder-review-severity: {...} -->`;
-no findings: a note. It reads `REVIEW.md` from the base branch only (its `@file`
-lines beside it, at most 8; a skill's `SKILL.md`; a subfolder's own, never in a
-test, example, generated or vendored folder) and `CODER.md` (or `AGENTS.md`)
-at the root and in each changed file's folders. The pull request's text and
+no findings: a note. Which copy of `REVIEW.md` it reads follows Claude Code's
+table, by branch protection (2026-11-20; GitHub's `rules/branches` and
+`branches` endpoints, with the app's Metadata and Contents read): a protected
+default branch (classic rule or ruleset), when the pull request targets it or a
+branch no ruleset protects, gives the default branch's copy with everything (its
+`@file` lines beside it, at most 8 and 150,000 bytes; a skill's `SKILL.md`, body
+only, at most 30,000 bytes; a subfolder's own, never in a test, example,
+generated or vendored folder); a base branch a ruleset protects gives its own
+copy with everything; with nothing protected, the default branch's root file
+only (its `@` lines as text); protection that can't be confirmed, no `REVIEW.md`
+(said on the check run). A ruleset counts when it restricts updates or requires
+an approval dismissed on push or given after the last push. Only a protected
+default branch's copy may lower severities, leave out paths or kinds of issue,
+or cap nits; past 64 counted Markdown links the root file is skipped. It also
+reads `CODER.md` (or `AGENTS.md`) at the root and in each changed file's folders,
+from the same copy. The pull request's text and
 code are data. **A later review on a push** covers what changed since the
 last one, posts no nits or pre-existing findings (and says how many), resolves
 the threads of findings it judges fixed (GitHub's GraphQL, as the app), and

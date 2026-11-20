@@ -194,6 +194,17 @@
     return { status: r.status, data };
   }
 
+  // DISCONNECT GITHUB (like Claude Code's, under its connectors): Coder forgets its copy of the sign-in; it is not cancelled
+  // on GitHub (Claude Code: "the token remains valid on GitHub. To invalidate the token itself, revoke it on GitHub").
+  const GH_OFF_TEXT = 'Coder forgets its copy of your GitHub sign-in, so chats lose GitHub access until you connect again. The sign-in itself stays valid on GitHub: to cancel it there, remove Coder under GitHub\'s Settings > Applications > Authorized GitHub Apps.';
+  async function disconnectGithub() {
+    if (!(await askSure('Disconnect GitHub?', GH_OFF_TEXT, 'Disconnect'))) return;
+    const r = await call('/github/disconnect', { method: 'POST' });
+    if (r.status !== 200) { S.error = (r.data && r.data.error) || 'GitHub was not disconnected.'; return draw(); }
+    S.repos = null; S.github = null; S.error = '';
+    return load();
+  }
+
   // ── LOADING: who am I on GitHub, which projects ───────────────────────────
   async function load() {
     if (GLOOPY) return loadGloopy();
@@ -1195,7 +1206,12 @@
       const col = document.createElement('div'); col.className = 'cd-pick-col';
       const end = (v) => { document.removeEventListener('keydown', key); wrap.remove(); done(v); };
       const key = (e) => { if (e.key === 'Escape') end(null); };
-      choices.forEach(([v, label]) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = label; b.onclick = () => end(v); col.append(b); });
+      // (An optional third item: a small grey line under the choice, like the change count under each message in Claude Code's rewind menu.)
+      choices.forEach(([v, label, sub]) => {
+        const b = document.createElement('button'); b.type = 'button'; b.onclick = () => end(v);
+        if (sub) { const t = document.createElement('span'); t.className = 'cd-pick-main'; t.textContent = label; const u = document.createElement('span'); u.className = 'cd-pick-sub'; u.textContent = sub; b.append(t, u); } else b.textContent = label;
+        col.append(b);
+      });
       const no = document.createElement('button'); no.type = 'button'; no.className = 'cd-sure-no'; no.textContent = 'Never mind'; no.onclick = () => end(null); col.append(no);
       box.append(h, p, col); wrap.append(box); document.body.append(wrap);
       wrap.onclick = (e) => { if (e.target === wrap) end(null); };
@@ -1219,10 +1235,23 @@
     if (!commits.every((c) => Array.isArray(c.edited))) return true;
     return later.some((c) => c.tracked !== false);
   }
+  /**
+   * THE LINE UNDER EACH MESSAGE IN THE REWIND LIST (Claude Code: "Under each prompt, the rewind menu counts changes to files
+   * Claude had already edited"; a turn with none reads "No code changes", one not tracked "Code changes unknown"): from the
+   * jobs of that message's turn. A job from before Coder kept its `edited` list: unknown.
+   */
+  function rewindChanges(commits, turn) {
+    const jobs = (commits || []).filter((c) => Number(c.turn) === turn);
+    if (!jobs.length) return 'No code changes';
+    if (jobs.some((c) => !Array.isArray(c.edited))) return 'Code changes unknown';
+    const files = new Set();
+    for (const c of jobs) if (c.tracked !== false) for (const f of c.edited) files.add(f);
+    return !files.size ? 'No code changes' : files.size + (files.size === 1 ? ' file changed' : ' files changed');
+  }
   // REWIND (like Claude Code's /rewind, 2026-11-06): back to before one of your messages.
   async function rewindPicker() {
     if (!S.project || S.running) return note(S.running ? 'Wait for Coder to finish, then /rewind.' : 'Open a chat first.');
-    const list = (S.project.marks || []).filter((m) => S.events[m.ev] && S.events[m.ev].type === 'user').map((m) => [String(m.turn), String(S.events[m.ev].text || '(a picture)').replace(/\s+/g, ' ').slice(0, 90)]);
+    const list = (S.project.marks || []).filter((m) => S.events[m.ev] && S.events[m.ev].type === 'user').map((m) => [String(m.turn), String(S.events[m.ev].text || '(a picture)').replace(/\s+/g, ' ').slice(0, 90), rewindChanges(S.project.commits, m.turn)]);
     if (!list.length) return note('Nothing to rewind to yet.');
     const pick = await askPick('Rewind', 'Restore the session to an earlier message.', list.reverse());
     if (pick) rewind(Number(pick));
@@ -1517,7 +1546,7 @@
         // inside one"; a script saved before 2026-11-14 still starts inside the chat's repository until it is changed. E7.)
         '<p class="cd-em-help">It starts in the folder that holds the chat\'s repositories, not inside one: reach each one by its name, like <code>if [ -d myapp ]; then (cd myapp &amp;&amp; npm install); fi</code>.</p>' +
         (e.scriptInRepo ? '<p class="cd-em-help cd-em-warnnote">This script was saved before 14 November, when setup scripts started inside the chat\'s repository, so it still starts there. Once you change it, it starts in the folder above, like Claude Code\'s.</p>' : '') +
-        '<p class="cd-em-help">System packages: put each install on its own line, like <code>apt-get install -y jq</code>. Coder installs those as admin; every other line runs as Coder\'s own user, so other sudo commands don\'t work. Git, build tools, Python, Node, curl and jq are already there.</p>' + foot('Save changes');
+        '<p class="cd-em-help">The script runs as admin on Ubuntu 24.04, so <code>apt-get install -y jq</code>, sudo and other admin commands work on any line. Git, build tools, Python, Node, curl and jq are already there.</p>' + foot('Save changes');
     } else if (page === 'vars') {
       body = head('Environment variables', 'main') + '<textarea id="envVarsIn" class="cd-em-vars" spellcheck="false" placeholder="NODE_ENV=production&#10;GIT_AUTHOR_NAME=Your Name&#10;&#10;# Multiline values - wrap in quotes&#10;CONFIG=&quot;key1=val1&#10;key2=val2&quot;">' + esc(f.text) + '</textarea>' +
         '<p class="cd-em-help">One KEY=value per line, in .env format. Coder and its commands can see these values, so don\'t add secrets here: use Network secrets.</p>' +
@@ -4553,6 +4582,7 @@
         '<p class="cd-open-note">One you can’t push to is read-only: Coder keeps its work on its machine, and you download it as a patch.</p></form>';
       return centerHTML((S.pickMode === 'repos' ? '' : playFig()) + '<b class="cd-title">' + (S.pickMode === 'repos' ? 'Your repositories' : 'New chat: pick a repository') + '</b>' +
         '<p class="cd-sub">Signed in as <b>' + esc(S.github && S.github.login) + '</b>. Coder will work on its own branch and never touch your main branch.</p>' +
+        (S.pickMode === 'repos' ? '<p class="cd-sub cd-gh-off"><button type="button" class="cd-btn-2" id="cdDisconnectGh">Disconnect GitHub</button></p>' : '') +
         (S.pickMode === 'repos' ? '<p class="cd-sub cd-review-note">Turn on <b>Code review</b> for a repository and Coder reviews its pull requests, posting what it finds on them. It never approves or blocks one. Anyone with write access can also comment <code>@coder review</code>.</p>' : '') +
         list + hidden + open +
         (install ? '<a class="cd-btn-2" href="' + esc(install) + '" target="_blank" rel="noopener">Add repositories on GitHub</a>' : '') +
@@ -4705,6 +4735,7 @@
     on('#cdRetry', 'click', load);
     on('#cdConnect', 'click', connect);
     on('#cdReconnectGh', 'click', connect);
+    on('#cdDisconnectGh', 'click', disconnectGithub);
     on('.cd-repo', 'click', (e) => addProject(e.currentTarget.dataset.repo));
     on('#cdOpenForm', 'submit', (e) => {
       e.preventDefault();
