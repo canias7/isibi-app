@@ -108,7 +108,7 @@ test("CD289 Coder's Worker: a message sent while Coder works waits with the chat
   assert.deepEqual(toMachine.map((x) => x.text), ["also update the README", "and bump the version"], "the command waits for the job's end");
   assert.equal((await send({ text: "look", images: [{ type: "image/png", data: "iVBORw0KGgo=" }] })).status, 409, "pictures wait for the end");
   assert.equal((await send({ text: "x", comments: [{ file: "a.js", line: 1, quote: "q", text: "t" }] })).status, 409);
-  assert.equal((await send({ text: "/compact" })).status, 409);
+  // (A /compact waits too, as a command, since audit M-b-24: test/bigger-fixes-12.test.mjs.)
   // ✕: taken back (its words back for the box); one Coder already read stays.
   readOnMachine = new Set([a.data.qid]);
   const ta = await go("projects/" + id + "/queue", { method: "POST", body: JSON.stringify({ remove: a.data.qid }) });

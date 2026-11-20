@@ -2580,7 +2580,7 @@ export async function pushRepo({ dir, repo, branch, token, headers = [], message
     // moved to another commit); the index alone shows it, without looking in any folder.
     const committed = !!String(st.stdout ?? st.output).trim() || (await gitIn(dir, ["diff", "--cached", "--quiet", "--ignore-submodules=none"], o)).code === 1;
     if (committed) {
-      const c = await gitIn(dir, ["commit", "-q", "--no-verify", "-m", String(message || "Changes by Coder").slice(0, 300), ...(text ? ["-m", String(text).slice(0, 1000)] : []), ...(trailer ? ["--trailer", trailer] : [])], o);
+      const c = await gitIn(dir, ["commit", "-q", "--no-verify", "-m", String(message || "Changes by Coder").slice(0, 300), ...(text ? ["-m", String(text).slice(0, 1000)] : []), ...trailerArgs(trailer)], o);
       if (c.code !== 0) return { why: "could not commit: " + c.output.slice(0, 200) };
     }
     return { committed };
@@ -2641,12 +2641,12 @@ export async function pushMidTurn({ body, project, root, gitRoot, gitVia, remote
     const g = gitFrom(body, { via: gitVia, remote });
     const msg = String(message || "Changes by Coder").replace(/\s+/g, " ").trim().slice(0, 120) || "Changes by Coder";
     const attribution = attributionOf(join(root, project), body);
-    const main = { ...(await pushRepo({ dir: join(root, project), repo: String(body.repo || ""), branch: String(body.branch || "coder/" + project), message: msg, ...commitMarks(body.chatUrl, attribution), ...g, gitRoot, root })), ...(attribution ? { attribution } : {}) };
+    const main = { ...(await pushRepo({ dir: join(root, project), repo: String(body.repo || ""), branch: String(body.branch || "coder/" + project), message: msg, ...commitMarks(body.chatUrl, attribution, body.coAuthor), ...g, gitRoot, root })), ...(attribution ? { attribution } : {}) };
     const extra = [];
     for (const [i, x] of extraRepos(body).entries()) {
       const xdir = join(root, project + "-x" + (i + 1));
       if (!(await stat(join(gitDirFor(xdir, gitRoot), "HEAD")).then(() => true, () => false))) continue;
-      const r = await pushRepo({ dir: xdir, repo: x.repo, branch: x.branch, message: msg, trailer: chatTrailer(body.chatUrl), noPush: x.readOnly === true, ...g, gitRoot, root }).catch((e) => ({ ok: false, pushed: false, why: String((e && e.message) || e).slice(0, 200) }));
+      const r = await pushRepo({ dir: xdir, repo: x.repo, branch: x.branch, message: msg, trailer: [chatTrailer(body.chatUrl), coAuthorTrailer(body.coAuthor)], noPush: x.readOnly === true, ...g, gitRoot, root }).catch((e) => ({ ok: false, pushed: false, why: String((e && e.message) || e).slice(0, 200) }));
       extra.push({ repo: x.repo, ...r });
     }
     return extra.length ? { ...main, extra } : main;
@@ -4136,15 +4136,23 @@ export function attributionFrom(j, prev = null) {
   return a;
 }
 /** What a commit carries for a repository's attribution: Coder's chat-link trailer (unless hidden) and the repository's own commit text. */
-export function commitMarks(chatUrl, attr) {
+export function commitMarks(chatUrl, attr, coAuthor = "") {
   const a = attr || {};
   const hidden = a.off === true || (a.coAuthor === false && typeof a.commit !== "string");
-  const trailer = hidden || a.sessionUrl === false ? "" : chatTrailer(chatUrl);
+  // (The chat's owner as co-author, as Claude Code's cloud runner adds a Co-authored-by line for the person who started the
+  // session: audit M-d-20. Left out when the repository's attribution is off or sets includeCoAuthoredBy: false.)
+  const co = a.off === true || a.coAuthor === false ? "" : coAuthorTrailer(coAuthor);
+  const link = hidden || a.sessionUrl === false ? "" : chatTrailer(chatUrl);
+  const trailer = co ? [link, co].filter(Boolean) : link;
   const text = !hidden && typeof a.commit === "string" ? a.commit.trim() : "";
   return { trailer, ...(text ? { text } : {}) };
 }
 /** The attribution of the chat's own repository (none from a GitHub-started job or a chat with several repositories, as for the other keys). */
 export const attributionOf = (dir, body) => { try { return repoSettings(dir, { trust: false, github: body.github === true, several: extraRepos(body).length > 0 }).attribution; } catch { return null; } };
+/** `Co-authored-by: Name <id+login@users.noreply.github.com>` for the chat's owner, from Coder's Worker; "" for anything else. */
+export const coAuthorTrailer = (who) => (typeof who === "string" && /^[^<>\r\n]{1,100} <[0-9]{1,15}\+[A-Za-z0-9][A-Za-z0-9-]{0,38}@users\.noreply\.github\.com>$/.test(who) ? "Co-authored-by: " + who : "");
+/** git's arguments for a commit's trailers (one, several, or none). */
+export const trailerArgs = (t) => [].concat(t || []).filter((x) => typeof x === "string" && x).flatMap((x) => ["--trailer", x]);
 export const chatTrailer = (chatUrl) => (coderMarks("", chatUrl).GOFARTHER_CODER_CHAT_URL ? "Coder-Chat: " + chatUrl : "");
 /**
  * NO OPENTELEMETRY SETTINGS IN THE COMMANDS (Bash docs pass 8; Claude Code 2.1.322 deletes every OTEL_* variable, and
@@ -6209,8 +6217,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         const rv = await nestedAway(dir, o.gitDir, async () => { const r = await gitIn(dir, ["revert", "--no-edit", sha], o); if (r.code !== 0) await gitIn(dir, ["revert", "--abort"], o); return r; }, (why) => ({ code: -1, output: why }));
         if (rv.code !== 0) { return send(409, { ok: false, why: "it could not be undone cleanly (later changes touch the same lines): " + rv.output.slice(0, 200) }); }
         // (The revert's own commit carries the chat's link too.)
-        const tr = commitMarks(body.chatUrl, attributionOf(dir, body)).trailer;
-        if (tr) await gitIn(dir, ["commit", "--amend", "-q", "--no-edit", "--no-verify", "--trailer", tr], o);
+        const tr = trailerArgs(commitMarks(body.chatUrl, attributionOf(dir, body), body.coAuthor).trailer);
+        if (tr.length) await gitIn(dir, ["commit", "--amend", "-q", "--no-edit", "--no-verify", ...tr], o);
         // (The files the undo put back, for the chat's line: "Undid the last job: a.txt is back as it was.")
         // (With --name-status: a file the job had made is removed by the undo, and the line says so: the owner, 2026-11-17.)
         const nm = await gitIn(dir, ["show", "--name-status", "--no-renames", "--format=", "HEAD", "--"], o);
@@ -6253,8 +6261,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
           if (!x.ok || !x.restored.length) return x;
           const st = await gitIn(dir, ["diff", "--cached", "--quiet"], o);
           if (st.code === 0) return { ...x, restored: [] };
-          const tr = commitMarks(body.chatUrl, attributionOf(dir, body)).trailer;
-          const c = await gitIn(dir, ["commit", "-q", "--no-verify", "-m", String(body.message || "Rewind: files back as they were before an earlier message").slice(0, 300), ...(tr ? ["--trailer", tr] : [])], o);
+          const tr = commitMarks(body.chatUrl, attributionOf(dir, body), body.coAuthor).trailer;
+          const c = await gitIn(dir, ["commit", "-q", "--no-verify", "-m", String(body.message || "Rewind: files back as they were before an earlier message").slice(0, 300), ...trailerArgs(tr)], o);
           if (c.code !== 0) return { ok: false, why: "could not commit: " + String(c.output).slice(0, 200) };
           return x;
         }, (why) => ({ ok: false, why }));
@@ -6284,14 +6292,14 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         // (`commitOnly`: the turn's end commits here and pushes nothing; owner, 2026-11-16.)
         const commitOnly = body.commitOnly === true;
         const attribution = attributionOf(join(root, project), body);
-        const main0 = await pushRepo({ dir: join(root, project), repo: String(body.repo || ""), branch: String(body.branch || "coder/" + project), message: String(body.message || ""), ...commitMarks(body.chatUrl, attribution), noPush: body.noPush === true, commitOnly, ...gitFrom(body, { via: gitVia, remote }), gitRoot, root });
+        const main0 = await pushRepo({ dir: join(root, project), repo: String(body.repo || ""), branch: String(body.branch || "coder/" + project), message: String(body.message || ""), ...commitMarks(body.chatUrl, attribution, body.coAuthor), noPush: body.noPush === true, commitOnly, ...gitFrom(body, { via: gitVia, remote }), gitRoot, root });
         const main = attribution ? { ...main0, attribution } : main0;
         // The chat's other repositories are saved the same way, each to the chat's branch in its own repository.
         const extra = [];
         for (const [i, x] of extraRepos(body).entries()) {
           const xdir = join(root, project + "-x" + (i + 1));
           if (!(await stat(join(gitDirFor(xdir, gitRoot), "HEAD")).then(() => true, () => false))) continue;
-          const r = await pushRepo({ dir: xdir, repo: x.repo, branch: x.branch, message: String(body.message || ""), trailer: chatTrailer(body.chatUrl), noPush: x.readOnly === true, commitOnly, ...gitFrom(body, { via: gitVia, remote }), gitRoot, root }).catch((e) => ({ ok: false, pushed: false, why: String((e && e.message) || e).slice(0, 200) }));
+          const r = await pushRepo({ dir: xdir, repo: x.repo, branch: x.branch, message: String(body.message || ""), trailer: [chatTrailer(body.chatUrl), coAuthorTrailer(body.coAuthor)], noPush: x.readOnly === true, commitOnly, ...gitFrom(body, { via: gitVia, remote }), gitRoot, root }).catch((e) => ({ ok: false, pushed: false, why: String((e && e.message) || e).slice(0, 200) }));
           extra.push({ repo: x.repo, ...r });
         }
         return send(200, extra.length ? { ...main, extra } : main);

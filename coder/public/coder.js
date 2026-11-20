@@ -1250,28 +1250,37 @@
   }
   // REWIND (like Claude Code's /rewind, 2026-11-06): back to before one of your messages.
   async function rewindPicker() {
-    if (!S.project || S.running) return note(S.running ? 'Wait for Coder to finish, then /rewind.' : 'Open a chat first.');
-    const list = (S.project.marks || []).filter((m) => S.events[m.ev] && S.events[m.ev].type === 'user').map((m) => [String(m.turn), String(S.events[m.ev].text || '(a picture)').replace(/\s+/g, ' ').slice(0, 90), rewindChanges(S.project.commits, m.turn)]);
+    // (WHILE CODER WORKS, /rewind WAITS FOR ITS END, as Claude Code queues a command sent while it answers and runs it after
+    // the turn: audit M-b-24. A new message or Stop forgets it.)
+    if (S.project && S.running) { S.rewindAfter = true; return draw(); }
+    if (!S.project) return note('Open a chat first.');
+    // (A message Coder read part-way through a turn is listed too, "No code restore" under it, as in Claude Code: audit M-a-16.)
+    const marks = (S.project.marks || []).filter((m) => S.events[m.ev] && S.events[m.ev].type === 'user').slice().sort((a, b) => a.ev - b.ev);
+    const list = marks.map((m) => [m.qid ? 'q:' + m.qid : String(m.turn), String(S.events[m.ev].text || '(a picture)').replace(/\s+/g, ' ').slice(0, 90), m.noCode ? 'No code restore' : rewindChanges(S.project.commits, m.turn)]);
     if (!list.length) return note('Nothing to rewind to yet.');
     const pick = await askPick('Rewind', 'Restore the session to an earlier message.', list.reverse());
-    if (pick) rewind(Number(pick));
+    if (!pick) return;
+    const qm = /^q:/.test(pick) ? marks.find((m) => 'q:' + m.qid === pick) : null;
+    if (qm) rewind(Number(qm.turn), null, { qid: qm.qid }); else rewind(Number(pick));
   }
   async function rewind(turn, given, o = {}) {
     if (!S.project) return;
     // LIKE CLAUDE CODE'S REWIND (its docs, read 2026-11-07; owner item 9): the code choices only when a
     // later job changed files; Summarize from here / up to here; the message back in the box after the chat goes back.
     // (Since 2026-11-13, like its checkpoints: only files Coder's file tools changed count, codeToRestore.)
-    const mark = (S.project.marks || []).find((m) => m.turn === turn);
+    const mark = (S.project.marks || []).find((m) => o.qid ? m.qid === o.qid : m.turn === turn && !m.qid);
     const said = mark && S.events[mark.ev] && S.events[mark.ev].type === 'user' ? String(S.events[mark.ev].text || '') : '';
     const commits = S.project.commits || [];
-    const changed = codeToRestore(commits, turn);
+    // (No code restore for a message sent while Coder worked: the chat and the summaries only.)
+    const noCode = !!(mark && mark.noCode);
+    const changed = !noCode && codeToRestore(commits, turn);
     const exact = commits.every((c) => Array.isArray(c.edited));
-    const first = !(S.project.marks || []).some((m) => m.turn < turn);
+    const first = mark ? !(S.project.marks || []).some((m) => m.ev < mark.ev) : !(S.project.marks || []).some((m) => m.turn < turn);
     const choices = [...(changed ? [['both', 'Restore code and chat']] : []), ['chat', changed ? 'Restore chat only' : 'Restore chat'], ...(changed ? [['code', 'Restore code only']] : []),
       ...(S.project.compactOff ? [] : [['sumfrom', 'Summarize from here'], ...(first ? [] : [['sumupto', 'Summarize up to here']])])];
     // (A read-only repository's undo stays on Coder's machine: nothing goes to GitHub there. Live test, 2026-11-13.)
     const kept = S.project.readOnly ? 'kept on Coder\'s machine (you can\'t push to this repository, so nothing goes to GitHub)' : 'on the branch, never deleted from GitHub';
-    const pick = given || await askPick('Rewind to this message?', (changed ? (exact ? 'Restoring the code puts back the files Coder\'s file tools changed, as they were before you sent it; files only commands changed stay as they are. It is undone with a new commit ' + kept + '. ' : 'Restoring goes back to how things were before you sent it. Code changes are undone with new commits ' + kept + '. ') : exact && commits.some((c) => Number(c.turn) >= turn) ? 'Only commands changed files after this message, and those stay as they are, so only the chat can go back. ' : 'No job changed files after this message, so only the chat can go back. ') + 'Summarizing turns that part of the conversation into a summary for Coder, to free room; files stay as they are and the chat still shows everything.', choices);
+    const pick = given || await askPick('Rewind to this message?', (noCode ? 'You sent this message while Coder was working, so it has no code checkpoint of its own (No code restore): only the chat can go back. To restore the code from that turn, rewind to the message that started it. ' : changed ? (exact ? 'Restoring the code puts back the files Coder\'s file tools changed, as they were before you sent it; files only commands changed stay as they are. It is undone with a new commit ' + kept + '. ' : 'Restoring goes back to how things were before you sent it. Code changes are undone with new commits ' + kept + '. ') : exact && commits.some((c) => Number(c.turn) >= turn) ? 'Only commands changed files after this message, and those stay as they are, so only the chat can go back. ' : 'No job changed files after this message, so only the chat can go back. ') + 'Summarizing turns that part of the conversation into a summary for Coder, to free room; files stay as they are and the chat still shows everything.', choices);
     if (!pick || !S.project) return;
     let body;
     if (pick === 'sumfrom' || pick === 'sumupto') {
@@ -1279,7 +1288,8 @@
       if (focus === null || !S.project) return;
       body = { turn, summarize: pick === 'sumfrom' ? 'from' : 'upto', focus };
     } else body = { turn, code: pick !== 'chat', chat: pick !== 'code', ...(o.undo && pick === 'code' ? { undo: true } : {}) };
-    S.error = ''; S.rewinding = true; draw();
+    if (o.qid) body.qid = o.qid;
+    S.error = ''; S.rewinding = body.summarize ? 'summarize' : 'rewind'; draw();
     const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/rewind', { method: 'POST', body: JSON.stringify(body) });
     S.rewinding = false;
     if (r.data && r.data.project) S.project = r.data.project;
@@ -1674,6 +1684,9 @@
     // /rewind, AS IN CLAUDE CODE (the owner, 2026-11-15: "put rewind as a model call or a / please", then its screenshot):
     // no Rewind link above every message; /rewind opens a small Rewind window listing your messages to pick from.
     if (!GLOOPY && /^\/(rewind|checkpoint|undo)$/i.test(text)) { S.draft = ''; const box = document.getElementById('cdIn'); if (box) box.value = ''; draw(); rewindPicker(); return; }
+    // (Rewind or Undo still working: the message stays in the box until it is done, audit I65.)
+    if (!GLOOPY && S.rewinding && text) { S.error = 'Coder is still rewinding this chat: send it once that is done.'; return draw(); }
+    if (!GLOOPY && text) S.rewindAfter = false;
     if (!GLOOPY && /^\/(permissions|allowed-tools)$/i.test(text)) { S.draft = ''; const box = document.getElementById('cdIn'); if (box) box.value = ''; S.modeMenu = true; draw(); return; }
     if (/^!\s*\S/.test(text)) rememberShell(text);
     // COMMENTS ON THE CHANGES go with the message; the server writes them in.
@@ -2013,6 +2026,7 @@
   }
   async function stop() {
     if (!S.project) return;
+    S.rewindAfter = false;
     const id = S.project.id;
     const r = await call('/projects/' + encodeURIComponent(id) + '/stop', { method: 'POST' });
     // The machine was gone: the chat was freed, with what the job saved as it went.
@@ -2671,7 +2685,7 @@
       if (e.type === 'text' && e.quiet === true) return;
       flush();
       const mark = e.type === 'user' && !S.running && S.project && Array.isArray(S.project.marks) ? S.project.marks.find((m) => m.ev === i) : null;
-      if (e.type === 'user') out.push('<div class="cd-user">' + (mark && !GLOOPY && S.rewindPick ? '<button type="button" class="cd-rewind" data-rewind="' + Number(mark.turn) + '" title="Rewind to before this message">Rewind</button>' : '') + (e.thumbs && e.thumbs.length ? '<div class="cd-thumbs">' + e.thumbs.map((u) => '<img src="' + esc(u) + '" alt="">').join('') + '</div>' : e.images ? '<div class="cd-imgnote">' + esc(e.images) + ' picture' + (e.images > 1 ? 's' : '') + '</div>' : '') + (Array.isArray(e.files) && e.files.length ? '<div class="cd-user-files">' + e.files.map((f) => '<button type="button" class="cd-file-chip" data-file-get="' + esc(f.id) + '" data-file-name="' + esc(f.name) + '" title="Download">' + ICON.doc + '<span class="cd-file-n">' + esc(f.name) + '</span><small>' + esc(sizeWords(Number(f.size) || 0)) + '</small></button>').join('') + '</div>' : '') + '<div class="cd-bubble' + (e.shell ? ' cd-bubble-shell' : '') + '">' + esc(e.text) + '</div>' + (GLOOPY ? '' : userMetaHTML(e, i, mark)) + '</div>');
+      if (e.type === 'user') out.push('<div class="cd-user">' + (mark && !GLOOPY && S.rewindPick ? '<button type="button" class="cd-rewind" data-rewind="' + Number(mark.turn) + '"' + (mark.qid ? ' data-rewind-q="' + esc(mark.qid) + '"' : '') + ' title="Rewind to before this message">Rewind</button>' : '') + (e.thumbs && e.thumbs.length ? '<div class="cd-thumbs">' + e.thumbs.map((u) => '<img src="' + esc(u) + '" alt="">').join('') + '</div>' : e.images ? '<div class="cd-imgnote">' + esc(e.images) + ' picture' + (e.images > 1 ? 's' : '') + '</div>' : '') + (Array.isArray(e.files) && e.files.length ? '<div class="cd-user-files">' + e.files.map((f) => '<button type="button" class="cd-file-chip" data-file-get="' + esc(f.id) + '" data-file-name="' + esc(f.name) + '" title="Download">' + ICON.doc + '<span class="cd-file-n">' + esc(f.name) + '</span><small>' + esc(sizeWords(Number(f.size) || 0)) + '</small></button>').join('') + '</div>' : '') + '<div class="cd-bubble' + (e.shell ? ' cd-bubble-shell' : '') + '">' + esc(e.text) + '</div>' + (GLOOPY ? '' : userMetaHTML(e, i, mark)) + '</div>');
       else if (e.type === 'text' || e.type === 'done') out.push('<div class="cd-ai">' + prose(e.text) + '</div>' + (e.type === 'done' ? resultPics(e) + (GLOOPY ? '' : aiMetaHTML(e, i)) : ''));
       else if (e.type === 'permission') out.push(permHTML(e));
       else if (e.type === 'github') out.push('<div class="cd-gh">' + ICON.gh + '<span>' + prose(e.text).replace(/^<p>|<\/p>$/g, '') + '</span></div>');
@@ -3030,7 +3044,7 @@
   function userMetaHTML(e, i, mark) {
     return '<div class="cd-meta cd-meta-u"><span class="cd-meta-t" data-rel-at="' + Number(e.at || 0) + '">✓ ' + esc(relTime(e.at)) + '</span>' +
       '<button type="button" class="cd-meta-b" data-copy-ev="' + i + '" aria-label="Copy" title="Copy">' + META_ICON.copy + '</button>' +
-      (mark ? '<button type="button" class="cd-meta-b" data-rewind-to="' + Number(mark.turn) + '" aria-label="Rewind to here" title="Rewind to before this message">' + META_ICON.rewind + '</button>' : '') + '</div>';
+      (mark ? '<button type="button" class="cd-meta-b" data-rewind-to="' + Number(mark.turn) + '"' + (mark.qid ? ' data-rewind-q="' + esc(mark.qid) + '"' : '') + ' aria-label="Rewind to here" title="Rewind to before this message">' + META_ICON.rewind + '</button>' : '') + '</div>';
   }
   /**
    * THE CHANGED-FILES BOX UNDER CODER'S ANSWER, LIKE CLAUDE CODE ON THE WEB (2026-11-16): "Created 2 files" / "Edited 1 file" /
@@ -3070,7 +3084,7 @@
     const files = turnFiles(S.events, i);
     if (!files.length) return '';
     let u = i; while (u >= 0 && S.events[u].type !== 'user') u--;
-    const mark = u >= 0 && S.project && Array.isArray(S.project.marks) ? S.project.marks.find((m) => m.ev === u) : null;
+    const mark = u >= 0 && S.project && Array.isArray(S.project.marks) ? S.project.marks.find((m) => m.ev === u && !m.noCode) : null;
     const latest = !S.events.slice(i + 1).some((x) => x.type === 'user' || x.type === 'done');
     const undo = mark && latest && !S.running && !S.rewinding && codeToRestore(S.project.commits || [], Number(mark.turn));
     const shown = files.length > FILES_BOX_ROWS + 1 ? files.slice(0, FILES_BOX_ROWS) : files;
@@ -3209,7 +3223,9 @@
   function queueHTML() {
     const list = queuedNow();
     // (While a card Coder's paused job left open waits, as while Coder works: they go to Coder in the turn its answer takes up.)
-    return list.map((q) => '<div class="cd-user cd-queued"><div class="cd-queued-label">' + (S.running || (S.project && S.project.parked) ? (q.shell ? 'Runs when Coder is done' : 'Waiting for Coder') : 'Not sent yet') + ' <button type="button" class="cd-queued-x" data-unqueue="' + esc(q.qid) + '" aria-label="Take this message back" title="Take it back to the message box">✕</button></div><div class="cd-bubble' + (q.shell ? ' cd-bubble-shell' : '') + '">' + esc(q.text) + '</div></div>').join('');
+    // (REWIND WORKING, OR WAITING FOR CODER'S END: a short grey line, audit I65 and M-b-24.)
+    const busy = S.rewinding ? '<div class="cd-rewind-line" role="status">' + (S.rewinding === 'summarize' ? 'Summarizing…' : 'Rewinding…') + '</div>' : S.rewindAfter && S.running ? '<div class="cd-rewind-line" role="status">Rewind opens when Coder finishes</div>' : '';
+    return busy + list.map((q) => '<div class="cd-user cd-queued"><div class="cd-queued-label">' + (S.running || (S.project && S.project.parked) ? (q.shell || q.cmd ? 'Runs when Coder is done' : 'Waiting for Coder') : 'Not sent yet') + ' <button type="button" class="cd-queued-x" data-unqueue="' + esc(q.qid) + '" aria-label="Take this message back" title="Take it back to the message box">✕</button></div><div class="cd-bubble' + (q.shell ? ' cd-bubble-shell' : '') + '">' + esc(q.text) + '</div></div>').join('');
   }
 
   // THE CHAT'S OWN BAR: its title, repository and branch, the pull request,
@@ -4515,7 +4531,7 @@
         // (And while a card Coder's paused job left open waits, as while its job ran: Stop closes the card. coder-park.mjs.)
         ((S.running && !S.ending) || (!GLOOPY && S.project && S.project.parked)
           ? '<button type="submit" class="cd-send cd-queue-send" aria-label="Send (it waits for Coder)" title="Send: Coder reads it once its running steps finish"' + (S.sending ? ' disabled' : '') + '>' + ICON.send + '</button><button type="button" class="cd-send cd-stop" id="cdStop" aria-label="Stop">' + ICON.stop + '</button>'
-          : '<button type="submit" class="cd-send" aria-label="Send"' + (S.sending ? ' disabled' : '') + '>' + ICON.send + '</button>') +
+          : '<button type="submit" class="cd-send" aria-label="Send"' + (S.sending || S.rewinding ? ' disabled' : '') + '>' + ICON.send + '</button>') +
       '</form>' +
       // SHELL MODE (tool 4, part 3, like Claude Code's "! npm test"): the box says so while the message starts with "!".
       '<div class="cd-shellhint" role="note">Shell mode: runs this command on Coder\'s machine, then Coder answers what it printed · Tab completes</div>' +
@@ -4639,6 +4655,8 @@
     if (!root || !root.isConnected) return;
     // CODER'S LOGO TYPES WHILE CODER WORKS (the owner, 2026-11-14: "like if it's actually typing"): while its open chat runs.
     if (!GLOOPY && window.coderLogo) window.coderLogo.busy(S.phase === 'chat' && S.running);
+    // (/rewind sent while Coder worked opens once it is done: audit M-b-24.)
+    if (S.rewindAfter && !S.running && S.project && !GLOOPY) { S.rewindAfter = false; setTimeout(rewindPicker, 0); }
     const log = root.querySelector('#cdLog');
     const atBottom = !log || log.scrollHeight - log.scrollTop - log.clientHeight < 80;
     // THE CHAT STAYS WHERE YOU SCROLLED (Claude Code's changelog: "Fixed scroll position jumping to the bottom while reading
@@ -5271,7 +5289,7 @@
     on('#cdCommentIn', 'keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); addComment(); } if (e.key === 'Escape') { S.commenting = null; draw(); } });
     on('#cdCommentX', 'click', () => { S.commenting = null; draw(); });
     on('[data-uncomment]', 'click', (e) => { S.comments.splice(Number(e.currentTarget.dataset.uncomment), 1); draw(); });
-    on('[data-rewind]', 'click', (e) => { S.rewindPick = false; rewind(Number(e.currentTarget.dataset.rewind)); });
+    on('[data-rewind]', 'click', (e) => { S.rewindPick = false; rewind(Number(e.currentTarget.dataset.rewind), null, e.currentTarget.dataset.rewindQ ? { qid: e.currentTarget.dataset.rewindQ } : {}); });
     on('#cdMakePr', 'click', () => send(PR_ASK));
     on('#cdMakeDraft', 'click', () => send(PR_ASK_DRAFT));
     on('#cdTitleMore', 'click', () => { S.titleMenu = !S.titleMenu; draw(); });
@@ -5392,7 +5410,7 @@
     on('[data-rate]', 'click', (e) => { const k = e.currentTarget.dataset.rateK, v = e.currentTarget.dataset.rate; S.rated = S.rated || {}; S.rated[k] = S.rated[k] === v ? '' : v; draw(); });
     on('[data-files-undo]', 'click', (e) => { rewind(Number(e.currentTarget.dataset.filesUndo), 'code', { undo: true }); });
     on('[data-files-all]', 'click', () => { S.showChanges = true; loadChanges(); draw(); });
-    on('[data-rewind-to]', 'click', (e) => { rewind(Number(e.currentTarget.dataset.rewindTo)); });
+    on('[data-rewind-to]', 'click', (e) => { rewind(Number(e.currentTarget.dataset.rewindTo), null, e.currentTarget.dataset.rewindQ ? { qid: e.currentTarget.dataset.rewindQ } : {}); });
     // THE MODE MENU, AND THE CARDS A STEP WAITS ON (the permission modes): a click, or the card's number keys.
     on('#cdMode', 'click', (e) => { e.stopPropagation(); S.modeMenu = !S.modeMenu; draw(); });
     on('.cd-modes', 'click', (e) => e.stopPropagation());

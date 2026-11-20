@@ -245,7 +245,7 @@ test("CD105 Rewind, like Claude Code's: back to before one of your messages — 
   assert.match(routes, /\.map\(\(m\) => \(\{ \.\.\.m, msg: m\.msg - dropM, ev: m\.ev - dropE \}\)\)\.filter\(\(m\) => m\.msg >= 0 && m\.ev >= 0\)/);
   const page = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
   assert.match(page, /\[\.\.\.\(changed \? \[\['both', 'Restore code and chat'\]\] : \[\]\), \['chat', changed \? 'Restore chat only' : 'Restore chat'\], \.\.\.\(changed \? \[\['code', 'Restore code only'\]\] : \[\]\),/);
-  assert.match(page, /on\('\[data-rewind\]', 'click', \(e\) => \{ S\.rewindPick = false; rewind\(Number\(e\.currentTarget\.dataset\.rewind\)\); \}\);/);
+  assert.match(page, /on\('\[data-rewind\]', 'click', \(e\) => \{ S\.rewindPick = false; rewind\(Number\(e\.currentTarget\.dataset\.rewind\), null, e\.currentTarget\.dataset\.rewindQ \? \{ qid: e\.currentTarget\.dataset\.rewindQ \} : \{\}\); \}\);/);
 });
 
 test("CD106 (2026-11-06) the code-try count never blocks sign-in if the bucket refuses a conditional write; it still counts", async () => {
@@ -440,7 +440,7 @@ test("CD111 several repositories in one chat, like Claude Code: up to 3 more, ad
   const { readFileSync } = await import("node:fs");
   const routes = readFileSync(new URL("../src/coder-routes.mjs", import.meta.url), "utf8");
   assert.match(routes, /post\("\/turn", \{ start: claim\.id, secrets, egress, live, model: modelNow, extra: extraFor\(meta\),/);
-  assert.match(routes, /post\("\/push", \{ project: id, repo: meta\.repo, branch: meta\.branch, git: await gitAccess\(env, uid, id, meta\.turn\), message: turnTitle\(s\.result\), chatUrl: chatLink, extra: extraFor\(meta\), \.\.\.\(meta\.readOnly \? \{ noPush: true \} : pushNow \? \{\} : \{ commitOnly: true \}\) \}\)/);
+  assert.match(routes, /post\("\/push", \{ project: id, repo: meta\.repo, branch: meta\.branch, git: await gitAccess\(env, uid, id, meta\.turn\), message: turnTitle\(s\.result\), chatUrl: chatLink, coAuthor: await coAuthorFor\(env, bucket, uid, fetchFn\), extra: extraFor\(meta\), \.\.\.\(meta\.readOnly \? \{ noPush: true \} : pushNow \? \{\} : \{ commitOnly: true \}\) \}\)/);
   const page = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
   assert.match(page, /on\('#cdAddRepo', 'change', \(e\) => \{ const v = e\.currentTarget\.value; if \(v\) changeRepos\(v, true\); \}\);/);
   assert.match(page, /data-unrepo="' \+ esc\(x\.repo\)/);

@@ -1429,3 +1429,4 @@ button.cd-vault-tab:hover:not(.is-on){background:#f6f6f6}
   #gfApp .cd-sg-btn { background: #2f2e2b; border-color: #45433f; color: #eeece6; }
   #gfApp .cd-sg-more { border-top-color: #3a3936; }
 }
+#gfApp .cd-rewind-line { text-align: right; font: 12px Inter, system-ui, sans-serif; color: #6b7280; margin: 4px 0 8px; }

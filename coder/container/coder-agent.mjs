@@ -4640,7 +4640,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     // (The owner's Stop while Grok answered, sendOrStop: its answer is not kept, cut by the Stop or come after the Stop's time,
     // as one Claude Code's Stop would have cut; then its mark of a model's answer cut short. Round 6.)
     // (The chat's record of what that request carried goes on the mark, as its answer is not kept: the cache fix.)
-    if (!offered && (answer === STOP_SEEN || ((await stopped()) && stopSaidAt() > 0 && stopSaidAt() < answeredAt))) { convo.push({ ...interruptedNote(false), ...(tsUpfrontNew ? { toolsDeclared: tsUpfrontNew } : {}), ...(tsLocksNew ? { toolLocks: tsLocksNew, toolLocksV: TOOLS_V } : {}), ...sysMark() }); emit({ type: "stopped" }); return end("stopped"); }
+    if (!offered && (answer === STOP_SEEN || ((await stopped()) && stopSaidAt() > 0 && stopSaidAt() < answeredAt))) { convo.push({ ...interruptedNote(false), ...(tsUpfrontNew ? { toolsDeclared: tsUpfrontNew } : {}), ...(tsLocksNew ? { toolLocks: tsLocksNew, toolLocksV: TOOLS_V } : {}) }); emit({ type: "stopped" }); return end("stopped"); }
     }
     // PICTURES STAY FOR THE WHOLE JOB (live test, 2026-11-05: sending them only
     // in the first round made Grok invent a picture when it answered after a few

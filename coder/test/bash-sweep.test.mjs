@@ -382,8 +382,8 @@ test("CD304 (the owner, 2026-11-09: \"yes i want that\"; Claude Code's Claude-Se
   assert.equal(p.ok, true, p.why);
   assert.equal(git(bare, "log", "-1", "--format=%B", "coder/shop-abcd").trim(), "Added the home page\n\nCoder-Chat: " + link);
   const src = serverSrc();
-  assert.match(src, /\.\.\.commitMarks\(body\.chatUrl, attribution\), noPush: body\.noPush === true,/);
-  assert.match(src, /const tr = commitMarks\(body\.chatUrl, attributionOf\(dir, body\)\)\.trailer;\n\s+if \(tr\) await gitIn\(dir, \["commit", "--amend", "-q", "--no-edit", "--no-verify", "--trailer", tr\], o\);/, "the undo's commit too");
+  assert.match(src, /\.\.\.commitMarks\(body\.chatUrl, attribution, body\.coAuthor\), noPush: body\.noPush === true,/);
+  assert.match(src, /const tr = trailerArgs\(commitMarks\(body\.chatUrl, attributionOf\(dir, body\), body\.coAuthor\)\.trailer\);\n\s+if \(tr\.length\) await gitIn\(dir, \["commit", "--amend", "-q", "--no-edit", "--no-verify", \.\.\.tr\], o\);/, "the undo's commit too");
   // Coder's Worker: the link, unless the chat's environment turns it off; on every save, undo and pull request.
   const R = await import("../src/coder-routes.mjs");
   const E = await import("../src/coder-environments.mjs");
@@ -397,7 +397,9 @@ test("CD304 (the owner, 2026-11-09: \"yes i want that\"; Claude Code's Claude-Se
   assert.equal(R.madeWith(link), "\n\nMade with Coder: " + link);
   assert.equal(R.madeWith(""), "\n\nMade with Coder.");
   const routes = readFileSync(new URL("../src/coder-routes.mjs", import.meta.url), "utf8");
-  assert.equal((routes.match(/chatUrl: await chatLinkFor\(env, bucket, uid, meta, id\)/g) || []).length, 4, "two undos, Rewind's restore (2026-11-13) and a push (pushChat, 2026-11-16)");
+  // (Since part 12 they go through commitWho, which adds the owner as co-author: audit M-d-20.)
+  assert.equal((routes.match(/chatUrl: await chatLinkFor\(env, bucket, uid, meta, id\)/g) || []).length, 1, "commitWho");
+  assert.equal((routes.match(/\.\.\.\(await commitWho\(env, bucket, uid, meta, id/g) || []).length, 4, "two undos, Rewind's restore (2026-11-13) and a push (pushChat, 2026-11-16)");
   // (The save reads the link once, with its other reads, and uses it for its commit, its undo and its pull requests: 2026-11-16.)
   assert.equal((routes.match(/chatUrl: chatLink,/g) || []).length, 2, "the save and its undo");
   assert.equal((routes.match(/madeWith\(chatLink, attribution\)/g) || []).length, 2, "the save's pull requests");

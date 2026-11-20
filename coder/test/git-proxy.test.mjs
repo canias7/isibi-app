@@ -229,5 +229,5 @@ test("CD132 wiring: every job, save, Undo and Rewind sends the machine the pass,
   await new Promise((ok) => srv.listen(0, "127.0.0.1", ok));
   try { assert.deepEqual(await (await fetch("http://127.0.0.1:" + srv.address().port + "/health")).json(), { ok: true, kept: true }); }
   finally { await new Promise((ok) => srv.close(ok)); }
-  assert.match(server, /const mark = join\(setupRoot \|\| gitRoot, project \+ "\.setup-done"\);/, "the setup's marks live on that same disk, so a kept disk skips the setup");
+  assert.match(server, /const mark = join\(marksRoot, project \+ "\.setup-done"\);/, "the setup's marks live on that same disk, so a kept disk skips the setup");
 });

@@ -35,7 +35,7 @@ test("LK4 /rewind (Claude Code's): no Rewind link above each message; /rewind op
   assert.match(ui, /if \(!GLOOPY && \/\^\\\/\(rewind\|checkpoint\|undo\)\$\/i\.test\(text\)\) \{[^\n]*rewindPicker\(\); return; \}/);
   assert.match(ui, /'<div class="cd-user">' \+ \(mark && !GLOOPY && S\.rewindPick \? /);
   assert.doesNotMatch(ui, /S\.rewindPick = (true|!S\.rewindPick)/, "the links never come back");
-  assert.match(ui, /await askPick\('Rewind', 'Restore the session to an earlier message\.', list\.reverse\(\)\);\n    if \(pick\) rewind\(Number\(pick\)\);/);
+  assert.match(ui, /await askPick\('Rewind', 'Restore the session to an earlier message\.', list\.reverse\(\)\);\n    if \(!pick\) return;\n    const qm = \/\^q:\/\.test\(pick\) \? marks\.find\(\(m\) => 'q:' \+ m\.qid === pick\) : null;\n    if \(qm\) rewind\(Number\(qm\.turn\), null, \{ qid: qm\.qid \}\); else rewind\(Number\(pick\)\);/);
 });
 
 test("LK5 typing / lists Coder's commands (Claude Code's list): /compact, /permissions, /rewind with a line each; ↑↓, Enter or Tab, a click, Esc", () => {
