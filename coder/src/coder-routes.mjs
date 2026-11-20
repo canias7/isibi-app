@@ -148,7 +148,7 @@ import { scanCard } from "./gloopy-cardscan.mjs";
 import { readLogins, saveLogin, editLogin, importLogins, removeLogin, loginList, loginFor, loginSite, LOGINS_MAX, readCards, saveCard, editCard, removeCard, cardList, cardLabel, cardBrand, checkCard, cardFor, cardsForTurn, CARDS_MAX, readContacts, saveContact, editContact, removeContact, contactList, CONTACTS_MAX } from "./gloopy-vault.mjs";
 import { cleanSchedule, checkSchedule, whenLocal, whenWords, cleanWebhook, HOOK_ID, okZone } from "../container/gloopy-schedule.mjs";
 import { summarize, compactHistory, marksAfter, COMPACT_HISTORY_AT, CODER_COMPACT_SAFETY } from "./coder-summary.mjs";
-import { summaryMessage, filesTouched, tooShortToCompact, TOO_SHORT_TO_COMPACT } from "../container/coder-compact.mjs";
+import { summaryMessage, filesTouched, tooShortToCompact, TOO_SHORT_TO_COMPACT, compactSettings } from "../container/coder-compact.mjs";
 import { egressPass, machineKeyRules, EGRESS_PATH, sendHeld, dropHeld } from "./coder-egress.mjs";
 import { keepBackup, readBackup, forgetSite, WORK_MAX, BROWSER_MAX } from "./gloopy-backup.mjs";
 import { watchJob, watchKey, watchBackground, WATCH_PREFIX } from "./coder-watch.mjs";
@@ -343,6 +343,14 @@ export async function chatLinkFor(env, bucket, uid, meta, id) {
     if (/^(0|false|no|off)$/i.test(String((data && data.vars && data.vars.CODER_CHAT_LINK) ?? "").trim())) return "";
   } catch { /* the default: on */ }
   return chatLinkOf(env, id);
+}
+/**
+ * ALL COMPACTION OFF FOR THIS CHAT (Claude Code's DISABLE_COMPACT in the chat's environment): Rewind's "Summarize from here"
+ * and "Summarize up to here" are not offered then (Claude Code's changelog: "Fixed the rewind menu offering ... when
+ * DISABLE_COMPACT is set").
+ */
+export async function compactOffFor(env, bucket, uid, meta) {
+  try { const data = await readEnvData(env, bucket, uid, await envIdOf(bucket, uid, meta)); return compactSettings((data && data.vars) || {}).off; } catch { return false; }
 }
 export const madeWith = (link) => "\n\nMade with Coder" + (link ? ": " + link : ".");
 /**
@@ -1417,7 +1425,7 @@ export async function handleCoder(request, env, ctx, deps) {
   const saveNow = async () => { await self("/state?since=1000000000").catch(() => null); return getJson(bucket, metaKey, null); };
   const action = parts[2] || "";
 
-  if (!action && request.method === "GET") return json({ ok: true, project: meta, events: await getJson(bucket, keyOf(uid, id, "events.json"), []), queue: await getJson(bucket, keyOf(uid, id, "queue.json"), []), shellHistory: await shellHistoryOf(bucket, uid, meta.repo) });
+  if (!action && request.method === "GET") return json({ ok: true, project: (await compactOffFor(env, bucket, uid, meta)) ? { ...meta, compactOff: true } : meta, events: await getJson(bucket, keyOf(uid, id, "events.json"), []), queue: await getJson(bucket, keyOf(uid, id, "queue.json"), []), shellHistory: await shellHistoryOf(bucket, uid, meta.repo) });
 
   // GLOOPY'S CHAT: its own turns and their end (no GitHub, no environment), and Stop as a chat's; nothing of Coder's else.
   if (isGloopy(meta)) {
@@ -2475,6 +2483,7 @@ export async function handleCoder(request, env, ctx, deps) {
     // from this point forward" / "before this point into a summary, keeping later messages intact"; the
     // original messages stay in the chat; an optional focus guides it). Files are never touched.
     const sumWay = body.summarize === "from" || body.summarize === "upto" ? body.summarize : "";
+    if (sumWay && await compactOffFor(env, bucket, uid, meta)) return json({ error: "Summaries are turned off: this chat's environment sets DISABLE_COMPACT." }, 400);
     if (sumWay) {
       const msgs = await getJson(bucket, keyOf(uid, id, "messages.json"), []);
       const evs = await getJson(bucket, keyOf(uid, id, "events.json"), []);

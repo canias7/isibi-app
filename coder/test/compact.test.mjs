@@ -213,7 +213,7 @@ test("CD167 on the Worker: a long chat's older jobs are summarized before the ne
 test("CD168 the page: Rewind's choices like Claude Code's (the code ones only when a later job changed files; Summarize from here and up to here, with an optional focus); the message comes back to the box; /compact goes as a job, like a message (round 5)", async () => {
   const { readFileSync } = await import("node:fs");
   const ui = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
-  assert.match(ui, /const choices = \[\.\.\.\(changed \? \[\['both', 'Restore code and chat'\]\] : \[\]\), \['chat', changed \? 'Restore chat only' : 'Restore chat'\], \.\.\.\(changed \? \[\['code', 'Restore code only'\]\] : \[\]\),\n\s+\['sumfrom', 'Summarize from here'\], \.\.\.\(first \? \[\] : \[\['sumupto', 'Summarize up to here'\]\]\)\];/);
+  assert.match(ui, /const choices = \[\.\.\.\(changed \? \[\['both', 'Restore code and chat'\]\] : \[\]\), \['chat', changed \? 'Restore chat only' : 'Restore chat'\], \.\.\.\(changed \? \[\['code', 'Restore code only'\]\] : \[\]\),\n\s+\.\.\.\(S\.project\.compactOff \? \[\] : \[\['sumfrom', 'Summarize from here'\], \.\.\.\(first \? \[\] : \[\['sumupto', 'Summarize up to here'\]\]\)\]\)\];/);
   // (Since 2026-11-13 only a later job that changed a file Coder's file tools changed counts: codeToRestore, rewind-restore.test.mjs.)
   assert.match(ui, /const commits = S\.project\.commits \|\| \[\];\n\s+const changed = codeToRestore\(commits, turn\);/);
   assert.match(ui, /body = \{ turn, summarize: pick === 'sumfrom' \? 'from' : 'upto', focus \};/);
@@ -266,4 +266,22 @@ test("CD214 every summary made between messages names the files its part worked 
   await c.set({ marks }, msgs, evs);
   await c.go("projects/" + ID + "/rewind", { method: "POST", body: JSON.stringify({ turn: 2, summarize: "from" }) });
   assert.deepEqual(c.read("messages.json").at(-1).reread, ["f2.js", "f3.js"], "Summarize from here: the files from message 2 on");
+});
+
+test("CD-B30a Rewind's Summarize is not offered, and refused, when the chat's environment sets DISABLE_COMPACT (Claude Code's changelog)", async () => {
+  const { readFileSync } = await import("node:fs");
+  const R = await import("../src/coder-routes.mjs");
+  const E = await import("../src/coder-environments.mjs");
+  const store = new Map();
+  const bucket = { async get(k) { return store.has(k) ? { text: async () => store.get(k), json: async () => JSON.parse(store.get(k)) } : null; }, async put(k, v) { store.set(k, typeof v === "string" ? v : String(v)); }, async delete(k) { store.delete(k); }, async list() { return { objects: [...store.keys()].map((key) => ({ key })), truncated: false }; } };
+  const env = { CODER_TOKEN_KEY: Buffer.alloc(32, 7).toString("base64") };
+  const meta = { id: "shop-abcd", repo: "ana/shop" };
+  assert.equal(await R.compactOffFor(env, bucket, "u1", meta), false, "off by default");
+  const envId = await E.envIdOf(bucket, "u1", meta);
+  await E.writeEnvData(env, bucket, "u1", envId, { script: "", vars: { DISABLE_COMPACT: "1" }, secrets: [], network: null });
+  assert.equal(await R.compactOffFor(env, bucket, "u1", meta), true);
+  const src = readFileSync(new URL("../src/coder-routes.mjs", import.meta.url), "utf8");
+  assert.match(src, /if \(sumWay && await compactOffFor\(env, bucket, uid, meta\)\) return json\(\{ error: "Summaries are turned off: this chat's environment sets DISABLE_COMPACT\." \}, 400\);/);
+  const ui = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
+  assert.match(ui, /\.\.\.\(S\.project\.compactOff \? \[\] : \[\['sumfrom', 'Summarize from here'\]/);
 });

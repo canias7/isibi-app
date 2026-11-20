@@ -4,6 +4,12 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-19: Claude Code fixes, batch 30
+
+- One of the ten audit items in this batch fixed, with a test; nine left (below). Gloopy, connectors and MCP were not touched. Not deployed or merged, so not yet tried live in the browser.
+- **Rewind's Summarize follows the "summaries off" switch:** when a chat's environment sets DISABLE_COMPACT, the Rewind box no longer offers "Summarize from here" or "Summarize up to here", and the server refuses them too, as Claude Code does. (The rest of that item, making Rewind's summary on the chat's machine with /compact's own prompt, is left for later.)
+- **Need your choice first:** repeating prompts on a timer (/loop), /goal, workflows of many helpers, agent teams, a repository's own helper definitions, and Git LFS files (each costs Grok calls, needs helpers first, or uses your GitHub LFS allowance). **Left for their own batches (bigger changes):** messages sent while Coder works missing from Rewind, a repository's skills, and the missing hook events with softer warnings for unknown ones.
+
 ## 2026-11-19: Claude Code fixes, batch 29
 
 - One of the ten audit items in this batch fixed, with a test; nine left (below). Gloopy, connectors and MCP were not touched. Not deployed or merged, so not yet tried live in the browser.
