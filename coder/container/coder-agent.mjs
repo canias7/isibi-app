@@ -1065,6 +1065,12 @@ export function writeAnswer(raw) {
 const NOT_A_FILE = /^error: (give a path|no such file|that path (is|leads) outside the project|the \.git folder|the path cannot contain)/;
 const stepId = (k) => k + Math.random().toString(36).slice(2, 9);
 
+/** With file mentions off: the @-mentioned paths only (a Read-denied one left out), with a note to read them (or null). */
+export function mentionPathsNote(deps, paths, denied = () => false) {
+  const list = paths.filter((p) => !denied(p));
+  if (!list.length) return null;
+  return { role: "user", content: "The owner mentioned these files with @. They were not read into the message: read them with your read tool if you need them.\n" + list.map((p) => "- " + sayPath(deps, p)).join("\n") };
+}
 /** The files the owner @-mentioned, as the note that goes with their message (or null), each shown as a step. */
 export async function mentionNote(deps, paths, { emit = () => {}, touch = () => {}, denied = () => false } = {}) {
   const parts = [], urls = [], names = [], files = [];
@@ -2004,7 +2010,7 @@ export function ruleHoldsSecret(rule) {
   }
   return false;
 }
-export async function runCoder(deps, { notices = [], lost = [], stalls = [], promptNotify = true, timeouts = null, outLimits = null, noBg = false, respondToBash = true, shell = "", cmdShell = "", compactVars = null, messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, mode = "auto", rules = null, editDiff = false, readBlock = false, writeBlock = false, checker = false, checkerInPlan = true, checkWhere = null, emailMark = "", diskWarnGib = 0, memWarnGib = 0, hooks = null, autoMode = null, denyInstead = false, autoOff = false, planExit = "auto", hostLists = null, powershell = null, connectors = [], connectorNotes = [], connectorsWaiting = [], connectorsFailed = [], connectorsGone = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS , rmChecksOff = null, fileEdits = true, startMode = "", resumed = false, lastAt = 0, sessionRules = null, customTitle = "", compact = null, system = CODER_SYSTEM, tools = null, nudges = true, who = "Coder", browserRules: rulesIn = [], granted: grantedIn = [], schedules = [], opening = "user", permissions: permsIn = null, sites: sitesIn = [], monitor = false, ownerSaid: ownerSaidList = null, asHelper = false, helper = null, pages = [], savedLogins = [], savedCards = [], contacts = [], webhooks = [], hookBase = "/api/coder/gloopy-hook/", attached = [], workNote = "", marked = null, taught = null, files: keptFiles = [], background = false, checkWrites = false, denied: deniedIn = [], zone = "", searchLimits = null, takeUp = null, tasksOff = false, holdBack = null, suggest = false, stopCap = STOP_BLOCK_CAP, box = false } = {}) {
+export async function runCoder(deps, { notices = [], lost = [], stalls = [], promptNotify = true, timeouts = null, outLimits = null, noBg = false, respondToBash = true, shell = "", cmdShell = "", compactVars = null, messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, mode = "auto", rules = null, editDiff = false, readBlock = false, writeBlock = false, checker = false, checkerInPlan = true, checkWhere = null, emailMark = "", diskWarnGib = 0, memWarnGib = 0, hooks = null, autoMode = null, denyInstead = false, autoOff = false, planExit = "auto", hostLists = null, powershell = null, connectors = [], connectorNotes = [], connectorsWaiting = [], connectorsFailed = [], connectorsGone = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS , rmChecksOff = null, fileEdits = true, startMode = "", resumed = false, lastAt = 0, sessionRules = null, customTitle = "", compact = null, system = CODER_SYSTEM, tools = null, nudges = true, who = "Coder", browserRules: rulesIn = [], granted: grantedIn = [], schedules = [], opening = "user", permissions: permsIn = null, sites: sitesIn = [], monitor = false, ownerSaid: ownerSaidList = null, asHelper = false, helper = null, pages = [], savedLogins = [], savedCards = [], contacts = [], webhooks = [], hookBase = "/api/coder/gloopy-hook/", attached = [], workNote = "", marked = null, taught = null, files: keptFiles = [], background = false, checkWrites = false, denied: deniedIn = [], zone = "", searchLimits = null, takeUp = null, tasksOff = false, mentionsOff = false, holdBack = null, suggest = false, stopCap = STOP_BLOCK_CAP, box = false } = {}) {
   // ANOTHER AGENT ON THE SAME ENGINE (owner, 2026-11-09: Gloopy, container/gloopy-agent.mjs): its own instructions
   // (`system`), the tools it is offered (`tools`; a call to any other is refused), no reminders about Coder's setup script
   // (`nudges`), and its name in the chat's own lines (`who`). Coder's defaults are unchanged.
@@ -3631,7 +3637,10 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   // THE FILES THE OWNER @-MENTIONED, read into their message (mentionNote). Not in a job from GitHub, where strangers write.
   const mentioned = !github && typeof text === "string" && text.trim() ? mentionedPaths(typeof shown === "string" && shown.trim() ? shown : text) : [];
   if (mentioned.length) {
-    const note = await mentionNote(deps, mentioned, { emit, touch, denied: (p) => !!fileRuleHit(ownRules.deny, "Read", typeof deps.where === "function" ? deps.where(p) : p, "deny", { sources: ownRules.sources, root: deps.root || "/", cwd: ruleCwd(), home: deps.home || "", real: (y) => realPath(y), roots: workdirs.slice(1) }) });
+    // (CLAUDE_CODE_DISABLE_FILE_MENTIONS=1, Coder's CODER_DISABLE_FILE_MENTIONS in the chat's environment: only the paths, with
+    // a note to read them with the read tool, so PreToolUse hooks run; Claude Code: "Claude then gets the mentioned paths with a
+    // note to read them using its file tools".)
+    const note = mentionsOff ? mentionPathsNote(deps, mentioned, (p) => !!fileRuleHit(ownRules.deny, "Read", typeof deps.where === "function" ? deps.where(p) : p, "deny", { sources: ownRules.sources, root: deps.root || "/", cwd: ruleCwd(), home: deps.home || "", real: (y) => realPath(y), roots: workdirs.slice(1) })) : await mentionNote(deps, mentioned, { emit, touch, denied: (p) => !!fileRuleHit(ownRules.deny, "Read", typeof deps.where === "function" ? deps.where(p) : p, "deny", { sources: ownRules.sources, root: deps.root || "/", cwd: ruleCwd(), home: deps.home || "", real: (y) => realPath(y), roots: workdirs.slice(1) }) });
     if (note) { convo.push(note); keepPics(convo, offered ? null : { from: jobStart }); }
   }
   /**

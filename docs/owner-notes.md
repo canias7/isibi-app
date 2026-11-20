@@ -4,6 +4,13 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-20: Claude Code fixes, batch 4
+
+- **New switch, CODER_DISABLE_FILE_MENTIONS:** set it to 1 in a chat's environment and files you @-mention are no longer read into your message; Coder gets just their names with a note to read them itself, so your "before a tool runs" hooks see those reads (Claude Code's CLAUDE_CODE_DISABLE_FILE_MENTIONS). A repository's own settings cannot turn it on. Test added.
+- **Already done earlier, nothing to change:** clearer AI error wording, the "summary failed" reason, Plan start with Auto off, and the long-command shortcut.
+- **Left for another sitting (bigger changes to hooks and safety checks):** repeated background start-of-chat hook text, a chat-wide limit on AI-run hooks, the safety checker for protected files in Auto, Stop hooks running twice when Coder pushes, and the checker reading the full project instructions.
+- Full test suite passes. Not deployed or merged; not yet tried live in the browser.
+
 ## 2026-11-19: Claude Code fixes, batch 30
 
 - One of the ten audit items in this batch fixed, with a test; nine left (below). Gloopy, connectors and MCP were not touched. Not deployed or merged, so not yet tried live in the browser.

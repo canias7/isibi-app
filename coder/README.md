@@ -557,6 +557,8 @@ code in **each user's own GitHub**.
      made as Claude Code makes its own, `toolMemoryCgroup`), and every command of the
      AI's and the owner's `!` starts in it through Claude Code's `sh` wrapper
      (`CG_WRAP`). No cap when it cannot be set up; the machine's log says why.
+   - **`CODER_DISABLE_FILE_MENTIONS=1`** (Claude Code's `CLAUDE_CODE_DISABLE_FILE_MENTIONS`): @-mentioned files are
+     not read into the message; Coder gets their paths with a note to read them itself, so PreToolUse hooks run.
    - **`CODER_BASH_EDIT_DIFF=1`** (Claude Code's `CLAUDE_CODE_BASH_EDIT_DIFF`): the files
      a foreground command changed, under its step ("Updated src/cart.js +1 −1" with its
      lines; up to 5 files, the others by name). Taken before and after the command by
