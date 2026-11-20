@@ -22,7 +22,7 @@
 //   GET  /api/coder/github/callback?code&state   GitHub sends the user back here
 //   GET  /api/coder/github/repos                 the repositories they let Coder use
 //   GET  /api/coder/review/settings              Code Review, per repository (owner item 11)
-//   POST /api/coder/review/settings              { repo, runs: off|push|open|manual, level: quick|standard|deep }
+//   POST /api/coder/review/settings              { repo, runs: off|push|open|manual, level: quick|standard|deep, tips? }
 //   GET  /api/coder/push                         notifications: Coder's push key, the two switches, devices (item 8)
 //   POST /api/coder/push/(subscribe|unsubscribe|settings|test)
 //   POST /api/coder/github/disconnect
@@ -1141,8 +1141,10 @@ export async function handleCoder(request, env, ctx, deps) {
     if (r.readOnly) return json({ error: "Code review needs write access to " + repo + "." }, 403);
     const name = String(r.data.full_name || repo);
     if (runs === "off") { if (typeof bucket.delete === "function") await bucket.delete(repoReviewKey(name)); return json({ ok: true, repo: name, runs: "off" }); }
-    await bucket.put(repoReviewKey(name), JSON.stringify({ repo: name, uid, runs, level, at: Date.now() }), { httpMetadata: { contentType: "application/json" } });
-    return json({ ok: true, repo: name, runs, level });
+    // "Show tips on pull requests": on unless turned off (Claude Code's default).
+    const tipsOff = body.tips === false ? { tips: false } : {};
+    await bucket.put(repoReviewKey(name), JSON.stringify({ repo: name, uid, runs, level, ...tipsOff, at: Date.now() }), { httpMetadata: { contentType: "application/json" } });
+    return json({ ok: true, repo: name, runs, level, ...tipsOff });
   }
 
   // NOTIFICATIONS (owner item 8, like Claude Code's "Push when Claude decides" and "Push when actions

@@ -179,9 +179,15 @@ export function coderSend(env, { fetchFn = fetch, wait = (ms) => new Promise((r)
         if (attempt < maxRetries) { await again(retryWaitMs(attempt + 1, null, rand), timedOut ? "Request timed out" : "Connection error: " + String((e && e.message) || e).slice(0, 200)); continue; }
         throw e;
       }
-      if (retryable(r.status) && attempt < maxRetries) {
+      // THE SERVICE'S OWN MARKS (Claude Code): x-should-retry false is never retried; a retry-after over 60 seconds ends the
+      // retries and shows the error at once; x-should-retry true makes any failed status retryable.
+      const hget = (k) => (r.headers && typeof r.headers.get === "function" ? r.headers.get(k) : null);
+      const should = String(hget("x-should-retry") || "").trim().toLowerCase();
+      const ra = hget("retry-after"), raN = ra === null || String(ra).trim() === "" ? NaN : Number(ra);
+      const canRetry = should === "false" ? false : should === "true" ? !r.ok : retryable(r.status);
+      if (canRetry && !(Number.isFinite(raN) && raN > 60) && attempt < maxRetries) {
         const t = await r.text().catch(() => "");
-        await again(retryWaitMs(attempt + 1, r.headers && typeof r.headers.get === "function" ? r.headers.get("retry-after") : null, rand), "AI call failed: " + r.status + (t ? " " + t.replace(/\s+/g, " ").slice(0, 160) : ""));
+        await again(retryWaitMs(attempt + 1, ra, rand), "AI call failed: " + r.status + (t ? " " + t.replace(/\s+/g, " ").slice(0, 160) : ""));
         continue;
       }
       // THE EFFORT SAFETY NET: a model that refuses the effort setting is asked

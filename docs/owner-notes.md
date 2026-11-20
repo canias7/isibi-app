@@ -4,6 +4,23 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-19: Claude Code fixes, batch 20
+
+- All ten audit items in this batch fixed, each with a test (one only in part, below). Gloopy, connectors and MCP were not touched. Not deployed or merged, so none of it has been tried live in the browser yet.
+- **@coder on GitHub** now posts the answer to the request that started it, never the answer to a later message in the same chat. A job whose own turn has ended is answered even while the chat's next turn runs.
+- **If GitHub fails once** while Coder posts its @coder answer, the answer is kept and posted the next minute (until the job's 2-hour limit), instead of the "On it" comment staying forever.
+- **Grok's "wait" and "don't retry" signals** now reach Coder's machine: it waits as long as asked, gives up at once when told not to retry or to wait more than a minute, and Coder's own permanent refusals (such as no AI key on the server) are no longer retried for minutes.
+- **Code review, like Claude Code's:**
+  - **Re-run** on the "Coder Review" check on GitHub now starts a whole review (never for a fork, and only for someone with write access).
+  - A review cut off midway runs once more, and its check says so in Claude Code's words; if it is cut off again, the check ends as "Code review failed" and says to comment `@coder review`. A review that hits an error also ends as "Code review failed" (was "could not finish").
+  - If Coder's GitHub app cannot sign in for a review, it is tried again the next minute, then ends as "Code review failed", instead of staying "queued" forever.
+  - Changed files GitHub gives no diff for (pictures, very large files) are no longer downloaded, and other files are read only up to 512 KB.
+  - Findings GitHub refused as line comments now get marks on their lines in "Files changed".
+  - A finding whose thread you resolved on GitHub is cleared: no longer counted, listed or replied to, and an empty push then gets a fresh review.
+  - `@coder review stop` also cancels a review a push lined up that has not started yet, and closes its check saying why.
+  - A bot's `@coder review` comment gets a short tip saying who can ask for a review. The "no new changes" check now carries the counts line for scripts.
+  - Partly done: the tips on pull requests can now be turned off per repository on Coder's server (`tips: false`), but the tick box on the Repositories screen is not added yet, since the page's design is yours to direct.
+
 ## 2026-11-19: Claude Code fixes, batch 19
 
 - All ten audit items in this batch fixed, each with a test. Gloopy, connectors and MCP were not touched. Not deployed or merged.
@@ -84,6 +101,15 @@ log (81,000 lines) is in git history.
 - **File names:** files and folders whose names start with two dots (like `..cache`) are no longer refused as outside the project. A real `../` still is.
 - **Hooks:** a safety gap in how read and edit name their file was closed, so a hook always sees the same file the tool uses.
 - **Left for later:** a rare way of writing a file from a zsh command (needs changes across three safety readers); saving files so a full disk can never leave them empty; a setting for how much one read returns; and letting the file tools open the `.git` folder, which would let Coder read the repository's settings file, so that waits for your word.
+
+## 2026-11-19: Claude Code fixes, batch 11
+
+- Seven of the ten audit items in this batch fixed, each with a test; three skipped (one was already fixed in batch 10; the clearer reason when the sandbox cannot start, and one very rare search refusal, are left for a later batch). Half of one more is left too: GitHub's source-archive downloads for a command's own site list. Gloopy, connectors and MCP were not touched. Not deployed and not merged yet, so none of it is tried live in the browser yet.
+- **PowerShell:** printing a message, such as `Write-Output "It's done"` or `echo /health`, no longer asks you in Accept edits or Plan. Commands that write files still ask as before.
+- **Search:** a search pattern with a line break now says the pattern was refused (and why) instead of "No files found". Matching lines and counts are now in file-path order, so asking for the next page carries on cleanly, with nothing repeated or skipped.
+- **Network lists:** a `*.example.com` entry now means its subdomains only, not example.com itself, as in Claude Code. A command's own list of extra sites now accepts IPv6 addresses written in brackets.
+- **Environment variables box:** an empty variable (`A=`) no longer swallows the line under it, and a paste of more than 50 variables is now refused instead of silently cut.
+- **A repository's own security rules:** rules written the Python way (as Claude Code reads them) are now translated, and a rule that cannot be read is named in the chat instead of dropped silently.
 
 ## 2026-11-19: Claude Code fixes, batch 10
 

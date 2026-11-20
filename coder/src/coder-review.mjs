@@ -36,11 +36,26 @@ const putJson = (bucket, key, v) => bucket.put(key, JSON.stringify(v), { httpMet
 const enc = (p) => String(p).split("/").map(encodeURIComponent).join("/");
 
 /** GitHub's API as Coder's app. `raw`: a file's text. */
-async function ghApp(token, path, { method = "GET", body, fetchFn = fetch, raw = false } = {}) {
+async function ghApp(token, path, { method = "GET", body, fetchFn = fetch, raw = false, maxBytes = 0 } = {}) {
   const r = await fetchFn("https://api.github.com" + path, { method, headers: { authorization: "Bearer " + token, accept: raw ? "application/vnd.github.raw+json" : "application/vnd.github+json", "x-github-api-version": "2022-11-28", "user-agent": "gofarther-coder", ...(body ? { "content-type": "application/json" } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) });
+  if (raw && maxBytes && r.ok && r.body) return { ok: true, status: r.status, text: await readCapped(r.body, maxBytes) };
   if (raw) return { ok: r.ok, status: r.status, text: r.ok ? await r.text() : "" };
   return { ok: r.ok, status: r.status, data: await r.json().catch(() => null) };
 }
+
+/** A body read only up to `max` bytes (a very large file is never held whole). */
+async function readCapped(stream, max) {
+  const rd = stream.getReader(), parts = [];
+  let n = 0;
+  while (n < max) { const { done, value } = await rd.read(); if (done) break; parts.push(value); n += value.length; }
+  await rd.cancel().catch(() => {});
+  const all = new Uint8Array(n); let k = 0;
+  for (const p of parts) { all.set(p, k); k += p.length; }
+  return new TextDecoder().decode(all.subarray(0, max));
+}
+export const FILE_READ_MAX = 512 * 1024;
+/** The check's summary while an interrupted review runs again (Claude Code's words). */
+export const REQUEUED = "The review session was interrupted before it could finish. A new review of this commit has been queued automatically.";
 
 // ── WHAT GITHUB TELLS US ─────────────────────────────────────────────────────
 /**
@@ -56,6 +71,13 @@ export function readReviewEvent(event, p) {
     const pr = p.pull_request;
     const fork = !(pr.head && pr.head.repo && pr.base && pr.base.repo && pr.head.repo.id === pr.base.repo.id);
     return { kind: "pr", action: p.action, repo, number: Number(pr.number), sha: String((pr.head && pr.head.sha) || ""), draft: pr.draft === true, fork, installation: p.installation.id };
+  }
+  // RE-RUN pressed on Coder Review's check (Claude Code: "Click Re-run").
+  if (event === "check_run" && p.action === "rerequested" && p.check_run && p.check_run.name === CHECK_NAME) {
+    const pr = Array.isArray(p.check_run.pull_requests) ? p.check_run.pull_requests[0] : null;
+    if (!pr) return null;
+    const fork = !(pr.head && pr.head.repo && pr.base && pr.base.repo && pr.head.repo.id === pr.base.repo.id);
+    return { kind: "rerun", repo, number: Number(pr.number), sha: String(p.check_run.head_sha || ""), fork, checkId: p.check_run.id, login: String((p.sender && p.sender.login) || ""), bot: !!(p.sender && p.sender.type === "Bot"), installation: p.installation.id };
   }
   if (event === "issue_comment" && p.action === "created" && p.issue && p.issue.pull_request && p.comment) {
     const cmd = reviewCommand(p.comment.body);
@@ -82,9 +104,16 @@ export async function handleReviewEvent(env, d, ev) {
   const fetchFn = d.fetchFn || fetch;
   const setting = await getJson(bucket, repoReviewKey(ev.repo));
   if (ev.kind === "pr" && !setting) return { ok: false, why: "off" };
-  if (ev.kind === "command" && ev.bot) return { ok: false, why: "bot" };
+  const tips = !setting || setting.tips !== false;
+  const asked = ev.kind === "command" || ev.kind === "rerun";
+  if (asked && ev.bot) {
+    // A bot's command: a tip (Claude Code's), where Code Review is on and tips are shown.
+    if (ev.kind === "command" && setting && tips) { const t = await d.token(ev.installation); if (t) await ghApp(t, "/repos/" + ev.repo + "/issues/" + ev.number + "/comments", { method: "POST", body: { body: "@" + ev.login + " No review was started: comments from bots don't start Coder reviews. Someone with write access to " + ev.repo + " can comment `@coder review`." }, fetchFn }); }
+    return { ok: false, why: "bot" };
+  }
+  if (ev.kind === "rerun" && ev.fork) return { ok: false, why: "fork" };
   let acct = null;
-  if (ev.kind === "command") {
+  if (asked) {
     acct = await d.account(ev.login);
     if (!acct || !d.allowed(acct.email)) return { ok: false, why: "not allowed" };
   }
@@ -94,20 +123,27 @@ export async function handleReviewEvent(env, d, ev) {
   const say = (text) => api("/repos/" + ev.repo + "/issues/" + ev.number + "/comments", { method: "POST", body: { body: text } });
   const stateKey = prReviewKey(ev.repo, ev.number);
   const state = (await getJson(bucket, stateKey)) || {};
-  if (ev.kind === "command") {
+  if (asked) {
     // WRITE ACCESS, checked with GitHub for each person (Claude Code: "write, maintain, or admin permission").
     const perm = await api("/repos/" + ev.repo + "/collaborators/" + encodeURIComponent(ev.login) + "/permission");
     const role = String((perm.data && (perm.data.role_name || perm.data.permission)) || "");
-    if (!["admin", "maintain", "write"].includes(role)) { await say("@" + ev.login + " No review was started: only people with write access to " + ev.repo + " can request a Coder review."); return { ok: false, why: "no write access" }; }
+    if (!["admin", "maintain", "write"].includes(role)) { if (tips && ev.kind === "command") await say("@" + ev.login + " No review was started: only people with write access to " + ev.repo + " can request a Coder review."); return { ok: false, why: "no write access" }; }
     if (!setting) { await say("@" + ev.login + " Coder Review isn't turned on for " + ev.repo + ". Turn it on at gofarther.dev: Repositories, then Code review."); return { ok: false, why: "off" }; }
     const pr = await api("/repos/" + ev.repo + "/pulls/" + ev.number);
     if (!pr.ok || !pr.data || pr.data.state !== "open") return { ok: false, why: "not open" };
+    if (ev.kind === "rerun") return queueReview(env, api, { repo: ev.repo, number: ev.number, sha: String(pr.data.head.sha), installation: ev.installation, uid: setting.uid, level: setting.level, full: true, why: "rerun", ...(String(pr.data.head.sha) === ev.sha ? { checkId: ev.checkId } : {}) });
     // 👀 on the comment (Claude Code "may also react to your comment with 👀").
     await api("/repos/" + ev.repo + "/issues/comments/" + Number(ev.commentId) + "/reactions", { method: "POST", body: { content: "eyes" } }).catch(() => null);
     const fork = !(pr.data.head && pr.data.head.repo && pr.data.base && pr.data.base.repo && pr.data.head.repo.id === pr.data.base.repo.id);
     if (ev.cmd === "stop") {
       if (setting.runs === "push") { await say("@" + ev.login + " " + ev.repo + " is set to review after every push, so a comment can't stop reviews here. To stop pushes from starting reviews on this pull request, convert it to a draft."); return { ok: true, stopped: false }; }
       await putJson(bucket, stateKey, { ...state, subscribed: false });
+      // A review a push lined up and not started yet goes too, its check closed saying why (Claude Code's changelog).
+      const jk = reviewJobKey(ev.repo, ev.number), q = await getJson(bucket, jk);
+      if (q && !q.started && q.why === "synchronize" && !q.full) {
+        await bucket.delete(jk);
+        await finishCheck(api, ev.repo, q.checkId, { conclusion: "skipped", title: "Code review not started: reviews on pushes were stopped", summary: "@" + ev.login + " commented @coder review stop." }).catch(() => null);
+      }
       await say("@" + ev.login + " Coder Review: pushes to this pull request no longer start reviews. Comment `@coder review` for one.");
       return { ok: true, stopped: true };
     }
@@ -116,8 +152,8 @@ export async function handleReviewEvent(env, d, ev) {
     return queueReview(env, api, { repo: ev.repo, number: ev.number, sha: String(pr.data.head.sha), installation: ev.installation, uid: setting.uid, level: setting.level, full: true, why: "comment" });
   }
   // A PULL REQUEST OPENED OR PUSHED TO. Tips when no review starts (Claude Code's "Show tips on pull requests").
-  if (ev.action === "opened" && setting.runs === "manual") await say("Coder Review: to get a review of this pull request, comment `@coder review` (or `@coder review always` to review each push).");
-  else if (ev.action === "opened" && ev.fork) await say("Coder Review: this pull request comes from a fork, so Coder doesn't review it on its own. Someone with write access can comment `@coder review`.");
+  if (ev.action === "opened" && setting.runs === "manual" && tips) await say("Coder Review: to get a review of this pull request, comment `@coder review` (or `@coder review always` to review each push).");
+  else if (ev.action === "opened" && ev.fork && tips) await say("Coder Review: this pull request comes from a fork, so Coder doesn't review it on its own. Someone with write access can comment `@coder review`.");
   if (ev.draft || ev.fork) return { ok: false, why: ev.draft ? "draft" : "fork" };
   const opening = ev.action !== "synchronize";
   const go = opening ? ["push", "open"].includes(setting.runs) : setting.runs === "push" || state.subscribed === true;
@@ -139,7 +175,9 @@ export async function queueReview(env, api, job, now = Date.now()) {
   const old = await getJson(bucket, key);
   if (old && old.sha === job.sha && !old.started) { if (job.full && !old.full) await putJson(bucket, key, { ...old, full: true }); return { ok: true, queued: true }; }
   if (old && old.checkId && old.sha !== job.sha) await finishCheck(api, job.repo, old.checkId, { conclusion: "skipped", title: "Code review superseded by a newer one", summary: "A newer commit was pushed." }).catch(() => null);
-  const check = await api("/repos/" + job.repo + "/check-runs", { method: "POST", body: { name: CHECK_NAME, head_sha: job.sha, status: "queued", output: { title: "Code review queued...", summary: "Coder Review starts within a minute." } } }).catch(() => null);
+  const check = job.checkId
+    ? await api("/repos/" + job.repo + "/check-runs/" + Number(job.checkId), { method: "PATCH", body: { status: "queued", output: { title: "Code review queued...", summary: "Coder Review starts within a minute." } } }).then((r) => (r && r.ok ? { ok: true, data: { id: job.checkId } } : r)).catch(() => null)
+    : await api("/repos/" + job.repo + "/check-runs", { method: "POST", body: { name: CHECK_NAME, head_sha: job.sha, status: "queued", output: { title: "Code review queued...", summary: "Coder Review starts within a minute." } } }).catch(() => null);
   await putJson(bucket, key, { ...job, full: !!(job.full || (old && old.full && !old.started)), at: now, checkId: check && check.ok && check.data ? check.data.id : null });
   return { ok: true, queued: true };
 }
@@ -161,16 +199,31 @@ export async function runReviewJobs(env, d, now = Date.now()) {
     if (mine.length >= REVIEWS_PER_RUN) break;
     const job = await getJson(bucket, o.key);
     if (!job) { await bucket.delete(o.key); continue; }
+    if (typeof job.failing === "string") { await giveUp(env, d, o.key, job, job.failing, now); continue; }
     if (job.started && now - Number(job.started) < REVIEW_STALE_MS) continue;
-    await putJson(bucket, o.key, { ...job, started: now });
-    mine.push({ key: o.key, job });
+    // CUT OFF (the Worker's run ended mid-review): run once more, said on the check; a second time, it ends as failed
+    // (Claude Code: "That review is retried once automatically").
+    const interrupted = !!job.started;
+    if (interrupted && job.retried) { await giveUp(env, d, o.key, job, "The review session was interrupted again. Comment `@coder review` to run it again.", now); continue; }
+    const claimed = { ...job, started: now, ...(interrupted ? { retried: true } : {}) };
+    await putJson(bucket, o.key, claimed);
+    mine.push({ key: o.key, job: claimed, interrupted });
   }
-  await Promise.all(mine.map(async ({ key, job }) => {
-    const token = await d.token(job.installation);
+  await Promise.all(mine.map(async ({ key, job, interrupted }) => {
+    const token = await d.token(job.installation).catch(() => null);
+    // NO APP TOKEN (GitHub failed): kept, and tried again next minute, once; then it ends as failed.
+    if (!token) {
+      if ((job.tokenTries || 0) >= 1) await giveUp(env, d, key, job, "Coder's GitHub app could not sign in. Comment `@coder review` to run it again.", now);
+      else { const { started, ...rest } = job; await putJson(bucket, key, { ...rest, tokenTries: (job.tokenTries || 0) + 1 }); }
+      return;
+    }
     const api = (path, opt = {}) => ghApp(token, path, { ...opt, fetchFn: d.fetchFn || fetch });
-    try { if (token) await runReview(env, d, api, job, now); }
+    try {
+      if (interrupted && job.checkId) await api("/repos/" + job.repo + "/check-runs/" + Number(job.checkId), { method: "PATCH", body: { status: "in_progress", output: { title: "Code review in progress...", summary: REQUEUED } } }).catch(() => null);
+      await runReview(env, d, api, job, now);
+    }
     catch (e) {
-      await finishCheck(api, job.repo, job.checkId, { title: "Code review could not finish", summary: String((e && e.message) || e).slice(0, 300) }).catch(() => null);
+      await finishCheck(api, job.repo, job.checkId, { title: "Code review failed", summary: String((e && e.message) || e).slice(0, 300) }).catch(() => null);
       const st = (await getJson(bucket, prReviewKey(job.repo, job.number))) || {};
       await putJson(bucket, prReviewKey(job.repo, job.number), { ...st, running: null });
     }
@@ -179,6 +232,20 @@ export async function runReviewJobs(env, d, now = Date.now()) {
     if (still && still.sha === job.sha && Number(still.at) === Number(job.at)) await bucket.delete(key);
   }));
   return mine.length;
+}
+
+/**
+ * A review that cannot finish: its check ends as "Code review failed" (once Coder's app can sign in; the record waits
+ * for that, a day at most), the pull request is no longer marked running, and the record goes.
+ */
+async function giveUp(env, d, key, job, summary, now = Date.now()) {
+  const bucket = env.CODER_BUCKET;
+  const token = job.checkId ? await d.token(job.installation).catch(() => null) : "none";
+  if (!token && now - Number(job.at || 0) < 24 * 60 * 60 * 1000) { const { started, ...rest } = job; await putJson(bucket, key, { ...rest, retried: true, tokenTries: 1, failing: summary }); return; }
+  if (token && job.checkId) await finishCheck((path, opt = {}) => ghApp(token, path, { ...opt, fetchFn: d.fetchFn || fetch }), job.repo, job.checkId, { title: "Code review failed", summary }).catch(() => null);
+  const st = (await getJson(bucket, prReviewKey(job.repo, job.number))) || {};
+  if (st.running) await putJson(bucket, prReviewKey(job.repo, job.number), { ...st, running: null });
+  await bucket.delete(key);
 }
 
 // ── ONE REVIEW ───────────────────────────────────────────────────────────────
@@ -209,12 +276,17 @@ export async function runReview(env, d, api, job, now = Date.now()) {
   }
   const hash = await sha256(files.map((f) => f.filename + "\n" + f.status + "\n" + (f.patch || "")).join("\0"));
   const last = state.last || null;
-  const open = (last && Array.isArray(last.findings) ? last.findings : []);
-  // A PUSH THAT CHANGES NOTHING KEEPS THE EARLIER RESULT (Claude Code's "When a push keeps the earlier result").
-  if (!job.full && last && last.hash === hash) {
+  const saved = (last && Array.isArray(last.findings) ? last.findings : []);
+  // A FINDING A PERSON RESOLVED ON GITHUB is cleared (Claude Code: "resolve its thread"): not open, not counted.
+  const states = saved.length ? await threadStates(api, repo, number).catch(() => new Map()) : new Map();
+  const resolved = saved.filter((f) => states.get(Number(f.id)) === true);
+  const open = saved.filter((f) => !resolved.includes(f));
+  // A PUSH THAT CHANGES NOTHING KEEPS THE EARLIER RESULT (Claude Code's "When a push keeps the earlier result"), unless
+  // someone resolved an Important finding's thread since.
+  if (!job.full && last && last.hash === hash && !resolved.some((f) => f.severity === "important")) {
     const important = open.filter((f) => f.severity === "important").length;
-    await finishCheck(api, repo, checkId, { conclusion: "skipped", title: important ? "Code review not repeated — earlier findings still open" : "Code review skipped — no new changes", summary: important ? "The pull request still adds and removes the same lines, and " + important + " Important finding" + (important === 1 ? " is" : "s are") + " still open. Push a fix, or resolve its thread and push again; or comment `@coder review`." : "The pull request still adds and removes the same lines, and no Important finding is open." });
-    await done({ last: { ...last, sha, at: now } });
+    await finishCheck(api, repo, checkId, { conclusion: "skipped", title: important ? "Code review not repeated — earlier findings still open" : "Code review skipped — no new changes", summary: important ? "The pull request still adds and removes the same lines, and " + important + " Important finding" + (important === 1 ? " is" : "s are") + " still open. Push a fix, or resolve its thread and push again; or comment `@coder review`." : "The pull request still adds and removes the same lines, and no Important finding is open.", ...(important ? {} : { text: checkText([]) }) });
+    await done({ last: { ...last, sha, at: now, findings: open } });
     return { ok: true, kept: true };
   }
 
@@ -227,8 +299,9 @@ export async function runReview(env, d, api, job, now = Date.now()) {
   const context = [];
   let size = 0;
   for (const f of files) {
-    if (f.status === "removed" || size >= FILES_MAX) continue;
-    const t = (await api("/repos/" + repo + "/contents/" + enc(f.filename) + "?ref=" + encodeURIComponent(sha), { raw: true })).text || "";
+    // (Never a file GitHub gives no patch for, binary or very large; the rest read only up to FILE_READ_MAX.)
+    if (f.status === "removed" || !f.patch || size >= FILES_MAX) continue;
+    const t = (await api("/repos/" + repo + "/contents/" + enc(f.filename) + "?ref=" + encodeURIComponent(sha), { raw: true, maxBytes: FILE_READ_MAX })).text || "";
     if (!t || /\u0000/.test(t.slice(0, 2000))) continue;
     const cut = t.slice(0, Math.min(FILE_MAX, FILES_MAX - size));
     size += cut.length;
@@ -267,10 +340,11 @@ export async function runReview(env, d, api, job, now = Date.now()) {
   const notes = [];
   if (outOfScope) notes.push(outOfScope + " finding" + (outOfScope === 1 ? "" : "s") + " on code that hasn't changed since the last review " + (outOfScope === 1 ? "was" : "were") + " outside the scope of this re-review and not posted.");
   if (minor) notes.push(minor + " nit" + (minor === 1 ? "" : "s") + " and pre-existing finding" + (minor === 1 ? "" : "s") + " " + (minor === 1 ? "was" : "were") + " found and not posted.");
-  let posted = [];
+  let posted = [], inlineRefused = false;
   if (found.length) {
     const body = reviewBody(found, offLine, notes, fixed.length);
     let r = await api("/repos/" + repo + "/pulls/" + number + "/reviews", { method: "POST", body: { commit_id: sha, event: "COMMENT", body, comments: onLine.map((f) => ({ path: f.path, line: f.line, side: "RIGHT", body: findingText(f) })) } });
+    if (!r.ok && onLine.length) inlineRefused = true;
     if (!r.ok && onLine.length) r = await api("/repos/" + repo + "/pulls/" + number + "/reviews", { method: "POST", body: { commit_id: sha, event: "COMMENT", body: reviewBody(found, found, notes, fixed.length) } });
     if (r.ok && r.data && r.data.id && onLine.length) {
       const c = await api("/repos/" + repo + "/pulls/" + number + "/reviews/" + r.data.id + "/comments?per_page=100");
@@ -292,7 +366,7 @@ export async function runReview(env, d, api, job, now = Date.now()) {
   // THE CHECK RUN: neutral, never a failure; its details list every finding, then the counts as one line.
   const all = [...stillOpen.map((f) => ({ ...f, earlier: true })), ...found];
   const title = found.length ? "Code review found " + found.length + " issue" + (found.length === 1 ? "" : "s") : stillOpen.length ? "Code review found no new issues" : "Code review found no issues";
-  await finishCheck(api, repo, checkId, { title, summary: found.length ? countLine(found) : "No issues found." + (fixed.length ? " " + fixed.length + " earlier finding" + (fixed.length === 1 ? " is" : "s are") + " fixed." : ""), text: checkText(all), annotations: offLine.filter((f) => f.line > 0).map((f) => ({ path: f.path, start_line: f.line, end_line: f.line, annotation_level: f.severity === "important" ? "failure" : f.severity === "nit" ? "warning" : "notice", title: SEV[f.severity][1] + ": " + f.title.slice(0, 200), message: (f.body || f.title).slice(0, 2000) })) });
+  await finishCheck(api, repo, checkId, { title, summary: found.length ? countLine(found) : "No issues found." + (fixed.length ? " " + fixed.length + " earlier finding" + (fixed.length === 1 ? " is" : "s are") + " fixed." : ""), text: checkText(all), annotations: (inlineRefused ? found : offLine).filter((f) => f.line > 0).map((f) => ({ path: f.path, start_line: f.line, end_line: f.line, annotation_level: f.severity === "important" ? "failure" : f.severity === "nit" ? "warning" : "notice", title: SEV[f.severity][1] + ": " + f.title.slice(0, 200), message: (f.body || f.title).slice(0, 2000) })) });
   await done({ last: { sha, at: now, hash, findings: [...stillOpen.map(({ replies, ...f }) => f), ...posted] } });
   return { ok: true, found: found.length, posted: posted.length, fixed: fixed.length };
 }
@@ -460,6 +534,15 @@ export function checkText(all) {
   return (rows.length ? "| Severity | File:Line | Issue |\n| - | - | - |\n" + rows.join("\n") + "\n\n" : "No findings.\n\n") + "<!-- coder-review-severity: " + JSON.stringify(counts) + " -->";
 }
 
+/** Each review thread's first comment id → whether it is resolved (GitHub's GraphQL, as Coder's app). */
+export async function threadStates(api, repo, number) {
+  const [owner, name] = String(repo).split("/");
+  const q = await api("/graphql", { method: "POST", body: { query: "query($owner:String!,$name:String!,$n:Int!){repository(owner:$owner,name:$name){pullRequest(number:$n){reviewThreads(first:100){nodes{id isResolved comments(first:1){nodes{databaseId}}}}}}}", variables: { owner, name, n: Number(number) } } });
+  const nodes = (((((q.data || {}).data || {}).repository || {}).pullRequest || {}).reviewThreads || {}).nodes || [];
+  const m = new Map();
+  for (const t of nodes) { const first = t && t.comments && t.comments.nodes && t.comments.nodes[0]; if (first) m.set(Number(first.databaseId), !!t.isResolved); }
+  return m;
+}
 /** Coder Review's own earlier threads, resolved (GitHub's GraphQL, as Coder's app). */
 export async function resolveThreads(api, repo, number, commentIds) {
   const [owner, name] = String(repo).split("/");
@@ -487,7 +570,7 @@ export async function reviewSettingsOf(bucket, uid) {
   const page = await bucket.list({ prefix: "coder/review/repos/" });
   for (const o of page.objects || []) {
     const s = await getJson(bucket, o.key);
-    if (s && s.uid === uid && s.repo) out[s.repo] = { runs: s.runs, level: s.level };
+    if (s && s.uid === uid && s.repo) out[s.repo] = { runs: s.runs, level: s.level, ...(s.tips === false ? { tips: false } : {}) };
   }
   return out;
 }

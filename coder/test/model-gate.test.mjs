@@ -99,3 +99,18 @@ test("CD138 the machine has no Grok key: its AI calls go to the Worker with the 
   const F = await import("../src/coder-fly.mjs");
   assert.equal(JSON.stringify(F.machineConfig({ CODER_FLY_APP: "a", CODER_FLY_IMAGE: "i", XAI_API_KEY: XAI }, "v")).includes(XAI), false);
 });
+
+test("CD-B20a the Worker passes xAI's retry-after and x-should-retry on, and marks its own refusals not to retry", async () => {
+  const env = envOf();
+  const a = await G.modelAccess(env, UID, ID, 3);
+  const headers = { "content-type": "application/json", "x-coder-chat": a.chat, "x-coder-turn": String(a.turn), "x-coder-until": String(a.until), "x-coder-model": a.pass };
+  const req = () => new Request("https://coder.gofarther.dev" + G.MODEL_PATH, { method: "POST", headers, body: JSON.stringify({ model: "grok-4.7", input: [] }) });
+  const fetchFn = async () => new Response("{}", { status: 429, headers: { "content-type": "application/json", "retry-after": "7", "x-should-retry": "true" } });
+  const r = await G.handleModel(req(), env, { fetchFn });
+  assert.equal(r.status, 429);
+  assert.equal(r.headers.get("retry-after"), "7");
+  assert.equal(r.headers.get("x-should-retry"), "true");
+  const none = await G.handleModel(req(), envOf({ XAI_API_KEY: "" }), { fetchFn });
+  assert.equal(none.status, 503);
+  assert.equal(none.headers.get("x-should-retry"), "false");
+});

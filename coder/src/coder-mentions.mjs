@@ -404,7 +404,15 @@ export async function startAutofix(env, deps, f) {
 
 // ── EVERY MINUTE: finished jobs get their answer on GitHub ───────────────────
 export function finalText(job, project, events) {
-  const after = (() => { let i = events.length - 1; while (i >= 0 && events[i].type !== "user") i--; return events.slice(i + 1); })();
+  // ONLY THIS JOB'S TURN (Claude Code answers each @claude in its own comment): from the message this job sent to the next
+  // person's message, never a later turn's answer (a private message in the same chat, or a turn after a background
+  // command). A job with no record of when it was sent: after the last message, as before.
+  const after = (() => {
+    const from = Number(job && job.sentAt);
+    const b = from > 0 ? events.findIndex((e) => e.type === "user" && Number(e.at) >= from) : -1;
+    if (b >= 0) { const n = events.findIndex((e, k) => k > b && e.type === "user"); return events.slice(b + 1, n < 0 ? events.length : n); }
+    let i = events.length - 1; while (i >= 0 && events[i].type !== "user") i--; return events.slice(i + 1);
+  })();
   const done = [...after].reverse().find((e) => e.type === "done" || e.type === "text");
   const question = [...after].reverse().find((e) => e.type === "question");
   const err = [...after].reverse().find((e) => e.type === "error");
@@ -441,15 +449,27 @@ export async function runMentionJobs(env, deps, now = Date.now()) {
   let finished = 0, started = 0;
   const starts = [], chats = new Set();
   // What Coder says on GitHub, as the app: in place of "On it", or in a new comment.
+  // True when it was said (or can never be: the comment deleted, the app removed): only then does the record go.
   const tell = async (job, text) => {
-    const tok = await installationToken(env, job.installation, fetchFn);
-    if (!tok) return;
-    if (job.ackId) await ghApi(tok, "/repos/" + job.repo + "/issues/comments/" + job.ackId, { method: "PATCH", body: { body: text }, fetchFn });
-    else if (job.number) await ghApi(tok, "/repos/" + job.repo + "/issues/" + job.number + "/comments", { method: "POST", body: { body: text }, fetchFn });
+    const tok = await installationToken(env, job.installation, fetchFn).catch(() => null);
+    if (!tok) return false;
+    let r = { ok: true, status: 200 };
+    if (job.ackId) r = await ghApi(tok, "/repos/" + job.repo + "/issues/comments/" + job.ackId, { method: "PATCH", body: { body: text }, fetchFn });
+    else if (job.number) r = await ghApi(tok, "/repos/" + job.repo + "/issues/" + job.number + "/comments", { method: "POST", body: { body: text }, fetchFn });
+    return !!(r && (r.ok || r.status === 404 || r.status === 410));
+  };
+  // NOT SAID (GitHub failed once): kept, tried again next minute, until JOB_MAX_MS past the job's time.
+  const told = async (o, job, text) => {
+    if ((await tell(job, text).catch(() => false)) || !(now - Number(job.at || 0) < JOB_MAX_MS)) { await bucket.delete(o.key); return true; }
+    const { start, starting, ...rest } = job;
+    await putJson(bucket, o.key, { ...rest, untold: text, tellTries: (job.tellTries || 0) + 1 });
+    return false;
   };
   for (const o of page.objects || []) {
+   try {
     const job = await getJson(bucket, o.key);
     if (!job) { await bucket.delete(o.key); continue; }
+    if (typeof job.untold === "string") { if (await told(o, job, job.untold)) finished++; continue; }
     const user = { id: job.uid, email: job.email };
     const run = (path) => deps.coder(new Request("https://gofarther.dev/api/coder/" + path), user).then((r) => r.json().catch(() => ({})));
     if (job.start) {
@@ -461,36 +481,33 @@ export async function runMentionJobs(env, deps, now = Date.now()) {
         const look = await run("projects/" + job.id).catch(() => null);
         const p = look && look.project;
         if (p && Number(p.at || 0) >= starting) { await putJson(bucket, o.key, { ...rest, at: now }); continue; }
-        await tell(job, "@" + job.login + " Coder could not start: starting took too long. Try again.");
-        await bucket.delete(o.key);
-        finished++;
+        if (await told(o, job, "@" + job.login + " Coder could not start: starting took too long. Try again.")) finished++;
         continue;
       }
       // ONE START PER CHAT AT A TIME; the others wait for the next check (and then say Coder is busy).
       if (chats.has(job.id)) continue;
       chats.add(job.id);
       await putJson(bucket, o.key, { ...job, starting: now });
+      const sentAt = Date.now();
       // Started side by side, so a slow one (a machine fetching Coder's image) holds up nothing else.
       starts.push((async () => {
         const r = await deps.coder(new Request("https://gofarther.dev/api/coder/projects/" + job.id + "/message", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(start) }), user)
           .then(async (x) => ({ status: x.status, data: await x.json().catch(() => ({})) }))
           .catch((e) => ({ status: 0, data: { error: String((e && e.message) || e) } }));
-        if (r.status === 200) { await putJson(bucket, o.key, { ...rest, at: now }); started++; return; }
-        await tell(job, "@" + job.login + " Coder could not start: " + String((r.data && r.data.error) || r.status).slice(0, 200));
-        await bucket.delete(o.key);
-        finished++;
+        if (r.status === 200) { const t = Number(r.data && r.data.project && r.data.project.turn); await putJson(bucket, o.key, { ...rest, at: now, sentAt, ...(Number.isInteger(t) ? { turn: t } : {}) }); started++; return; }
+        if (await told(o, job, "@" + job.login + " Coder could not start: " + String((r.data && r.data.error) || r.status).slice(0, 200))) finished++;
       })().catch((e) => console.log("coder job start failed: " + String((e && e.message) || e).slice(0, 200))));
       continue;
     }
     const st = await run("projects/" + job.id + "/state?since=0").catch(() => null);
-    const stillGoing = st && (st.running || (st.project && st.project.status === "running"));
+    // Finished when the chat is idle, or its turn has moved past this job's (as the watch does).
+    const stillGoing = st && (st.running || (st.project && st.project.status === "running")) && !(Number.isInteger(job.turn) && st.project && Number(st.project.turn) > job.turn);
     if (stillGoing && now - job.at < JOB_MAX_MS) continue;
     const full = await run("projects/" + job.id).catch(() => null);
     const events = (full && Array.isArray(full.events) ? full.events : []);
     const text = stillGoing ? "@" + job.login + " Coder is taking longer than 2 hours on this; check it on https://gofarther.dev" : finalText(job, full && full.project, events);
-    await tell(job, text);
-    await bucket.delete(o.key);
-    finished++;
+    if (await told(o, job, text)) finished++;
+   } catch (e) { console.log("coder job failed: " + String((e && e.message) || e).slice(0, 200)); }
   }
   await Promise.all(starts);
   return { finished, started };

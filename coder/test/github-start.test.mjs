@@ -106,3 +106,45 @@ test("CD144 a GitHub job is started by the every-minute check: a slow start (a m
   assert.deepEqual(g5.said, [], "no pull request to answer on");
   assert.equal([...b5.m.keys()].filter((k) => k.startsWith(JOBS)).length, 0);
 });
+
+test("CD-B20c a GitHub job's comment carries its own turn's answer, never a later turn's; a job whose turn ended is posted while the next turn runs", async () => {
+  const b = fakeBucket(), g = github();
+  await b.put(JOBS + "u1__shop-1__910.json", JSON.stringify(queued({ ackId: 910 })));
+  let turn = 4, running = false;
+  const events = [];
+  const coder = async (req) => {
+    const u = new URL(req.url);
+    if (req.method === "POST") { turn = 5; running = true; events.push({ type: "user", at: Date.now(), text: "From GitHub" }); return Response.json({ ok: true, project: { id: "shop-1", turn } }); }
+    if (u.pathname.endsWith("/state")) return Response.json({ running, project: { id: "shop-1", turn, status: running ? "running" : "idle" } });
+    return Response.json({ ok: true, project: { id: "shop-1", turn }, events });
+  };
+  assert.deepEqual(await M.runMentionJobs(env(b), { coder, fetchFn: g.fetchFn }), { finished: 0, started: 1 });
+  assert.equal(JSON.parse(b.m.get(JOBS + "u1__shop-1__910.json")).turn, 5);
+  // The GitHub turn ends; a private message starts turn 6 before the check runs.
+  events.push({ type: "done", at: Date.now(), text: "Public answer" });
+  events.push({ type: "user", at: Date.now() + 1, text: "private" }, { type: "done", at: Date.now() + 2, text: "PRIVATE ANSWER" });
+  turn = 6; running = true;
+  assert.deepEqual(await M.runMentionJobs(env(b), { coder, fetchFn: g.fetchFn }), { finished: 1, started: 0 });
+  assert.match(g.said[0][2], /Public answer/);
+  assert.doesNotMatch(g.said[0][2], /PRIVATE/);
+});
+
+test("CD-B20d an @coder answer GitHub refused once is kept and posted the next minute", async () => {
+  const b = fakeBucket();
+  let fail = 1;
+  const said = [];
+  const fetchFn = async (url, init = {}) => {
+    if (/access_tokens$/.test(url)) return new Response(JSON.stringify({ token: "ghs_app" }), { status: 201 });
+    if (fail-- > 0) return new Response("{}", { status: 502 });
+    said.push(JSON.parse(init.body).body);
+    return new Response("{}", { status: 200 });
+  };
+  const now = Date.now();
+  await b.put(JOBS + "u1__shop-1__920.json", JSON.stringify({ ...queued({ ackId: 920, at: now }), start: undefined }));
+  const coder = async (req) => (new URL(req.url).pathname.endsWith("/state") ? Response.json({ running: false }) : Response.json({ ok: true, project: { id: "shop-1" }, events: [{ type: "user", at: 1 }, { type: "done", at: 2, text: "All set" }] }));
+  assert.deepEqual(await M.runMentionJobs(env(b), { coder, fetchFn }, now + 1000), { finished: 0, started: 0 });
+  assert.ok(b.m.has(JOBS + "u1__shop-1__920.json"), "kept");
+  assert.deepEqual(await M.runMentionJobs(env(b), { coder, fetchFn }, now + 61_000), { finished: 1, started: 0 });
+  assert.match(said[0], /All set/);
+  assert.equal(b.m.has(JOBS + "u1__shop-1__920.json"), false);
+});

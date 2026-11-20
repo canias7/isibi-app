@@ -46,7 +46,7 @@ export function namesCacheKey(b) {
 const enc = new TextEncoder();
 const b64url = (buf) => { const b = new Uint8Array(buf); let s = ""; for (let i = 0; i < b.length; i++) s += String.fromCharCode(b[i]); return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, ""); };
 const same = (a, b) => { a = String(a); b = String(b); if (a.length !== b.length) return false; let r = 0; for (let i = 0; i < a.length; i++) r |= a.charCodeAt(i) ^ b.charCodeAt(i); return r === 0; };
-const answer = (error, status) => new Response(JSON.stringify({ error: { message: error } }), { status, headers: { "content-type": "application/json", "cache-control": "no-store" } });
+const answer = (error, status) => new Response(JSON.stringify({ error: { message: error } }), { status, headers: { "content-type": "application/json", "cache-control": "no-store", ...(status === 503 ? { "x-should-retry": "false" } : {}) } });
 
 /** The pass for one chat's AI calls, for one turn, until a time: only the Worker can make it (CODER_TOKEN_KEY). */
 export async function modelPass(env, chat, turn, until) {
@@ -117,5 +117,8 @@ export async function handleModel(request, env, { fetchFn = fetch, now = Date.no
   try { r = await fetchFn(CODER_ENDPOINT, { method: "POST", body: sendOn, headers: { authorization: "Bearer " + key, "content-type": "application/json" } }); }
   catch { return answer("xAI could not be reached", 502); }
   // Only xAI's answer and its type come back (nothing of the key).
-  return new Response(r.body, { status: r.status, headers: { "content-type": r.headers.get("content-type") || "application/json", "cache-control": "no-store" } });
+  // (Its "wait this long" and "don't retry" marks too, so Coder's machine follows them, as Claude Code does.)
+  const pass = {};
+  for (const k of ["retry-after", "x-should-retry"]) { const v = r.headers.get(k); if (v) pass[k] = v; }
+  return new Response(r.body, { status: r.status, headers: { "content-type": r.headers.get("content-type") || "application/json", "cache-control": "no-store", ...pass } });
 }

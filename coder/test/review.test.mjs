@@ -157,8 +157,8 @@ test("CD184 a later review on a push: nothing changed keeps the earlier result (
   assert.equal(gh.posts(/\/pulls\/7\/reviews$/).length, 0, "nothing new to post");
   assert.equal(gh.posts(/\/issues\/7\/comments$/).at(-1).body.body, "Coder Review found no issues. 1 earlier finding is fixed. 1 finding on code that hasn't changed since the last review was outside the scope of this re-review and not posted. 1 nit and pre-existing finding was found and not posted.");
   const gql = gh.posts(/^\/graphql$/);
-  assert.equal(gql.length, 2, "the threads read, then only Coder's fixed one resolved");
-  assert.deepEqual(gql[1].body.variables, { id: "T1" });
+  assert.equal(gql.length, 3, "the threads read (once for resolved ones, once to resolve), then only Coder's fixed one resolved");
+  assert.deepEqual(gql[2].body.variables, { id: "T1" });
   assert.equal(gh.posts(/\/check-runs\/555$/).at(-1).body.output.title, "Code review found no issues");
   assert.deepEqual(JSON.parse(bucket.m.get(key)).last.findings, [], "nothing left open");
   // A PERSON'S REPLY gets one follow-up when the finding still stands.
@@ -273,4 +273,146 @@ test("CD186 the every-minute check runs queued reviews (three at most), once eac
   assert.match(ui, /const LEVELS = \[\['quick', 'Quick'\], \['standard', 'Standard'\], \['deep', 'Deep'\]\];/);
   assert.match(ui, /S\.repos\.map\(\(r\) => \(S\.pickMode === 'repos' \? reviewRow\(r\) : repoBtn\(r\)\)\)/);
   assert.match(ui, /if \(S\.pickMode === 'repos'\) \{ const rs = await call\('\/review\/settings'\);/);
+});
+
+// ── Batch 20 (Claude Code's Code Review): Re-run, stop, tips, retry once, failed titles, big files, refused comments, resolved threads.
+const ONE = { logic: { findings: [{ path: "src/cart.js", line: 3, severity: "important", title: "Division by zero", body: "b", why: "w" }] }, verify: { verdicts: [{ index: 0, real: true }] } };
+const jobOf = (o = {}) => ({ repo: "ana/shop", number: 7, sha: "h1", installation: 9, full: true, level: "quick", at: Date.now(), checkId: 555, ...o });
+
+test("CD-B20e Re-run on Coder Review's check starts a whole review, reusing its check; never for a fork, another check, or someone without write access", async () => {
+  const p = (o = {}, pr = { number: 7, head: { repo: { id: 1 } }, base: { repo: { id: 1 } } }) => ({ action: "rerequested", repository: { full_name: "ana/shop" }, installation: { id: 9 }, sender: { login: "ana", type: "User" }, check_run: { id: 555, name: "Coder Review", head_sha: "h1", pull_requests: [pr], ...o } });
+  assert.deepEqual(R.readReviewEvent("check_run", p()), { kind: "rerun", repo: "ana/shop", number: 7, sha: "h1", fork: false, checkId: 555, login: "ana", bot: false, installation: 9 });
+  assert.equal(R.readReviewEvent("check_run", p({ name: "CI" })), null);
+  const bucket = fakeBucket(), env = { CODER_BUCKET: bucket };
+  await bucket.put(R.repoReviewKey("ana/shop"), JSON.stringify({ repo: "ana/shop", uid: UID, runs: "manual", level: "deep" }));
+  const go = async (ev, perm = "write") => { const gh = fakeGithub({ files: FILES, perm }); const r = await R.handleReviewEvent(env, { fetchFn: gh.fetchFn, token: async () => "t", account: async () => ({ uid: UID, email: "me@x.y" }), allowed: () => true }, ev); return { r, gh }; };
+  let x = await go(R.readReviewEvent("check_run", p()));
+  assert.deepEqual(x.r, { ok: true, queued: true });
+  const job = JSON.parse(bucket.m.get(R.reviewJobKey("ana/shop", 7)));
+  assert.deepEqual([job.full, job.checkId, job.why], [true, 555, "rerun"]);
+  assert.equal(x.gh.posts(/\/check-runs$/).length, 0, "the same check, queued again");
+  assert.equal(x.gh.posts(/\/check-runs\/555$/)[0].body.status, "queued");
+  bucket.m.delete(R.reviewJobKey("ana/shop", 7));
+  x = await go(R.readReviewEvent("check_run", p({}, { number: 7, head: { repo: { id: 2 } }, base: { repo: { id: 1 } } })));
+  assert.equal(x.r.why, "fork");
+  x = await go(R.readReviewEvent("check_run", p()), "read");
+  assert.equal(x.r.why, "no write access");
+  assert.equal(bucket.m.has(R.reviewJobKey("ana/shop", 7)), false);
+});
+
+test("CD-B20f @coder review stop drops a review a push lined up and closes its check; tips can be turned off; a bot's command gets a tip", async () => {
+  const bucket = fakeBucket(), env = { CODER_BUCKET: bucket };
+  const set = (o) => bucket.put(R.repoReviewKey("ana/shop"), JSON.stringify({ repo: "ana/shop", uid: UID, runs: "manual", level: "quick", ...o }));
+  const go = async (ev) => { const gh = fakeGithub({ files: FILES }); const r = await R.handleReviewEvent(env, { fetchFn: gh.fetchFn, token: async () => "t", account: async () => ({ uid: UID, email: "me@x.y" }), allowed: () => true }, ev); return { r, gh }; };
+  await set({});
+  await bucket.put(R.prReviewKey("ana/shop", 7), JSON.stringify({ subscribed: true }));
+  await bucket.put(R.reviewJobKey("ana/shop", 7), JSON.stringify(jobOf({ full: false, why: "synchronize" })));
+  let x = await go({ kind: "command", cmd: "stop", repo: "ana/shop", number: 7, login: "ana", bot: false, commentId: 55, installation: 9 });
+  assert.equal(bucket.m.has(R.reviewJobKey("ana/shop", 7)), false);
+  const closed = x.gh.posts(/\/check-runs\/555$/)[0].body;
+  assert.deepEqual([closed.conclusion, closed.output.title], ["skipped", "Code review not started: reviews on pushes were stopped"]);
+  // A started one is left alone.
+  await bucket.put(R.reviewJobKey("ana/shop", 7), JSON.stringify(jobOf({ full: false, why: "synchronize", started: Date.now() })));
+  await go({ kind: "command", cmd: "stop", repo: "ana/shop", number: 7, login: "ana", bot: false, commentId: 55, installation: 9 });
+  assert.equal(bucket.m.has(R.reviewJobKey("ana/shop", 7)), true);
+  // Tips off: no Manual tip.
+  await set({ tips: false });
+  x = await go({ kind: "pr", action: "opened", repo: "ana/shop", number: 8, sha: "h1", draft: false, fork: false, installation: 9 });
+  assert.equal(x.gh.posts(/\/comments$/).length, 0);
+  // A bot's command: a tip (tips on).
+  await set({});
+  x = await go({ kind: "command", cmd: "once", repo: "ana/shop", number: 7, login: "ci-bot", bot: true, commentId: 56, installation: 9 });
+  assert.equal(x.r.why, "bot");
+  assert.match(x.gh.posts(/\/issues\/7\/comments$/)[0].body.body, /^@ci-bot No review was started: comments from bots don't start Coder reviews\./);
+});
+
+test("CD-B20g an interrupted review runs once more, said on its check; a second time it ends as Code review failed; an error is Code review failed; no app token: tried again, then failed", async () => {
+  const bucket = fakeBucket(), env = { CODER_BUCKET: bucket };
+  const key = R.reviewJobKey("ana/shop", 7);
+  const t0 = Date.now();
+  await bucket.put(key, JSON.stringify(jobOf({ started: t0 - R.REVIEW_STALE_MS - 1 })));
+  let gh = fakeGithub({ files: FILES });
+  let m = fakeModel(ONE);
+  await R.runReviewJobs(env, { token: async () => "t", fetchFn: gh.fetchFn, send: m.send }, t0);
+  assert.equal(gh.posts(/\/check-runs\/555$/)[0].body.output.summary, R.REQUEUED);
+  assert.ok(m.seen.length > 0, "it ran again");
+  // Cut off again.
+  await bucket.put(key, JSON.stringify(jobOf({ started: t0 - R.REVIEW_STALE_MS - 1, retried: true })));
+  gh = fakeGithub({ files: FILES }); m = fakeModel(ONE);
+  await R.runReviewJobs(env, { token: async () => "t", fetchFn: gh.fetchFn, send: m.send }, t0);
+  assert.equal(m.seen.length, 0);
+  assert.equal(gh.posts(/\/check-runs\/555$/)[0].body.output.title, "Code review failed");
+  assert.equal(bucket.m.has(key), false);
+  // An error.
+  await bucket.put(key, JSON.stringify(jobOf()));
+  gh = fakeGithub({ files: FILES });
+  const boom = async (url, init) => { if (String(url).includes("/pulls/7/files")) throw new Error("boom"); return gh.fetchFn(url, init); };
+  await R.runReviewJobs(env, { token: async () => "t", fetchFn: boom, send: fakeModel({}).send }, t0);
+  assert.equal(gh.posts(/\/check-runs\/555$/).at(-1).body.output.title, "Code review failed");
+  // No app token: kept; next minute still none: kept waiting; once there is one: failed, and gone.
+  bucket.m.delete(R.prReviewKey("ana/shop", 7));
+  await bucket.put(key, JSON.stringify(jobOf()));
+  await R.runReviewJobs(env, { token: async () => null, fetchFn: gh.fetchFn, send: fakeModel({}).send }, t0);
+  assert.ok(bucket.m.has(key), "kept for another try");
+  assert.equal(JSON.parse(bucket.m.get(key)).started, undefined);
+  await R.runReviewJobs(env, { token: async () => null, fetchFn: gh.fetchFn, send: fakeModel({}).send }, t0 + 60_000);
+  assert.ok(bucket.m.has(key), "kept until its check can be closed");
+  gh = fakeGithub({ files: FILES });
+  await R.runReviewJobs(env, { token: async () => "t", fetchFn: gh.fetchFn, send: fakeModel({}).send }, t0 + 120_000);
+  assert.equal(gh.posts(/\/check-runs\/555$/)[0].body.output.title, "Code review failed");
+  assert.equal(bucket.m.has(key), false);
+});
+
+test("CD-B20h a changed file with no patch is never downloaded; a very large one is read only in part", async () => {
+  const bucket = fakeBucket(), env = { CODER_BUCKET: bucket };
+  const files = [...FILES, { filename: "img.png", status: "added" }, { filename: "big.js", status: "modified", patch: "@@ -1 +1 @@\n-a\n+b" }];
+  const gh = fakeGithub({ files });
+  let pulled = 0;
+  const fetchFn = async (url, init) => {
+    if (String(url).includes("/contents/big.js")) {
+      let n = 0;
+      return new Response(new ReadableStream({ pull(c) { if (n >= 5 * 1024 * 1024) return c.close(); n += 65536; pulled += 65536; c.enqueue(new Uint8Array(65536).fill(97)); } }), { status: 200 });
+    }
+    return gh.fetchFn(url, init);
+  };
+  await bucket.put(R.reviewJobKey("ana/shop", 7), JSON.stringify(jobOf()));
+  await R.runReviewJobs(env, { token: async () => "t", fetchFn, send: fakeModel({}).send });
+  assert.equal(gh.asked.some((a) => a.u.includes("/contents/img.png")), false);
+  assert.ok(pulled <= R.FILE_READ_MAX + 2 * 65536, "read " + pulled);
+});
+
+test("CD-B20i findings GitHub refused as line comments get marks on their lines", async () => {
+  const bucket = fakeBucket(), env = { CODER_BUCKET: bucket };
+  const gh = fakeGithub({ files: FILES });
+  let first = true;
+  const fetchFn = async (url, init = {}) => {
+    if (String(url).endsWith("/pulls/7/reviews") && init.method === "POST" && first) { first = false; return J({ message: "Unprocessable" }, 422); }
+    return gh.fetchFn(url, init);
+  };
+  await bucket.put(R.reviewJobKey("ana/shop", 7), JSON.stringify(jobOf()));
+  await R.runReviewJobs(env, { token: async () => "t", fetchFn, send: fakeModel(ONE).send });
+  const done = gh.posts(/\/check-runs\/555$/).at(-1).body;
+  assert.deepEqual(done.output.annotations.map((a) => [a.start_line, a.annotation_level]), [[3, "failure"]]);
+});
+
+test("CD-B20j a finding whose thread a person resolved is cleared: a push with no new lines then gets a new review, and it is not listed or counted; a kept 'no new changes' check has the counts line", async () => {
+  const bucket = fakeBucket(), env = { CODER_BUCKET: bucket };
+  const key = R.prReviewKey("ana/shop", 7);
+  const apiOf = (gh) => (path, o = {}) => (async () => { const r = await gh.fetchFn("https://api.github.com" + path, { method: o.method || "GET", headers: { accept: o.raw ? "application/vnd.github.raw+json" : "application/json" }, ...(o.body ? { body: JSON.stringify(o.body) } : {}) }); return o.raw ? { ok: r.ok, status: r.status, text: r.ok ? await r.text() : "" } : { ok: r.ok, status: r.status, data: await r.json().catch(() => null) }; })();
+  await R.runReview(env, { send: fakeModel(ONE).send }, apiOf(fakeGithub({ files: FILES })), jobOf({ full: true }));
+  // Resolved by a person; an empty push.
+  let gh = fakeGithub({ files: FILES, threads: [{ id: "T1", isResolved: true, comments: { nodes: [{ databaseId: 7001 }] } }] });
+  const m = fakeModel({});
+  const r = await R.runReview(env, { send: m.send }, apiOf(gh), jobOf({ full: false }));
+  assert.equal(r.kept, undefined, "a new review");
+  assert.ok(m.seen.length > 0);
+  assert.doesNotMatch(m.seen[0].user, /id 7001/);
+  assert.equal(gh.posts(/\/check-runs\/555$/).at(-1).body.output.title, "Code review found no issues");
+  assert.deepEqual(JSON.parse(bucket.m.get(key)).last.findings, []);
+  // Now nothing open and nothing changed: kept, with the counts line.
+  gh = fakeGithub({ files: FILES });
+  await R.runReview(env, { send: fakeModel({}).send }, apiOf(gh), jobOf({ full: false }));
+  const kept = gh.posts(/\/check-runs\/555$/).at(-1).body.output;
+  assert.equal(kept.title, "Code review skipped — no new changes");
+  assert.match(kept.text, /<!-- coder-review-severity: \{"nit":0,"normal":0,"pre_existing":0\} -->/);
 });
