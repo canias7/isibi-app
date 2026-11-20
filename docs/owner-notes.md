@@ -4,6 +4,16 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-19: Claude Code fixes, batch 27
+
+- Five of the nine audit items in this batch fixed (one in part), each with a test; four left (below). Gloopy, connectors and MCP were not touched. Not deployed or merged, so none of it has been tried live in the browser yet.
+- **A message stays with its own chat:** if you send a message in one chat and switch to another before the answer comes back, the other chat is no longer changed by it, and Enter there now sends to that chat. If the message fails, it goes back into its own chat's box, with the error shown when you open that chat again. (Claude Code never sends typed text to the wrong conversation.)
+- **An open chat notices work started elsewhere:** while a chat is open and idle and the tab is visible, the page takes a light look every 20 seconds (and at once when you come back to the tab), so an @coder job from GitHub, an auto-fix or a message from your phone shows without a click. Not in Gloopy's tab.
+- **@coder's GitHub comment follows the work:** while a job from GitHub runs, its "On it" comment now shows Coder's checklist (or its last 8 steps' names), updated only when it changes, at most once a minute. No command output ever goes to GitHub. The final answer still replaces it at the end.
+- **GitHub login renewal (in part):** two requests renewing your GitHub login at the same moment now renew it once and share the result, and a renewal that fails for a moment keeps using the old login while it still works, instead of asking you to connect GitHub again. Still to do: a "try again in a minute" message in place of "connect GitHub" when GitHub's service is down and the old login has run out.
+- **Setup script editor:** the setup script box in environment settings now has line numbers and Bash colours (comments, quotes, variables, keywords, commands), like Claude Code's. Copy and Choose file stay.
+- **Left for you or for later:** /init, /review and /security-review (waiting on your answer); pushing to other branches (waiting on your answer); /btw side questions (each one would be a new Grok call, so it needs your OK); the desktop app updating itself (Mac needs the paid Apple certificate first, and it means moving to a newer Electron); /clear (a bigger change across the page, Worker and machine, left for its own batch).
+
 ## 2026-11-19: Claude Code fixes, batch 25
 
 - Three of the ten audit items in this batch fixed (one of them in part), each with a test; seven left (below). Gloopy, connectors and MCP were not touched. Not deployed or merged, so none of it has been tried live in the browser yet.

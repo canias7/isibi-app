@@ -81,6 +81,38 @@
   };
 
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  // THE SETUP SCRIPT'S BASH EDITOR (Claude Code: "a Bash editor with colors, line numbers and a Copy button to the setup script
+  // box"): line numbers beside the box, and a coloured copy of the text behind it. All text is escaped before it is coloured.
+  const SH_WORDS = new Set(['if', 'then', 'else', 'elif', 'fi', 'for', 'do', 'done', 'while', 'until', 'case', 'esac', 'function', 'in', 'select']);
+  function shHighlight(text) {
+    const tok = (cls, t) => '<span class="sh-' + cls + '">' + esc(t) + '</span>';
+    return String(text || '').split('\n').map((line) => {
+      let out = '', i = 0, start = true;
+      while (i < line.length) {
+        const c = line[i], rest = line.slice(i);
+        let m;
+        if (c === '#' && (i === 0 || /[\s;]/.test(line[i - 1]))) { out += tok('com', rest); break; }
+        if (c === "'") { m = rest.match(/^'[^']*'?/); out += tok('str', m[0]); i += m[0].length; start = false; continue; }
+        if (c === '"') { m = rest.match(/^"(?:\\.|[^"\\])*"?/); out += tok('str', m[0]); i += m[0].length; start = false; continue; }
+        if (c === '$' && (m = rest.match(/^\$(?:\{[^}]*\}?|[A-Za-z_]\w*|[0-9#?@*!$-])/))) { out += tok('var', m[0]); i += m[0].length; start = false; continue; }
+        if ((m = rest.match(/^[A-Za-z_][\w.+-]*/))) {
+          const w = m[0];
+          out += SH_WORDS.has(w) ? tok('kw', w) : start && !/=/.test(line[i + w.length] || '') ? tok('cmd', w) : esc(w);
+          start = SH_WORDS.has(w); i += w.length; continue;
+        }
+        if (/[;|&(]/.test(c)) start = true; else if (!/\s/.test(c)) start = false;
+        out += esc(c); i++;
+      }
+      return out;
+    }).join('\n');
+  }
+  const shGutter = (text) => String(text || '').split('\n').map((_, k) => k + 1).join('\n');
+  function shRedraw(box, scrollOnly) {
+    const hl = document.getElementById('envScriptHl'), gut = document.getElementById('envScriptGut');
+    if (!scrollOnly) { if (hl) hl.innerHTML = shHighlight(box.value) + '\n'; if (gut) gut.textContent = shGutter(box.value); }
+    if (hl) { hl.scrollTop = box.scrollTop; hl.scrollLeft = box.scrollLeft; }
+    if (gut) gut.scrollTop = box.scrollTop;
+  }
   // TERMINAL COLOR CODES (live test of PowerShell hooks, 2026-11-13; the owner: "yea fix both"). A program or a hook that
   // prints in color writes codes such as ESC "[31;1m", which a terminal turns into colors and this page showed as text
   // ("[31;1mGet-Item:"). The page leaves them out wherever it shows output, or Coder's or Grok's words. What Grok is given
@@ -1476,7 +1508,8 @@
         foot('Add');
     } else if (page === 'script') {
       body = head('Setup script', 'main') + '<div class="cd-em-code"><div class="cd-em-codebar"><span class="cd-em-tag">Bash</span><label class="cd-em-file">⬆ Choose file<input type="file" id="envFile" hidden></label><button type="button" id="envCopy" aria-label="Copy">⧉</button></div>' +
-        '<textarea id="envScriptIn" spellcheck="false" placeholder="#!/bin/bash&#10;npm install">' + esc(f.text) + '</textarea><div class="cd-em-codefoot">Files up to 64 KB</div></div>' +
+        '<div class="cd-sh-ed"><pre class="cd-sh-gut" id="envScriptGut" aria-hidden="true">' + shGutter(f.text) + '</pre><div class="cd-sh-body"><pre class="cd-sh-hl" id="envScriptHl" aria-hidden="true">' + shHighlight(f.text) + '\n</pre>' +
+        '<textarea id="envScriptIn" spellcheck="false" wrap="off" placeholder="#!/bin/bash&#10;npm install">' + esc(f.text) + '</textarea></div></div><div class="cd-em-codefoot">Files up to 64 KB</div></div>' +
         '<p class="cd-em-help">Runs when a new chat starts, before Coder starts. A change reaches a chat that has already started only when its machine is made fresh: to apply it right away, run the commands in the chat or start a new chat. It can\'t read your variables or secrets.</p>' +
         // (Claude Code's docs: "keep the script's total runtime under roughly five minutes so the environment cache can build".)
         '<p class="cd-em-help">Keep it under about 5 minutes. Then Coder saves a copy of what it set up, and new chats start from that copy without running it again. A script still running at 5 minutes is stopped, and no copy is saved.</p>' +
@@ -1573,7 +1606,7 @@
     keepDraft(S, id);
     S.opening = id;
     stopBgWatch(); stopBgOut(); S.bgOut = null; S.bgUntold = 0;
-    S.phase = 'chat'; S.project = null; S.events = []; S.next = 0; S.error = ''; S.showChanges = false; S.changes = null; S.compareAgainst = ''; S.compareBranches = null; window.dispatchEvent(new CustomEvent('gf:side', { detail: false })); draw();
+    S.phase = 'chat'; S.project = null; S.events = []; S.next = 0; S.error = (S.sendFailed && S.sendFailed[id]) || ''; if (S.sendFailed) delete S.sendFailed[id]; S.sending = !!S.sendingFor && S.sendingFor === id; S.showChanges = false; S.changes = null; S.compareAgainst = ''; S.compareBranches = null; window.dispatchEvent(new CustomEvent('gf:side', { detail: false })); draw();
     const r = await call('/projects/' + encodeURIComponent(id));
     if (S.opening === id) S.opening = '';
     // (A message sent while the chat was still loading goes out once it has loaded: sendAfterOpen.)
@@ -1622,13 +1655,13 @@
     if (S.running || parkedWait) {
       if (GLOOPY) return; // (Gloopy's chat sends once Gloopy is done, as on its branch.)
       if (pics.length || comments.length || att.length || !text) { S.error = parkedWait ? 'Coder is waiting for your answer on its card: send pictures or line comments once it is done.' : S.ending ? 'Coder is saving to the branch: send pictures or line comments in a second, once it is saved.' : 'Coder is still working: send pictures or line comments once it is done.'; return draw(); }
-      S.sending = true; S.error = '';
+      S.sending = true; S.sendingFor = S.project.id; S.error = '';
       const id = S.project.id;
       // (Its own id, so the same message is never started twice: 2026-11-15.)
       const qmid = 'm' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
       const q = await call('/projects/' + encodeURIComponent(id) + '/message', { method: 'POST', body: JSON.stringify({ text, mid: qmid }) });
-      S.sending = false;
-      if (!S.project || S.project.id !== id) return;
+      if (S.sendingFor === id) { S.sending = false; S.sendingFor = null; }
+      if (!S.project || S.project.id !== id) return draw();
       if (q.status === 200 && q.data && q.data.queued) { S.queue = q.data.queue || []; S.draft = ''; return draw(true); }
       // (The save had just ended, so it went out at once as the next message: the chat is loaded to follow it.)
       if (q.status === 200 && q.data && q.data.reload && q.data.project) { S.draft = ''; stopPoll(); S.project = q.data.project; S.running = false; syncEntry(); return reloadChat(id); }
@@ -1644,7 +1677,7 @@
     // ITS OWN ID (live test, 2026-11-12): a browser sends a message again when its connection drops; Coder's Worker then
     // knows the second copy for the same message, and never starts it twice.
     const mid = 'm' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
-    S.sending = true; S.error = ''; S.draft = ''; S.unsent = text;
+    S.sending = true; S.error = ''; S.draft = ''; S.unsent = text; S.sendingFor = S.project.id;
     const base = S.events.length;
     // The owner's own command (shell mode) is shown as the machine will show it: "! " and the command.
     const shellText = /^!/.test(text) && !pics.length && !comments.length && text.replace(/^!\s*/, '') ? '! ' + text.replace(/^!\s*/, '') : '';
@@ -1660,7 +1693,19 @@
     if (S.sendWatch === sent) S.sendWatch = null;
     // (Already shown as ended by watchSend: this late answer changes nothing.)
     if (sent.gone) return;
-    S.sending = false; S.unsent = '';
+    if (S.sendingFor === sent.id) { S.sendingFor = null; S.sending = false; S.unsent = ''; }
+    // THE ANSWER BELONGS TO THE CHAT IT WAS SENT FROM (Claude Code: typed text never goes to another conversation; an unsent
+    // message and its attachments stay with their own session). If another chat is open now, nothing on its screen or in its
+    // box changes: a failed message goes back into its own chat's kept draft, with the error shown when that chat is opened.
+    if (!S.project || S.project.id !== sent.id) {
+      if (r.status !== 200) {
+        S.drafts[sent.id] = { draft: text, pics, comments };
+        S.sendFailed = S.sendFailed || {}; S.sendFailed[sent.id] = sendFailText(r, true);
+      } else if (r.data && r.data.project) {
+        S.projects = (S.projects || []).map((p) => (p.id === sent.id ? { ...p, ...r.data.project } : p));
+      }
+      return draw();
+    }
     // (A card the message closed, Coder's paused job's permission or plan card: drawn closed at once, before the message.)
     const closed = r.data && Array.isArray(r.data.closed) ? r.data.closed : [];
     if (closed.length && S.project) S.project = { ...S.project, parked: null, waiting: null };
@@ -1697,7 +1742,7 @@
     const over = d && !d.running && p && p.status !== 'running' && (evs.some((e) => e && e.lost) || (Number(p.turn) > sent.turn && Number(p.saved) >= Number(p.turn)));
     if (!over) { setTimeout(() => watchSend(sent), SEND_WATCH_MS); return; }
     sent.gone = true; S.sendWatch = null;
-    S.sending = false; S.unsent = ''; S.running = false; S.project = p; syncEntry();
+    S.sending = false; S.sendingFor = null; S.unsent = ''; S.running = false; S.project = p; syncEntry();
     if (d.reload) { draw(); return reloadChat(sent.id); }
     const fresh = evs.filter((e) => { if (e.type !== 'user') return true; const mine = S.events.find((x) => x.local && x.text === e.text); if (mine) { mine.local = false; return false; } return true; });
     S.events = S.events.concat(fresh);
@@ -3838,11 +3883,25 @@
   function stopBgWatch() { if (S.bgWatch) clearTimeout(S.bgWatch); S.bgWatch = 0; }
   // (Also while one ended and Coder is not told yet: the turn that tells it starts by itself, within a minute, and the
   // page follows it. Found while preparing the live test after deploy 75: with the list empty, the page stopped looking.)
-  function startBgWatch() { stopBgWatch(); if (S.project && !S.running && (bgList().length || S.bgUntold > 0)) S.bgWatch = setTimeout(bgTick, BG_POLL_MS); }
+  // AN IDLE OPEN CHAT IS LOOKED AT TOO (Claude Code: an open cloud session shows messages sent from another device without a
+  // reload): while the tab is visible, a light look at the saved chat every 20 seconds, so a job started elsewhere (an @coder
+  // job from GitHub, auto-fix, a message from a phone) shows without a click. (Not in Gloopy's tab.)
+  const bgBusy = () => bgList().length || S.bgUntold > 0;
+  const idleLook = () => !GLOOPY && document.visibilityState === 'visible';
+  function startBgWatch() { stopBgWatch(); if (S.project && !S.running && (bgBusy() || idleLook())) S.bgWatch = setTimeout(bgTick, BG_POLL_MS); }
+  document.addEventListener('visibilitychange', () => { if (idleLook() && S.project && !S.running && !bgBusy() && S.bgWatch) { stopBgWatch(); bgTick(); } });
+  const turnMark = (p) => (p ? Number(p.turn) || 0 : 0) + ':' + (p ? Number(p.saved) || 0 : 0) + ':' + (p ? p.status || '' : '');
   async function bgTick() {
     S.bgWatch = 0;
     if (!S.project || S.running) return;
     const id = S.project.id;
+    if (!bgBusy()) {
+      const was = turnMark(S.project);
+      const l = await call('/projects/' + encodeURIComponent(id));
+      if (!S.project || S.project.id !== id || S.running) return;
+      if (l.status === 200 && l.data && l.data.project && turnMark(l.data.project) !== was) return reloadChat(id);
+      return startBgWatch();
+    }
     const r = await call('/projects/' + encodeURIComponent(id) + '/background');
     if (!S.project || S.project.id !== id || S.running) return;
     if (r.status === 200 && r.data && r.data.ok) {
@@ -5168,7 +5227,8 @@
     on('[data-hdr]', 'change', (e) => { const d = e.currentTarget.dataset; S.envForm.headers[Number(d.hdr)][d.k] = e.currentTarget.value; if (d.k !== 'value') draw(); });
     on('[data-hdrdel]', 'click', (e) => { S.envForm.headers.splice(Number(e.currentTarget.dataset.hdrdel), 1); draw(); });
     on('#secHdrAdd', 'click', () => { if (S.envForm.headers.length < 5) S.envForm.headers.push({ name: '', prefix: '', value: '' }); draw(); });
-    on('#envScriptIn', 'input', (e) => { S.envForm.text = e.currentTarget.value; });
+    on('#envScriptIn', 'input', (e) => { S.envForm.text = e.currentTarget.value; shRedraw(e.currentTarget); });
+    on('#envScriptIn', 'scroll', (e) => shRedraw(e.currentTarget, true));
     on('#envVarsIn', 'input', (e) => { S.envForm.text = e.currentTarget.value; });
     on('#envCopy', 'click', () => { try { navigator.clipboard.writeText(S.envForm.text || ''); } catch { /* not allowed */ } });
     on('#envFile', 'change', (e) => {

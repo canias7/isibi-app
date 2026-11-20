@@ -127,10 +127,53 @@ export async function userToken(env, bucket, uid, { fetchFn = fetch, now = Date.
   try { rec = JSON.parse(await o.text()); tok = await unseal(env, rec.box); } catch { return null; }
   if (!tok.expires || tok.expires - now > REFRESH_EARLY_MS) return { token: tok.access, login: rec.login || "" };
   if (!tok.refresh || (tok.refreshExpires && tok.refreshExpires <= now)) return null;
-  let fresh;
-  try { fresh = await refreshToken(env, tok.refresh, fetchFn); } catch { return null; }
-  await saveConnection(env, bucket, uid, fresh, rec.login || "");
-  return { token: fresh.access, login: rec.login || "" };
+  // ONE RENEWAL AT A TIME (Claude Code's shared refresh lock: "If another process completes the refresh first, this session
+  // uses the renewed login"). GitHub's renewal token works once: two requests renewing at once must not both send it.
+  // Here, the same Worker shares one renewal; another Worker that finds a fresh "renewing" marker waits for its result.
+  const key = uid + ":" + tok.refresh;
+  if (renewing.has(key)) return renewing.get(key);
+  const job = (async () => {
+    const mark = await bucket.get(renewKey(uid)).catch(() => null);
+    const at = mark ? Number(JSON.parse(await mark.text().catch(() => "{}")).at || 0) : 0;
+    if (at && Date.now() - at < RENEW_MARK_MS) {
+      for (let k = 0; k < RENEW_WAIT_TRIES; k++) {
+        await new Promise((ok) => setTimeout(ok, RENEW_POLL_MS));
+        const got = await renewedSince(env, bucket, uid, tok, now);
+        if (got) return got;
+      }
+    }
+    await bucket.put(renewKey(uid), JSON.stringify({ at: Date.now() })).catch(() => {});
+    try {
+      const fresh = await refreshToken(env, tok.refresh, fetchFn);
+      await saveConnection(env, bucket, uid, fresh, rec.login || "");
+      return { token: fresh.access, login: rec.login || "" };
+    } catch {
+      // Renewed elsewhere meanwhile: that login is used. Else the old token, while it still works (it is renewed
+      // REFRESH_EARLY_MS before it ends). Only then "not connected".
+      const got = await renewedSince(env, bucket, uid, tok, now);
+      if (got) return got;
+      if (tok.expires > now) return { token: tok.access, login: rec.login || "" };
+      return null;
+    } finally {
+      if (typeof bucket.delete === "function") await bucket.delete(renewKey(uid)).catch(() => {});
+    }
+  })();
+  renewing.set(key, job);
+  try { return await job; } finally { renewing.delete(key); }
+}
+const renewing = new Map();
+const renewKey = (uid) => "coder/" + uid + "/github.renewing.json";
+const RENEW_MARK_MS = 20_000, RENEW_POLL_MS = 500, RENEW_WAIT_TRIES = 16;
+/** The saved login, when it is now a different, still-valid one (renewed by another request). */
+async function renewedSince(env, bucket, uid, old, now) {
+  try {
+    const o = await bucket.get(tokenKey(uid));
+    if (!o) return null;
+    const rec = JSON.parse(await o.text());
+    const t = await unseal(env, rec.box);
+    if (t.access && t.access !== old.access && (!t.expires || t.expires > now)) return { token: t.access, login: rec.login || "" };
+  } catch { /* none */ }
+  return null;
 }
 
 // ── THE GITHUB API, AS THE USER ──────────────────────────────────────────────

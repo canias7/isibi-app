@@ -432,6 +432,23 @@ export function finalText(job, project, events) {
   return lines.join("\n");
 }
 
+// WHILE THE JOB RUNS, ITS COMMENT FOLLOWS IT (Claude Code: "Claude replies in a comment on the same issue or PR and updates it as
+// it works"): the latest checklist, or else the last 8 steps' one-line titles, of this job's turn. Never any tool output.
+// Empty when there is nothing to show yet.
+export function progressText(job, events) {
+  const list = Array.isArray(events) ? events : [];
+  let i = list.length - 1; while (i >= 0 && list[i].type !== "user") i--;
+  const after = list.slice(i + 1);
+  const todo = [...after].reverse().find((e) => e.type === "todo" && Array.isArray(e.items) && e.items.length);
+  const one = (t) => String(t || "").replace(/\s+/g, " ").trim().slice(0, 120);
+  const lines = todo
+    ? todo.items.slice(0, 30).map((t) => "- [" + (t.status === "done" ? "x" : " ") + "] " + one(t.text))
+    : after.filter((e) => e.type === "bash" && (e.verb || e.command)).slice(-8).map((e) => "- " + one((e.verb ? e.verb + " " : "") + (e.command || "")));
+  if (!lines.length) return "";
+  return ("On it, @" + job.login + ". Working on `" + job.repo + "`…\n\n" + lines.join("\n")).slice(0, 3800) + "\n\nFollow along on https://gofarther.dev";
+}
+const textHash = (t) => { let h = 5381; for (let k = 0; k < t.length; k++) h = ((h * 33) ^ t.charCodeAt(k)) >>> 0; return h.toString(36); };
+
 /**
  * A start claimed this long ago and still not done: the check that was sending
  * it was cut off (Cloudflare gives an every-minute check 15 minutes at most).
@@ -502,7 +519,15 @@ export async function runMentionJobs(env, deps, now = Date.now()) {
     const st = await run("projects/" + job.id + "/state?since=0").catch(() => null);
     // Finished when the chat is idle, or its turn has moved past this job's (as the watch does).
     const stillGoing = st && (st.running || (st.project && st.project.status === "running")) && !(Number.isInteger(job.turn) && st.project && Number(st.project.turn) > job.turn);
-    if (stillGoing && now - job.at < JOB_MAX_MS) continue;
+    if (stillGoing && now - job.at < JOB_MAX_MS) {
+      // Its comment updated only when something changed (at most once a minute).
+      const shown = progressText(job, st && Array.isArray(st.events) ? st.events : []);
+      // (Only an "On it" comment is changed: no new comment each minute.)
+      if (shown && job.ackId && textHash(shown) !== job.shownHash) {
+        if (await tell(job, shown).catch(() => false)) await putJson(bucket, o.key, { ...job, shownHash: textHash(shown) });
+      }
+      continue;
+    }
     const full = await run("projects/" + job.id).catch(() => null);
     const events = (full && Array.isArray(full.events) ? full.events : []);
     const text = stillGoing ? "@" + job.login + " Coder is taking longer than 2 hours on this; check it on https://gofarther.dev" : finalText(job, full && full.project, events);
