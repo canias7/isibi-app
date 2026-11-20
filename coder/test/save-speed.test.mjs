@@ -162,7 +162,7 @@ test("SV3 a cheaper save: the claim's steps are used (no second look); a turn th
   assert.deepEqual(w4.read("shop-c4", "events.json").map((x) => x.type), ["user", "done"]);
 
   const src = readFileSync(new URL("../src/coder-routes.mjs", import.meta.url), "utf8");
-  assert.ok(src.includes("const [old, t, chatLink, hidden, envNow, oldMemory] = await Promise.all(["));
+  assert.ok(src.includes("const [old, t, chatLink, hidden, envNow, oldMemory, oldMemoryFiles] = await Promise.all(["));
 });
 
 test("SV3b the machine says `dirty: false` only for a work tree git reads cleanly (installed packages and caches ignored); a change, a new file or no repository at all is dirty", async () => {

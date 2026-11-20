@@ -20,6 +20,7 @@
 // The conversation is kept in the OpenAI chat shape (`messages`, with
 // `tool_calls` and `tool` answers), which Grok speaks natively; the next
 // message continues from the same messages.
+import { isMemoryPath } from "./memory-files.mjs";
 import { recordedSystem, summaryRequest, summaryMessage, cutPoint, isSummary, viewedFile, filesTouched, compactSettings, compactLimits, compactLevel, conversationTokens, COMPACT_FAILURES_MAX, REFILL_TURNS, REFILL_TIMES, PRECOMPACT_OUTPUT_MAX, CHARS_PER_TOKEN, COMPACTED_SHOWN, THRASHING, contextLimitShown, compactPrompt, summaryText, hasSummary, dropOldestRounds, tokenGap, COMPACT_PTL_RETRIES, COMPACT_TOO_LONG, tooShortToCompact, TOO_SHORT_TO_COMPACT } from "./coder-compact.mjs";
 // A command that views one file counts as reading it (moved to coder-compact.mjs, which the Worker uses too).
 export { viewedFile };
@@ -4811,7 +4812,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       if (movesFolder(x)) return false;
       const here = typeof deps.here === "function" ? String(deps.here() || "") : "";
       if (commandAsk(cmd, deps, here, { real: (q) => realPath(q), allowed: () => false })) return false;
-      if (readBlock && readBlockWhy(cmd, { cwd: here || deps.root || "/", workdirs: readBlockDirs(), home: deps.home || "", real: (q) => realPath(q), ownDirs: [...(Array.isArray(deps.ownDirs) ? deps.ownDirs : []), SCRATCH, ...(planPath() ? [planPath()] : []), ...(typeof deps.memFile === "string" && deps.memFile ? [deps.memFile] : [])], exists: (q) => pathExists(q) })) return false;
+      if (readBlock && readBlockWhy(cmd, { cwd: here || deps.root || "/", workdirs: readBlockDirs(), home: deps.home || "", real: (q) => realPath(q), ownDirs: [...(Array.isArray(deps.ownDirs) ? deps.ownDirs : []), SCRATCH, ...(planPath() ? [planPath()] : []), ...(typeof deps.memFile === "string" && deps.memFile ? [deps.memFile, pathPosix.dirname(deps.memFile)] : [])], exists: (q) => pathExists(q) })) return false;
       return bashDecision(cmd, { mode: "plan", rules: ownRules, cwd: here || deps.root || "/", workdirs, isProtected: isProt, real: (q) => realPath(q), home: deps.home || "", ownDirs: Array.isArray(deps.ownDirs) ? deps.ownDirs : [], scratch: [SCRATCH], planFile: planPath() }).verdict === "allow";
     };
     const startAhead = (x) => {
@@ -5503,7 +5504,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // permissions.blockReadsOutsideWorkingDirectories): a command that reads outside the project, or can't be traced, is
         // asked about in every mode (Claude Code: they "prompt even in auto mode"; no rule approves one).
         if (!ask && readBlock && !c.ps) {
-          const rb = readBlockWhy(command, { cwd: where0 || deps.root || "/", workdirs: readBlockDirs(), home: deps.home || "", real: (p) => realPath(p), ownDirs: [...(Array.isArray(deps.ownDirs) ? deps.ownDirs : []), SCRATCH, ...(planPath() ? [planPath()] : []), ...(typeof deps.memFile === "string" && deps.memFile ? [deps.memFile] : [])], exists: (p) => pathExists(p) });
+          const rb = readBlockWhy(command, { cwd: where0 || deps.root || "/", workdirs: readBlockDirs(), home: deps.home || "", real: (p) => realPath(p), ownDirs: [...(Array.isArray(deps.ownDirs) ? deps.ownDirs : []), SCRATCH, ...(planPath() ? [planPath()] : []), ...(typeof deps.memFile === "string" && deps.memFile ? [deps.memFile, pathPosix.dirname(deps.memFile)] : [])], exists: (p) => pathExists(p) });
           if (rb) { const w = rb.charAt(0).toLowerCase() + rb.slice(1).replace(/\.$/, ""); ask = { kind: "readblock", paths: [], allow: [allowRunText(command)], why: rb, note: w, github: w }; }
         }
         if (ask && ask.allow.every((a) => ownerSaid(convo, a))) ask = null;
@@ -6914,7 +6915,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         const targetOf = () => targetFor(c.name, args);
         // (The chat's plan file stays readable: Claude Code's "Plan files for current session are allowed for reading". 2026-11-14.)
         // (And Coder's own memory file, as Claude Code keeps its own memory files readable under the block. 2026-11-19.)
-        if (readBlock && READ_TOOLS.has(c.name) && !(planPath() && targetOf() === planPath()) && !(typeof deps.memFile === "string" && deps.memFile && targetOf() === deps.memFile)) {
+        if (readBlock && READ_TOOLS.has(c.name) && !(planPath() && targetOf() === planPath()) && !(typeof deps.memFile === "string" && deps.memFile && isMemoryPath(targetOf(), deps.memFile))) {
           const full = targetOf();
           // (A folder only the repository's settings add doesn't count, as for the write block: Bash docs pass 9, Claude Code's
           // settings reference lets one through either block only from "your user or managed settings" or /add-dir.)
@@ -6942,7 +6943,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           const mem = typeof deps.memFile === "string" && deps.memFile ? deps.memFile : "";
           // (And the chat's plan file, as Claude Code's block keeps "its plan files" writable: the owner, 2026-11-14.)
           const planF = planPath();
-          const kept = (x) => x === mem || (!!planF && x === planF);
+          const kept = (x) => (!!mem && isMemoryPath(x, mem)) || (!!planF && x === planF);
           const to = kept(full) ? full : within(full) ? leadsTo(full, own, (x) => realPath(x)) : "";
           let msg = "";
           if (settingsFile(full) || settingsFile(to)) msg = SETTINGS_WRITE_BLOCKED(full);

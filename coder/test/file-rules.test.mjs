@@ -662,7 +662,7 @@ test("CD382n (round 5) a command that writes the chat's own plan file, in a plan
   const agent = read("container/coder-agent.mjs");
   assert.equal((agent.match(/scratch: \[SCRATCH\], planFile: planPath\(\)/g) || []).length, 4);
   assert.match(agent, /commandAsk\(command, deps, where0, \{ real: [^\n]*, planFile: planPath\(\) \}\)/);
-  assert.equal((agent.match(/SCRATCH, \.\.\.\(planPath\(\) \? \[planPath\(\)\] : \[\]\), \.\.\.\(typeof deps\.memFile === "string" && deps\.memFile \? \[deps\.memFile\] : \[\]\)\]/g) || []).length, 2);
+  assert.equal((agent.match(/SCRATCH, \.\.\.\(planPath\(\) \? \[planPath\(\)\] : \[\]\), \.\.\.\(typeof deps\.memFile === "string" && deps\.memFile \? \[deps\.memFile, pathPosix\.dirname\(deps\.memFile\)\] : \[\]\)\]/g) || []).length, 2);
   // In Coder's loop, with its plan file in .claude/plans: the command runs with no card; another file there gets the card.
   const { mkdtemp, mkdir } = await import("node:fs/promises");
   const { tmpdir } = await import("node:os");

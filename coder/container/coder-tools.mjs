@@ -7,6 +7,7 @@
 // `node coder-tools.mjs <base64 JSON>` through the same exec). So a tool can do
 // nothing a bash command could not; they are just tidier and safer to use.
 // File tools stay inside the project folder.
+import { isMemoryPath, stampModified } from "./memory-files.mjs";
 import { readFile, writeFile, mkdir, realpath, stat, lstat, unlink, open as openFile, mkdtemp, rm, readdir, rename, chmod, chown } from "node:fs/promises";
 import { createHash, randomBytes } from "node:crypto";
 import { isUtf8 } from "node:buffer";
@@ -99,7 +100,8 @@ async function inside(p, { mustExist = false, tool = "", output = false } = {}) 
   // the file tools may open, so remembering doesn't show a failed step. Only that
   // exact path, and never through a link.
   const mem = process.env.CODER_MEMORY_FILE;
-  if (mem && isAbsolute(mem) && abs === resolve(mem)) {
+  // (And its topic files beside it, one per memory, as Claude Code's memory folder: memory-files.mjs, audit M-f-17.)
+  if (mem && isAbsolute(mem) && isMemoryPath(abs, mem)) {
     let st = null; try { st = await lstat(abs); } catch { /* not made yet */ }
     if (st && !st.isFile()) fail("the memory file is not a plain file");
     if (!st && mustExist) fail("no such file: " + abs);
@@ -736,7 +738,7 @@ export function fileInputProblem(name, args, when = "before", { memFile = proces
  */
 export function memoryProblem(path, text, memFile) {
   if (typeof memFile !== "string" || !memFile || !isAbsolute(memFile) || typeof text !== "string") return "";
-  if (toolPath(path) !== resolve(memFile)) return "";
+  if (!isMemoryPath(toolPath(path), memFile)) return "";
   const found = secretsIn(text);
   return found.length ? memorySecretsRefused(found) : "";
 }
@@ -1154,7 +1156,8 @@ export async function toolWrite(args) {
   // Named as Grok gave it, as every other write message names it (live, deploy 70: "error: /data/work/…/afolder is a
   // directory" beside "Refusing to write link.txt"; Claude Code echoes the path it was given, always a full one there).
   if (st && st.isDirectory()) fail(rel + " is a directory, not a file. To create a file inside it, include the file name in path.");
-  let bytes = Buffer.from(content);
+  // (A memory file that starts with front matter gets its `modified` time, as Claude Code stamps one: audit M-f-17.)
+  let bytes = Buffer.from(isMemoryPath(abs, process.env.CODER_MEMORY_FILE) ? stampModified(content) : content);
   let oldText = null; // a new file; the text it had, for the chat's view of the change
   if (st && st.isFile()) {
     // (Read only in part or from its start, a notebook never read, changed since read: refused by writeFirst, above.)
@@ -1367,7 +1370,7 @@ export async function toolEdit(args) {
   if (!st) {
     if (old_string !== "") fail(editMissing());
     // NO OLD TEXT, NO FILE: made, with the folders it is in (Claude Code's Edit, tried: "newdir/deeper/made.txt" made).
-    const made = Buffer.from(new_string);
+    const made = Buffer.from(isMemoryPath(abs, process.env.CODER_MEMORY_FILE) ? stampModified(new_string) : new_string);
     await mkdir(dirname(abs), { recursive: true });
     await writeFile(abs, made);
     await remember(abs, made);
@@ -1405,7 +1408,7 @@ export async function toolEdit(args) {
   let from = 0;
   for (const p of all ? at : [at[0]]) { parts.push(body.slice(from, p), newN); from = p + len; }
   parts.push(body.slice(from));
-  const outBody = parts.join("");
+  const outBody = isMemoryPath(abs, process.env.CODER_MEMORY_FILE) ? stampModified(parts.join("")) : parts.join("");
   const outText = (bom ? "\ufeff" : "") + (eol === "\r\n" ? outBody.replace(/\n/g, "\r\n") : outBody);
   let bytes;
   if (u === "le") bytes = Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(outText, "utf16le")]);
@@ -1666,7 +1669,7 @@ async function remember(...a) { return seenLocked(() => rememberNow(...a)); }
 async function rememberNow(abs, buf, { whole = true, cmd = false } = {}) {
   const dir = seenDir();
   const mem = process.env.CODER_MEMORY_FILE;
-  if (!dir || (mem && abs === resolve(mem))) return;
+  if (!dir || (mem && isMemoryPath(abs, mem))) return;
   try {
     const st = await stat(abs);
     const all = await seenList(dir);

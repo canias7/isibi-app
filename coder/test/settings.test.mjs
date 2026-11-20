@@ -48,7 +48,7 @@ test("CD380 Settings, part 1: the longest a background command may run (2 hours 
   // WHAT THE MACHINE IS GIVEN with each message.
   assert.deepEqual(R.machinePrefs(JSON.parse(b.m.get(KEY))), { bgMaxMs: 8 * 3_600_000, endDetached: false, diskWarnGib: 0, memWarnGib: 0 });
   assert.deepEqual(R.machinePrefs({}), { bgMaxMs: 7_200_000, endDetached: true, diskWarnGib: 0, memWarnGib: 0 });
-  assert.match(read("src/coder-routes.mjs"), /effort: pick\.effort, prefs: machinePrefs\(saved\), hooks: machineHooks\(saved\), autoMode: machineAutoMode\(saved\), memory, setup,/);
+  assert.match(read("src/coder-routes.mjs"), /effort: pick\.effort, prefs: machinePrefs\(saved\), hooks: machineHooks\(saved\), autoMode: machineAutoMode\(saved\), memory, memoryFiles, setup,/);
   // THE MACHINE: its time limits, and its tool's words (Grok is told the longest it may ask for).
   assert.equal(SV.bashTimeouts({}, { bgMaxMs: 8 * 3_600_000 }).bgMaxMs, 8 * 3_600_000);
   assert.equal(SV.bashTimeouts({}, { bgMaxMs: 99 * 3_600_000 }).bgMaxMs, 24 * 3_600_000, "24 hours at most");

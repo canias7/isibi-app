@@ -18,7 +18,7 @@ import http from "node:http";
 import { readFileSync } from "node:fs";
 import { mkdtemp, mkdir, writeFile, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 
 const A = await import("../container/coder-agent.mjs");
 const C = await import("../container/coder-context.mjs");
@@ -90,7 +90,7 @@ test("CTX1 (the owner's check) one chat on Coder's real machine: the system mess
     const all = first[1];
     assert.equal(all.ctxAll, true);
     assert.ok(all.content.startsWith("(Note from Coder's app, not the owner:\nAs you answer the owner's questions, you can use the following context:\nTHE REPO'S OWN INSTRUCTIONS (CODER.md), from the repository's files."));
-    assert.match(all.content, /:\nUse tabs\.\n\nYOUR MEMORY FOR THIS REPO, kept between chats, in [^\n]*MEMORY\.md:\n- tests: npm test\nWhen the owner asks you to remember something, or you learn something lasting/);
+    assert.match(all.content, /:\nUse tabs\.\n\nYOUR MEMORY FOR THIS REPO, kept between chats, in [^\n]*MEMORY\.md:\n- tests: npm test\nThis file is the INDEX of your memory: one line per memory/);
     assert.match(all.content, /\n\nToday's date is \d{4}-\d{2}-\d{2}\.\n\n/);
     assert.ok(all.content.includes("\n\nWHERE YOUR COMMANDS RUN (like Claude Code): the project is in " + dir + ". Your next command starts in " + dir + ". A cd carries over"));
     assert.ok(all.content.endsWith(")"));
@@ -112,7 +112,7 @@ test("CTX1 (the owner's check) one chat on Coder's real machine: the system mess
     // only the part that changed; the working folder is where it was, so nothing of it.
     const at3 = two.result.messages.length;
     assert.deepEqual(three.sent[0].messages.slice(at3 + 1).map((x) => x.content), [
-      "(Note from Coder's app, not the owner:\nInstruction files were re-read when this chat's machine started again; these differ from their earlier copies — each replaces its earlier copy:\n\nYOUR MEMORY FOR THIS REPO, kept between chats, in " + memFile + ":\n- tests: npm test\n- lint: npm run lint\n\nWhen the owner asks you to remember something, or you learn something lasting (their preferences, a correction they gave you or an approach they confirmed, a decision you can't work out from the code or git history, or where outside information lives), add one short line to that file with bash. Skip anything the code, git history or CODER.md already show (such as file paths, architecture, test commands or debugging fixes). Keep it under 200 lines; never put secrets in it.)",
+      "(Note from Coder's app, not the owner:\nInstruction files were re-read when this chat's machine started again; these differ from their earlier copies — each replaces its earlier copy:\n\nYOUR MEMORY FOR THIS REPO, kept between chats, in " + memFile + ":\n- tests: npm test\n- lint: npm run lint\n" + "\nThis file is the INDEX of your memory: one line per memory, each pointing at its own topic file in the same folder (" + dirname(memFile) + "), like `- [Testing preference](feedback_testing.md) — always run the full suite before pushing`. Only this index loads at the start of a chat; read a topic file with the read tool when its line says it matters for the task. When the owner asks you to remember something, or you learn something lasting (their role and preferences, a correction they gave you or an approach they confirmed, a project decision or deadline you can't work out from the code or git history, or where outside information lives), write it to a topic file named for it (letters, digits, _ - . and ending in .md) that begins with front matter: `---`, then `name:`, `description:` (one line) and `type:` (one of user, feedback, project, reference), then `---`, then the memory itself; and add or update its one line in this index. Update a topic file rather than writing a duplicate, and remove one that has become wrong (and its line). Skip anything the code, git history or CODER.md already show (such as file paths, architecture, test commands or debugging fixes). Keep the index under 200 lines; never put secrets in your memory.)",
       "go on",
     ]);
     // The saved chat keeps every note of the context whole (so the next message sends the same bytes).

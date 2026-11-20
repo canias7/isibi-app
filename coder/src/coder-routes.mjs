@@ -35,6 +35,7 @@
 //   POST /api/coder/projects/:id/stop
 import { pickModel, CODER_MODELS } from "../container/coder-model.mjs";
 import { recordedSystem } from "../container/coder-compact.mjs";
+import { cleanMemoryFiles, sameMemoryFiles } from "../container/memory-files.mjs";
 /**
  * THE EFFORT SAVED ON AN ACCOUNT, AS IT COUNTS NOW (owner, 2026-11-10: "can you do the effort level on low and make sure
  * it's actually on low"). Coder's default became Low. A "high" saved before then was the old default (a save of the
@@ -475,6 +476,9 @@ export async function changeRules(bucket, uid, repo, kind, list, { remove = fals
 }
 
 const memoryKey = (uid, repo) => ["coder", uid, "memory", String(repo).replace(/[^A-Za-z0-9._-]+/g, "__") + ".md"].join("/");
+/** THE MEMORY'S TOPIC FILES (audit M-f-17; Claude Code's memory folder: a MEMORY.md index and one file per memory): beside
+ * the index's own text (memoryKey, as before, so a repository's old memory loads as its index), as `{ name: text }`. */
+export const memoryFilesKey = (uid, repo) => memoryKey(uid, repo).replace(/\.md$/, ".files.json");
 export const MEMORY_MAX = 25000;
 const MAX_EVENTS = 4000;
 /**
@@ -1579,6 +1583,8 @@ export async function handleCoder(request, env, ctx, deps) {
       });
       // A job started from GitHub neither sees nor changes the repository's memory (Claude Code: memory stays on the machine that wrote it).
       const memoryP = soon(async () => { if (body.fromGithub === true) return ""; const mo = await bucket.get(memoryKey(uid, meta.repo)); return mo ? (await mo.text()).slice(0, MEMORY_MAX) : ""; });
+      // (And its topic files, none for a job from GitHub either: audit M-f-17.)
+      const memoryFilesP = soon(async () => (body.fromGithub === true ? {} : cleanMemoryFiles(await getJson(bucket, memoryFilesKey(uid, meta.repo), {}))));
       mark("body");
       // THE SAME MESSAGE AGAIN (a browser sends it again when its connection drops; `mid`, the page's id for it): answered as
       // its first copy was, never started or queued twice.
@@ -1855,6 +1861,7 @@ export async function handleCoder(request, env, ctx, deps) {
       // THE CHAT SAVED AS IT GOES (like Claude Code, 2026-11-06): where the machine sends this job's steps, with its own pass.
       const live = livePassNow ? { url: String(env.CODER_PUBLIC_URL).replace(/\/+$/, "") + LIVE_PATH, chat: uid + "/" + id, turn: meta.turn + 1, pass: livePassNow } : null;
       const memory = await memoryP;
+      const memoryFiles = await memoryFilesP;
       // WHERE THIS MESSAGE STARTS in the saved chat and in Coder's history, so
       // Rewind can go back to just before it (like Claude Code's /rewind, 2026-11-06).
       // (After a summary just made here, its note is one more step: counted again.)
@@ -1910,7 +1917,7 @@ export async function handleCoder(request, env, ctx, deps) {
       next.timing.asked = Date.now();
       next.timing.w = wt;
       try {
-      r = await post("/turn", { start: claim.id, secrets, egress, live, model: modelNow, extra: extraFor(meta), ...connOn, project: id, chatUrl: chatLinkOf(env, id), emailMark: emailNow, cwd: typeof meta.cwd === "string" ? meta.cwd : "", mode: noAuto(normMode(meta.mode), saved), prePlanMode: noAuto(saved.mode === "acceptEdits" ? "acceptEdits" : "auto", saved), rules: await rulesOf(bucket, uid, meta.repo), ...sessionRulesOn(meta), ...customTitleOn(meta), ...wakeOn, ...shellOn, ...compactOn, ...takeUpOn, ...bgOn, ...lastAtOn, text: takeUp || wake || shell || compactJob ? "" : review ? review.text.split("BASE_BRANCH").join(meta.base) : (text || "(see the picture)") + fileMentions(text), shown: takeUp || wake || shell || compactJob ? "" : body.fromGithub === true && body.autofix !== true && typeof body.shown === "string" && body.shown.trim() ? body.shown.slice(0, 300) : body.autofix === true ? "Auto-fix: " + String((text.split("<<<GITHUB\n")[1] || text.split("\n").filter(Boolean)[1] || "").split("\n")[0]).slice(0, 160) : text || "(see the picture)", images: pics.images, messages, repo: meta.repo, base: meta.base, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn + 1), fetch: fetchWanted(meta, { fromGithub: body.fromGithub === true, autofix: body.autofix === true, review }), ...(meta.readOnly ? { readOnly: true } : {}), effort: pick.effort, prefs: machinePrefs(saved), hooks: machineHooks(saved), autoMode: machineAutoMode(saved), memory, setup, github: body.fromGithub === true, away: body.fromGithub !== true && messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0, lastJob: lastJobFor(meta), environment, envMoved: meta.envMoved === true, cache: { make: copyOn && !copyWait, ...(copyWait ? { note: copyWait } : {}) }, ...(next.jobReplyTo ? { replyTo: next.jobReplyTo } : {}) }, useCopy ? { [FROM_COPY]: useCopy.snapshot, [FROM_COPY_GB]: String(Number(useCopy.size) || 0) } : {});
+      r = await post("/turn", { start: claim.id, secrets, egress, live, model: modelNow, extra: extraFor(meta), ...connOn, project: id, chatUrl: chatLinkOf(env, id), emailMark: emailNow, cwd: typeof meta.cwd === "string" ? meta.cwd : "", mode: noAuto(normMode(meta.mode), saved), prePlanMode: noAuto(saved.mode === "acceptEdits" ? "acceptEdits" : "auto", saved), rules: await rulesOf(bucket, uid, meta.repo), ...sessionRulesOn(meta), ...customTitleOn(meta), ...wakeOn, ...shellOn, ...compactOn, ...takeUpOn, ...bgOn, ...lastAtOn, text: takeUp || wake || shell || compactJob ? "" : review ? review.text.split("BASE_BRANCH").join(meta.base) : (text || "(see the picture)") + fileMentions(text), shown: takeUp || wake || shell || compactJob ? "" : body.fromGithub === true && body.autofix !== true && typeof body.shown === "string" && body.shown.trim() ? body.shown.slice(0, 300) : body.autofix === true ? "Auto-fix: " + String((text.split("<<<GITHUB\n")[1] || text.split("\n").filter(Boolean)[1] || "").split("\n")[0]).slice(0, 160) : text || "(see the picture)", images: pics.images, messages, repo: meta.repo, base: meta.base, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn + 1), fetch: fetchWanted(meta, { fromGithub: body.fromGithub === true, autofix: body.autofix === true, review }), ...(meta.readOnly ? { readOnly: true } : {}), effort: pick.effort, prefs: machinePrefs(saved), hooks: machineHooks(saved), autoMode: machineAutoMode(saved), memory, memoryFiles, setup, github: body.fromGithub === true, away: body.fromGithub !== true && messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0, lastJob: lastJobFor(meta), environment, envMoved: meta.envMoved === true, cache: { make: copyOn && !copyWait, ...(copyWait ? { note: copyWait } : {}) }, ...(next.jobReplyTo ? { replyTo: next.jobReplyTo } : {}) }, useCopy ? { [FROM_COPY]: useCopy.snapshot, [FROM_COPY_GB]: String(Number(useCopy.size) || 0) } : {});
       } catch (e) {
         await notStarted();
         return json({ error: "Coder's machine could not be started (" + String((e && e.message) || e).replace(/\s+/g, " ").slice(0, 200) + "). Try again in a minute." }, 502);
@@ -2179,13 +2186,14 @@ export async function handleCoder(request, env, ctx, deps) {
       const pushNow = !meta.readOnly && pushWanted(res, meta);
       const gitWork = !(res.dirty === false && !pushNow && !res.undoRequest && !res.prRequest && !(Array.isArray(res.prExtra) && res.prExtra.length) && !res.reviewPost && !(Array.isArray(res.reviewReplies) && res.reviewReplies.length) && !res.autofixRequest);
       // THE SAVE'S READS, TOGETHER (2026-11-16).
-      const [old, t, chatLink, hidden, envNow, oldMemory] = await Promise.all([
+      const [old, t, chatLink, hidden, envNow, oldMemory, oldMemoryFiles] = await Promise.all([
         getJson(bucket, keyOf(uid, id, "events.json"), []),
         gitWork ? userToken(env, bucket, uid, { fetchFn }) : null,
         gitWork ? chatLinkFor(env, bucket, uid, meta, id) : "",
         hiddenValues(env, bucket, uid, meta),
         getJson(bucket, metaKey, null),
         typeof res.memory === "string" ? bucket.get(memoryKey(uid, meta.repo)).then((o) => (o ? o.text() : null)).catch(() => null) : null,
+        res.memoryFiles && typeof res.memoryFiles === "object" ? getJson(bucket, memoryFilesKey(uid, meta.repo), {}).catch(() => ({})) : null,
       ]);
       const fresh = Array.isArray(all.events) ? all.events.slice() : [];
       const own0 = fresh.length;
@@ -2363,9 +2371,12 @@ export async function handleCoder(request, env, ctx, deps) {
       const allEvents = [...old, ...fresh], keptEvents = allEvents.slice(-MAX_EVENTS);
       // THE SAVE'S WRITES, TOGETHER; the memory only when it changed (2026-11-16).
       const memNew = typeof s.result.memory === "string" ? s.result.memory.slice(0, MEMORY_MAX) : null;
+      // (Its topic files, kept the same way: only when they changed, never from a job started on GitHub. Audit M-f-17.)
+      const memFilesNew = s.result.memoryFiles && typeof s.result.memoryFiles === "object" && !Array.isArray(s.result.memoryFiles) ? cleanMemoryFiles(s.result.memoryFiles) : null;
       await Promise.all([
         bucket.put(keyOf(uid, id, "messages.json"), capped.text, { httpMetadata: { contentType: "application/json" } }),
         memNew !== null && memNew !== oldMemory && meta.jobFromGithub !== true ? bucket.put(memoryKey(uid, meta.repo), memNew, { httpMetadata: { contentType: "text/markdown" } }) : null,
+        memFilesNew !== null && !sameMemoryFiles(memFilesNew, cleanMemoryFiles(oldMemoryFiles)) && meta.jobFromGithub !== true ? putJson(bucket, memoryFilesKey(uid, meta.repo), memFilesNew) : null,
         putJson(bucket, keyOf(uid, id, "events.json"), keptEvents),
       ]);
       // The oldest history may have been trimmed: Rewind's marks move with it.
