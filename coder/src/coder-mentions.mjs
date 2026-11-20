@@ -17,7 +17,7 @@ import { readReviewEvent, handleReviewEvent } from "./coder-review.mjs";
 const enc = new TextEncoder();
 // A whole word: "@coder-bot" or "@coder_x" is someone else (Claude Code: "a complete word, not @claude-bot").
 export const MENTION = /(^|[^\w-])@coder(?![\w-])/i;
-const JOB_PREFIX = "coder/github-jobs/";
+export const JOB_PREFIX = "coder/github-jobs/";
 const THREAD_PREFIX = "coder/github-threads/";
 export const JOB_MAX_MS = 2 * 60 * 60 * 1000;
 // THE AUDIT (2026-11-05): text from GitHub (issues, pull requests, reviews, CI
@@ -271,7 +271,7 @@ export async function startMention(env, deps, m) {
  * first one's).
  */
 async function queueStart(bucket, job, body) {
-  await putJson(bucket, JOB_PREFIX + job.uid + "__" + job.id + "__" + (job.ackId || Date.now()) + ".json", { ...job, at: Date.now(), start: body });
+  await putJson(bucket, JOB_PREFIX + job.uid + "__" + job.id + "__" + (job.ackId || Date.now() + "-" + Math.random().toString(36).slice(2, 8)) + ".json", { ...job, at: Date.now(), start: body });
 }
 
 // ── AUTO-FIX PULL REQUESTS (owner, 2026-11-05, "4") ─────────────────────────
@@ -374,7 +374,7 @@ export async function startAutofix(env, deps, f) {
   // OFF UNTIL TURNED ON, for each pull request (owner item 2, like Claude Code: "turn on Auto-fix" in the
   // pull request's menu, or tell Claude to auto-fix it).
   if (meta.autofix !== true) return { ok: false, why: "auto-fix off" };
-  if (meta.status === "running") return { ok: false, why: "busy" };
+  // A BUSY CHAT: the event still waits (its job is kept until the chat is free), as Claude Code's auto-fix sees every event.
   if ((meta.autofixTries || 0) >= AUTOFIX_MAX) return { ok: false, why: "too many tries" };
   const botToken = await installationToken(env, f.installation, fetchFn);
   // A FAILED CHECK ON THE PULL REQUEST'S NEWEST COMMIT only, whoever made it (a watched pull request has
@@ -512,6 +512,8 @@ export async function runMentionJobs(env, deps, now = Date.now()) {
           .then(async (x) => ({ status: x.status, data: await x.json().catch(() => ({})) }))
           .catch((e) => ({ status: 0, data: { error: String((e && e.message) || e) } }));
         if (r.status === 200) { const t = Number(r.data && r.data.project && r.data.project.turn); await putJson(bucket, o.key, { ...rest, at: now, sentAt, ...(Number.isInteger(t) ? { turn: t } : {}) }); started++; return; }
+        // AUTO-FIX WHILE THE CHAT IS BUSY: kept for the next minute's check (up to JOB_MAX_MS), never dropped unseen.
+        if (r.status === 409 && start && start.autofix === true && now - Number(job.at || 0) < JOB_MAX_MS) { await putJson(bucket, o.key, { ...rest, start }); return; }
         if (await told(o, job, "@" + job.login + " Coder could not start: " + String((r.data && r.data.error) || r.status).slice(0, 200))) finished++;
       })().catch((e) => console.log("coder job start failed: " + String((e && e.message) || e).slice(0, 200))));
       continue;

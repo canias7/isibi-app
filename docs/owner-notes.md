@@ -4,6 +4,13 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-19: Claude Code fixes, batch 28
+
+- Three of the ten audit items in this batch fixed (two of them the same problem), each with a test; seven left (below). Gloopy, connectors and MCP were not touched. Not deployed or merged, so none of it has been tried live in the browser yet.
+- **Auto-fix no longer loses review comments:** when several review comments or failed checks arrive while Coder is busy in that chat, each one now waits and is handed to Coder once the chat is free (for up to 2 hours), instead of only the first being used and the rest thrown away. As in Claude Code, every event reaches Coder. They still never join a turn that is already running (your choice of 2026-11-09).
+- **Code review's messages on GitHub, Claude Code's way:** where code review is off, `@coder review` now gets no reply at all; someone without write access gets Claude Code's exact tip, but not on their own pull request; findings that can't sit on a line go under an "Additional findings" heading.
+- **Left for you to decide:** a daily/monthly cap on Grok spending; a monthly limit and usage page for code review; who controls code review once someone is removed; deleting a chat's saved setup copies when the chat is deleted. Also left: which branch's REVIEW.md to trust (needs a check of the GitHub app's permissions), a working folder added mid-job counting at once (a bigger machine-side change, for its own batch), and two messages sent to one chat at the same instant (the fix runs through code Gloopy shares, which this batch may not touch).
+
 ## 2026-11-19: Claude Code fixes, batch 27
 
 - Five of the nine audit items in this batch fixed (one in part), each with a test; four left (below). Gloopy, connectors and MCP were not touched. Not deployed or merged, so none of it has been tried live in the browser yet.

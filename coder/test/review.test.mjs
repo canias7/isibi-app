@@ -110,7 +110,7 @@ test("CD183 a review: several finders, then a check that drops false positives; 
   assert.equal(review.body.event, "COMMENT");
   assert.equal(review.body.commit_id, "h1");
   assert.deepEqual(review.body.comments, [{ path: "src/cart.js", line: 3, side: "RIGHT", body: "🔴 **Important**: Division by zero\n\nc is always Infinity.\n\n<details><summary>Why this was flagged</summary>\n\nLine 3 divides b by 0.\n\n</details>" }]);
-  assert.match(review.body.body, /^\*\*Coder Review\*\*: 2 findings \(1 Important, 1 Nit\)\.\n\n- 🟡 \*\*Nit\*\* `src\/cart\.js:40`: Unused d\. d is never read\.\n\nThis review never approves or blocks the pull request\./);
+  assert.match(review.body.body, /^\*\*Coder Review\*\*: 2 findings \(1 Important, 1 Nit\)\.\n\n### Additional findings\n\n- 🟡 \*\*Nit\*\* `src\/cart\.js:40`: Unused d\. d is never read\.\n\nThis review never approves or blocks the pull request\./);
   // THE CHECK RUN: in progress, then neutral, with the details' table and counts line; the off-diff finding as an annotation.
   const done = gh.posts(/\/check-runs\/555$/).at(-1).body;
   assert.deepEqual([done.status, done.conclusion, done.output.title, done.output.summary], ["completed", "neutral", "Code review found 2 issues", "1 Important, 1 Nit."]);
@@ -174,7 +174,7 @@ test("CD185 what starts a review: the repository's Review runs (After every push
   const env = { CODER_BUCKET: bucket };
   const set = (runs) => bucket.put(R.repoReviewKey("ana/shop"), JSON.stringify({ repo: "ana/shop", uid: UID, runs, level: "deep" }));
   const run = async (ev, o = {}) => {
-    const gh = fakeGithub({ files: FILES, perm: o.perm || "write" });
+    const gh = fakeGithub({ files: FILES, perm: o.perm || "write", pr: o.pr || {} });
     const d = { fetchFn: gh.fetchFn, token: async () => "app-token", account: async (login) => (login === "ana" || login === "reader" ? { uid: UID, email: "me@x.y" } : null), allowed: (e) => e === "me@x.y" };
     const r = await R.handleReviewEvent(env, d, ev);
     return { r, gh };
@@ -215,7 +215,10 @@ test("CD185 what starts a review: the repository's Review runs (After every push
   x = await run(cmd("once", "stranger"));
   assert.deepEqual([x.r.why, x.gh.asked.length], ["not allowed", 0]);
   x = await run(cmd("once", "reader"), { perm: "read" });
-  assert.match(x.gh.posts(/\/issues\/7\/comments$/)[0].body.body, /^@reader No review was started: only people with write access to ana\/shop can request a Coder review\.$/);
+  assert.match(x.gh.posts(/\/issues\/7\/comments$/)[0].body.body, /^@reader No review was started: manual reviews can only be requested by someone with write access to this repository\.$/);
+  // Not on the asker's own pull request (Claude Code's troubleshooting page).
+  x = await run(cmd("once", "reader"), { perm: "read", pr: { user: { login: "reader" } } });
+  assert.deepEqual([x.r.why, x.gh.posts(/\/issues\/7\/comments$/).length], ["no write access", 0]);
   // "@coder review always": 👀, subscribed, a whole review queued.
   x = await run(cmd("always"));
   assert.deepEqual(x.gh.posts(/\/reactions$/)[0].body, { content: "eyes" });
@@ -237,10 +240,12 @@ test("CD185 what starts a review: the repository's Review runs (After every push
   // ONE AT A TIME: a review already running on the newest commit is not started again.
   await bucket.put(stKey, JSON.stringify({ running: { sha: "h1", at: Date.now() } }));
   assert.deepEqual((await run(cmd("once"))).r, { ok: true, already: true });
-  // Off again: a command gets a tip.
+  // Off again: silent, no comment and no check run (Claude Code's way).
   bucket.m.delete(R.repoReviewKey("ana/shop"));
   x = await run(cmd("once"));
-  assert.match(x.gh.posts(/\/issues\/7\/comments$/).at(-1).body.body, /^@ana Coder Review isn't turned on for ana\/shop\. Turn it on at gofarther\.dev: Repositories, then Code review\.$/);
+  assert.deepEqual([x.r.why, x.gh.asked.filter((a) => a.method !== "GET").length], ["off", 0]);
+  // Findings with no line go under "Additional findings".
+  assert.match(R.reviewBody([{ severity: "nit", path: "a.js", line: 0, title: "t" }], [{ severity: "nit", path: "a.js", line: 0, title: "t" }]), /\n\n### Additional findings\n\n- /);
 });
 
 test("CD186 the every-minute check runs queued reviews (three at most), once each, and lets a newer one stay; the owner's setting needs push access where Coder's app is installed; the Repositories screen has it", async () => {

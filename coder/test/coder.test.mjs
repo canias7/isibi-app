@@ -1437,7 +1437,7 @@ test("CD48 auto-fix (like Claude Code's, owner item 2): off until turned on; a f
   assert.deepEqual(lastStart.replyTo, { pr: 9, ids: [4242] });
   assert.match(lastStart.text, /This is review comment 4242: once you have resolved it, you may answer in its thread on GitHub with reply_review/);
   meta = { ...meta, autofix: true, status: "running" };
-  assert.equal((await M.startAutofix(env, { coder, fetchFn }, f)).why, "busy");
+  assert.equal((await M.startAutofix(env, { coder, fetchFn }, f)).ok, true, "a busy chat's event waits, never refused");
 });
 
 test("CD49 pictures are read as data: addresses (the page's rules block blob: ones)", () => {

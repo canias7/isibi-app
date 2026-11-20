@@ -119,3 +119,17 @@ test("CD171 at the job's end, the Worker answers in the review thread as the own
   await go("projects/" + ID + "/state?since=0");
   assert.deepEqual(gh.filter(([m]) => m === "POST"), []);
 });
+
+test("CD-I51 review comments that arrive while the chat is busy all reach Coder once it is free, none dropped", async () => {
+  const M = await import("../src/coder-mentions.mjs");
+  const bucket = fakeBucket();
+  for (let k = 0; k < 3; k++) await bucket.put(M.JOB_PREFIX + "u1__shop-ab12__" + k + ".json", JSON.stringify({ uid: "u1", email: "me@x.y", id: "shop-ab12", repo: "a/b", number: null, login: "", installation: 1, ackId: null, at: Date.now(), start: { text: "comment " + k, autofix: true, fromGithub: true } }));
+  let busy = true; const sent = [];
+  const coder = async (req) => { if (req.method === "POST") { if (busy) return Response.json({ error: "Coder is still working on the last message" }, { status: 409 }); sent.push((await req.json()).text); return Response.json({ ok: true, project: { turn: sent.length } }); } return Response.json({ ok: true, project: { status: "running", turn: 99 }, running: true }); };
+  const env = { CODER_BUCKET: bucket };
+  await M.runMentionJobs(env, { coder, fetchFn: async () => new Response("{}", { status: 404 }) });
+  assert.equal([...bucket.m.keys()].filter((k) => k.startsWith(M.JOB_PREFIX)).length, 3, "kept while busy");
+  busy = false;
+  for (let i = 0; i < 3; i++) await M.runMentionJobs(env, { coder, fetchFn: async () => new Response("{}", { status: 404 }) });
+  assert.deepEqual(sent.sort(), ["comment 0", "comment 1", "comment 2"]);
+});

@@ -127,9 +127,15 @@ export async function handleReviewEvent(env, d, ev) {
     // WRITE ACCESS, checked with GitHub for each person (Claude Code: "write, maintain, or admin permission").
     const perm = await api("/repos/" + ev.repo + "/collaborators/" + encodeURIComponent(ev.login) + "/permission");
     const role = String((perm.data && (perm.data.role_name || perm.data.permission)) || "");
-    if (!["admin", "maintain", "write"].includes(role)) { if (tips && ev.kind === "command") await say("@" + ev.login + " No review was started: only people with write access to " + ev.repo + " can request a Coder review."); return { ok: false, why: "no write access" }; }
-    if (!setting) { await say("@" + ev.login + " Coder Review isn't turned on for " + ev.repo + ". Turn it on at gofarther.dev: Repositories, then Code review."); return { ok: false, why: "off" }; }
+    // OFF: silent, no comment and no check run (Claude Code's troubleshooting page).
+    if (!setting) return { ok: false, why: "off" };
     const pr = await api("/repos/" + ev.repo + "/pulls/" + ev.number);
+    if (!["admin", "maintain", "write"].includes(role)) {
+      // The tip, unless the pull request is the asker's own (Claude Code's wording).
+      const own = pr.ok && pr.data && pr.data.user && String(pr.data.user.login).toLowerCase() === String(ev.login).toLowerCase();
+      if (tips && ev.kind === "command" && !own) await say("@" + ev.login + " No review was started: manual reviews can only be requested by someone with write access to this repository.");
+      return { ok: false, why: "no write access" };
+    }
     if (!pr.ok || !pr.data || pr.data.state !== "open") return { ok: false, why: "not open" };
     if (ev.kind === "rerun") return queueReview(env, api, { repo: ev.repo, number: ev.number, sha: String(pr.data.head.sha), installation: ev.installation, uid: setting.uid, level: setting.level, full: true, why: "rerun", ...(String(pr.data.head.sha) === ev.sha ? { checkId: ev.checkId } : {}) });
     // 👀 on the comment (Claude Code "may also react to your comment with 👀").
@@ -539,7 +545,7 @@ export function findingText(f) {
 const countLine = (list) => { const c = (s) => list.filter((f) => f.severity === s).length; return [c("important") && c("important") + " Important", c("nit") && c("nit") + " Nit" + (c("nit") === 1 ? "" : "s"), c("pre_existing") && c("pre_existing") + " Pre-existing"].filter(Boolean).join(", ") + "."; };
 export function reviewBody(found, listed, notes = [], fixed = 0) {
   return "**Coder Review**: " + found.length + " finding" + (found.length === 1 ? "" : "s") + " (" + countLine(found).replace(/\.$/, "") + ")." + (fixed ? " " + fixed + " earlier finding" + (fixed === 1 ? " is" : "s are") + " fixed." : "") +
-    (listed.length ? "\n\n" + listed.map((f) => "- " + SEV[f.severity][0] + " **" + SEV[f.severity][1] + "** `" + f.path + (f.line ? ":" + f.line : "") + "`: " + f.title + (f.body ? ". " + f.body : "")).join("\n") : "") +
+    (listed.length ? "\n\n### Additional findings\n\n" + listed.map((f) => "- " + SEV[f.severity][0] + " **" + SEV[f.severity][1] + "** `" + f.path + (f.line ? ":" + f.line : "") + "`: " + f.title + (f.body ? ". " + f.body : "")).join("\n") : "") +
     (notes.length ? "\n\n" + notes.join(" ") : "") +
     "\n\nThis review never approves or blocks the pull request. To clear a finding, push a fix or resolve its thread; reply to explain, and the next review reads it.";
 }
