@@ -4,6 +4,13 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-19: Claude Code fixes, batch 23
+
+- Two of the ten audit items in this batch fixed, each with a test; eight left for later (below). Gloopy, connectors and MCP were not touched. Not deployed or merged, so none of it has been tried live in the browser yet.
+- **Message checks:** your "check my message" hooks (UserPromptSubmit) now also run on a message you send while Coder is still working, as in Claude Code. A hook can block it (the chat says so) or add notes to it.
+- **Saving to GitHub:** new files that usually hold passwords or keys (such as .env or private key files) are now left out when Coder saves the chat's work, and Coder is told not to leave them in the project. Example files like .env.example are still saved, and a file the repository already keeps is still saved. A safety tightening.
+- **Left for later:** sending files to you from Coder's chat, a /context window, a /debug log for hooks, letting agent hooks run commands (needs your yes), hooks that add or remove working folders, full approval cards with no 40-line cut, dropping a picture Grok refuses, and making Coder's own push and pull-request steps follow your rules and Auto's checker. These are bigger changes, and the page ones need screenshots for you first.
+
 ## 2026-11-19: Claude Code fixes, batch 22
 
 - Five of the ten audit items in this batch fixed, each with a test; five left for later (below). Gloopy, connectors and MCP were not touched. Not deployed or merged, so none of it has been tried live in the browser yet.

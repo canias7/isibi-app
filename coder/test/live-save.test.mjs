@@ -346,3 +346,23 @@ test("B21e L-ops-09 a lost job on Fly.io (the chat's disk is kept) says its file
   const src = (await import("node:fs")).readFileSync(new URL("../src/coder-routes.mjs", import.meta.url), "utf8");
   assert.match(src, /keptDisk \? "Understood: that job was cut off; its file changes so far are still in the folder, not saved yet\."/);
 });
+
+test("CD-b23b a save leaves out new files that likely hold secrets (.env, keys), keeps .env.example, and still saves a .env the repository already tracks (audit M-g-01)", async () => {
+  const { execFileSync } = await import("node:child_process");
+  const { mkdtempSync, writeFileSync: w, mkdirSync } = await import("node:fs");
+  const { join } = await import("node:path");
+  const { tmpdir } = await import("node:os");
+  const { treeDirty, LIKELY_SECRET, gitDirFor } = await import("../container/server.mjs");
+  assert.ok(LIKELY_SECRET.includes(".env") && LIKELY_SECRET.includes("!.env.example"));
+  const root = mkdtempSync(join(tmpdir(), "b23-")), dir = join(root, "p"), gitRoot = join(root, "g");
+  mkdirSync(dir); mkdirSync(gitRoot);
+  const gd = gitDirFor(dir, gitRoot);
+  const g = (...a) => execFileSync("git", ["--git-dir=" + gd, "--work-tree=" + dir, ...a], { encoding: "utf8" });
+  execFileSync("git", ["init", "-q", "--bare", gd]); g("config", "core.bare", "false");
+  w(join(dir, "tracked.key"), "old"); g("add", "-f", "tracked.key"); g("-c", "user.name=a", "-c", "user.email=a@b.c", "commit", "-qm", "x");
+  w(join(dir, ".env"), "A=1"); w(join(dir, ".env.example"), "A="); w(join(dir, "id_rsa"), "k"); w(join(dir, "app.js"), "1"); w(join(dir, "tracked.key"), "new");
+  await treeDirty([dir], gitRoot, root);
+  const st = g("status", "--porcelain");
+  assert.match(st, /\?\? \.env\.example/); assert.match(st, /\?\? app\.js/); assert.match(st, / M tracked\.key/);
+  assert.doesNotMatch(st, /\?\? \.env\n/); assert.doesNotMatch(st, /id_rsa/);
+});

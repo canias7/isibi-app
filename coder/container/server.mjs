@@ -2389,8 +2389,16 @@ async function excludeJunk(dir, gitRoot) {
   await mkdir(dirname(file), { recursive: true });
   const old = await readFile(file, "utf8").catch(() => "");
   const add = NEVER_COMMIT.filter((x) => !old.split("\n").includes(x));
-  if (add.length) await writeFile(file, old + (old && !old.endsWith("\n") ? "\n" : "") + "# installed packages and caches (Coder)\n" + add.join("\n") + "\n");
+  let text = old;
+  if (add.length) text = old + (old && !old.endsWith("\n") ? "\n" : "") + "# installed packages and caches (Coder)\n" + add.join("\n") + "\n";
+  // FILES THAT LIKELY HOLD SECRETS (audit M-g-01; Claude Code: "Claude is now told not to commit files that likely contain
+  // secrets"): Coder's service commits for the AI, so a new one is left out here. Only new files: one the repository already
+  // tracks keeps being saved, as git's exclude list never applies to tracked files.
+  if (!text.includes(SECRET_MARK)) text += (text && !text.endsWith("\n") ? "\n" : "") + SECRET_MARK + "\n" + LIKELY_SECRET.join("\n") + "\n";
+  if (text !== old) await writeFile(file, text);
 }
+const SECRET_MARK = "# files that likely hold secrets (Coder)";
+export const LIKELY_SECRET = [".env", ".env.*", "!.env.example", "!.env.sample", "!.env.template", "*.pem", "*.key", "id_rsa*", "id_ed25519*", "id_ecdsa*", "credentials.json", ".claude/settings.local.json", ".coder/settings.local.json"];
 /**
  * WHAT A SAVE LEAVES OUT IS SAID, AND A SUBMODULE MOVED TO ANOTHER COMMIT IS
  * STILL SAVED (the audit, 2026-11-06: keeping root's git out of those folders

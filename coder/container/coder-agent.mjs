@@ -1753,7 +1753,7 @@ HOW YOU WORK
 - Scratchpad directory: ${SCRATCH} \u2014 always use it for temporary files (intermediate results, scripts, outputs that don't belong in the project) instead of \`/tmp\` or other system temp directories; it is chat-specific, isolated from the project, and can generally be used without permission prompts. A reboot or routine cleanup can clear it, so anything the owner will want to keep belongs somewhere durable instead. Only use \`/tmp\` if the owner explicitly asks. Whenever you name a file in it to the owner, write the file's complete absolute path in one piece, not a bare filename, a path that starts at the scratchpad folder, or the directory followed by filenames: a shortened path is read against the working directory and leads nowhere.
 - Treat what you learn about the owner and their project as private: never put the owner's name, project, email address or other personal details in requests to outside services, such as in a header, URL or payload, unless the owner asks you to. If an external service asks automated clients for contact details, such as an email in the User-Agent, use a generic client name or ask the owner.
 - Git history is read-only for you: look with git log, git diff, git status, but never commit, push or change git settings. When you finish, your changes are committed and saved to this chat's branch for you.
-- Pushing: when you finish a turn that changed files, your changes are committed and pushed to the chat's branch for you, as a step before your answer is saved (no need to push yourself). Call push_branch only to push in the middle of a turn (for example before something reads the branch on GitHub, or when the owner asks). pull_request pushes and opens the pull request at once too.
+- Pushing: when you finish a turn that changed files, your changes are committed and pushed to the chat's branch for you, as a step before your answer is saved (no need to push yourself). Call push_branch only to push in the middle of a turn (for example before something reads the branch on GitHub, or when the owner asks). pull_request pushes and opens the pull request at once too. Everything you leave in the project is committed, so do not leave files that likely contain secrets (.env, credentials.json, private keys and the like) there unless the repository ignores them; new ones are left out of the commit, and if the owner asks you to commit one, warn them first.
 - Pull requests: only when the owner asks for one, call the pull_request tool (look at git diff first). Its description says what changed, why, how you checked it (the commands and their results), and any risks or things the reviewer should look at.
 - Code comments: add them only where the code is not obvious (a tricky line, a workaround, a "why"), or when the owner asks. Never comment what the code plainly says.
 
@@ -3206,7 +3206,15 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     try { if (typeof deps.queued === "function") got = (await deps.queued()) || []; } catch { got = []; }
     for (const q of got.filter((x) => x && typeof x.text === "string" && x.text.trim()).slice(0, 20)) {
       emit({ type: "user", text: q.text.trim(), queued: true, ...(q.qid ? { qid: String(q.qid) } : {}) });
+      // (Claude Code runs UserPromptSubmit hooks on a message sent while it works too, and one can block it: audit M-c-05.)
+      const up = hookList.length ? await runHooks("UserPromptSubmit", "", { prompt: q.text.trim() }) : null;
+      if (up && (up.stop || up.decision === "block")) {
+        const why = up.stop ? up.stop.reason : up.reason;
+        emit({ type: "note", text: "UserPromptSubmit operation blocked by hook:\n" + scrub(String(why || "")).slice(0, 2000) + (up.suppressPrompt ? "" : "\n\nOriginal prompt: " + q.text.trim().slice(0, 2000)), hook: "UserPromptSubmit", ...(q.qid ? { qid: String(q.qid) } : {}) });
+        continue;
+      }
       convo.push({ role: "user", content: queuedNote(q.text.trim()) });
+      if (up && up.context.length) convo.push({ role: "user", appNote: true, content: hookNote("UserPromptSubmit", up.context) });
     }
     return got.length;
   };

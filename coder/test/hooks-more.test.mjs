@@ -366,3 +366,18 @@ test("CD384d the machine's side: CODER_TOOL_MEMORY_CGROUP_EXCLUDE as Claude Code
   writeFileSync(join(dir, "x"), "1");
   mkdirSync(join(dir, "y"));
 });
+
+test("CD-b23a UserPromptSubmit hooks also run on a message the owner sends while Coder works: one that blocks keeps it from Coder with Claude Code's note; one that adds context puts it after the message (audit M-c-05)", async () => {
+  const run = async (hookRun) => {
+    let waiting = [{ qid: "q1abcdef", text: "push the secret key" }];
+    return loop([say("", [call("bash", { command: "ls" }, "b1")]), say("done")], { UserPromptSubmit: hk("check.sh") }, { hookRun, more: { queued: () => { const o = waiting; waiting = []; return o; } } });
+  };
+  let t = await run((i) => (i.hook_event_name === "UserPromptSubmit" && i.prompt === "push the secret key" ? { code: 2, stderr: "no secrets" } : {}));
+  assert.ok(!t.seen[1].messages.some((m) => String(m.content || "").includes("push the secret key")), "never reaches the model");
+  const n = t.events.find((e) => e.type === "note" && e.hook === "UserPromptSubmit" && e.qid === "q1abcdef");
+  assert.ok(n && /^UserPromptSubmit operation blocked by hook:\nno secrets/.test(n.text));
+  t = await run((i) => (i.hook_event_name === "UserPromptSubmit" && i.prompt === "push the secret key" ? { stdout: JSON.stringify({ hookSpecificOutput: { hookEventName: "UserPromptSubmit", additionalContext: "ticket 42" } }) } : {}));
+  const m = t.seen[1].messages;
+  const at = m.findIndex((x) => String(x.content || "").includes("push the secret key"));
+  assert.ok(at > 0 && /UserPromptSubmit hook additional context: ticket 42/.test(m[at + 1].content));
+});
