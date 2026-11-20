@@ -158,10 +158,12 @@ export function makeUpper({ data, image, tools = "" } = {}) {
   try {
     const top = join(data, ".coder-admin");
     mkdirSync(top, { recursive: true, mode: 0o711 });
-    chownSync(top, 0, 0);
-    chmodSync(top, 0o711);
+    // (Old layers go first, before the root-only steps: a layer made for other tools is never used again, whether or not
+    // the rest can be done; as a user other than root, chown failed before they went.)
     const tag = layerTag({ image, tools });
     for (const old of readdirSync(top)) if (old !== tag) rmSync(join(top, old), { recursive: true, force: true });
+    chownSync(top, 0, 0);
+    chmodSync(top, 0o711);
     const here = join(top, tag);
     mkdirSync(here, { recursive: true, mode: 0o711 });
     chmodSync(here, 0o711);

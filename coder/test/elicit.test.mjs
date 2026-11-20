@@ -1148,6 +1148,16 @@ test("EL24 (round 6) a 2026-07-28 server's questions come in its result (input_r
   assert.equal(x.error.message, E.timedOutText("Linear", "make_issue", 400));
   assert.equal(never.withdrawn.length, 1);
   assert.equal(x.calls.length, 1);
+  // (CI, 2026-11-20) The timer, not the wall clock, says the time ran out: with Date.now() behind the timers (a timer can
+  // fire before Date.now() reaches its deadline), still the time-out's words, not "the question was withdrawn".
+  const realNow = Date.now, t0 = realNow();
+  Date.now = () => t0 + Math.floor((realNow() - t0) / 2);
+  try {
+    const never2 = machine(() => new Promise(() => {}));
+    x = await run([need({ q: { method: "elicitation/create", params: FORM } }, "s"), done], { ask: never2.ask, totalMs: 400 });
+    assert.equal(x.error.message, E.timedOutText("Linear", "make_issue", 400));
+    assert.equal(never2.withdrawn.length, 1);
+  } finally { Date.now = realNow; }
 });
 
 test("EL25 (round 6) a tool's x-mcp-header properties, as Claude Code's client takes them on a 2026-07-28 session: valid ones give each call its Mcp-Param-<name> headers (strings as they are, numbers and booleans as text, Base64 in its sentinel when not plain ASCII, none for a value not given); a tool with an invalid one is left out of that session's list (kept on an earlier one); a call refused for its headers (HeaderMismatch) is made once more after the list is read again", async () => {

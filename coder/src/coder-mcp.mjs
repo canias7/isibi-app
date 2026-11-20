@@ -578,9 +578,12 @@ async function httpSession(url, token, steps, { fetchFn = fetch, idleMs = 0, req
       let answers = null;
       if (asks.length) {
         const ctl = new AbortController();
-        const timer = deadline ? setTimeout(() => ctl.abort(), Math.max(0, deadline - Date.now())) : null;
+        // (Whether the call's own time ran out is the timer's word, not Date.now(): a Node timer can fire a millisecond
+        // before the wall clock reaches the deadline, which read the time-out as a plain withdrawal on a busy machine.)
+        let outOfTime = false;
+        const timer = deadline ? setTimeout(() => { outOfTime = true; ctl.abort(); }, Math.max(0, deadline - Date.now())) : null;
         try { answers = Object.fromEntries(await Promise.all(asks.map(async ([k, q]) => { try { return [k, await talk.input(k, q, { during: method, signal: ctl.signal })]; } catch (e) { ctl.abort(); throw e; } }))); }
-        catch (e) { if (e && e.withdrawn && deadline && Date.now() >= deadline) throw new Error(talk.timedOut(totalMs || CALL_TOTAL_MS)); throw e; }
+        catch (e) { if (e && e.withdrawn && deadline && (outOfTime || Date.now() >= deadline)) throw new Error(talk.timedOut(totalMs || CALL_TOTAL_MS)); throw e; }
         finally { clearTimeout(timer); }
       } else await napUntil(EMPTY_ROUND_MS, null, wait);
       r = await send(retryParams(params, answers, d.input.requestState));

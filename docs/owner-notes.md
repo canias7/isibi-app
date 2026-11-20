@@ -9,6 +9,7 @@ log (81,000 lines) is in git history.
 - **Coder's memory is now a folder of notes, like Claude Code's:** MEMORY.md is an index (one line per memory) and each memory sits in its own small file beside it, marked as being about you, your feedback, the project, or where to find things. Only the index loads when a chat starts; Coder opens a note when it needs it. The notes are kept per repository between chats, a note gets a "modified" time when Coder changes it, and Coder is told to skip what the code or git history already shows. Old memories load as before (as the index). Gloopy's notes are unchanged.
 - **Already done before:** a job started from GitHub already neither sees nor changes the repository's memory (that now covers the new note files too), and after Rewind's "Summarize up to here" the chat's size was already counted fresh.
 - Looks: nothing changes on the page.
+- **Deploy's tests fixed (2 failed only on GitHub's machine):** a connector question that runs out of time now always says it timed out (the timer, not the clock, decides), and old setup layers are cleared even when the tests don't run as root; both checked as a non-root user, 10 times each.
 
 ## 2026-11-20: Bigger Claude Code fixes, part 12
 
