@@ -979,7 +979,23 @@ export const REPO_OWN_ENV = { BASH_DEFAULT_TIMEOUT_MS: "BASH_DEFAULT_TIMEOUT_MS"
   // (Auto-compact's, Claude Code's: the two switches under their own names, its window under Coder's. The owner, 2026-11-14:
   // "yes copy claude code"; coder-compact.mjs compactSettings. Not its CLAUDE_AUTOCOMPACT_PCT_OVERRIDE, which a cloud session
   // sets itself over the user's: compactVarsFor.)
-  DISABLE_COMPACT: "DISABLE_COMPACT", DISABLE_AUTO_COMPACT: "DISABLE_AUTO_COMPACT", CLAUDE_CODE_AUTO_COMPACT_WINDOW: "CODER_AUTO_COMPACT_WINDOW" };
+  DISABLE_COMPACT: "DISABLE_COMPACT", DISABLE_AUTO_COMPACT: "DISABLE_AUTO_COMPACT", CLAUDE_CODE_AUTO_COMPACT_WINDOW: "CODER_AUTO_COMPACT_WINDOW",
+  // (Four more none of which is on Claude Code's list of names project settings can't set, 2026-11-20 batch 26: the extra
+  // folders' instructions switch, the retry count, and the scrub with its script caps; a repository may only turn the scrub
+  // on, see scrubFrom.)
+  CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: "CODER_ADDITIONAL_DIRECTORIES_CODER_MD", CLAUDE_CODE_MAX_RETRIES: "CODER_MAX_RETRIES",
+  CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "CODER_SUBPROCESS_ENV_SCRUB", CLAUDE_CODE_SCRIPT_CAPS: "CODER_SCRIPT_CAPS" };
+/**
+ * THE SCRUB AND ITS CAPS from the owner's variables and the repository's settings (batch 26): on with the owner's switch on,
+ * in a GitHub job unless the owner turned it off, or when the repository turns it on (a repository can never turn it off).
+ * The caps: the owner's, else the repository's, and only while the scrub is on.
+ */
+export function scrubFrom(varsGiven, own, github) {
+  const v = varsGiven || {}, o = own || {};
+  const on = varOn(v.CODER_SUBPROCESS_ENV_SCRUB) || (github === true && !varOff(v.CODER_SUBPROCESS_ENV_SCRUB)) || varOn(o.CODER_SUBPROCESS_ENV_SCRUB);
+  const caps = typeof v.CODER_SCRIPT_CAPS === "string" ? v.CODER_SCRIPT_CAPS : typeof o.CODER_SCRIPT_CAPS === "string" ? o.CODER_SCRIPT_CAPS : "";
+  return { on, caps: on ? caps : "" };
+}
 export const REPO_OWN_KEYS = { bashOutputMaxChars: "CODER_BASH_OUTPUT_MAX_CHARS", defaultShell: "CODER_DEFAULT_SHELL", respondToBashCommands: "CODER_RESPOND_TO_BASH_COMMANDS", autoCompactEnabled: "CODER_AUTO_COMPACT_ENABLED", autoCompactWindow: "CODER_AUTO_COMPACT_WINDOW" };
 /** Coder's name → the name the repository's file gives it (for what Coder is told). */
 export const REPO_OWN_FROM = Object.fromEntries([...Object.entries(REPO_OWN_ENV), ...Object.entries(REPO_OWN_KEYS)].map(([k, v]) => [v, k]));
@@ -992,6 +1008,10 @@ export const compactVarsOf = (vars) => Object.fromEntries(COMPACT_VARS.filter((k
  */
 export const compactVarsFor = (vars) => ({ ...compactVarsOf(vars), CODER_AUTOCOMPACT_PCT_OVERRIDE: String(CLOUD_AUTOCOMPACT_PCT) });
 /** The owner's variables, with the repository's own command settings (repoSettings' `own`) under them. */
+/** The machine's environment with the job's retry count (the owner's or the repository's CODER_MAX_RETRIES) over it. */
+export function retryEnv(env, vars) {
+  return vars && vars.CODER_MAX_RETRIES !== undefined ? { ...env, CODER_MAX_RETRIES: String(vars.CODER_MAX_RETRIES) } : env;
+}
 export function withRepoOwn(vars, own) {
   const v = vars && typeof vars === "object" ? vars : {};
   const out = { ...v };
@@ -4384,11 +4404,12 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     // environment's CODER_SUBPROCESS_ENV_SCRUB on, or in a job started from GitHub unless it is off (Claude Code's scrub is on
     // in GitHub Actions unless the variable says otherwise), credentials leave the variables the commands and hooks get.
     const varsGiven = ownerCoderVars(body.setup && body.setup.vars && typeof body.setup.vars === "object" ? body.setup.vars : {});
-    const scrubOn = varOn(varsGiven.CODER_SUBPROCESS_ENV_SCRUB) || (body.github === true && !varOff(varsGiven.CODER_SUBPROCESS_ENV_SCRUB));
+    const scrubGot = scrubFrom(varsGiven, repoSet.own, body.github);
+    const scrubOn = scrubGot.on;
     if (scrubOn) { scrubVars(repoSet.env); scrubVars(ownerVars); }
     // THE SCRIPT CAPS, with the scrub on (Claude Code's CLAUDE_CODE_SCRIPT_CAPS, here CODER_SCRIPT_CAPS): each one's count kept
     // for the chat in a file of root's beside the memory folders, across its messages.
-    const capsGiven = scrubOn ? scriptCapsIn(typeof varsGiven.CODER_SCRIPT_CAPS === "string" ? varsGiven.CODER_SCRIPT_CAPS : "") : null;
+    const capsGiven = scrubOn ? scriptCapsIn(scrubGot.caps) : null;
     const capsFile = join(memRoot, project + ".caps.json");
     let capCounts = {};
     if (capsGiven) { try { const c = JSON.parse(readFileSync(capsFile, "utf8")); if (c && typeof c === "object" && !Array.isArray(c)) capCounts = c; } catch { capCounts = {}; } }
@@ -4963,7 +4984,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       const { notices, lost, stalls } = backgroundNews();
       const turnHooks = hooksForTurn(dir, body.hooks, { github: body.github === true, several: extraRepos(body).length > 0 });
       const turnDeps = {
-        send: timedSend(t.timing, via ? coderSend(env, { via }) : sendFn),
+        send: timedSend(t.timing, via ? coderSend(retryEnv(env, rawVars), { via }) : send ? sendFn : coderSend(retryEnv(env, rawVars))),
         // (And the chat's mcp_tool hooks call its connectors' tools the same way: connectorHookCaller. Fix round 4, CL4.)
         ...(mcpCall ? { mcp: mcpCall, mcpHook: connectorHookCaller(via) } : {}),
         // CLAUDE CODE'S ENVIRONMENT TOOLS (2026-11-14, the owner: "Do all the talk to you tools execpt for the notify one"):

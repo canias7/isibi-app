@@ -4,6 +4,11 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-20: Claude Code fixes, batch 26
+
+- **Repository settings:** a repository's own .claude/settings.json can now set four more things, as Claude Code allows: loading instructions from extra working folders, how many times Coder retries a failed call to Grok, and the safety option that strips credentials from commands (with its script limits). A repository can only turn that safety option on, never off. Tests: batch26.test.mjs.
+- **Not done this batch (each needs a bigger piece of work, or your choice):** keeping the chat when Coder's loop crashes, applying changed repository variables mid-job, the switches that turn instruction files and memory off, watching files for FileChanged hooks right away, repository attribution settings for commits and pull requests, a warning line when the chat's backup saves keep failing, withholding instruction files a Read deny rule covers, @file imports in instruction files, and the ready-made answer styles (needs your yes).
+
 ## 2026-11-20: Claude Code fixes, batch 11
 
 - **PowerShell printing commands:** Write-Output, Write-Host, echo and similar no longer ask in Accept edits or Plan just because the text has an apostrophe; only commands that take file paths are checked that way, as in Claude Code. Test added.

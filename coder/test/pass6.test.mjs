@@ -507,7 +507,7 @@ test("CD395 the subprocess environment scrub and the script caps (Claude Code's 
   // The machine: the scrub on the owner's and the repository's variables (on by default from GitHub), the caps only with it.
   const { readFileSync } = await import("node:fs");
   const server = readFileSync(new URL("../container/server.mjs", import.meta.url), "utf8");
-  assert.match(server, /const scrubOn = varOn\(varsGiven\.CODER_SUBPROCESS_ENV_SCRUB\) \|\| \(body\.github === true && !varOff\(varsGiven\.CODER_SUBPROCESS_ENV_SCRUB\)\);\n\s+if \(scrubOn\) \{ scrubVars\(repoSet\.env\); scrubVars\(ownerVars\); \}/);
+  assert.match(server, /const scrubGot = scrubFrom\(varsGiven, repoSet\.own, body\.github\);\n\s+const scrubOn = scrubGot\.on;\n\s+if \(scrubOn\) \{ scrubVars\(repoSet\.env\); scrubVars\(ownerVars\); \}/);
   assert.match(server, /const capsGiven = scrubOn \? scriptCapsIn\(/);
   assert.doesNotMatch(readFileSync(new URL("../container/coder-scrub.mjs", import.meta.url), "utf8"), /from "node:/);
 });
