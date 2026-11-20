@@ -492,8 +492,11 @@ export function psCommandReadOnly(c, { nativeReadOnly = () => false } = {}) {
  */
 /** Settings of the reading and removing cmdlets that take a value (any other dash word is read as a switch). */
 const PS_VALUE_NAMES = ["-filter", "-include", "-exclude", "-pattern", "-encoding", "-credential", "-stream", "-depth", "-totalcount", "-tail", "-head", "-first", "-last", "-skip", "-delimiter", "-readcount", "-context", "-culture", "-destination", "-value", "-itemtype", "-newname", "-outfile", "-uri", "-filepath", "-attributes", "-additionalchildpath", "-childpath", "-property", "-wait"];
+/** Cmdlets that print or wait and take no path (audit L-machine-29: Claude Code checks paths only of the cmdlets that take them). */
+const PS_NO_PATHS = new Set(["write-output", "write-host", "write-verbose", "write-debug", "write-information", "write-warning", "start-sleep", "get-date", "out-string", "out-host", "format-table", "format-list", "format-wide", "format-custom"]);
 export function psPathArgs(c) {
   const canon = psCmdlet(c.name), out = [], args = c.args || [], kinds = c.elementTypes || [];
+  if (PS_NO_PATHS.has(canon)) return out;
   let positional = 0, patternNamed = false;
   for (let a = 0; a < args.length; a++) {
     const t = args[a];

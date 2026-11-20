@@ -200,3 +200,13 @@ test("CD425 CODER_SHELL_PREFIX wraps only what Claude Code's CLAUDE_CODE_SHELL_P
   assert.match(server, /prefix: "", \.\.\.\(capped \? \{ memCg: t\.memCgNow\(\) \} : \{\}\), shellPrefix: noPrefix \? "" : t\.shellPrefix \|\| "", extraEnv:/, "a background hook too");
   assert.match(server, /hook: true, noPrefix: h\.type === "command" && \(Array\.isArray\(h\.args\) \|\| h\.shell === "powershell"\) \}\)/, "SessionEnd's");
 });
+
+test("LM29 a printing PowerShell command with a quote character runs in Accept edits and Plan (Claude Code checks paths only of the cmdlets that take them)", () => {
+  for (const mode of ["acceptEdits", "plan"]) {
+    assert.equal(decide("Write-Output \"It's done\"", mode).verdict, "allow", mode);
+    assert.equal(decide("Write-Host \"Can't find the file\"", mode).verdict, "allow", mode);
+    assert.equal(decide("echo /health", mode).verdict, "allow", mode);
+  }
+  const q = decide("Set-Content ./notes.txt \"It's done\"");
+  assert.deepEqual([q.verdict, q.why], ["ask", P.PS_QUOTED_WHY]);
+});

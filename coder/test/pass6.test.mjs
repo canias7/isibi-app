@@ -810,3 +810,13 @@ test("CD398 a hook answers Coder's question card (Claude Code's AskUserQuestion 
   t = await job(ask({ questions: [Q] }), { answers: [{ choice: "answers", picks: [{ options: [0] }] }] });
   assert.deepEqual([cardsOf(t).length, t.seen.length], [1, 2]);
 });
+
+test("LM51 a command's own list: a bracketed IPv6 address covers that address, on every port or its own (Claude Code's \"[::1]\")", async () => {
+  const N = await import("../container/coder-secrets.mjs");
+  for (const h of ["2606:4700::1111", "[2606:4700::1111]"]) {
+    assert.equal(N.listCovers(["[2606:4700::1111]"], h, 443), true, h);
+    assert.equal(N.listCovers(["[2606:4700::1111]:443"], h, 443), true, h);
+    assert.equal(N.listCovers(["[2606:4700::1111]:443"], h, 80), false, h);
+  }
+  assert.equal(N.listCovers(["[2606:4700::1111]"], "2606:4700::1112", 443), false);
+});

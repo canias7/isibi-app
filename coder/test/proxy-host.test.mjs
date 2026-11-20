@@ -146,11 +146,11 @@ test("CD96 audit (2026-11-06): each site's certificate files are named by a hash
     assert.ok(names().every((f) => /^[0-9a-f]{64}\.(key|csr|pem|ext)$/.test(f)), names().join(" "));
     assert.deepEqual(tree(join(base, "px")).filter((f) => /example/.test(f)), []);
     // ONLY THE MOST RECENT SITES (2 here, 200 in the container): a third forgets the oldest, files and all...
-    assert.match(await connect(px, "example.com:443"), /^HTTP\/1\.1 200 Connection Established/, "the bare domain of *.example.com");
-    assert.deepEqual(names(), filesOf("deep.sub.example.com", "example.com"));
+    assert.match(await connect(px, "www.example.com:443"), /^HTTP\/1\.1 200 Connection Established/, "another subdomain of *.example.com");
+    assert.deepEqual(names(), filesOf("deep.sub.example.com", "www.example.com"));
     // ...and a forgotten site is made again when it comes back.
     assert.equal(await curl("https://api.example.com/v1/again"), "auth=Bearer k_wild_SECRET host=api.example.com path=/v1/again");
-    assert.deepEqual(names(), filesOf("example.com", "api.example.com"));
+    assert.deepEqual(names(), filesOf("www.example.com", "api.example.com"));
     // THE AI'S USER (dev, uid 1001 in the container) can read the public certificate, but cannot open the sites' folder.
     if (process.getuid && process.getuid() === 0) {
       const as = (cmd, args) => spawnSync(cmd, args, { uid: 1001, gid: 1001, encoding: "utf8" });
@@ -160,11 +160,11 @@ test("CD96 audit (2026-11-06): each site's certificate files are named by a hash
       assert.match(ls.stderr, /Permission denied/);
       assert.notEqual(as("cat", [join(px.siteDir, h + ".key")]).status, 0, "a site's key is root's");
     }
-    // THE MOST RECENTLY USED, not just the newest made: example.com (made before
+    // THE MOST RECENTLY USED, not just the newest made: www.example.com (made before
     // api.example.com) is used again, so the next new site forgets api.example.com.
-    assert.match(await connect(px, "example.com:443"), /^HTTP\/1\.1 200 Connection Established/);
+    assert.match(await connect(px, "www.example.com:443"), /^HTTP\/1\.1 200 Connection Established/);
     assert.match(await connect(px, "deep.sub.example.com:443"), /^HTTP\/1\.1 200 Connection Established/);
-    assert.deepEqual(names(), filesOf("example.com", "deep.sub.example.com"));
+    assert.deepEqual(names(), filesOf("www.example.com", "deep.sub.example.com"));
     // A NAME OVER 64 CHARACTERS (the audit, 2026-11-06): openssl takes no common name
     // that long, so its certificate names it only in the subjectAltName, which is
     // what clients check. It used to get a bare 502.
@@ -199,14 +199,14 @@ test("CD96 audit (2026-11-06): each site's certificate files are named by a hash
     assert.equal(readFileSync(victim, "utf8"), "untouched\n", "the link was removed, not followed");
     px2.setSecrets([wild]);
     px2.setNetwork({ mode: "none" });
-    assert.match(await connect(px2, "example.com:443"), /^HTTP\/1\.1 200 Connection Established/);
-    assert.deepEqual(readdirSync(px2.siteDir).sort(), filesOf("example.com"), "and sites are made there again");
+    assert.match(await connect(px2, "www.example.com:443"), /^HTTP\/1\.1 200 Connection Established/);
+    assert.deepEqual(readdirSync(px2.siteDir).sort(), filesOf("www.example.com"), "and sites are made there again");
   } finally { await px.close(); if (px2) await px2.close(); up.close(); }
 });
 
 test("CD97 audit (2026-11-06): hostMatches matches only real DNS names; the network levels, allowed sites without keys, and today's IPv4 and IPv6 handling stay as they were, and plain http:// hands on an IPv6 address without its brackets", async () => {
   // THE RULE: real subdomains match a wildcard; anything shaped like a path never does.
-  for (const ok of ["api.example.com", "API.Example.COM", "example.com", "deep.sub.example.com", "x-1.example.com"]) assert.equal(hostMatches(ok, "*.example.com"), true, ok);
+  for (const ok of ["api.example.com", "API.Example.COM", "deep.sub.example.com", "x-1.example.com"]) assert.equal(hostMatches(ok, "*.example.com"), true, ok);
   assert.equal(hostMatches("api.example.com", "api.example.com"), true);
   assert.equal(hostMatches("notexample.com", "*.example.com"), false);
   for (const bad of ["../../x.example.com", "..%2f..%2fx.example.com", "a/b.example.com", "a\\b.example.com", "..\\..\\x.example.com", "x.example.com%2f..", "%2e%2e.example.com", "a_b.example.com", "a b.example.com", " a.example.com", "a.example.com ",
@@ -326,4 +326,13 @@ test("batch 14: a running job switched to Full with no keys: the gate lets every
   const branch = src.slice(at, at + 600);
   assert.match(branch, /p0\.setNetwork\(net\)/, "the gate gets the new setting, not none");
   assert.match(branch, /for \(const k of Object\.keys\(p0\.env\(\)\)\) delete t\.extraEnv\[k\]/, "the gate's proxy settings leave new commands");
+});
+
+test("MB14 *.example.com covers subdomains only, not example.com itself, on every list (Claude Code: wildcard subdomain matching)", async () => {
+  const { hostDenied } = await import("../container/coder-secrets.mjs");
+  assert.equal(hostMatches("example.com", "*.example.com"), false);
+  assert.equal(hostMatches("a.example.com", "*.example.com"), true);
+  assert.equal(hostAllowed("example.com", { mode: "custom", hosts: ["*.example.com"], defaults: false }), false);
+  assert.equal(hostDenied("a.example.com", { mode: "full", denied: ["*.example.com"] }), true);
+  assert.equal(hostDenied("example.com", { mode: "full", denied: ["*.example.com"] }), false, "a blocked *.example.com does not block example.com");
 });

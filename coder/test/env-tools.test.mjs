@@ -1336,3 +1336,10 @@ test("WD4 (round 6, the owner: \"do what claude code does\") the Environment win
   Object.assign(S, { envPage: "main", env: { envId: "e1", name: "shop env", description: "", isDefault: false, repos: [], network: { mode: "trusted", hosts: [] }, secrets: [], vars: [], script: "" } });
   assert.match(envHTML(), /data-envgo="description"><span><b>Description<\/b><small>None<\/small>/);
 });
+
+test("MD03 the variables box: an empty value stays empty and the next line is its own variable; no silent cut at 50", async () => {
+  const { parseEnv } = await import("../container/coder-secrets.mjs");
+  for (const t of ["A=\nB=2", "A=   \nB=2", "A=\n\nB=2", "export A=\nexport B=2"]) assert.deepEqual(parseEnv(t), { A: "", B: "2" }, JSON.stringify(t));
+  const many = Array.from({ length: 60 }, (_, i) => "V" + i + "=" + i).join("\n");
+  assert.equal(Object.keys(parseEnv(many)).length, 60, "all 60 kept, so the route's 'at most 50 variables' refusal fires");
+});

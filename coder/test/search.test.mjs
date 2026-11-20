@@ -602,3 +602,29 @@ test("SR16 the search's links are as Coder's permission check saw them, as Claud
   assert.deepEqual(t.requests[0].req.ctx.spellings, { path: join(d, "link"), list: [join(d, "link"), join(d, "b")] });
   assert.equal(t.answer("g1"), "Found 1 file\nlink/y.txt");
 });
+
+test("MA05 a pattern with a line break (no multiline) is ripgrep's refusal, not 'no files found'; with multiline it finds the file", { skip: !hasRg }, async () => {
+  const d = project();
+  writeFileSync(join(d, "fb.txt"), "foo\nbar\n");
+  for (const output_mode of ["files_with_matches", "content", "count"]) {
+    for (const pattern of ["foo\\nbar", "foo\nbar"]) assert.match(await fails(grep(d, { pattern, output_mode })), /^Search failed — ripgrep rejected the pattern, glob, or file type without searching:\nrg: the literal "\\n" is not allowed/, output_mode + " " + JSON.stringify(pattern));
+  }
+  assert.match((await grep(d, { pattern: "foo\\nbar", multiline: true })).text, /fb\.txt/);
+});
+
+test("MA06 content and count results are sorted by file path, so paging with head_limit and offset repeats and skips nothing (Claude Code 2.1.327)", { skip: !hasRg }, async () => {
+  const d = project();
+  const names = Array.from({ length: 60 }, (_, i) => "m" + String(i).padStart(2, "0") + ".txt");
+  for (const n of names) writeFileSync(join(d, n), "hit " + n + "\n");
+  for (const output_mode of ["content", "count"]) {
+    const seen = [];
+    for (let offset = 0; offset < 60; offset += 7) {
+      const t = (await grep(d, { pattern: "^hit ", output_mode, head_limit: 7, offset, "-n": false })).facts.content;
+      seen.push(...t.split("\n").filter(Boolean).map((l) => /m\d\d\.txt/.exec(l)[0]));
+    }
+    assert.deepEqual(seen, names, output_mode);
+    const one = (await grep(d, { pattern: "^hit ", output_mode })).facts.content;
+    assert.equal((await grep(d, { pattern: "^hit ", output_mode })).facts.content, one, "the same order twice");
+  }
+  assert.deepEqual(S.byPath(["b\u00001:x", "--", "b\u00005:y", "--", "a\u00002:z"], (l) => (l === "--" ? null : l.slice(0, l.indexOf("\u0000")))), ["a\u00002:z", "b\u00001:x", "--", "b\u00005:y"]);
+});

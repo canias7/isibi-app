@@ -313,3 +313,14 @@ test("CD148 the service runs the AI's commands and the setup script in the job's
   assert.match(df, /coder-sandbox\.mjs coder-sandbox-init\.sh coder-globs\.mjs coder-security\.mjs coder-compact\.mjs coder-shell\.mjs coder-bashcheck\.mjs coder-perms\.mjs coder-filerules\.mjs coder-hooks\.mjs coder-freeze\.mjs coder-checker\.mjs (?:\S+ )*\.\//);
   assert.match(readFileSync(new URL("../src/coder-fly.mjs", import.meta.url), "utf8"), /env: \{ CODER_DATA: FLY_DATA, CODER_IMAGE_REF: s\.image,/);
 });
+
+test("LM54 a sandbox layer that cannot be made keeps its real reason, and a failed system view is tried again at the next message", async () => {
+  const { tmpdir } = await import("node:os");
+  const d = mkdtempSync(join(tmpdir(), "lm54-"));
+  writeFileSync(join(d, "file"), "x");
+  assert.equal(S.makeUpper({ data: join(d, "file", "data"), image: "x" }), null);
+  assert.match(S.sandboxWhy(), /^no layer of its own on the kept disk: .*(ENOTDIR|EEXIST|not a directory)/i);
+  const server = readFileSync(new URL("../container/server.mjs", import.meta.url), "utf8");
+  assert.match(server, /if \(!lowerOk\) \{ lowerOk = null; return noBox\(/, "lowerOk is reset after a failure");
+  assert.match(server, /if \(!up\) return noBox\(sandboxWhy\(\) \|\|/);
+});

@@ -104,7 +104,7 @@ export const PACKAGE_HOSTS = DEFAULT_HOSTS; // the older name
 // NEVER GIVEN A KEY (Claude Code's docs): package registries and GitHub, even if a secret lists them.
 export const NEVER_KEY = ["github.com", "api.github.com", "registry.npmjs.org", "jsr.io", "npm.jsr.io", "pypi.org", "files.pythonhosted.org", "index.crates.io", "proxy.golang.org", "api.anthropic.com"];
 
-/** A site pattern: an exact host, or "*.example.com" (that site and every subdomain), like Claude Code's. */
+/** A site pattern: an exact host, or "*.example.com" (every subdomain, not example.com itself: audit M-b-14), like Claude Code's. */
 export function okPattern(p) {
   const s = String(p || "").trim().toLowerCase();
   if (s.startsWith("*.")) { const h = okHost(s.slice(2)); return h && h.includes(".") ? "*." + h : null; }
@@ -116,7 +116,7 @@ export function hostMatches(host, pattern) {
   // also ends with ".example.com", so it counted as a subdomain of "*.example.com"
   // and the proxy gave it the key and built file names from it.
   if (!HOST_RE.test(h)) return false;
-  if (pattern.startsWith("*.")) { const base = pattern.slice(2); return h === base || h.endsWith("." + base); }
+  if (pattern.startsWith("*.")) { const base = pattern.slice(2); return h.endsWith("." + base); }
   return h === pattern;
 }
 /**
@@ -181,7 +181,10 @@ export function listProblem(list) {
 /** Whether a command's list names a host (and its port), a wildcard covering its subdomains. */
 export function listCovers(list, host, port) {
   const h = String(host || "").toLowerCase();
-  return (Array.isArray(list) ? list : []).some((e) => { const x = listEntry(e); return !!x && (!x.port || x.port === Number(port)) && hostMatches(h, x.host.toLowerCase()); });
+  return (Array.isArray(list) ? list : []).some((e) => { const x = listEntry(e); if (!x || (x.port && x.port !== Number(port))) return false;
+    // (A bracketed IPv6 entry matches that address, brackets or not: Claude Code's "[::1]". Audit L-machine-51.)
+    if (x.host.startsWith("[")) return x.host.slice(1, -1).toLowerCase() === h.replace(/^\[|\]$/g, "");
+    return hostMatches(h, x.host.toLowerCase()); });
 }
 /** Whether a network setting needs the gate in the way: anything but Full, or Full with blocked sites. */
 export const netWalled = (network) => { const n = normNetwork(network); return n.mode !== "full" || !!(n.denied && n.denied.length); };
@@ -296,9 +299,10 @@ export const VAR_DROPPED_RE = /^(PATH$|HOME$|SHELL$|USER$|LD_|NODE_OPTIONS$|BASH
 export const varsDropped = (vars) => Object.keys(vars && typeof vars === "object" ? vars : {}).filter((k) => VAR_DROPPED_RE.test(k));
 export function parseEnv(text) {
   const out = {}; const src = String(text || "").replace(/\r/g, "");
-  const re = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*("(?:[^"\\]|\\.)*"|'[^']*'|[^\n#]*?)\s*(?:#.*)?$/gm;
+  // (Only spaces and tabs around "=": "A=" then "B=2" are two variables, audit M-d-03. No silent cut at 50: the route refuses.)
+  const re = /^[ \t]*(?:export[ \t]+)?([A-Za-z_][A-Za-z0-9_]*)[ \t]*=[ \t]*("(?:[^"\\]|\\.)*"|'[^']*'|[^\n#]*?)[ \t]*(?:#.*)?$/gm;
   let m, n = 0;
-  while ((m = re.exec(src)) && n < 50) {
+  while ((m = re.exec(src)) && n < 1000) {
     let v = m[2];
     // UNDONE IN ONE PASS, LEFT TO RIGHT (CL2 of recheck 3, 2026-11-14; Claude Code 2.1.309 "Fixed the cloud environment editor
     // shuffling environment variables and adding backslashes to values that contain both kinds of quote": its box gives back

@@ -4071,9 +4071,10 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
   const openBox = async () => {
     if (!sandbox || !data) return null;
     if (lowerOk === null) lowerOk = makeLower({ base: sandboxBase() });
-    if (!lowerOk) return noBox(sandboxWhy() || "no base for its system");
+    // (A failed system view is tried again at the next message, so "send another message to try again" is true: L-machine-54.)
+    if (!lowerOk) { lowerOk = null; return noBox(sandboxWhy() || "no base for its system"); }
     const up = makeUpper({ data, image, tools });
-    if (!up) return noBox("no layer of its own on the kept disk");
+    if (!up) return noBox(sandboxWhy() || "no layer of its own on the kept disk");
     const binds = [{ src: root, mode: "rw", mine: true }, ...(home ? [{ src: home, mode: "rw", mine: true }] : []), { src: memRoot, mode: "rw", mine: true }, { src: gitRoot, mode: "ro" }, { src: bgRoot, mode: "ro" }, { src: proxyDir, mode: "ro" }];
     return (await startSandbox({ ...up, binds })) || noBox(sandboxWhy());
   };

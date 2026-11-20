@@ -162,7 +162,8 @@ export function makeUpper({ data, image, tools = "" } = {}) {
       chownSync(p, SBX_BASE, SBX_BASE);
     }
     return out;
-  } catch { return null; }
+    // (The real reason is kept for the chat and the log: audit L-machine-54.)
+  } catch (e) { return fail("no layer of its own on the kept disk: " + String((e && e.message) || e), null); }
 }
 
 /**

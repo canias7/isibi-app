@@ -4,6 +4,17 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-20: Claude Code fixes, batch 11
+
+- **PowerShell printing commands:** Write-Output, Write-Host, echo and similar no longer ask in Accept edits or Plan just because the text has an apostrophe; only commands that take file paths are checked that way, as in Claude Code. Test added.
+- **Search:** a pattern with a line break (without the multi-line switch) now says the search program refused it, instead of "no files found". Matching lines and counts now come back sorted by file path, so asking for the next page never repeats or skips results. Tests added.
+- **Network lists:** "*.example.com" now means every subdomain only, not example.com itself, on every list (allowed, blocked, a command's own list, saved keys), as Claude Code reads it. A command's own list now accepts a bracketed IPv6 address such as "[::1]". Tests added.
+- **Environment variables box:** an empty value ("A=") no longer swallows the next line, and a paste of more than 50 variables is now refused with the usual message instead of being cut silently. Test added.
+- **Admin sandbox:** when its layer on the kept disk cannot be made, the real reason is shown, and a failed start is tried again at the next message, so "send another message to try again" is true. Test added.
+- **Already done earlier:** skipping risky-looking security-rule patterns.
+- **Left for another sitting:** the real reason when the sealed network room fails, GitHub source archives through a command's own host list, a second check of the search's hidden folders just before it starts, and reading security rules written for Python's patterns (each needs a bigger change).
+- Full test suite passes. Not deployed or merged; not yet tried live in the browser.
+
 ## 2026-11-20: Claude Code fixes, batch 4
 
 - **New switch, CODER_DISABLE_FILE_MENTIONS:** set it to 1 in a chat's environment and files you @-mention are no longer read into your message; Coder gets just their names with a note to read them itself, so your "before a tool runs" hooks see those reads (Claude Code's CLAUDE_CODE_DISABLE_FILE_MENTIONS). A repository's own settings cannot turn it on. Test added.

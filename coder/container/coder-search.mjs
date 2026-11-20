@@ -164,7 +164,7 @@ const secondsWords = (ms) => { const e = ms / 1000; return "Ripgrep search timed
 /** A search that found nothing before its time limit (Claude Code 2.1.23: "ripgrep search timeouts silently returning empty results" fixed). */
 export const timedOutText = (ms) => secondsWords(ms) + ". The search may have matched files but did not complete in time. Try searching a more specific path or pattern.";
 /** ripgrep refusing what it was given (Claude Code's tools reference: "returns an error that includes ripgrep's diagnostic"). */
-const USAGE_ERROR = /^rg: (?:regex parse error|error parsing glob|unrecognized file type|error parsing flag|compiled regex exceeds size limit)/m;
+const USAGE_ERROR = /^rg: (?:regex parse error|error parsing glob|unrecognized file type|error parsing flag|compiled regex exceeds size limit|the literal "\\n" is not allowed in a regex)/m;
 const usageText = (stderr) => "Search failed \u2014 ripgrep rejected the pattern, glob, or file type without searching:\n" + String(stderr).trim().slice(0, 2000);
 /** The search path ripgrep could not read (Claude Code 2.1.292: "Claude now retries once or tells you"). */
 function unreadableText(errno) {
@@ -612,6 +612,11 @@ export async function grepTool(args, env) {
   const before = lines.length;
   lines = lines.filter((l) => { const p = pathOf(l); return p === null || !(inGit(p) || (denied && denied(p))); });
   if (lines.length !== before) lines = lines.filter((l, k, all) => l !== "--" || (k > 0 && k < all.length - 1 && all[k - 1] !== "--"));
+  // SORTED BY FILE PATH (Claude Code 2.1.327: "content and count results are now sorted by file path"), so paging with
+  // offset and head_limit carries on where the last page stopped. A file's own lines keep their order; a "--" goes with
+  // the lines after it.
+  if (mode === "count") lines = lines.map((l, k) => [pathOf(l), k, l]).sort((x, y) => (x[0] < y[0] ? -1 : x[0] > y[0] ? 1 : x[1] - y[1])).map((x) => x[2]);
+  if (mode === "content") lines = byPath(lines, pathOf);
   const limit = a.head_limit, offset = a.offset ?? 0;
   const timed = run.timedOut ? { timedOut: true } : {};
   if (mode === "content") {
@@ -640,6 +645,22 @@ export async function grepTool(args, env) {
   const names = items.map((p) => shownPath(p, base));
   return done({ mode: "files_with_matches", filenames: names, numFiles: names.length, totalFiles: sorted.length, ...(appliedLimit !== undefined ? { appliedLimit } : {}), ...(offset > 0 ? { appliedOffset: offset } : {}), ...timed });
   function done(facts) { return { text: grepText(facts), facts }; }
+}
+
+/** Content lines grouped by file and the groups sorted by path (each file's lines in their order; no leading or doubled "--"). */
+export function byPath(lines, pathOf) {
+  const groups = new Map(); let pending = 0;
+  for (const l of lines) {
+    const p = pathOf(l);
+    if (p === null) { pending++; continue; }
+    if (!groups.has(p)) groups.set(p, []);
+    const g = groups.get(p);
+    if (pending) g.push("--");
+    g.push(l); pending = 0;
+  }
+  const out = [];
+  for (const p of [...groups.keys()].sort((x, y) => (x < y ? -1 : x > y ? 1 : 0))) for (const l of groups.get(p)) if (l !== "--" || (out.length && out[out.length - 1] !== "--")) out.push(l);
+  return out;
 }
 
 // ── GLOB (Claude Code's NH, zyn and CPr) ─────────────────────────────────────

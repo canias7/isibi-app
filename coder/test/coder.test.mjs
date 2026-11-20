@@ -2024,7 +2024,7 @@ test("CD75 (owner 2026-11-06: environment like Claude Code's) network none/limit
   assert.deepEqual(parseEnv(toEnv({ A: "1", B: 'say "hi"' })), { A: "1", B: 'say "hi"' });
   assert.equal(okPattern("*.Example.com"), "*.example.com"); assert.equal(okPattern("*.com"), null); assert.equal(okPattern("*"), null);
   assert.equal(hostAllowed("a.b.example.com", { mode: "custom", hosts: ["*.example.com"], defaults: true }), true);
-  assert.equal(hostAllowed("example.com", { mode: "custom", hosts: ["*.example.com"], defaults: true }), true);
+  assert.equal(hostAllowed("example.com", { mode: "custom", hosts: ["*.example.com"], defaults: true }), false, "*. covers subdomains only (M-b-14)");
   assert.equal(hostAllowed("evil-example.com", { mode: "custom", hosts: ["*.example.com"], defaults: true }), false);
   assert.equal(hostAllowed("registry.npmjs.org", { mode: "none", hosts: [], defaults: true }), false, "None blocks even package sites");
   assert.equal(hostAllowed("x.com", { limited: true, hosts: [] }), false, "the old setting still reads as Limited");
