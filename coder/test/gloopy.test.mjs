@@ -7357,7 +7357,7 @@ test("GL137 (2026-11-13) found in the live pay test (owner: \"U do it\"): after 
   // 7. THE PAGE: each message with its own id; in Gloopy's chat, a card is open only while Gloopy waits on it.
   const { readFileSync } = await import("node:fs");
   const ui = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
-  assert.match(ui, /const mid = 'm' \+ Date\.now\(\)\.toString\(36\) \+ Math\.random\(\)\.toString\(36\)\.slice\(2, 10\);\n    S\.sending = true;[\s\S]{0,1700}?\n    const r = await call\('\/projects\/' \+ encodeURIComponent\(S\.project\.id\) \+ '\/message', \{ method: 'POST', body: JSON\.stringify\(\{ mid, text,/);
+  assert.match(ui, /const newMid = \(\) => 'm' \+ Date\.now\(\)\.toString\(36\) \+ Math\.random\(\)\.toString\(36\)\.slice\(2, 10\);[\s\S]*const mid = midFor\(mkey\);\n    S\.sending = true;[\s\S]{0,1700}?\n    const r = await call\('\/projects\/' \+ encodeURIComponent\(S\.project\.id\) \+ '\/message', \{ method: 'POST', body: JSON\.stringify\(\{ mid, text,/);
   assert.match(ui, /const waitedOn = \(e\) => !GLOOPY \|\| !e\.id \|\| !S\.project \|\| \(S\.project\.pending && S\.project\.pending\.id === e\.id\);/);
 
   // 8. A START, OR A CARD'S ANSWER, GOES ON WHEN THE PAGE GOES (live test, 2026-11-13: the test browser closed while the

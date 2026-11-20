@@ -192,6 +192,8 @@
 }
 .cd-group-head { display: flex; align-items: center; gap: 6px; border: 0; background: none; padding: 4px 0; font: 14px Inter, system-ui, sans-serif; color: #8a857d; cursor: pointer; }
 .cd-group-head:hover { color: #4b5563; }
+.cd-earlier { display: block; margin: 0 auto 14px; border: 1px solid #e6e2db; border-radius: 999px; background: #fff; padding: 6px 14px; font: 13px Inter, system-ui, sans-serif; color: #6b665e; cursor: pointer; }
+.cd-earlier:hover { color: #374151; border-color: #d6d1c8; }
 .cd-group-box { border: 1px solid #e6e2db; border-radius: 12px; background: #fff; margin-top: 6px; }
 .cd-group-box .cd-cmd { padding: 0 16px; }
 .cd-group-box .cd-cmd + .cd-cmd { border-top: 1px solid #efece7; }

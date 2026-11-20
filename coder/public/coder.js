@@ -1606,7 +1606,7 @@
     keepDraft(S, id);
     S.opening = id;
     stopBgWatch(); stopBgOut(); S.bgOut = null; S.bgUntold = 0;
-    S.phase = 'chat'; S.project = null; S.events = []; S.next = 0; S.error = (S.sendFailed && S.sendFailed[id]) || ''; if (S.sendFailed) delete S.sendFailed[id]; S.sending = !!S.sendingFor && S.sendingFor === id; S.showChanges = false; S.changes = null; S.compareAgainst = ''; S.compareBranches = null; window.dispatchEvent(new CustomEvent('gf:side', { detail: false })); draw();
+    S.phase = 'chat'; S.project = null; S.events = []; S.next = 0; S.showEarlier = false; S.error = (S.sendFailed && S.sendFailed[id]) || ''; if (S.sendFailed) delete S.sendFailed[id]; S.sending = !!S.sendingFor && S.sendingFor === id; S.showChanges = false; S.changes = null; S.compareAgainst = ''; S.compareBranches = null; window.dispatchEvent(new CustomEvent('gf:side', { detail: false })); draw();
     const r = await call('/projects/' + encodeURIComponent(id));
     if (S.opening === id) S.opening = '';
     // (A message sent while the chat was still loading goes out once it has loaded: sendAfterOpen.)
@@ -1629,6 +1629,16 @@
   const PR_ASK = 'Create a pull request for this branch. Write its title and description from the changes.';
   const PR_ASK_DRAFT = 'Create a draft pull request for this branch. Write its title and description from the changes.';
   // `opts.card`: the message only answers one of Gloopy's cards (a step the owner said no to stays refused until their own next message).
+  // A RESEND OF AN UNCHANGED MESSAGE AFTER A FAILED SEND KEEPS ITS ID (Claude Code's changelog: "Fixed resending an unchanged
+  // message after a failed send in a cloud session sometimes running it twice"): the Worker knows the second copy by its id
+  // (sameMessage) and never starts it twice. 2026-11-20.
+  const newMid = () => 'm' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+  const sendKey = (id, text, pics, comments, att) => JSON.stringify([id, text, (pics || []).map((x) => String(x.data || '').length + ':' + String(x.data || '').slice(-32)), comments || [], (att || []).map((f) => f.id)]);
+  function midFor(key) { return S.unsentMid && S.unsentMid.key === key ? S.unsentMid.mid : newMid(); }
+  function keepMid(key, mid, r) {
+    // (Kept only when the message may not have gone out: no answer, or the server's own trouble. A clear "no" gets a fresh id.)
+    S.unsentMid = r && (r.status === 0 || r.status >= 500 || r.status === 408 || r.status === 429) ? { key, mid } : null;
+  }
   async function send(text, opts) {
     text = String(text || '').trim();
     // /permissions OPENS THE MODE MENU, as in Claude Code (the owner, 2026-11-15, with its screenshot): nothing is sent.
@@ -1658,10 +1668,12 @@
       S.sending = true; S.sendingFor = S.project.id; S.error = '';
       const id = S.project.id;
       // (Its own id, so the same message is never started twice: 2026-11-15.)
-      const qmid = 'm' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+      const qkey = sendKey(id, text);
+      const qmid = midFor(qkey);
       const q = await call('/projects/' + encodeURIComponent(id) + '/message', { method: 'POST', body: JSON.stringify({ text, mid: qmid }) });
       if (S.sendingFor === id) { S.sending = false; S.sendingFor = null; }
       if (!S.project || S.project.id !== id) return draw();
+      if (q.status !== 200) keepMid(qkey, qmid, q); else S.unsentMid = null;
       if (q.status === 200 && q.data && q.data.queued) { S.queue = q.data.queue || []; S.draft = ''; return draw(true); }
       // (The save had just ended, so it went out at once as the next message: the chat is loaded to follow it.)
       if (q.status === 200 && q.data && q.data.reload && q.data.project) { S.draft = ''; stopPoll(); S.project = q.data.project; S.running = false; syncEntry(); return reloadChat(id); }
@@ -1676,7 +1688,8 @@
     if (S.web && S.web.control) S.web.control = false;
     // ITS OWN ID (live test, 2026-11-12): a browser sends a message again when its connection drops; Coder's Worker then
     // knows the second copy for the same message, and never starts it twice.
-    const mid = 'm' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+    const mkey = sendKey(S.project.id, text, pics, comments, att);
+    const mid = midFor(mkey);
     S.sending = true; S.error = ''; S.draft = ''; S.unsent = text; S.sendingFor = S.project.id;
     const base = S.events.length;
     // The owner's own command (shell mode) is shown as the machine will show it: "! " and the command.
@@ -1694,6 +1707,7 @@
     // (Already shown as ended by watchSend: this late answer changes nothing.)
     if (sent.gone) return;
     if (S.sendingFor === sent.id) { S.sendingFor = null; S.sending = false; S.unsent = ''; }
+    if (r.status !== 200) keepMid(mkey, mid, r); else S.unsentMid = null;
     // THE ANSWER BELONGS TO THE CHAT IT WAS SENT FROM (Claude Code: typed text never goes to another conversation; an unsent
     // message and its attachments stay with their own session). If another chat is open now, nothing on its screen or in its
     // box changes: a failed message goes back into its own chat's kept draft, with the error shown when that chat is opened.
@@ -1714,6 +1728,8 @@
       S.draft = text; S.pics = pics; S.attach = att;
       S.error = sendFailText(r, true);
       if (r.data && r.data.connect) S.phase = 'connect';
+      // (No answer at all: the message may have started a job all the same, so the chat is looked at once.)
+      if (r.status === 0 && S.project) { const cid = S.project.id; setTimeout(() => { if (S.project && S.project.id === cid && !S.running && !S.sending) reloadChat(cid); }, 1500); }
       return draw();
     }
     // (It went out with the messages that waited in line for that card: the chat is loaded, as after a job's end.)
@@ -1900,8 +1916,11 @@
       // right after the save, by itself (the Worker's queue). "Pushed to the branch" comes when a push is done.
       S.ending = S.running && (!!r.data.ending || !!S.ending);
       syncEntry();
-      draw(fresh.length > 0);
+      // (A new step does not pull a reader back to the bottom: the at-bottom rule in draw decides. 2026-11-20.)
+      draw();
       if (justEnded && S.project && S.project.id === id && marksOff()) reloadChat(id, { ended: true });
+      // (A job that ended may have made files: the @ list is refreshed in the background.)
+      if (justEnded && S.files && S.files.id === id) loadFiles(true);
     }
     // (The answer shown, the turn now being saved: looked at again at once. 2026-11-15.)
     // (And while the answer is still coming in: new text from Coder, looked at again 300 ms later. 2026-11-16.)
@@ -2209,10 +2228,21 @@
     const f = Object.keys(d), k = key + ':envt';
     return '<div class="cd-envt">' + (f.length === 1 && envtIsRows(d[f[0]]) ? envtRows(d[f[0]], k) : envtPairs(d, k)) + '</div>';
   }
+  // A STEP NOT (YET) RUN SAYS SO IN ITS VERB (Claude Code's changelog: "Fixed collapsed tool lines reading "Ran" or "Called"
+  // while still asking permission"): one waiting for your yes, or one that never ran, reads "Run …", "Write …", "Edit …",
+  // never the past "Ran", "Wrote", "Edited". 2026-11-20.
+  const PRESENT_VERB = { 'Ran': 'Run', 'Wrote': 'Write', 'Edited': 'Edit', 'Fetched': 'Fetch', 'Searched': 'Search', 'Found': 'Find', 'Opened': 'Open', 'Changed': 'Change', 'Used': 'Use', 'Listed': 'List', 'Looked up': 'Look up', 'Looked at': 'Look at', 'Clicked': 'Click', 'Typed': 'Type', 'Typed into': 'Type into', 'Pressed': 'Press', 'Chose': 'Choose', 'Chose in': 'Choose in', 'Scrolled': 'Scroll', 'Went back': 'Go back', 'Hovered': 'Hover', 'Called': 'Call', 'Ran setup': 'Run setup' };
+  function presentVerb(v) {
+    const s = String(v || '');
+    if (PRESENT_VERB[s]) return PRESENT_VERB[s];
+    const m = /^(Searched|Ran|Called|Fetched|Used) (.*)$/.exec(s);
+    return m ? PRESENT_VERB[m[1]] + ' ' + m[2] : s;
+  }
   function cmdHTML(e, r, state, key) {
     const open = !!S.open[key];
+    const notYet = state === 'wait' || (state === 'bad' && neverRan(r));
     // File and web tools say what they did: Read, Edited, Wrote, Searched… (2026-11-05).
-    const verb = e.verb ? (state === 'run' ? e.verb.replace(/^Read$/, 'Reading').replace(/^Wrote$/, 'Writing').replace(/^Edited$/, 'Editing').replace(/^Searched/, 'Searching').replace(/^Found$/, 'Finding').replace(/^Fetched$/, 'Fetching').replace(/^Opened$/, 'Opening').replace(/^Looked at$/, 'Looking at').replace(/^Clicked$/, 'Clicking').replace(/^Hovered$/, 'Hovering').replace(/^Typed into$/, 'Typing into').replace(/^Typed$/, 'Typing').replace(/^Pressed$/, 'Pressing').replace(/^Chose in$/, 'Choosing in').replace(/^Chose$/, 'Choosing').replace(/^Scrolled$/, 'Scrolling').replace(/^Went back$/, 'Going back') : e.verb) : state === 'run' ? 'Running' : 'Ran';
+    const verb = e.verb ? (state === 'run' ? e.verb.replace(/^Read$/, 'Reading').replace(/^Wrote$/, 'Writing').replace(/^Edited$/, 'Editing').replace(/^Searched/, 'Searching').replace(/^Found$/, 'Finding').replace(/^Fetched$/, 'Fetching').replace(/^Opened$/, 'Opening').replace(/^Looked at$/, 'Looking at').replace(/^Clicked$/, 'Clicking').replace(/^Hovered$/, 'Hovering').replace(/^Typed into$/, 'Typing into').replace(/^Typed$/, 'Typing').replace(/^Pressed$/, 'Pressing').replace(/^Chose in$/, 'Choosing in').replace(/^Chose$/, 'Choosing').replace(/^Scrolled$/, 'Scrolling').replace(/^Went back$/, 'Going back') : notYet ? presentVerb(e.verb) : e.verb) : state === 'run' ? 'Running' : notYet ? 'Run' : 'Ran';
     // WHAT A BROWSER STEP DID, said in words once it is done ("Clicked “Go”"), in place of its verb and the element's number.
     const said = r && typeof r.label === 'string' && r.label ? r.label : '';
     // A HELPER'S STEP: its name first, then what it does (live test, 2026-11-10: "Searched the web for “Rome population” ·
@@ -2496,12 +2526,25 @@
     const text = said ? first(said.text) : step || 'Thinking';
     return '<div class="cd-status" role="status"><span class="cd-spin" aria-hidden="true"></span><span class="cd-status-t">' + esc(text) + '</span></div>';
   }
+  // HOW MANY OF THE NEWEST EVENTS A CHAT DRAWS (DRAW_STEPS), cut at one of your messages so a turn is never split; "Show
+  // earlier" (S.showEarlier) draws them all.
+  const DRAW_STEPS = 400;
+  function drawFrom(evs) {
+    if (S.showEarlier || evs.length <= DRAW_STEPS) return 0;
+    for (let i = evs.length - DRAW_STEPS; i >= 0; i--) if (evs[i].type === 'user') return i;
+    return 0;
+  }
   function stepsHTML() {
     const out = [];
     const results = {};
     for (const e of S.events) if (e.type === 'result' && e.id) results[e.id] = e;
     let lastUser = -1;
     S.events.forEach((e, i) => { if (e.type === 'user') lastUser = i; });
+    // A LONG CHAT DRAWS ONLY ITS NEWEST STEPS, "Show earlier" for the rest (Claude Code's fullscreen view only draws what is on
+    // screen, and does "less re-render work per turn in long conversations"): each redraw's work no longer grows with the
+    // whole chat. 2026-11-20.
+    const from = drawFrom(S.events);
+    if (from > 0) out.push('<button type="button" class="cd-earlier" id="cdEarlier">Show earlier messages (' + S.events.slice(0, from).filter((x) => x.type === 'user').length + ' hidden)</button>');
     // A CARD STILL OPEN (Gloopy's): no message of the owner's after it, not marked expired, and its time not up (a card
     // from a run the owner did not start waits 30 minutes for them; the audit, 2026-11-10). A card that expired says so.
     const expiredOf = (i, e) => S.events.slice(i + 1).find((x) => x.type === 'expired' && x.id === e.id) || (Number(e.expires) > 0 && Date.now() > Number(e.expires) ? { text: 'Expired: not answered within 30 minutes. Nothing was done.' } : null);
@@ -2577,6 +2620,7 @@
     const lastStep = {};
     S.events.forEach((e, i) => { if (e.type === 'bash' && e.id) lastStep[e.id] = i; });
     S.events.forEach((e, i) => {
+      if (i < from) return;
       if (e.type === 'bash') {
         if (e.id && lastStep[e.id] !== i) return;
         // THE SETUP SCRIPT IS NOT A STEP IN THE CHAT (owner, 2026-11-16, like Claude Code): the start-up line says it ran; it
@@ -2585,6 +2629,9 @@
         // A STEP THAT NEVER RAN (refused by a rule, auto mode's checker, a hook, Coder's own checks or your answer) stands
         // on its own row, out of the group and out of its count, so "Ran 2 commands" counts only commands that ran: Claude
         // Code takes a step that needs its own row out of its group the same way (Bash docs pass 9, part F).
+        // (And a step still waiting for your yes: it has not run, so it stands on its own and is not counted in "Ran 2
+        // commands" either. 2026-11-20.)
+        if (stateOf(e, i) === 'wait') { flush(); group.push([e, i]); flush(); return; }
         if (neverRan(results[e.id]) || (!GLOOPY && stateOf(e, i) === 'gone')) { flush(); group.push([e, i]); flush(); return; }
         group.push([e, i]);
         return;
@@ -3720,10 +3767,26 @@
     draw();
   }
   // @ A FILE: the repo's file names, suggested as you type.
-  async function loadFiles() {
-    if (!S.project || (S.files && S.files.id === S.project.id)) return;
-    const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/files');
-    S.files = { id: S.project.id, list: r.status === 200 && r.data && Array.isArray(r.data.files) ? r.data.files : [] };
+  // THE @ LIST IS KEPT FOR THE CHAT AND REFRESHED IN THE BACKGROUND (Claude Code: "session-based caching with background
+  // refresh"; files made mid-session show up): a failed load is not kept, so the next @ asks again; the list is asked for again
+  // when a job ends, or when it is older than a minute while @ is used, the old list staying on screen meanwhile. 2026-11-20.
+  const FILES_FRESH_MS = 60000;
+  async function loadFiles(force) {
+    if (!S.project) return;
+    const id = S.project.id;
+    const have = S.files && S.files.id === id;
+    if (have && !force && Date.now() - (S.files.at || 0) < FILES_FRESH_MS) return;
+    if (S.filesLoading === id) return;
+    S.filesLoading = id;
+    const go = (async () => {
+      const r = await call('/projects/' + encodeURIComponent(id) + '/files');
+      if (S.filesLoading === id) S.filesLoading = '';
+      if (r.status === 200 && r.data && Array.isArray(r.data.files)) {
+        S.files = { id, list: r.data.files, at: Date.now() };
+        if (S.mention && S.project && S.project.id === id && have) draw();
+      }
+    })();
+    if (!have) await go;
   }
   function mentionMatches() {
     if (!S.mention || !S.files) return [];
@@ -4548,6 +4611,12 @@
     if (!GLOOPY && window.coderLogo) window.coderLogo.busy(S.phase === 'chat' && S.running);
     const log = root.querySelector('#cdLog');
     const atBottom = !log || log.scrollHeight - log.scrollTop - log.clientHeight < 80;
+    // THE CHAT STAYS WHERE YOU SCROLLED (Claude Code's changelog: "Fixed scroll position jumping to the bottom while reading
+    // earlier output during a streaming response"; "snapping back to the bottom every time a tool finishes"): the redraw puts
+    // the chat, and the See changes panel, back where they were; only a chat already at the bottom follows new steps. 2026-11-20.
+    const logTop = log ? log.scrollTop : 0;
+    const chg = root.querySelector('.cd-changes');
+    const chgTop = chg ? chg.scrollTop : 0;
     const focus = document.activeElement && document.activeElement.id === 'cdIn';
     // SOMETHING ELSE BEING TYPED IN (the Rename box, a line comment, the Environment window…): a permission card that comes
     // now does not take the keyboard from it, and it keeps its cursor through the redraw (Claude Code: "Fixed permission
@@ -4596,6 +4665,8 @@
     if (GLOOPY && S.project) markGloopy(!S.running && gloopyWaits(S.project));
     const nlog = root.querySelector('#cdLog');
     if (nlog && (scroll || atBottom)) nlog.scrollTop = nlog.scrollHeight;
+    else if (nlog && log) nlog.scrollTop = logTop;
+    { const nchg = root.querySelector('.cd-changes'); if (nchg && chg && chgTop) nchg.scrollTop = chgTop; }
     const typedIn = S.typingAt && S.typingAt.id ? document.getElementById(S.typingAt.id) : null;
     if (typedIn && root.contains(typedIn) && document.activeElement !== typedIn) {
       const f = typedIn;
@@ -5157,6 +5228,7 @@
     on('.cd-elicit [data-el-open]', 'click', (e) => { const c = elCard(e.currentTarget); if (c) c.classList.add('is-opened'); });
     on('.cd-elicit input, .cd-elicit select', 'input', (e) => { const f = e.currentTarget.closest('.cd-el-f'); if (f) elFieldSay(f, ''); });
     on('.cd-elicit input.cd-el-in', 'keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); const b = elCard(e.currentTarget) && elCard(e.currentTarget).querySelector('[data-el-accept]'); if (b && !b.disabled) b.click(); } });
+    on('#cdEarlier', 'click', () => { S.showEarlier = true; draw(); });
     on('.cd-group-head', 'click', (e) => { const k = e.currentTarget.dataset.group; S.open[k] = !S.open[k]; draw(); });
     on('.cd-init-head', 'click', (e) => { const k = e.currentTarget.dataset.init; S.open[k] = !S.open[k]; draw(); });
     on('.cd-start', 'click', (e) => send(e.currentTarget.dataset.answer));

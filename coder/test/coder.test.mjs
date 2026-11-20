@@ -2507,3 +2507,27 @@ test("CD85 (owner: 'make it like claude code') environments: named, Default made
   assert.match(ui, /'Update the setup script of ' \+ esc\(envName\) \+ '\?'/);
   assert.match(ui, /This secret is saved on the environment ' \+ esc\(S\.envInfo \? S\.envInfo\.name : 'of this chat'\)/);
 });
+
+test("CD-F9 the @ file list: GitHub failing to list the tree is an error (not an empty list), so the page asks again; an empty repository (409) is an empty list", async () => {
+  const bucket = fakeBucket();
+  const env = { ...GH_ENV, CODER_BUCKET: bucket };
+  const base = fakeGithub();
+  let treeStatus = 500;
+  const fetchFn = async (url, init = {}) => {
+    const u = String(url);
+    if (/\/git\/trees\//.test(u)) return treeStatus === 200 ? new Response(JSON.stringify({ tree: [{ type: "blob", path: "src/a.js" }, { type: "tree", path: "src" }] })) : new Response(JSON.stringify({ message: "x" }), { status: treeStatus });
+    return base.fetchFn(url, init);
+  };
+  const deps = { fetchFn, authUser: async () => ({ id: "user-1234567890abcdef", email: "me@x.y" }), container: () => ({ fetch: async () => new Response(JSON.stringify({ ok: true }), { status: 200 }) }) };
+  const go = (path, init = {}) => handleCoder(new Request("https://gofarther.dev/api/coder/" + path, { ...init, headers: { "content-type": "application/json" } }), env, {}, deps);
+  await connectGithub(go, env, deps);
+  const p = (await (await go("projects", { method: "POST", body: JSON.stringify({ repo: "ana/shop" }) })).json()).project;
+  const bad = await go("projects/" + p.id + "/files");
+  assert.equal(bad.status, 502);
+  assert.ok((await bad.json()).error);
+  treeStatus = 409;
+  const empty = await go("projects/" + p.id + "/files");
+  assert.deepEqual([empty.status, (await empty.json()).files], [200, []]);
+  treeStatus = 200;
+  assert.deepEqual((await (await go("projects/" + p.id + "/files")).json()).files, ["src/a.js"]);
+});

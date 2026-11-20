@@ -4,6 +4,15 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-20: Bigger Claude Code fixes, part 9
+
+- **A step waiting for your Yes no longer says "Ran":** while a permission card waits, its step now reads "Run npm test · waiting for you" (or "Write", "Edit", "Fetch" …) instead of "Ran …", and it stands on its own row, so "Ran 2 commands" counts only commands that really ran. A step you refused reads "Run … ✕ refused" too. Claude Code fixed the same thing but does not say its exact words, so tell me if you'd like different ones.
+- **The chat stays where you scrolled:** while Coder works, a new step used to pull you to the bottom, and other redraws threw you back to the top. Now, like Claude Code, the chat (and the See changes panel) stays where you left it; only if you are already at the bottom does it follow new steps. Sending a message still takes you to the bottom.
+- **Sending again after a failed send can't run your message twice:** if a send failed (connection lost, server trouble) and you press Send again with the same message, it now carries the same id, so Coder's server knows it is the same message and starts it once, as Claude Code's cloud sessions do. If the connection dropped, the page also looks at the chat once in case the message did start.
+- **Long chats draw faster:** a long chat now draws only its newest steps (about the last 400), with a small round "Show earlier messages (N hidden)" button at the top for the rest, so each redraw no longer grows with the whole chat. Claude Code's full-screen view only draws what is on screen the same way. This is a first step: the page still redraws the drawn part on each update; caching finished turns would be a bigger follow-up.
+- **The @ file list refreshes:** a failed load of the file list is no longer kept as an empty list (the next @ asks again), the list is fetched again in the background when a job ends (so files Coder just made show up), and again when it is over a minute old. The server now says when GitHub could not list the files instead of answering with an empty list.
+- Looks: the only new thing on the page is the "Show earlier messages" button above a long chat; waiting steps now read "Run …". Full test suite passes, apart from three older tests (IN4, IN9, CD132) that already failed before. Not deployed or merged; not yet tried live in the browser.
+
 ## 2026-11-20: Bigger Claude Code fixes, part 8
 
 - **A command you approve after the machine restarted no longer runs in the wrong folder:** if Coder had moved into a folder (say `sub`), asked you about a command there, and the machine restarted before you said Yes, the command used to run in the project's top folder instead. Now, like Claude Code, it runs in the folder it was asked in, and if that folder is gone it is not run at all; Coder is told why and can ask again.

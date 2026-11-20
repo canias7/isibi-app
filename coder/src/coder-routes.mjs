@@ -2948,6 +2948,9 @@ export async function handleCoder(request, env, ctx, deps) {
     if (!t) return json({ error: "connect GitHub first", connect: true }, 409);
     let tree = meta.readOnly ? { ok: false } : await gh(t.token, "/repos/" + meta.repo + "/git/trees/" + encodeURIComponent(meta.branch) + "?recursive=1", { fetchFn });
     if (!tree.ok) tree = await ghRead(t.token, "/repos/" + meta.repo + "/git/trees/" + encodeURIComponent(meta.base) + "?recursive=1", { fetchFn });
+    // (GitHub could not list it: said so, not an empty list, so the page asks again. An empty repository, GitHub's 409, has
+    // no files. 2026-11-20.)
+    if (!tree.ok && tree.status !== 409) return json({ error: "the file list could not be read from GitHub" }, 502);
     const files = tree.ok && tree.data && Array.isArray(tree.data.tree) ? tree.data.tree.filter((x) => x.type === "blob").map((x) => String(x.path)).filter((p) => !/(^|\/)(node_modules|\.git)\//.test(p)).slice(0, 5000) : [];
     return json({ ok: true, files });
   }
