@@ -6,7 +6,7 @@ log (81,000 lines) is in git history.
 
 ## 2026-11-19: Claude Code fixes, batch 21
 
-- Seven of the ten audit items in this batch fixed, each with a test; three skipped (below). Gloopy, connectors and MCP were not touched. Not deployed or merged, so none of it has been tried live in the browser yet.
+- Eight of the ten audit items in this batch fixed, each with a test; two skipped (below). Gloopy, connectors and MCP were not touched. Not deployed or merged, so none of it has been tried live in the browser yet.
 - **Code review:** a review whose AI never answered now ends as "Code review failed" (or "Code review timed out"), never "found no issues", and the next push or `@coder review` reviews again. If one AI pass fails but another answers, its findings are still posted. A finished review always shows its check on the pull request, even if GitHub refused the earlier tries to create it.
 - **A failed push at a job's end** (or an ended GitHub connection) now leaves the chat counting the work that is only on Coder's machine, so the Push button, the background push and Delete's warning all apply, instead of the work being quietly forgotten.
 - **A machine that restarts during a job** frees the chat at once, instead of showing "Setting up a cloud container" for up to 8 minutes.
