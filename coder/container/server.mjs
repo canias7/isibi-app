@@ -1013,6 +1013,45 @@ export const compactVarsFor = (vars) => ({ ...compactVarsOf(vars), CODER_AUTOCOM
 export function retryEnv(env, vars) {
   return vars && vars.CODER_MAX_RETRIES !== undefined ? { ...env, CODER_MAX_RETRIES: String(vars.CODER_MAX_RETRIES) } : env;
 }
+/**
+ * A REPOSITORY'S env CHANGED MID-JOB (the audit, 2026-11-20; Claude Code's env-vars docs: "A running session applies new and
+ * changed values to its environment when you save the file … Removing a variable from the file doesn't unset it in a running
+ * session"): the new and changed names are set on the commands' variables (`target`, the job's extraEnv), never over the
+ * owner's own variables or Coder's own marks, and a removed one stays. OTEL_ names stay as the job started (read once at
+ * startup, as Claude Code's telemetry). → the names set.
+ */
+export function repoEnvMidJob({ was = {}, now = {}, ownerVars = {}, scrubOn = false, target }) {
+  const next = withoutOtel(now);
+  if (scrubOn) scrubVars(next);
+  const before = was && typeof was === "object" ? was : {}, own = ownerVars && typeof ownerVars === "object" ? ownerVars : {};
+  const set = [];
+  for (const [k, v] of Object.entries(next)) {
+    if (Object.hasOwn(own, k)) continue;
+    // (A name the job's variables have that the repository did not give: Coder's own, or the network's. Never replaced.)
+    if (!Object.hasOwn(before, k) && Object.hasOwn(target, k)) continue;
+    if (Object.hasOwn(before, k) && before[k] === v && target[k] === v) continue;
+    target[k] = v;
+    set.push(k);
+  }
+  return set;
+}
+/**
+ * The command settings that come from the variables, read again mid-job when the repository's own changed (the audit,
+ * 2026-11-20): timeouts, output limits, background commands, the memory-pressure stop, the command prefix and the web search
+ * budget. The objects are changed in place, so what already holds them sees the new values. Things read once per job (the
+ * shell, the memory cap, the PowerShell tool, the plans folder) stay as the job started, as Claude Code's startup settings.
+ */
+export function ownMidJob(t, ownerRaw, own, prefs) {
+  const raw = withRepoOwn(ownerRaw, own);
+  if (t.tmo && typeof t.tmo === "object") Object.assign(t.tmo, bashTimeouts(raw, prefs)); else t.tmo = bashTimeouts(raw, prefs);
+  if (t.outLimits && typeof t.outLimits === "object") Object.assign(t.outLimits, bashOutputLimits(raw)); else t.outLimits = bashOutputLimits(raw);
+  t.noBg = varOn(raw.CODER_DISABLE_BACKGROUND_TASKS);
+  t.noReap = varOn(raw.CODER_DISABLE_BG_SHELL_PRESSURE_REAP);
+  t.shellPrefix = shellPrefixOf(raw.CODER_SHELL_PREFIX);
+  const sl = { max: raw.CODER_MAX_WEB_SEARCHES_PER_SESSION, refills: raw.CODER_WEB_SEARCH_REFILLS_PER_HOUR };
+  if (t.searchLimits && typeof t.searchLimits === "object") Object.assign(t.searchLimits, sl); else t.searchLimits = sl;
+  return raw;
+}
 export function withRepoOwn(vars, own) {
   const v = vars && typeof vars === "object" ? vars : {};
   const out = { ...v };
@@ -2446,6 +2485,27 @@ async function saveSubmodules(dir, k, o) {
   return left;
 }
 
+/**
+ * The conversation a crashed job hands back (the audit, 2026-11-20): the loop's own copy as far as it got, else the one the
+ * job was given; every tool call still without an answer gets one that says the job stopped, so the chat can go on.
+ */
+export function crashedConvo(now, given) {
+  const list = Array.isArray(now) && now.length ? now : Array.isArray(given) ? given : [];
+  const out = [];
+  for (let i = 0; i < list.length; i++) {
+    const m = list[i];
+    out.push(m);
+    if (!m || m.role !== "assistant" || !Array.isArray(m.tool_calls) || !m.tool_calls.length) continue;
+    const answered = new Set();
+    for (let j = i + 1; j < list.length && list[j] && list[j].role === "tool"; j++) answered.add(list[j].tool_call_id);
+    let j = i + 1;
+    while (j < list.length && list[j] && list[j].role === "tool") out.push(list[j++]);
+    for (const c of m.tool_calls) if (c && c.id && !answered.has(c.id)) out.push({ role: "tool", tool_call_id: c.id, content: "error: not finished; the job stopped because of an unexpected error" });
+    i = j - 1;
+  }
+  return out;
+}
+
 export async function pushRepo({ dir, repo, branch, token, headers = [], message, trailer = "", remote = DEFAULT_REMOTE, gitRoot = GIT_ROOT, root = PROJECT_ROOT, noPush = false, netWaits = GIT_NET_WAITS, commitOnly = false }) {
   const o = { gitDir: gitDirFor(dir, gitRoot), remote, root };
   // THE AUDIT (2026-11-06): a project folder that fails the check is refused
@@ -2503,7 +2563,12 @@ export async function pushRepo({ dir, repo, branch, token, headers = [], message
   const url = remote + repo + ".git";
   // (GitHub busy for a moment: tried again, as at the start of a turn, round 5.)
   const p = await gitNet(dir, ["push", "--no-verify", url, "HEAD:refs/heads/" + branch], { ...o, token, headers }, netWaits);
-  if (p.code !== 0) return { ok: false, pushed: false, why: "could not push: " + p.output.slice(0, 300), unpushed: await unpushedCount(dir, o), ...told };
+  // A FAILED PUSH STILL MADE A COMMIT (the audit, 2026-11-20; Claude Code's checkpoints do not depend on a push): the commit
+  // is named, so the chat keeps it for Undo, Rewind's "Restore code" and the Push button, and sends it later.
+  if (p.code !== 0) {
+    const sha = committed ? (await gitIn(dir, ["rev-parse", "HEAD"], o)).stdout.trim() : "";
+    return { ok: false, pushed: false, changed: committed, ...(sha ? { sha } : {}), why: "could not push: " + p.output.slice(0, 300), unpushed: await unpushedCount(dir, o), ...(committed ? await commitFiles(dir, o) : {}), ...told };
+  }
   const sha = (await gitIn(dir, ["rev-parse", "HEAD"], o)).stdout.trim();
   // What GitHub now has is origin's (the push goes by Coder's own address, which moves no ref here): nothing left unpushed.
   await gitIn(dir, ["update-ref", "refs/remotes/origin/" + branch, "HEAD"], o);
@@ -4963,6 +5028,9 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       t.readBlockOn = !!(t.readBlockOn || was.blockReads || rs.blockReads);
       t.blocksNext = { read: ownReadBlock || t.readBlockOn, write: ownWriteBlock || rs.blockWrites };
       for (const h of rs.held) t.events.push({ at: Date.now(), type: "note", text: heldNote(h) });
+      // (Its variables and the command settings from them apply now too, as Claude Code's do: repoEnvMidJob, ownMidJob.)
+      if (t.extraEnv) repoEnvMidJob({ was: was.env, now: rs.env, ownerVars, scrubOn, target: t.extraEnv });
+      if (JSON.stringify(was.own || {}) !== JSON.stringify(rs.own || {})) ownMidJob(t, ownerRaw, rs.own, usePrefs(body.prefs));
     };
     t.readBlockOn = !!repoSet.blockReads;
     // The real service's AI calls go through the Worker with this job's pass (no key on the machine).
@@ -5005,6 +5073,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         boxDown: t.boxDown || "",
         // BACKGROUND HOOKS' NEWS (hookNews), and the files FileChanged hooks watch, kept between messages.
         hookNews: () => hookNews(project),
+        // (The files FileChanged hooks watch, looked at every second while the job runs: fileWatchOnce in coder-agent.mjs.)
+        fileWatchMs: 1000,
         // A HOOK'S TEXT PAST 10,000 CHARACTERS, saved in the chat's output folder (Claude Code: "saves the output to a file in
         // the session directory"), which Coder's read may open: the file's path. A new plain file, never through a link.
         saveText: (text) => {
@@ -5043,7 +5113,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         memFree: () => memAvailable(t.memCg),
         // Only this job's part of the conversation: the Worker already has the rest (the chat's saved history).
         // (After Claude Code's auto-compact in the job, the whole conversation: it starts with the summary. 2026-11-14.)
-        watch: (now, o = {}) => { const before = Array.isArray(body.messages) ? body.messages.length : 0; const whole = () => Number(o && typeof o.whole === "function" ? o.whole() : 0) || 0; t.convoWhole = whole; t.convoNow = () => (whole() ? now() : now().slice(before)); },
+        watch: (now, o = {}) => { const before = Array.isArray(body.messages) ? body.messages.length : 0; const whole = () => Number(o && typeof o.whole === "function" ? o.whole() : 0) || 0; t.convoWhole = whole; t.convoAll = now; t.convoNow = () => (whole() ? now() : now().slice(before)); },
         // `here`: one of Grok's own commands or file tools, which starts where the last command left the folder (a file
         // tool: CODER_CWD, which its short paths count from). `follow`: a command of Grok's not asked to run in the
         // background, whose folder carries over. `inBg`: one asked to run in the background.
@@ -5396,13 +5466,26 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       const gloopyOpts = gloopy ? { system: GLOOPY_SYSTEM, zone: typeof body.ownerZone === "string" ? body.ownerZone.slice(0, 64) : "", browserRules: Array.isArray(body.rules) ? body.rules : [], sites: Array.isArray(body.sites) ? body.sites : [], monitor: body.monitor === true, granted: typeof body.grant === "string" && body.grant ? [body.grant.slice(0, 300)] : [], schedules, permissions, pages, savedLogins: savedLoginsOf(body), savedCards: gloopy ? savedCardsOf(body) : [], contacts: permissions && permissions.share === "deny" ? [] : contactsOf(body), webhooks, hookBase, workNote: workNoteFor(project), marked: body.marked || null, taught: body.taught || null, attached: gloopy && Array.isArray(body.attached) ? body.attached.filter((x) => x && typeof x.id === "string").slice(0, 10) : [], files: fileList, helper: { system: HELPER_SYSTEM, tools: HELPER_TOOLS, browserTool: HELPER_BROWSER_TOOL, context: "TODAY is " + new Date().toISOString().slice(0, 10) + " (UTC). Files you write go in " + home0 + "/helpers/ (write makes the folder; give the file tools full paths)." }, opening: body.opening === "note" ? "note" : "user", background: body.background === true, checkWrites: true, denied: Array.isArray(body.denied) ? body.denied.filter((x) => typeof x === "string").slice(-20) : [], tools: hasBrowser ? GLOOPY_TOOLS : GLOOPY_TOOLS.filter((x) => !BROWSER_TOOL_NAMES.includes(x.function.name)), holdBack: GLOOPY_HELD_BACK, nudges: false, who: "Gloopy", github: false, context: gloopyNow(typeof body.memory === "string" ? body.memory : ""), hooks: [], checker: false, rules: null, sessionRules: null } : {};
       // (The saved chat's pictures put back first, and the job's sent to the Worker at its end: picsIn, picsOut. 2026-11-14.)
       const picsTo = { live, fetchFn: liveFetch, project, known: new Set() };
+      // A CRASH KEEPS THE CHAT (the audit, 2026-11-20; Claude Code writes its conversation as it goes, so a crash keeps it):
+      // an unexpected error in the loop hands back the conversation as far as it got, with its unanswered tool calls closed,
+      // and shows the error as a step, instead of an empty conversation the Worker would save over the chat.
+      const crashed = async (e, send) => {
+        const why = String((e && e.message) || e).slice(0, 200);
+        let messages = [];
+        try { messages = crashedConvo(typeof t.convoAll === "function" ? t.convoAll() : null, body.messages); } catch { messages = crashedConvo(null, body.messages); }
+        if (!gloopy && messages.length) messages = await picsOut(messages, picsTo).catch(() => messages);
+        try { t.events.push({ type: "error", text: "Coder stopped because of an unexpected error: " + why }); } catch { /* the steps are best effort */ }
+        if (send) await lastSend().catch(() => {});
+        t.answerDone = true;
+        return { status: "error", messages, crashed: true, summary: why };
+      };
       picsIn(Array.isArray(body.messages) ? body.messages : [], picsTo).then((msgsIn) => runCoder(turnDeps, { notices, lost, stalls, ...(takeUp ? { takeUp: { ...takeUp, ...(envNote ? { note: envNote } : {}) } } : {}), timeouts: t.tmo, outLimits: t.outLimits, cmdShell: t.shell, compactVars: compactVarsFor(rawVars), noBg: t.noBg, diskWarnGib: warnGibFrom(body.setup && body.setup.vars, "DISK", PREFS.diskWarnGib), memWarnGib: warnGibFrom(body.setup && body.setup.vars, "MEMORY", PREFS.memWarnGib), searchLimits: t.searchLimits, hooks: turnHooks, autoMode: autoModeIn(body.autoMode), denyInstead: PREFS.denyInstead === true, tasksOff: varOff(rawVars.CODER_ENABLE_TASKS), mentionsOff: varOn(rawVars.CODER_DISABLE_FILE_MENTIONS), stopCap: stopCapOf(rawVars.CODER_STOP_HOOK_BLOCK_CAP), box: !!t.box, autoOff: PREFS.autoOff === true || repoSet.autoOff, suggest: !gloopy && PREFS.suggestOff !== true && process.env.CODER_ENABLE_PROMPT_SUGGESTION !== "false", fileEdits: repoSet.defaultMode === "acceptEdits", startMode: repoSet.defaultMode, resumed, lastAt: Number(body.lastAt) || 0, hostLists: nn.mode === "full" ? null : nn.mode === "none" ? "none" : walled ? "on" : "off", rmChecksOff: { subst: varOn(rawVars.CODER_DISABLE_SUBSTITUTION_RM_PROMPT), inline: varOn(rawVars.CODER_DISABLE_INLINE_SHELL_RM_PROMPT), mounted: varOn(rawVars.CODER_DISABLE_MOUNTED_DRIVE_RM_PROMPT), timeout: varOn(rawVars.CODER_DISABLE_DANGEROUS_RM_TIMEOUT) }, powershell: psOn ? { bypass: !varOn(rawVars.CODER_POWERSHELL_RESPECT_EXECUTION_POLICY), defaultShell: String(rawVars.CODER_DEFAULT_SHELL || "").trim().toLowerCase() === "powershell", parseMs: Number(rawVars.CODER_PWSH_PARSE_TIMEOUT_MS) > 0 ? Math.min(Number(rawVars.CODER_PWSH_PARSE_TIMEOUT_MS), 60000) : 0 } : null, planExit: body.prePlanMode === "acceptEdits" ? "acceptEdits" : "auto", respondToBash: !varOff(rawVars.CODER_RESPOND_TO_BASH_COMMANDS), promptNotify: !varOn(rawVars.CODER_DISABLE_PERMISSION_PROMPT_NOTIFY_HOOKS), readBlock: varOn(rawVars.CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockReads, writeBlock: varOn(rawVars.CODER_BLOCK_WRITES_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockWrites, connectors: mcpCall ? connectors : [], connectorNotes: mcpCall && Array.isArray(body.connectorNotes) ? body.connectorNotes.slice(0, 10) : [], connectorsWaiting: Array.isArray(body.connectorsWaiting) ? body.connectorsWaiting.map(String).slice(0, 20) : [], connectorsFailed: Array.isArray(body.connectorsFailed) ? body.connectorsFailed.slice(0, 20) : [], connectorsGone: body.connectorsGone && typeof body.connectorsGone === "object" && !Array.isArray(body.connectorsGone) ? body.connectorsGone : null, checker, checkerInPlan: !varOff(rawVars.CODER_USE_AUTO_MODE_DURING_PLAN), checkWhere: { key: project, repo: String(body.repo || ""), branch: String(body.branch || (body.repo ? "coder/" + project : "")) }, emailMark: typeof body.emailMark === "string" && /^\d{1,3}:[0-9a-f]{64}(?:,\d{1,3}:[0-9a-f]{64})?$/.test(body.emailMark) ? body.emailMark : "", editDiff: varOn(rawVars.CODER_BASH_EDIT_DIFF), mode: t.mode, rules: withRepoRules(body.rules, repoSet), sessionRules: body.sessionRules && typeof body.sessionRules === "object" ? body.sessionRules : null, customTitle: !gloopy && typeof body.customTitle === "string" ? body.customTitle.slice(0, 200) : "", shell: typeof body.shell === "string" ? body.shell.slice(0, 100_000) : "", messages: msgsIn, text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), ...(body.compact && typeof body.compact === "object" ? { compact: { focus: String(body.compact.focus || "").slice(0, 300) } } : {}), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, readOnly: { main: body.readOnly === true, extra: extras.filter((x) => x.readOnly).map((x) => x.repo.toLowerCase()) }, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), replyTo: body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null, ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }) , skills: gloopy || body.github === true ? [] : (() => { try { return readSkills(dir); } catch { return []; } })(), ...gloopyOpts }))
         // (Its job is over: a connector's question still waiting closes, coder-elicit.mjs.)
         .finally(() => { t.over = true; })
         // The last steps are sent BEFORE the end is handed out, so the Worker never saves the job while some are on their way.
         // Gloopy's copy is brought up to date first too, while this job's pass still holds (at most 30 seconds).
-        .then(async (r) => { const memory = await readMemory(memFile); if (gloopy) await Promise.race([backupGloopy().catch(() => {}), new Promise((ok) => setTimeout(ok, 30_000))]); await lastSend(); t.answerDone = true; const messages = gloopy || !Array.isArray(r && r.messages) ? r && r.messages : await picsOut(r.messages, picsTo).catch(() => r.messages); return { ...r, messages, memory, cwd: t.cwd }; }, async (e) => { await lastSend(); t.answerDone = true; return { status: "error", messages: [], summary: String((e && e.message) || e).slice(0, 200) }; })
-        .catch((e) => ({ status: "error", messages: [], summary: String((e && e.message) || e).slice(0, 200) }))
+        .then(async (r) => { const memory = await readMemory(memFile); if (gloopy) await Promise.race([backupGloopy().catch(() => {}), new Promise((ok) => setTimeout(ok, 30_000))]); await lastSend(); t.answerDone = true; const messages = gloopy || !Array.isArray(r && r.messages) ? r && r.messages : await picsOut(r.messages, picsTo).catch(() => r.messages); return { ...r, messages, memory, cwd: t.cwd }; }, async (e) => crashed(e, true))
+        .catch((e) => crashed(e, false))
         .then(async (result) => {
           let dirty = true;
           // THE TURN IS OVER: nothing it started keeps running but its background commands (tool 4: like Claude Code's,

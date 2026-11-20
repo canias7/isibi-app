@@ -994,6 +994,33 @@ export function codeToRestore(commits, turn) {
   return later.some((c) => c.tracked !== false);
 }
 
+/** What a job stopped by an unexpected error commits its work as (the audit, 2026-11-20): never the raw error text. */
+export const CRASH_TITLE = "Coder: work in progress (job stopped by an error)";
+/** A turn's commit title: its own, else the first line of its summary; a crashed job's plain title. */
+export function turnTitle(result) {
+  const r = result && typeof result === "object" ? result : {};
+  if (r.status === "error" && !r.commitTitle) return CRASH_TITLE;
+  return commitTitle(r.commitTitle || r.summary);
+}
+/**
+ * A CRASHED JOB'S CONVERSATION (the audit, 2026-11-20; Claude Code writes its conversation as it goes, so a crash keeps it):
+ * a job that ended in an unexpected error never saves less than the chat had. When its result brings no conversation, or a
+ * shorter one than the chat's saved one, the conversation is rebuilt as for a lost machine (endLostJob): the saved history,
+ * then what the job sent as it went. Either way Coder is told the job stopped. → the messages to save.
+ */
+export async function crashMessages(env, bucket, uid, meta, result) {
+  const saved = await getJson(bucket, keyOf(uid, meta.id, "messages.json"), []);
+  let msgs = Array.isArray(result.messages) ? result.messages : [];
+  if (!msgs.length || msgs.length < (Array.isArray(saved) ? saved.length : 0)) {
+    const kept = await readLive(env, bucket, uid, meta.id, meta.turn).catch(() => ({ messages: null }));
+    msgs = interruptedSteps(kept.whole === true && Array.isArray(kept.messages) ? kept.messages : [...(Array.isArray(saved) ? saved : []), ...(Array.isArray(kept.messages) ? kept.messages : [])]).messages;
+  }
+  const why = String(result.summary || "an unexpected error").slice(0, 200);
+  return [...msgs,
+    { role: "user", appNote: true, content: "(Note from Coder's app, not the owner: the last job stopped because of an unexpected error (" + why + "). Its steps so far are kept in the chat, and the files in the working folder are as it left them; check git status before going on.)" },
+    { role: "assistant", content: "Understood: that job stopped with an error; I will check where it got to before going on." }];
+}
+
 /** The first line of the agent's summary, as a commit message and a pull request title. */
 export function commitTitle(summary) {
   const first = String(summary || "").split(/\n|(?<=\.)\s/)[0].trim();
@@ -2125,7 +2152,9 @@ export async function handleCoder(request, env, ctx, deps) {
       // each push's commit is the job's own (kept for Undo, which takes the job's commits back one at a time, the last first),
       // and the chat says it was pushed; the turn's end then commits only what changed after it (pushWanted is not set by it).
       for (const m of meta.readOnly ? [] : Array.isArray(res.midPushes) ? res.midPushes.slice(0, 20) : []) {
-        if (m && m.changed === true && typeof m.sha === "string" && /^[0-9a-f]{7,64}$/.test(m.sha)) commits = [...commits, { sha: m.sha, turn: meta.turn, title: commitTitle(s.result.commitTitle || s.result.summary), at: Date.now(), ...commitTracking(commits, { edited: m.edited }, m) }].slice(-50);
+        if (m && m.changed === true && typeof m.sha === "string" && /^[0-9a-f]{7,64}$/.test(m.sha)) commits = [...commits, { sha: m.sha, turn: meta.turn, title: turnTitle(s.result), at: Date.now(), ...(m.pushed === false ? { local: true } : {}), ...commitTracking(commits, { edited: m.edited }, m) }].slice(-50);
+        // A mid-turn push that failed after committing: its commit is kept (above) and counted as not yet on GitHub.
+        if (m && m.pushed === false && m.changed === true) { unpushed = Math.max(unpushed, 1); if (!unpushedSince) unpushedSince = Date.now(); continue; }
         // (A mid-turn push that found nothing new still means GitHub has the branch: a pull request queued for the turn's end
         // opens on it.)
         if (m && typeof m === "object") pushed = true;
@@ -2140,7 +2169,7 @@ export async function handleCoder(request, env, ctx, deps) {
       if (!gitWork) { /* nothing changed and nothing asked: no commit step (meta.unpushed stays as it is) */ }
       else if (!t && !meta.readOnly) { pushNote = "Not sent to GitHub: the connection has ended. Connect GitHub again and send a message to push it."; unpushed = Math.max(unpushed, 1); if (!unpushedSince) unpushedSince = Date.now(); }
       else {
-        const p = await post("/push", { project: id, repo: meta.repo, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn), message: commitTitle(s.result.commitTitle || s.result.summary), chatUrl: chatLink, extra: extraFor(meta), ...(meta.readOnly ? { noPush: true } : pushNow ? {} : { commitOnly: true }) }).then((r) => r.json()).catch(() => ({ ok: false, why: "the machine could not be reached" }));
+        const p = await post("/push", { project: id, repo: meta.repo, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn), message: turnTitle(s.result), chatUrl: chatLink, extra: extraFor(meta), ...(meta.readOnly ? { noPush: true } : pushNow ? {} : { commitOnly: true }) }).then((r) => r.json()).catch(() => ({ ok: false, why: "the machine could not be reached" }));
         // THE CHAT'S OTHER REPOSITORIES (2026-11-06): each saved to the chat's branch in its own repository, and its pull request when Coder was asked for one.
         for (const x of Array.isArray(p.extra) ? p.extra : []) {
           const line = !x.ok ? "Not sent to GitHub in " + x.repo + ": " + String(x.why || "the push failed").slice(0, 160) : x.kept ? (x.changed ? keptNote(x.repo) : "") : x.local ? "" : x.pushed ? "Pushed to the branch " + meta.branch + " in " + x.repo : "";
@@ -2157,6 +2186,8 @@ export async function handleCoder(request, env, ctx, deps) {
         }
         if (!p.ok) {
           pushNote = (meta.readOnly ? "Not kept: " : "Not sent to GitHub: ") + String(p.why || "the push failed").slice(0, 200);
+          // (The audit, 2026-11-20: the commit made before the push failed is still the job's, kept for Undo and Rewind.)
+          if (!meta.readOnly && p.changed && typeof p.sha === "string" && /^[0-9a-f]{7,64}$/.test(p.sha) && !commits.some((c) => c.sha === p.sha)) commits = [...commits, { sha: p.sha, turn: meta.turn, title: turnTitle(s.result), at: Date.now(), local: true, ...commitTracking(commits, s.result, p) }].slice(-50);
           // (Batch 21, I01: work that exists on no remote is never forgotten, as Claude Code's: the chat counts it, so the Push
           // button, the safety push and Delete's warning all apply.)
           if (!meta.readOnly) { unpushed = Math.max(Number(p.unpushed) || 0, p.changed || p.sha ? 1 : 0, unpushed); if (unpushed && !unpushedSince) unpushedSince = Date.now(); }
@@ -2164,17 +2195,17 @@ export async function handleCoder(request, env, ctx, deps) {
         else if (meta.readOnly) {
           if (p.changed) {
             keptHere = true;
-            if (p.sha) commits = [...commits, { sha: p.sha, turn: meta.turn, title: commitTitle(s.result.commitTitle || s.result.summary), at: Date.now(), ...commitTracking(commits, s.result, p) }].slice(-50);
+            if (p.sha) commits = [...commits, { sha: p.sha, turn: meta.turn, title: turnTitle(s.result), at: Date.now(), ...commitTracking(commits, s.result, p) }].slice(-50);
             pushNote = keptNote(meta.repo);
           }
         } else if (p.local) {
           // Committed on Coder's machine only: kept for Undo, Rewind and See changes; pushed later.
-          if (p.changed && p.sha) commits = [...commits, { sha: p.sha, turn: meta.turn, title: commitTitle(s.result.commitTitle || s.result.summary), at: Date.now(), local: true, ...commitTracking(commits, s.result, p) }].slice(-50);
+          if (p.changed && p.sha) commits = [...commits, { sha: p.sha, turn: meta.turn, title: turnTitle(s.result), at: Date.now(), local: true, ...commitTracking(commits, s.result, p) }].slice(-50);
           unpushed = Number(p.unpushed) || 0;
           if (unpushed && !unpushedSince) unpushedSince = Date.now();
           if (!unpushed) unpushedSince = 0;
         } else {
-          if (p.changed && p.sha) commits = [...commits, { sha: p.sha, turn: meta.turn, title: commitTitle(s.result.commitTitle || s.result.summary), at: Date.now(), ...commitTracking(commits, s.result, p) }].slice(-50);
+          if (p.changed && p.sha) commits = [...commits, { sha: p.sha, turn: meta.turn, title: turnTitle(s.result), at: Date.now(), ...commitTracking(commits, s.result, p) }].slice(-50);
           commits = commits.map((c) => (c.local ? { ...c, local: undefined } : c));
           unpushed = 0; unpushedSince = 0;
           if (p.pushed) {
@@ -2266,6 +2297,8 @@ export async function handleCoder(request, env, ctx, deps) {
       // THE OWNER'S /compact, MADE: Rewind's marks inside what was summarized go, as before (marksAfter).
       const cj = s.result.compact && typeof s.result.compact === "object" ? s.result.compact : null;
       if (cj && cj.done === true && Number.isInteger(cj.to) && cj.to > 0) meta.marks = marksAfter(meta.marks, { from: 0, to: cj.to });
+      // (A job stopped by an unexpected error keeps the chat's conversation: crashMessages.)
+      if (s.result.status === "error") s.result.messages = await crashMessages(env, bucket, uid, meta, s.result).catch(() => s.result.messages);
       const capped = capHistoryInfo(s.result.messages, historyMaxFor(meta)), kept = capped.messages;
       const allEvents = [...old, ...fresh], keptEvents = allEvents.slice(-MAX_EVENTS);
       // THE SAVE'S WRITES, TOGETHER; the memory only when it changed (2026-11-16).

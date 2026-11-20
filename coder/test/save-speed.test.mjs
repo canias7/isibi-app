@@ -95,7 +95,7 @@ test("SV1 the answer shown at once even when its steps came on an earlier look: 
 test("SV1b the machine: says `answered` once the answer's last steps are sent, refuses a queued message from then on (the Worker's line takes it), and its /claim hands over the job's steps and end", () => {
   const src = readFileSync(new URL("../container/server.mjs", import.meta.url), "utf8");
   assert.ok(src.includes("await lastSend(); t.answerDone = true; const messages"));
-  assert.ok(src.includes("async (e) => { await lastSend(); t.answerDone = true; return"));
+  assert.ok(src.includes("async (e) => crashed(e, true))") && src.includes("if (send) await lastSend().catch(() => {});\n        t.answerDone = true;"));
   assert.ok(src.includes("...(t.answerDone ? { answered: true } : {}), events: t.events.slice(since)"));
   assert.ok(src.includes("if (!t || !t.running || t.result || t.answerDone) return send(200, { ok: false, notRunning: true });"));
   assert.ok(src.includes("return send(200, { ok: true, events: t.events, result: t.result });"));

@@ -433,3 +433,26 @@ test("HD1 a PermissionRequest hook's addDirectories and removeDirectories (Claud
   assert.match(server, /const otherRoots = workRoots\.slice\(1\);/);
   assert.match(server, /removeWorkdirs: async/);
 });
+
+// FILECHANGED AS THE FILE CHANGES (the audit, 2026-11-20; Claude Code: "Claude Code detects changes with a filesystem watcher,
+// not by inspecting tool calls, so it runs the hook no matter what changed the file").
+test("FW1 a watched file a running command changes runs its FileChanged hook while the command still runs, not at the next step; two changes run it twice", async () => {
+  let gen = 0, hooksDuring = -1;
+  const fired = [];
+  const t = await loop([say("", [call("bash", { command: "slow" }, "b1")]), say("ok")], { FileChanged: [{ matcher: ".env", hooks: [{ type: "command", command: "reload.sh" }] }] }, {
+    tools: { stamps: () => JSON.stringify([{ path: "/work/shop/.env", mtime: gen, size: 1 }]) },
+    hookRun: (input) => { fired.push(input.event); return {}; },
+    onRun: async (cmd) => {
+      if (cmd !== "slow") return null;
+      gen = 1;
+      await new Promise((ok) => setTimeout(ok, 700));
+      gen = 2;
+      await new Promise((ok) => setTimeout(ok, 700));
+      hooksDuring = fired.length;
+      return { code: 0, output: "done\n" };
+    },
+    more: { fileWatchMs: 200 },
+  });
+  assert.equal(hooksDuring, 2, "both changes ran the hook while the command ran");
+  assert.deepEqual(t.hookCalls.map((c) => [c.input.file_path, c.input.event]), [["/work/shop/.env", "change"], ["/work/shop/.env", "change"]]);
+});

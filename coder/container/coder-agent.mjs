@@ -3009,6 +3009,25 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     }
   };
   /**
+   * THE WATCHED FILES LOOKED AT WHILE THE JOB RUNS (the audit, 2026-11-20; Claude Code: "Claude Code detects changes with a
+   * filesystem watcher, not by inspecting tool calls, so it runs the hook no matter what changed the file"): with
+   * deps.fileWatchMs (Coder's machine gives one second), the watched files are looked at on that beat for as long as the job
+   * runs, so a file a command or anything else changes runs the FileChanged hooks at once, not at the next step. One look at a
+   * time (fileWatchOnce); the look before each step stays, and the files' stamps are kept between messages, so a change made
+   * while no job ran runs them with the next message.
+   */
+  let watchBusy = null, watchTimer = null;
+  const fileWatchOnce = () => {
+    if (!watchBusy) watchBusy = fileWatch().catch(() => {}).finally(() => { watchBusy = null; });
+    return watchBusy;
+  };
+  const watchBeat = () => {
+    const ms = Number(deps.fileWatchMs);
+    if (watchTimer || !(ms > 0) || !hookList.some((h) => h.event === "FileChanged")) return;
+    watchTimer = setInterval(() => { if (jobOver) { clearInterval(watchTimer); return; } fileWatchOnce(); }, Math.max(200, ms));
+    if (typeof watchTimer.unref === "function") watchTimer.unref();
+  };
+  /**
    * What hooks add for Coder, as a note from Coder's app (Claude Code: "wrapped in a system reminder … starts with the hook's
    * name"): the hook's name as Claude Code writes it, its event and, for a tool's, the tool ("PreToolUse:Bash hook additional
    * context: …", "SessionStart hook additional context: …"; its command-line version, 2026-11-11).
@@ -3929,7 +3948,13 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     emit({ type: "bash", id, tool: "push_branch", verb: "Push", command: "git push (the chat's branch)" });
     let p;
     try { p = (await deps.pushNow(scrub(message))) || {}; } catch (e) { p = { ok: false, why: String((e && e.message) || e) }; }
-    if (!p.ok) { const why = String(p.why || "the push failed").slice(0, 300); emit({ type: "result", id, code: 1, output: why }); return { ok: false, why }; }
+    if (!p.ok) {
+      const why = String(p.why || "the push failed").slice(0, 300);
+      // (The audit, 2026-11-20: a push that failed after its commit was made still keeps the commit for Undo and Rewind.)
+      if (p.changed === true && /^[0-9a-f]{7,64}$/.test(String(p.sha || ""))) midPushes.push({ sha: String(p.sha), changed: true, pushed: false, edited: [...edited], ...(Array.isArray(p.files) ? { files: p.files.slice(0, 1000) } : {}), ...(p.filesCut ? { filesCut: true } : {}) });
+      emit({ type: "result", id, code: 1, output: why });
+      return { ok: false, why };
+    }
     midPushes.push({ sha: String(p.sha || ""), changed: p.changed === true, pushed: p.pushed === true, edited: [...edited], ...(Array.isArray(p.files) ? { files: p.files.slice(0, 1000) } : {}), ...(p.filesCut ? { filesCut: true } : {}), ...(Array.isArray(p.extra) ? { extra: p.extra.map((x) => ({ repo: x.repo, ok: !!x.ok, pushed: !!x.pushed, why: x.why ? String(x.why).slice(0, 160) : undefined })) } : {}) });
     const bad = (Array.isArray(p.extra) ? p.extra : []).filter((x) => !x.ok).map((x) => x.repo + ": " + String(x.why || "failed").slice(0, 120));
     // EACH REPOSITORY NAMED (the owner's two-repo test, 2026-11-17: only the first was, so Coder tried git by hand in the
@@ -4476,7 +4501,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     // BACKGROUND HOOKS' NEWS (Claude Code's async hooks: delivered "on the next conversation turn"), and the files
     // FileChanged hooks watch, looked at (fileWatch).
     if (hookList.length || typeof deps.hookNews === "function") await hookNewsNow();
-    if (hookList.some((h) => h.event === "FileChanged")) { try { await fileWatch(); } catch { /* looked at again next step */ } }
+    if (hookList.some((h) => h.event === "FileChanged")) { await fileWatchOnce(); watchBeat(); }
     // THE LOW-DISK WARNING (Settings; Claude Code's CLAUDE_CODE_WARN_DISK_FREE_GIB): looked at before each answer. When the work
     // disk has less free than the owner's line, Coder is told once (and the chat says it too); again only after it was above.
     if (diskWarnGib > 0 && typeof deps.diskFree === "function") {

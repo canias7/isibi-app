@@ -39,7 +39,8 @@ test("commit title: Claude Code's kind (short, imperative), cleaned; the Worker 
   assert.match(COMMIT_ASK, /imperative mood, at most 60 characters/);
   const w = readFileSync(new URL("../src/coder-routes.mjs", import.meta.url), "utf8");
   assert.ok(!/commitTitle\(s\.result\.summary\)/.test(w));
-  assert.match(w, /commitTitle\(s\.result\.commitTitle \|\| s\.result\.summary\)/);
+  assert.match(w, /return commitTitle\(r\.commitTitle \|\| r\.summary\)/);
+  assert.match(w, /message: turnTitle\(s\.result\)/);
   const a = readFileSync(new URL("../container/coder-agent.mjs", import.meta.url), "utf8");
   assert.match(a, /if \(!endPushed && \(edited\.size \|\| changedNow\) && typeof deps\.send === "function" && who === "Coder"\) commitTitle = await commitTitleFor/);
 });

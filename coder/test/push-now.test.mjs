@@ -153,3 +153,55 @@ test("PN9 a pull request just opened: its result asks Coder to end by asking the
   assert.match(await run({ number: 7, url: "https://github.com/o/r/pull/7", draft: true }), /end your answer by asking the owner whether you should watch it for new comments, reviews and CI results \(auto_fix turns that on, only once they say yes\)/);
   assert.doesNotMatch(await run({ number: 7, url: "https://github.com/o/r/pull/7", existed: true }), /watch it/);
 });
+
+// A FAILED FIRST PUSH STILL KEEPS ITS COMMIT (the audit, 2026-11-20; Claude Code's checkpoints do not depend on a push).
+test("PN-L1 the machine's push fails after committing: the answer still names the commit and its files", async () => {
+  const S = await import("../container/server.mjs");
+  const { rename } = await import("node:fs/promises");
+  const git = (cwd, ...a) => execFileSync("git", a, { cwd }).toString();
+  const gh = await mkdtemp(join(tmpdir(), "coder-gh-")), work = await mkdtemp(join(tmpdir(), "coder-seed-"));
+  git(work, "init", "-q", "-b", "main");
+  await writeFile(join(work, "README.md"), "# shop\n");
+  git(work, "-c", "user.name=a", "-c", "user.email=a@b", "add", "-A");
+  git(work, "-c", "user.name=a", "-c", "user.email=a@b", "commit", "-q", "-m", "first");
+  await mkdir(join(gh, "ana"), { recursive: true });
+  execFileSync("git", ["clone", "-q", "--bare", work, join(gh, "ana", "shop.git")]);
+  const remote = gh + "/", root = await mkdtemp(join(tmpdir(), "coder-root-")), gitRoot = await mkdtemp(join(tmpdir(), "coder-git-"));
+  const project = "shop-pnl1", dir = join(root, project), branch = "coder/" + project;
+  assert.equal((await S.prepareRepo({ dir, repo: "ana/shop", base: "main", branch, token: "", remote, gitRoot, root })).ok, true);
+  await writeFile(join(dir, "login.js"), "export const x = 1;\n");
+  await rename(join(gh, "ana", "shop.git"), join(gh, "ana", "gone.git"));
+  const p = await S.pushRepo({ dir, repo: "ana/shop", branch, token: "", remote, gitRoot, root, message: "Add login", netWaits: [] });
+  assert.equal(p.ok, false);
+  assert.equal(p.changed, true);
+  assert.match(String(p.sha), /^[0-9a-f]{40}$/);
+  assert.ok(Array.isArray(p.files) && p.files.includes("login.js"), JSON.stringify(p.files));
+});
+
+test("PN-L2 push_branch fails after committing: the commit is still kept with the result, marked not pushed", async () => {
+  const s = script([say("", [call("push_branch", {})]), say("ok")]);
+  const r = await runCoder({ send: s.send, exec: async () => ({ code: 0, output: "" }), pushNow: async () => ({ ok: false, changed: true, sha: "abcdef1234567", files: ["a.js"], why: "could not push: busy" }) }, { text: "push" });
+  assert.equal(r.push, true, "tried again when the turn ends");
+  assert.equal(r.midPushes.length, 1);
+  assert.deepEqual([r.midPushes[0].sha, r.midPushes[0].pushed, r.midPushes[0].changed], ["abcdef1234567", false, true]);
+});
+
+test("PN-L3 the first push failed and the turn's retry worked with nothing new: the chat still has the job's commit, so Undo and Create PR work", async () => {
+  const R = await import("../src/coder-routes.mjs");
+  const { saveConnection } = await import("../src/coder-github.mjs");
+  const m = new Map();
+  const bucket = { m, async get(k) { return m.has(k) ? { text: async () => m.get(k) } : null; }, async put(k, v) { m.set(k, String(v)); }, async delete(k) { m.delete(k); }, async list({ prefix = "" } = {}) { return { objects: [...m.keys()].filter((k) => k.startsWith(prefix)).map((key) => ({ key })), truncated: false }; } };
+  const UID = "user-1234567890abcdef", id = "shop-pnl3";
+  const env = { CODER_ON: "on", CODER_USERS: "me@x.y", GITHUB_APP_CLIENT_ID: "Iv1.abc", GITHUB_APP_CLIENT_SECRET: "shh", GITHUB_APP_SLUG: "gofarther-coder", CODER_TOKEN_KEY: Buffer.alloc(32, 7).toString("base64"), CODER_PUBLIC_URL: "https://coder.gofarther.dev", APP_ORIGIN: "https://gofarther.dev", CODER_BUCKET: bucket };
+  await saveConnection(env, bucket, UID, { access: "ghu_user" }, "ana");
+  const result = { status: "done", summary: "Added login.", messages: [], push: true, edited: ["login.js"], midPushes: [{ sha: "abcdef1", changed: true, pushed: false, edited: ["login.js"], files: ["login.js"] }] };
+  const calls = [];
+  const deps = { fetchFn: async () => new Response("{}", { status: 404 }), authUser: async () => ({ id: UID, email: "me@x.y" }), container: () => ({ fetch: async (req) => { const p = new URL(req.url).pathname; calls.push(p); return p === "/state" ? Response.json({ running: false, result, events: [], next: 2 }) : p === "/claim" ? Response.json({ ok: true, events: [{ type: "user", text: "push" }, { type: "done", text: "Done." }], result }) : p === "/push" ? Response.json({ ok: true, pushed: true, changed: false, sha: "abcdef1", unpushed: 0 }) : Response.json({ ok: true }); } }) };
+  bucket.put("coder/" + UID + "/" + id + "/meta.json", JSON.stringify({ id, repo: "ana/shop", base: "main", branch: "coder/" + id, turn: 1, saved: 0, status: "running", at: Date.now(), commits: [] }));
+  await R.handleCoder(new Request("https://gofarther.dev/api/coder/projects/" + id + "/state?since=2"), env, {}, deps);
+  assert.ok(calls.includes("/push"), "the turn's end pushes again");
+  const meta = JSON.parse(m.get("coder/" + UID + "/" + id + "/meta.json"));
+  assert.deepEqual(meta.commits.map((c) => [c.sha, c.turn]), [["abcdef1", 1]]);
+  assert.equal(meta.commits[0].local, undefined, "the retry sent it");
+  assert.equal(meta.unpushed, 0);
+});

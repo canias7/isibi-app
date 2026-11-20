@@ -4,6 +4,15 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-20: Bigger Claude Code fixes, part 6
+
+- **Undo works after a failed push:** if Coder's push to GitHub failed but its commit was already made (and a later push sent it), the job could not be undone, rewound or turned into a pull request, because Coder only remembered commits from pushes that worked. Now the commit is remembered as soon as it is made, as Claude Code's checkpoints are, and marked "not on GitHub yet" until a push sends it.
+- **A crash no longer wipes the chat:** if Coder's own program hit an unexpected error in the middle of a job, the chat's memory of the conversation was replaced with nothing. Now the conversation is kept as far as it got (any half-finished step is marked as stopped), the chat shows "Coder stopped because of an unexpected error", Coder is told about it next time, and the work is committed as "Coder: work in progress (job stopped by an error)" instead of the raw error text. (Grok's usage for such a crashed job is still not counted; small, left for later.)
+- **A repository's settings change applies mid-job:** when a job changes the repository's `.claude/settings.json` variables, the next command already gets the new values, as in Claude Code (your own variables still win, and a removed variable stays until the next message). Command settings that come from them, like timeouts and output size, update too.
+- **File-change hooks run as the file changes:** a FileChanged hook now runs within about a second of the watched file changing while Coder works (even in the middle of a long command), instead of waiting for Coder's next step. Changes made while no job runs still run the hook with the next message.
+- **Waiting for your answer:** Claude Code can use "helper" definitions a project keeps in its `.claude/agents` folder (like a "code reviewer" helper). Coder can't, because Coder's own chats don't have helpers yet (only Gloopy has them). Do you want Coder to get helpers first and then load these files, and should it read them from `.claude/agents` like Claude Code (or from a `.coder` folder)?
+- No change to how the page looks. Full test suite passes, apart from the two older stop tests (IN4, IN9) that already failed before. Not deployed or merged; not yet tried live in the browser.
+
 ## 2026-11-20: Bigger Claude Code fixes, part 5
 
 - **A slow security pattern can't freeze the chat:** already fixed in an earlier pass (a repository's own security rule that looks like it could run forever is skipped, as Claude Code does). Nothing new needed.
