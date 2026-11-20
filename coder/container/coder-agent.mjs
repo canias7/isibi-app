@@ -2004,7 +2004,7 @@ export function ruleHoldsSecret(rule) {
   }
   return false;
 }
-export async function runCoder(deps, { notices = [], lost = [], stalls = [], promptNotify = true, timeouts = null, outLimits = null, noBg = false, respondToBash = true, shell = "", cmdShell = "", compactVars = null, messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, mode = "auto", rules = null, editDiff = false, readBlock = false, writeBlock = false, checker = false, checkerInPlan = true, checkWhere = null, emailMark = "", diskWarnGib = 0, memWarnGib = 0, hooks = null, autoMode = null, denyInstead = false, autoOff = false, planExit = "auto", hostLists = null, powershell = null, connectors = [], connectorNotes = [], connectorsWaiting = [], connectorsFailed = [], connectorsGone = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS , rmChecksOff = null, fileEdits = true, startMode = "", resumed = false, lastAt = 0, sessionRules = null, compact = null, system = CODER_SYSTEM, tools = null, nudges = true, who = "Coder", browserRules: rulesIn = [], granted: grantedIn = [], schedules = [], opening = "user", permissions: permsIn = null, sites: sitesIn = [], monitor = false, ownerSaid: ownerSaidList = null, asHelper = false, helper = null, pages = [], savedLogins = [], savedCards = [], contacts = [], webhooks = [], hookBase = "/api/coder/gloopy-hook/", attached = [], workNote = "", marked = null, taught = null, files: keptFiles = [], background = false, checkWrites = false, denied: deniedIn = [], zone = "", searchLimits = null, takeUp = null, tasksOff = false, holdBack = null, suggest = false, stopCap = STOP_BLOCK_CAP, box = false } = {}) {
+export async function runCoder(deps, { notices = [], lost = [], stalls = [], promptNotify = true, timeouts = null, outLimits = null, noBg = false, respondToBash = true, shell = "", cmdShell = "", compactVars = null, messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, mode = "auto", rules = null, editDiff = false, readBlock = false, writeBlock = false, checker = false, checkerInPlan = true, checkWhere = null, emailMark = "", diskWarnGib = 0, memWarnGib = 0, hooks = null, autoMode = null, denyInstead = false, autoOff = false, planExit = "auto", hostLists = null, powershell = null, connectors = [], connectorNotes = [], connectorsWaiting = [], connectorsFailed = [], connectorsGone = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS , rmChecksOff = null, fileEdits = true, startMode = "", resumed = false, lastAt = 0, sessionRules = null, customTitle = "", compact = null, system = CODER_SYSTEM, tools = null, nudges = true, who = "Coder", browserRules: rulesIn = [], granted: grantedIn = [], schedules = [], opening = "user", permissions: permsIn = null, sites: sitesIn = [], monitor = false, ownerSaid: ownerSaidList = null, asHelper = false, helper = null, pages = [], savedLogins = [], savedCards = [], contacts = [], webhooks = [], hookBase = "/api/coder/gloopy-hook/", attached = [], workNote = "", marked = null, taught = null, files: keptFiles = [], background = false, checkWrites = false, denied: deniedIn = [], zone = "", searchLimits = null, takeUp = null, tasksOff = false, holdBack = null, suggest = false, stopCap = STOP_BLOCK_CAP, box = false } = {}) {
   // ANOTHER AGENT ON THE SAME ENGINE (owner, 2026-11-09: Gloopy, container/gloopy-agent.mjs): its own instructions
   // (`system`), the tools it is offered (`tools`; a call to any other is refused), no reminders about Coder's setup script
   // (`nudges`), and its name in the chat's own lines (`who`). Coder's defaults are unchanged.
@@ -2715,6 +2715,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   // WHAT HOOKS SET FOR THE CHAT: its title (sessionTitle, from SessionStart and UserPromptSubmit), and the files FileChanged
   // hooks watch (watchPaths, from SessionStart, CwdChanged and FileChanged; kept by Coder's machine between messages).
   let sessionTitle = "";
+  // session_title for SessionStart / UserPromptSubmit hooks: the chat's custom name, when it has one (Claude Code's).
+  const titleOn = () => { const t = sessionTitle || String(customTitle || "").trim(); return t ? { session_title: t } : {}; };
   const kept0 = deps.hookWatch && typeof deps.hookWatch.get === "function" ? deps.hookWatch.get() : null;
   let watchDyn = kept0 && Array.isArray(kept0.dyn) ? kept0.dyn.filter((p) => typeof p === "string") : [];
   let stamps = kept0 && kept0.stamps && typeof kept0.stamps === "object" ? kept0.stamps : null;
@@ -3207,7 +3209,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     for (const q of got.filter((x) => x && typeof x.text === "string" && x.text.trim()).slice(0, 20)) {
       emit({ type: "user", text: q.text.trim(), queued: true, ...(q.qid ? { qid: String(q.qid) } : {}) });
       // (Claude Code runs UserPromptSubmit hooks on a message sent while it works too, and one can block it: audit M-c-05.)
-      const up = hookList.length ? await runHooks("UserPromptSubmit", "", { prompt: q.text.trim() }) : null;
+      const up = hookList.length ? await runHooks("UserPromptSubmit", "", { prompt: q.text.trim(), ...titleOn() }) : null;
       if (up && (up.stop || up.decision === "block")) {
         const why = up.stop ? up.stop.reason : up.reason;
         emit({ type: "note", text: "UserPromptSubmit operation blocked by hook:\n" + scrub(String(why || "")).slice(0, 2000) + (up.suppressPrompt ? "" : "\n\nOriginal prompt: " + q.text.trim().slice(0, 2000)), hook: "UserPromptSubmit", ...(q.qid ? { qid: String(q.qid) } : {}) });
@@ -3504,7 +3506,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     if (!hadChat && hookList.some((h) => ENV_FILE_EVENTS.has(h.event))) await resetHookEnv();
     const answered = hadChat && messages.some((m) => m && m.role === "assistant");
     const cost = answered ? resumeCost({ chars: CODER_SYSTEM.length + String(context || "").length + JSON.stringify(messages.map((m) => (m && m.images ? { ...m, images: [] } : m))).length, lastAt, now: now() }) : {};
-    const o = await runHooks("SessionStart", source, { source, ...(model ? { model } : {}), ...cost });
+    const o = await runHooks("SessionStart", source, { source, ...(model ? { model } : {}), ...cost, ...titleOn() });
     if (o && o.context.length) convo.push({ role: "user", appNote: true, content: hookNote("SessionStart", o.context) });
   }
   // USERPROMPTSUBMIT HOOKS (Claude Code: "Runs when you submit a prompt, before Claude processes it"): one that blocks keeps
@@ -3513,7 +3515,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   let promptBlocked = null;
   if (typeof text === "string" && text.trim()) {
     const typed = (typeof shown === "string" && shown.trim() ? shown : text).trim();
-    const up = hookList.length ? await runHooks("UserPromptSubmit", "", { prompt: typed }) : null;
+    const up = hookList.length ? await runHooks("UserPromptSubmit", "", { prompt: typed, ...titleOn() }) : null;
     if (up && (up.stop || up.decision === "block")) {
       emit({ type: opening === "note" ? "note" : "user", text: typed, ...(pics.length ? { images: pics.length } : {}), ...(Array.isArray(attached) && attached.length ? { files: attached.slice(0, 10).map((f) => ({ id: String(f.id || ""), name: plain(String(f.name || "")).slice(0, 120), size: Number(f.size) || 0 })) } : {}) });
       const why = up.stop ? up.stop.reason : up.reason;

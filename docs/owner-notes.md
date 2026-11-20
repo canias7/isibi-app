@@ -4,6 +4,12 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-19: Claude Code fixes, batch 29
+
+- One of the ten audit items in this batch fixed, with a test; nine left (below). Gloopy, connectors and MCP were not touched. Not deployed or merged, so not yet tried live in the browser.
+- **Hooks are told the chat's own name:** when you rename a chat (or a hook or Coder renames it), hooks that run when a job starts or a message is sent now get that name as `session_title`, as in Claude Code, so a hook that names chats can avoid overwriting yours. The automatic name from the first message is not passed.
+- **Left for you to look at (screens you design):** archiving chats, a chat with no repository, the pull request's state on its link, a Memory screen with an off switch, and a /usage running total. **Left for their own batches (bigger machine/server changes):** a message sent just before closing the tab that never starts, an old question card coming back, a picture lost when the machine stops, and the server's last-resort summary skipping summary hooks.
+
 ## 2026-11-19: Claude Code fixes, batch 28
 
 - Three of the ten audit items in this batch fixed (two of them the same problem), each with a test; seven left (below). Gloopy, connectors and MCP were not touched. Not deployed or merged, so none of it has been tried live in the browser yet.

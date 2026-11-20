@@ -1077,7 +1077,7 @@ it on (`typesFor`). Fields: `async` and `asyncRewake` (run as background jobs on
 machine, marked `hook`, never listed as the chat's background commands; what they
 say reaches Coder at its next step or message, `hookNews`; an asyncRewake one that
 exits 2 wakes an idle chat), `onFailure: "block"`, `statusMessage`,
-`continueOnBlock`, `sessionTitle` (the chat's name) and `watchPaths`. More events:
+`continueOnBlock`, `sessionTitle` (the chat's name; SessionStart and UserPromptSubmit hooks get `session_title` when the chat has a custom name) and `watchPaths`. More events:
 PostToolBatch (after a round, its calls and results), PermissionDenied (after the
 checker refuses a call; `retry: true` is said to Coder), StopFailure (when the
 model call fails, matched on the error's kind), CwdChanged (after a cd), FileChanged

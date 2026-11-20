@@ -381,3 +381,21 @@ test("CD-b23a UserPromptSubmit hooks also run on a message the owner sends while
   const at = m.findIndex((x) => String(x.content || "").includes("push the secret key"));
   assert.ok(at > 0 && /UserPromptSubmit hook additional context: ticket 42/.test(m[at + 1].content));
 });
+
+test("CD-title session_title: SessionStart and UserPromptSubmit hooks get the chat's custom name only when it has one (Claude Code's)", async () => {
+  const run = async (opts, hookRun = () => ({})) => loop([say("ok")], { SessionStart: hk("s.sh"), UserPromptSubmit: hk("u.sh") }, { opts, hookRun });
+  let t = await run({});
+  assert.ok(t.hookCalls.length >= 2);
+  assert.ok(t.hookCalls.every((c) => !("session_title" in c.input)));
+  t = await run({ customTitle: "Cart work" });
+  assert.deepEqual(t.hookCalls.map((c) => [c.input.hook_event_name, c.input.session_title]), [["SessionStart", "Cart work"], ["UserPromptSubmit", "Cart work"]]);
+  // A title a SessionStart hook sets is what the UserPromptSubmit hook is told.
+  t = await run({}, (i) => (i.hook_event_name === "SessionStart" ? { stdout: '{"hookSpecificOutput":{"hookEventName":"SessionStart","sessionTitle":"Fix the cart"}}' } : {}));
+  assert.equal(t.hookCalls.find((c) => c.input.hook_event_name === "UserPromptSubmit").input.session_title, "Fix the cart");
+  // The Worker passes it only for a custom name (renamed on the page, or by a hook), not the automatic first-message title.
+  const R = await import("../src/coder-routes.mjs");
+  assert.deepEqual(R.customTitleOn({ title: "auto from message" }), {});
+  assert.deepEqual(R.customTitleOn({ title: "Mine", titleCustom: true }), { customTitle: "Mine" });
+  assert.match(read("src/coder-routes.mjs"), /const next = \{ \.\.\.now, title, titleCustom: true \}/);
+  assert.match(read("container/server.mjs"), /customTitle: !gloopy && typeof body\.customTitle === "string"/);
+});
