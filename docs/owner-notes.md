@@ -4,6 +4,14 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-20: Bigger Claude Code fixes, part 5
+
+- **A slow security pattern can't freeze the chat:** already fixed in an earlier pass (a repository's own security rule that looks like it could run forever is skipped, as Claude Code does). Nothing new needed.
+- **File rules now see a rarer way of writing files:** Coder's commands run in zsh, which has a few extra ways to write to a file. Coder's permission check now reads them the same way zsh does, so your deny rules, the protected-file question and the outside-the-project question all apply to them too.
+- **A full disk can't empty a file:** when Coder writes or edits a file, it now saves the new text to a temporary file next to it and swaps it in only once it is complete, keeping the file's permissions. Where that swap isn't possible, it keeps the old text and puts it back if the save fails. So a file is never left empty or half-written if the disk fills, as in Claude Code.
+- **Waiting for your answer:** (1) Git LFS: repositories that keep big files in Git LFS get small placeholder files in Coder. Should Coder fetch the real files the way Claude Code does, even though that downloading counts against the repository owner's GitHub LFS allowance? (2) Environment variables: when you change one, Coder uses it from the chat's very next message; Claude Code keeps the old value until the chat's machine sleeps and wakes. Copy Claude Code, or keep Coder's quicker way?
+- Not deployed or merged; not yet tried live in the browser.
+
 ## 2026-11-20: Bigger Claude Code fixes, part 4
 
 - **Hook rules last for one chat:** when a repository's own hook approves a command and adds an "allow" rule, that rule now lasts only for the chat it was made in, as in Claude Code's cloud. Before, it was saved into your lasting rules for that repository. "Always allow" that you pick yourself on a card is still saved as before.

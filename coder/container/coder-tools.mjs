@@ -7,7 +7,7 @@
 // `node coder-tools.mjs <base64 JSON>` through the same exec). So a tool can do
 // nothing a bash command could not; they are just tidier and safer to use.
 // File tools stay inside the project folder.
-import { readFile, writeFile, mkdir, realpath, stat, lstat, unlink, open as openFile, mkdtemp, rm, readdir, rename, chmod } from "node:fs/promises";
+import { readFile, writeFile, mkdir, realpath, stat, lstat, unlink, open as openFile, mkdtemp, rm, readdir, rename, chmod, chown } from "node:fs/promises";
 import { createHash, randomBytes } from "node:crypto";
 import { isUtf8 } from "node:buffer";
 import { resolve, dirname, relative, isAbsolute, sep, extname, join, normalize, basename } from "node:path";
@@ -1425,13 +1425,51 @@ export async function toolEdit(args) {
  * permission denied". Its owner may make it writable for the moment; a file of another user's stays as it is.
  */
 async function writeOver(abs, bytes, rel, tool = "edit") {
-  try { await writeFile(abs, bytes); return; } catch (e) {
+  try { await saveWhole(abs, bytes); return; } catch (e) {
     if (!e || (e.code !== "EACCES" && e.code !== "EPERM")) throw e;
     let mode;
     try { mode = (await stat(abs)).mode & 0o7777; } catch { throw e; }
     if (mode & 0o200) throw e; // writable by its owner already: something else stops it
     try { await chmod(abs, mode | 0o200); } catch { fail(rel + " is read-only, and it belongs to another user, so " + tool + " cannot change it: change it with a command, or ask the owner."); }
-    try { await writeFile(abs, bytes); } finally { await chmod(abs, mode).catch(() => {}); }
+    try { await saveWhole(abs, bytes); } finally { await chmod(abs, mode).catch(() => {}); }
+  }
+}
+/**
+ * A SAVE THAT NEVER LEAVES THE FILE EMPTY OR CUT OFF (2026-11-20, audit M-r2-05; Claude Code's changelog: "Fixed … edited
+ * files ending up empty or cut off when the disk fills during a save"). The new bytes go to a temporary file in the same
+ * folder, with the old file's mode and owner, flushed to disk, then renamed over the file (a link is followed, not
+ * replaced). Where no rename is possible (a folder Coder cannot add files to, a file mounted on its own), the file is
+ * written in place, and if that write fails part way the old bytes are put back. `io` swaps the file calls, for tests.
+ */
+export async function saveWhole(abs, bytes, io = {}) {
+  const fs = { writeFile, rename, unlink, readFile, stat, chmod, chown, ...io };
+  let real = abs;
+  try { real = await realpath(abs); } catch { real = abs; }
+  let st = null;
+  try { st = await fs.stat(real); } catch { st = null; }
+  const tmp = join(dirname(real), "." + basename(real) + "." + process.pid + "." + randomBytes(4).toString("hex") + ".tmp");
+  let made = false;
+  // (Another user's file, when Coder is not admin: a rename would make it Coder's, so it is written in place.)
+  const uid = typeof process.getuid === "function" ? process.getuid() : 0;
+  if (!st || uid === 0 || st.uid === uid) try {
+    const fh = await openFile(tmp, "wx", st ? st.mode & 0o7777 : 0o666);
+    made = true;
+    try { await fs.writeFile(fh, bytes); await fh.sync(); } finally { await fh.close(); }
+    if (st) { await fs.chmod(tmp, st.mode & 0o7777).catch(() => {}); await fs.chown(tmp, st.uid, st.gid).catch(() => {}); }
+    await fs.rename(tmp, real);
+    made = false;
+    return;
+  } catch (e) {
+    if (made) await fs.unlink(tmp).catch(() => {});
+    if (e && e.code === "ENOSPC" || e && e.code === "EDQUOT") { throw e; } // the old file is untouched
+    if (st && !st.isFile()) throw e;
+  }
+  // IN PLACE, KEEPING THE OLD BYTES TO PUT BACK.
+  const old = st ? await fs.readFile(real) : null;
+  try { await fs.writeFile(real, bytes); } catch (e) {
+    if (old) { try { await writeFile(real, old); } catch { /* nothing more can be done */ } }
+    else await fs.unlink(real).catch(() => {});
+    throw e;
   }
 }
 /** Edit's answer, as write's: its memory note, the file's new text for its language server (`check`), and the change (`show_change`). */

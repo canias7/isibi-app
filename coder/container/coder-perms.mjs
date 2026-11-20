@@ -2145,7 +2145,7 @@ export function fileBlockedWhy(f) {
 /** One part of a command as written, for Claude Code's list of the parts that need approval. */
 function partText(c) {
   const w = (c.words || []).map((x) => x.raw).join(" ");
-  const r = (c.redirects || []).filter((x) => !x.heredoc && x.target).map((x) => (x.fd === undefined || x.fd === null ? "" : String(x.fd)) + x.op + " " + x.target.raw).join(" ");
+  const r = (c.redirects || []).filter((x) => !x.heredoc && x.target).map((x) => (x.fd === undefined || x.fd === null ? "" : String(x.fd)) + x.op + (x.forced || "") + " " + x.target.raw).join(" ");
   return (w + (r ? " " + r : "")).trim();
 }
 /** Claude Code's reason when a prefix rule matched an exec wrapper or a find that runs, deletes or writes. */

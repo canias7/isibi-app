@@ -297,8 +297,16 @@ export function parseShell(source, { scriptDepth = 0, nest = 0 } = {}) {
   }
 
   // A REDIRECTION's operator at i (after an optional fd number already read): `{ op, len }` or null.
+  // ZSH'S FORCED FORMS (2026-11-20; Claude Code checks every output redirection's file, and makes zsh-only readings ask):
+  // `>!`, `>>!`, `&>!`, `>&!`, `&>>!`, `>>&!` and their `|` twins write to the word after them, as `>`, `>>`, `&>` do.
+  // The operator is answered in its plain form; `forcedLen` is the length of the text it took, `forcedMark` the `!`/`|`.
+  let forcedLen = 0, forcedMark = "";
   function redirectOp() {
-    for (const op of ["&>>", "&>", "<<<", "<<-", "<<", "<>", "<&", ">&", ">>", ">|", "<", ">"]) if (startsWith(op)) return op;
+    forcedLen = 0; forcedMark = "";
+    for (const [z, plain] of [["&>>", "&>>"], [">>&", "&>>"], ["&>", "&>"], [">&", ">&"], [">>", ">>"], [">", ">"]]) {
+      if (startsWith(z) && (s[i + z.length] === "!" || s[i + z.length] === "|")) { forcedLen = z.length + 1; forcedMark = s[i + z.length]; return plain; }
+    }
+    for (const op of ["&>>", "&>", "<<<", "<<-", "<<", "<>", "<&", ">&", ">>", "<", ">"]) if (startsWith(op)) return op;
     return null;
   }
 
@@ -373,7 +381,8 @@ export function parseShell(source, { scriptDepth = 0, nest = 0 } = {}) {
       if (m) { fd = m[1]; i += m[0].length; }
       const op = (s[i] === "<" || s[i] === ">" || startsWith("&>")) ? redirectOp() : null;
       if (op) {
-        i += op.length;
+        const forced = forcedLen ? forcedMark : "";
+        i += forcedLen || op.length;
         // <( … ) and >( … ): process substitution, a command of its own.
         if ((op === "<" || op === ">") && s[i] === "(") { i++; const text = readUntilClose("(", ")"); nested(text, depth + 1, false, true); continue; }
         skipBlanks();
@@ -385,7 +394,7 @@ export function parseShell(source, { scriptDepth = 0, nest = 0 } = {}) {
         }
         const target = readWord(depth);
         if (!target.raw) { fail(); continue; }
-        redirects.push({ op, fd, target });
+        redirects.push(forced ? { op, fd, target, forced } : { op, fd, target });
         continue;
       }
       if (fd) { // digits that were not a redirection's: an ordinary word
