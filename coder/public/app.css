@@ -138,3 +138,5 @@ body { padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) en
   .gf-colbrand { display: none; }
   .gf-col { width: auto; flex: 1; padding-top: 4px; }
 }
+.gf-failed { font-style: normal; font-weight: 700; font-size: 11px; color: #c0392b; flex: none; }
+.gf-item:hover .gf-failed { display: none; }

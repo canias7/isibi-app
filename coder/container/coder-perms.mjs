@@ -784,11 +784,16 @@ const homeWord = (w, home) => { const m = w && home && !w.tilde ? HOME_WORD.exec
 const pwdWord = (w, dir) => { const m = w && dir !== false && !w.tilde ? PWD_WORD.exec(String(w.raw || "")) : null; return m ? { ...w, text: normalPath(dir + m[1]), expand: false, subst: false, quoted: true } : w; };
 // A variable's value put into a word (readCommand's `vars`): every $NAME and ${NAME} in it known, none other, no single quote.
 const VAR_REF = /\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)/g;
+// (Claude Code 2.1.327: "Changed Bash commands whose variables expand to very long text to be denied"; its cap, 65536 characters
+// of filled-in text, and its sentence, BASH_TOO_LONG, read from its program. `known.long` notes a value past the cap.)
+export const VAR_TEXT_CAP = 65536;
+export const BASH_TOO_LONG = "This command's variables and substitutions expand to more text than the permission check reads, so it was not run. Use fewer or shorter ones, or put the long text in a file.";
 function varWord(w, known, unknown) {
   const raw = String((w && w.raw) || "");
   if (!raw.includes("$") || raw.includes("'") || /\$\(|`/.test(raw)) return w;
   let ok = true;
-  const out = raw.replace(VAR_REF, (m, a, b) => { const n = a || b; if (!known.has(n) || unknown.has(n)) { ok = false; return m; } return known.get(n); });
+  let size = raw.length;
+  const out = raw.replace(VAR_REF, (m, a, b) => { const n = a || b; if (!ok || !known.has(n) || unknown.has(n)) { ok = false; return m; } const v = known.get(n); size += v.length; if (size > VAR_TEXT_CAP) { ok = false; known.long = true; return m; } return v; });
   if (!ok || out.includes("$")) return w;
   const text = out.replace(/\\(.)/g, "$1").replace(/"/g, "");
   return { ...w, text, expand: false, subst: false, quoted: true, bare: false };
@@ -803,6 +808,7 @@ function noteVars(c, known, unknown) {
     const literal = !word.subst && !/\$|`/.test(m[3]) && !(word.expand && !word.quoted && /\$/.test(String(word.raw || "")));
     if (!literal || unknown.has(m[1])) { known.delete(m[1]); unknown.add(m[1]); return; }
     known.set(m[1], m[2] && known.has(m[1]) ? known.get(m[1]) + m[3] : m[2] ? null : m[3]);
+    if (known.has(m[1]) && known.get(m[1]) !== null && known.get(m[1]).length > VAR_TEXT_CAP) { known.long = true; known.delete(m[1]); unknown.add(m[1]); return; }
     if (known.get(m[1]) === null) { known.delete(m[1]); unknown.add(m[1]); }
   };
   if (w.length && w.every((x) => /^[A-Za-z_][A-Za-z0-9_]*\+?=/.test(String(x.raw || "")))) { for (const x of w) set(x); return; }
@@ -890,7 +896,7 @@ export function readCommand(command, { cwd = "/", home = "" , vars = false } = {
   // `loopVars`: each loop's own variable (`for NAME in …`); `dangling`: an operator with nothing after it (coder-shell.mjs).
   // (`complex`: Claude Code's reasons a command is too complex to check, coder-shell.mjs; `background`: a `&` that sends
   // part of it to the background.)
-  return { ok: r.ok, cmds: r.commands, writes, reads, cdAway, unsureDir, loopVars: r.loopVars || [], dangling: !!r.dangling, complex: r.complex || [], background: !!r.background };
+  return { ok: r.ok, tooLong: !!known.long, cmds: r.commands, writes, reads, cdAway, unsureDir, loopVars: r.loopVars || [], dangling: !!r.dangling, complex: r.complex || [], background: !!r.background };
 }
 
 // ── RULES ────────────────────────────────────────────────────────────────────
@@ -1013,10 +1019,24 @@ export function parseRule(text) {
  * TaskGet, TaskList, TaskUpdate; Coder's own tools by their own names). Since the connectors were merged (2026-11-13), an allow
  * one anchored on a connector, mcp__<server>__*, approves that connector's tools; other allow wildcards still approve nothing.
  */
+/**
+ * A STAR PATTERN MATCHED IN ONE PASS (audit I70; Claude Code treats a permission check that hangs on a pattern as a bug):
+ * `*` is any text, everything else literal, the whole text. The first piece starts it, the last ends it, each middle piece
+ * is found in order with indexOf, so a rule with many stars never tries every way of sharing the text out.
+ */
+export function starMatch(pattern, text) {
+  const parts = String(pattern).split("*"), t = String(text ?? "");
+  if (parts.length === 1) return t === parts[0];
+  const first = parts[0], last = parts[parts.length - 1];
+  if (t.length < first.length + last.length || !t.startsWith(first) || !t.endsWith(last)) return false;
+  let at = first.length; const end = t.length - last.length;
+  for (let k = 1; k < parts.length - 1; k++) { if (!parts[k]) continue; const i = t.indexOf(parts[k], at); if (i < 0 || i + parts[k].length > end) return false; at = i + parts[k].length; }
+  return true;
+}
 export const toolGlob = (t) => /^[A-Za-z0-9_-]*\*[A-Za-z0-9_*-]*$/.test(String(t ?? "").trim());
 /** Whether a tool-name wildcard matches a tool's whole name. */
 export function toolGlobMatches(glob, name) {
-  return new RegExp("^" + String(glob).trim().split("*").map((x) => x.replace(/[.+?^${}()|[\]\\]/g, "\\$&")).join(".*") + "$").test(String(name ?? ""));
+  return starMatch(String(glob).trim(), String(name ?? ""));
 }
 /** An allow rule's wildcard that names one MCP server's tools (`mcp__github__*`), the only kind Claude Code applies. */
 const anchoredGlob = (t) => /^mcp__[A-Za-z0-9-]+(?:_[A-Za-z0-9-]+)*__/.test(String(t ?? "").trim());
@@ -1156,7 +1176,7 @@ export function settingMatches(pattern, value) {
   if (value === undefined || value === null) return false;
   const text = typeof value === "string" ? value : typeof value === "number" || typeof value === "boolean" ? String(value) : null;
   if (text === null) return false;
-  return new RegExp("^" + String(pattern).split("*").map((x) => x.replace(/[.+?^${}()|[\]\\]/g, "\\$&")).join("[\\s\\S]*") + "$").test(text);
+  return starMatch(pattern, text);
 }
 /**
  * WHY A RULE CAN'T BE USED, or "" (Claude Code: "You can't match a tool's primary content field this way: command for
@@ -1421,8 +1441,7 @@ export function bashSpecMatches(spec, text) {
   const pre = /^([\s\S]+):\*$/.exec(spec);
   if (pre) return text === pre[1] || text.startsWith(pre[1] + " ");
   const p = spec;
-  const re = new RegExp("^" + p.split("*").map((x) => x.replace(/[.+?^${}()|[\]\\]/g, "\\$&")).join("[\\s\\S]*") + "$");
-  if (re.test(text)) return true;
+  if (starMatch(p, text)) return true;
   return (p.match(/\*/g) || []).length === 1 && p.endsWith(" *") && text === p.slice(0, -2);
 }
 /**
@@ -1433,6 +1452,8 @@ export function ruleWildcardMatches(rule, text) {
   const c = String(rule ?? "");
   if (c.includes("\u0000")) return false;
   const s = c.trim();
+  // (No escape and no /**/: the one-pass star match, with the lone trailing " *" also matching nothing. Audit I70.)
+  if (!s.includes("\\") && !s.includes("/**/")) { const t = String(text ?? ""); return starMatch(s, t) || ((s.match(/\*/g) || []).length === 1 && s.endsWith(" *") && t === s.slice(0, -2)); }
   let f = "";
   for (let i = 0; i < s.length;) {
     if (s[i] === "\\" && i + 1 < s.length) {
@@ -1658,6 +1679,7 @@ export function bashDecision(command, { mode = "auto", rules = {}, cwd = "/", wo
   const read = readCommand(command, { cwd, home });
   // (For deny and ask rules, the command read a second time with the variables it sets put in: readCommand's `vars`.)
   const shadow = readCommand(command, { cwd, home, vars: true });
+  if (shadow.tooLong) return { verdict: "deny", rule: "", why: BASH_TOO_LONG, suggest: null };
   const deny = rulesFor(rules.deny, "Bash", true), ask = rulesFor(rules.ask, "Bash", true), allow = rulesFor(rules.allow, "Bash");
   // DENY, THEN ASK: a rule on one of the call's settings (Bash(run_in_background:true), see settingSpec), or a rule on the
   // command matching any part of it, nested ones too (Claude Code: "including a command nested inside a subshell, a command

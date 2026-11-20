@@ -4,6 +4,16 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-19: Claude Code fixes, batch 24
+
+- Four of the ten audit items in this batch fixed, each with a test; six left (below). Gloopy, connectors and MCP were not touched. Not deployed or merged, so none of it has been tried live in the browser yet.
+- **Very long commands:** a command whose variables grow into a huge amount of text is now refused with Claude Code's own message (use shorter values or a file), instead of tying up Coder's machine. A safety tightening.
+- **Rules with many stars:** your permission rules with lots of `*` are now matched in one quick pass, so an odd rule can no longer freeze a chat's machine on a long command. A safety tightening.
+- **Hook answers checked:** if a hook answers in JSON with a wrong field (for example "continue": "no" instead of true or false), Coder now shows a "Hook JSON output validation failed" notice and uses none of that answer, as Claude Code does. A hook set to block on failure blocks.
+- **Auto mode stops show as stopped:** when Auto mode's second AI gives no answer ten times in a row and Coder stops, the chat is now marked as stopped (a small red "!" in the chat list), and the desktop notification says "Coder stopped" instead of "Coder finished". Sending a new message works as before. (Screenshot still to show you.)
+- **Need your choice:** the 60-step / 45-minute cap per message (removing it removes a cost cap); whether Auto's second AI should also check file changes or only the help page wording be fixed; a rate limit on a chat's internet requests; and letting Grok see key-looking text inside files it reads (today it sees "[hidden]", which can end up written back into your files).
+- **Left for later:** bringing back git-ignored files on Restore code / Undo, and keeping an old chat on its original instructions after a deploy. Both are bigger changes across the machine and the Worker.
+
 ## 2026-11-19: Claude Code fixes, batch 23
 
 - Two of the ten audit items in this batch fixed, each with a test; eight left for later (below). Gloopy, connectors and MCP were not touched. Not deployed or merged, so none of it has been tried live in the browser yet.

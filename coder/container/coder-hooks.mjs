@@ -554,6 +554,42 @@ export function wrongEvent(event, json) {
   if (sp.hookEventName === undefined) return "Hook JSON output validation failed \u2014 hookSpecificOutput is missing required field \"hookEventName\"\n\nThe hook's output was: " + JSON.stringify(json, null, 2).slice(0, 4000) + "\n\nExpected schema:\n" + HOOK_SHAPE;
   return "Hook returned incorrect event name: expected '" + event + "' but got '" + (typeof sp.hookEventName === "string" ? sp.hookEventName : JSON.stringify(sp.hookEventName)) + "'. Full stdout: " + JSON.stringify(json, null, 2).slice(0, 4000);
 }
+/**
+ * AN ANSWER OF THE WRONG SHAPE (audit M-c-16; Claude Code: JSON that "parsed as JSON but failed schema validation" is a
+ * non-blocking error, and nothing in it applies; exit 2 still blocks with stderr as the reason): the first field listed in
+ * HOOK_SHAPE with the wrong type or value, in Claude Code's "Hook JSON output validation failed — …" form, or "". Fields
+ * the docs do not list are left alone.
+ */
+export function badShape(event, json) {
+  if (!json || typeof json !== "object") return "";
+  const kind = (v) => (Array.isArray(v) ? "array" : v === null ? "null" : typeof v);
+  const checks = [];
+  const top = (k, want) => { if (json[k] !== undefined) checks.push([k, json[k], want]); };
+  top("continue", "boolean"); top("suppressOutput", "boolean");
+  for (const k of ["stopReason", "reason", "systemMessage", "terminalSequence"]) top(k, "string");
+  if (json.decision !== undefined) checks.push(["decision", json.decision, ["approve", "block"]]);
+  const sp = json.hookSpecificOutput;
+  if (sp !== undefined && (sp === null || typeof sp !== "object" || Array.isArray(sp))) checks.push(["hookSpecificOutput", sp, "object"]);
+  else if (sp) {
+    const at = (k, want) => { if (sp[k] !== undefined) checks.push(["hookSpecificOutput." + k, sp[k], want]); };
+    if (event === "PreToolUse") { at("permissionDecision", ["allow", "deny", "ask", "defer"]); at("permissionDecisionReason", "string"); at("updatedInput", "object"); }
+    if (event === "PermissionRequest") {
+      at("decision", "object");
+      if (sp.decision && typeof sp.decision === "object" && !Array.isArray(sp.decision)) {
+        checks.push(["hookSpecificOutput.decision.behavior", sp.decision.behavior, ["allow", "deny"]]);
+        if (sp.decision.updatedInput !== undefined) checks.push(["hookSpecificOutput.decision.updatedInput", sp.decision.updatedInput, "object"]);
+        if (sp.decision.message !== undefined) checks.push(["hookSpecificOutput.decision.message", sp.decision.message, "string"]);
+        if (sp.decision.interrupt !== undefined) checks.push(["hookSpecificOutput.decision.interrupt", sp.decision.interrupt, "boolean"]);
+      }
+    }
+    at("additionalContext", "string"); at("sessionTitle", "string"); at("watchPaths", "array"); at("retry", "boolean");
+  }
+  for (const [field, v, want] of checks) {
+    const ok = Array.isArray(want) ? want.includes(v) : kind(v) === want;
+    if (!ok) return "Hook JSON output validation failed \u2014 " + field + ": expected " + (Array.isArray(want) ? want.map((x) => JSON.stringify(x)).join(" | ") : want) + ", got " + JSON.stringify(v) + "\n\nThe hook's output was: " + JSON.stringify(json, null, 2).slice(0, 4000) + "\n\nExpected schema:\n" + HOOK_SHAPE;
+  }
+  return "";
+}
 /** The shape Claude Code says it expects when a hook's answer fails its check (2.1.322, word for word). */
 export const HOOK_SHAPE = "{\n  \"continue\": \"boolean (optional)\",\n  \"suppressOutput\": \"boolean (optional)\",\n  \"stopReason\": \"string (optional)\",\n  \"decision\": \"\\\"approve\\\" | \\\"block\\\" (optional)\",\n  \"reason\": \"string (optional)\",\n  \"systemMessage\": \"string (optional)\",\n  \"terminalSequence\": \"string (optional)\",\n  \"hookSpecificOutput\": {\n    \"for PreToolUse\": {\n      \"hookEventName\": \"\\\"PreToolUse\\\"\",\n      \"permissionDecision\": \"\\\"allow\\\" | \\\"deny\\\" | \\\"ask\\\" | \\\"defer\\\" (optional)\",\n      \"permissionDecisionReason\": \"string (optional)\",\n      \"updatedInput\": \"object (optional) - Modified tool input to use\"\n    },\n    \"for PermissionRequest\": {\n      \"hookEventName\": \"\\\"PermissionRequest\\\"\",\n      \"decision\": {\n        \"to allow\": {\n          \"behavior\": \"\\\"allow\\\"\",\n          \"updatedInput\": \"object (optional) - Modified tool input to use\",\n          \"updatedPermissions\": \"array (optional) - Permission updates\"\n        },\n        \"to deny\": {\n          \"behavior\": \"\\\"deny\\\"\",\n          \"message\": \"string (optional)\",\n          \"interrupt\": \"boolean (optional)\"\n        }\n      }\n    },\n    \"for UserPromptSubmit\": {\n      \"hookEventName\": \"\\\"UserPromptSubmit\\\"\",\n      \"additionalContext\": \"string (optional)\"\n    },\n    \"for PostToolUse\": {\n      \"hookEventName\": \"\\\"PostToolUse\\\"\",\n      \"additionalContext\": \"string (optional)\"\n    },\n    \"for PostToolBatch\": {\n      \"hookEventName\": \"\\\"PostToolBatch\\\"\",\n      \"additionalContext\": \"string (optional)\"\n    },\n    \"for Stop / SubagentStop\": {\n      \"hookEventName\": \"\\\"Stop\\\" | \\\"SubagentStop\\\"\",\n      \"additionalContext\": \"string (optional) - Feedback for the model; the conversation continues so the model can act on it\"\n    }\n  }\n}";
 /** Whether an answer "grants, rewrites or injects" (Claude Code's words): an allow, a new input or output, added context. */
@@ -624,6 +660,8 @@ export function hookResult(event, run, hook = {}) {
     const { json, bad } = readStdout(t);
     const wrongHttp = wrongEvent(event, json);
     if (wrongHttp) return fail("failed", wrongHttp) || { kind: "error", json: null, text: "", reason: "", notice: wrongHttp };
+    const shapeHttp = badShape(event, json);
+    if (shapeHttp) return fail("failed", shapeHttp) || { kind: "error", json: null, text: "", reason: "", notice: shapeHttp };
     if (json) return { kind: "ok", json, text: "", reason: "", notice: "" };
     return fail("failed", bad ? notJson(bad) : "the response was not a JSON object") || { kind: "error", json: null, text: "", reason: "", notice: bad ? notJson(bad) : "The response was not a JSON object" };
   }
@@ -641,11 +679,13 @@ export function hookResult(event, run, hook = {}) {
   const firstErr = crashLine(stderr) + (event === "PreToolUse" && code === 127 ? " (the hook's command was not found, so its check may not have run)" : "");
   // (Stop and TaskCompleted: exit 2, nothing on stdout and a missing file in stderr is a hook that never ran: non-blocking.)
   if (code === 2 && (event === "Stop" || event === "TaskCompleted") && !stdout.trim() && /No such file or directory/i.test(stderr)) return { kind: "error", json: null, text: "", reason: "", notice: "Failed with non-blocking status code: " + firstErr };
-  if (code === 2) return { kind: "block", json, text: "", reason: cap(stderr.trim()), notice: "" };
+  if (code === 2) return { kind: "block", json: badShape(event, json) ? null : json, text: "", reason: cap(stderr.trim()), notice: "" };
   if (bad) return fail("failed", notJson(bad)) || { kind: "error", json: null, text: "", reason: "", notice: notJson(bad) };
   // (An answer naming another event is no answer: Claude Code's hookEventName check.)
   const wrong = wrongEvent(event, json);
   if (wrong) return fail("failed", wrong) || { kind: "error", json: null, text: "", reason: "", notice: wrong };
+  const shape = badShape(event, json);
+  if (shape) return fail("failed", shape) || { kind: "error", json: null, text: "", reason: "", notice: shape };
   if (code !== 0) { const f = fail("failed", stderr.trim()); if (f) return f; }
   if (code === 0 || json) return { kind: "ok", json, text: event === "PreCompact" ? text : cap(text), reason: "", notice: "" };
   return { kind: "error", json: null, text: "", reason: "", notice: "Failed with non-blocking status code: " + firstErr };

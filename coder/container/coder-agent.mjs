@@ -4070,7 +4070,9 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     if (closing.why === "park") return parkEnd(closing.p);
     // (The auto mode checker's denial ended the turn, round 6: the owner's line, Claude Code's, and no mark of an interrupted turn.)
     // (Or the 20th refusal in a row under denyInsteadOfPrompting: its own line, closing.summary.)
-    if (closing.why === "checker") { flushHeld(); const line = closing.summary || NO_VERDICT_STOP_SHOWN; emit({ type: "error", text: line }); return end("done", { summary: lastSaid || line }); }
+    if (closing.why === "checker") { flushHeld(); const line = closing.summary || NO_VERDICT_STOP_SHOWN; emit({ type: "error", text: line }); return end(line === NO_VERDICT_STOP_SHOWN ? "failed" : "done", { summary: lastSaid || line }); }
+    // (Coder's no-verdict stop ends "failed", not "done": Claude Code's "Fixed cloud sessions … not being marked as failed when
+    // auto mode stopped a turn because the server returned no safety verdict". Audit M-g-22; Gloopy's stop is as before.)
     // CLAUDE CODE'S MARK OF THE INTERRUPTED TURN (round 6; the owner, 2026-11-14: "do what claude code does";
     // coder-parallel.mjs): after the round's results, its own message, "[Request interrupted by the owner for tool use]"; for a
     // Stop that came while Grok was still answering, "[Request interrupted by the owner]", as Claude Code's when its model's

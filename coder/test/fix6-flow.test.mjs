@@ -245,7 +245,7 @@ test("IN7 the mark in a summary, a Rewind and the saved chat: never a cut point 
 test("CK1 the auto mode checker's tenth response in a row with no verdict ends the turn as Claude Code's denial ends it ('permission-stop'): that call told so, a call beside it still running aborted ('[Request interrupted by the owner for tool use]'), one not started told '[Tool call skipped: …]'; the owner's line; no mark of an interrupted turn", async () => {
   const steps = [...Array.from({ length: 9 }, (_, i) => say("", [call("bash", { command: "npm install " + i }, "c" + i)])), say("", [call("bash", { command: "cat a.txt" }, "c9"), call("read", { path: "slow.txt" }, "r9"), call("edit", { path: "x.txt", old_string: "a", new_string: "b" }, "e9")]), say("never")];
   const t = await job(steps, { mode: "auto", checker: true, verdict: () => "hmm", ms: (tag) => (tag === "read:slow.txt" ? 200 : 5) });
-  assert.equal(t.r.status, "done");
+  assert.equal(t.r.status, "failed", "audit M-g-22: ends as failed, not done");
   assert.equal(t.requests.length, 10, "Grok is not asked again");
   assert.equal(t.told("c9"), "Auto mode is unavailable: the server returned no safety verdict for 10 responses in a row, so bash was not run and this turn has ended. Wait for the owner's next message before doing anything further.");
   // (Round 6's follow-up: Claude Code aborts a call still running at that denial; its tools' answer then, "by the owner" here.)

@@ -1125,6 +1125,7 @@
       if (o.openId === c.id && o.focused) continue;
       const name = c.title || c.repo;
       if (c.waiting) { if (o.actions) out.push({ id: c.id, title: 'Coder needs your answer · ' + name, body: c.waiting === 'secret' ? 'Coder needs a key to go on.' : c.waiting === 'envchange' ? 'Coder asks to change the environment.' : c.waiting === 'writeask' ? 'Coder asks to change a protected file.' : c.waiting === 'runask' ? 'Coder asks to run a command.' : c.waiting === 'permission' ? 'Coder needs your approval.' : 'Coder asked you something.' }); }
+      else if (c.status === 'failed') { if (o.decides) out.push({ id: c.id, title: 'Coder stopped · ' + name, body: 'Auto mode stopped the job. Open the chat to try again.' }); }
       else if (o.decides && Number(c.ran) >= 3 * 60000) out.push({ id: c.id, title: 'Coder finished · ' + name, body: 'Open the chat to see what it did.' });
     }
     return out;
@@ -3555,7 +3556,7 @@
     sd.recents.innerHTML = S.projects.length ? S.projects.map((x) =>
       '<div class="gf-item' + (x.id === cur ? ' on' : '') + '" data-chat="' + esc(x.id) + '" role="button" tabindex="0" title="' + esc((x.title || 'New chat') + ' · ' + x.repo) + '">' +
         '<span class="gf-item-t">' + esc(x.title || 'New chat · ' + x.repo.split('/').pop()) + '</span>' +
-        (x.status === 'running' ? '<i class="gf-dot" title="Coder is working"></i>' : x.pr ? '<em class="gf-prn">#' + esc(x.pr) + '</em>' : '') +
+        (x.status === 'running' ? '<i class="gf-dot" title="Coder is working"></i>' : x.status === 'failed' ? '<i class="gf-failed" title="Coder stopped: auto mode could not check its steps">!</i>' : x.pr ? '<em class="gf-prn">#' + esc(x.pr) + '</em>' : '') +
         '<button type="button" class="gf-x" data-remove="' + esc(x.id) + '" aria-label="Remove this chat">×</button>' +
       '</div>').join('') : '<p class="gf-none">' + (ready ? 'No chats yet. Start one with New chat.' : 'Connect GitHub to start.') + '</p>';
     const on = (el, sel, ev, fn) => el.querySelectorAll(sel).forEach((n) => n.addEventListener(ev, fn));
