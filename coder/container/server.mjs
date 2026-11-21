@@ -2249,6 +2249,12 @@ export async function prepareRepo({ dir, repo, base, branch, token, headers = []
     // history. A new plain file: never written through a link left with its name.
     await writeNew(join(dir, ".git"), "gitdir: " + gitDir + "\n");
   }
+  // THIS CHAT'S OWN GIT SETTINGS, EVERY TIME (live test, 2026-11-21: a chat that started from the environment's saved copy had
+  // `core.worktree` naming the chat the copy was made by, which `git init` with a separate git folder writes; the AI's own git
+  // commands then worked in that other chat's folder). Claude Code's cloud session has a clean checkout whose git setup names
+  // only that session.
+  const own = await ownGitConfig(dir, o);
+  if (!own.ok) return { ok: false, why: own.why };
   const cur = (await gitIn(dir, ["rev-parse", "--abbrev-ref", "HEAD"], o)).stdout.trim();
   // NO LOOK AT GITHUB ON EVERY MESSAGE (owner, 2026-11-16; Claude Code's cloud session clones once and works from its copy):
   // the chat's copy here, on its branch and already brought up to date once for that branch (FETCHED_MARK), is used as it is.
@@ -2324,6 +2330,23 @@ async function repoFromCopy({ dir, url, repo, base, branch, gitDir, o, token, he
   await rm(join(gitDir, FETCHED_MARK), { force: true });
   await rm(join(gitDir, COPY_REPO_MARK), { force: true });
   return { ok: true, look, both };
+}
+/**
+ * A chat's git folder made to name only that chat (prepareRepo, every time): `core.worktree` is its own work folder, and no
+ * remote but `origin` (finishPrepare sets its address, with no login in it) is kept, so none from another chat, and none with a
+ * token, stays.
+ */
+export async function ownGitConfig(dir, o) {
+  const wt = await gitIn(dir, ["config", "--get", "core.worktree"], o);
+  if (wt.stdout.trim() !== dir) {
+    const s = await gitIn(dir, ["config", "core.worktree", dir], o);
+    if (s.code !== 0) return { ok: false, why: "could not set this chat's work folder in its repository: " + String(s.output).slice(0, 200) };
+  }
+  const rs = await gitIn(dir, ["remote"], o);
+  for (const r of String(rs.stdout || "").split("\n").map((x) => x.trim()).filter((x) => x && x !== "origin")) await gitIn(dir, ["config", "--remove-section", "remote." + r], o);
+  const ou = (await gitIn(dir, ["config", "--get", "remote.origin.url"], o)).stdout.trim();
+  if (/^[a-z][a-z0-9+.-]*:\/\/[^/]*@/i.test(ou)) await gitIn(dir, ["config", "--unset-all", "remote.origin.url"], o);
+  return { ok: true };
 }
 /** The history being fetched in the background for a new clone, by its folder (deepenLater). */
 const DEEPENING = new Map();
@@ -3830,6 +3853,7 @@ async function moveRepo(t, { project, dirs, now }) {
   if (gd !== t.gd) await rename(t.gd, gd);
   await rm(join(wt, ".git"), { recursive: true, force: true });
   await writeNew(join(wt, ".git"), "gitdir: " + gd + "\n");
+  // (Its `core.worktree` still names the chat the copy was made by; prepareRepo sets it to this chat's folder, ownGitConfig.)
   await writeFile(join(gd, COPY_REPO_MARK), String(now));
 }
 

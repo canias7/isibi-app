@@ -9,7 +9,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
 import { execFileSync } from "node:child_process";
-import { mkdtemp, mkdir, writeFile, readFile, readdir, chmod, readlink } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, readFile, readdir, chmod, readlink, rm } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -644,6 +644,10 @@ test("CD153d a new chat takes the repository from the environment's saved copy a
     assert.throws(() => gitB("cat-file", "-e", aCommit), "A's commit is gone");
     assert.equal(gitB("status", "--porcelain").trim(), "", "nothing changed in it");
     assert.equal(existsSync(join(b.dirs.gitRoot, "shop-kkk1", b.S.COPY_REPO_MARK)), false);
+    // (Live test, 2026-11-21: the copy's git settings named chat A's folder.) Only this chat's folder is named, and plain git in it works there.
+    assert.equal(gitB("config", "--get", "core.worktree").trim(), wt, "core.worktree is B's own folder");
+    assert.doesNotMatch(await readFile(join(b.dirs.gitRoot, "shop-kkk1", "config"), "utf8"), /shop-ddd1/, "nothing of A's in B's git settings");
+    assert.equal(execFileSync("git", ["-C", wt, "rev-parse", "--show-toplevel"], { encoding: "utf8" }).trim(), wt);
     // Coder is told: what the setup made in the project folder is here.
     assert.match(JSON.stringify(b.seen[0]), /what it made inside the project folder \(node_modules, say\) is here too/);
     // The next message: the same words (the chat's instructions stay the same), and no new fetch of the copy.
@@ -699,6 +703,43 @@ test("CD153e GitHub away when a checkout from the saved copy is to be fetched: t
   const other = await S.prepareRepo({ dir, repo: "ana/shop", base: "trunk", branch: "coder/shop-nnn1", token: "", remote, gitRoot, root, netWaits: [] });
   assert.equal(other.ok, false, "a fresh clone of a repository with no trunk fails as it always did");
   assert.equal(existsSync(join(dir, "node_modules")), false, "the copy's checkout was given up");
+});
+
+test("CD153h live test 2026-11-21: a checkout from another chat's saved copy keeps none of that chat's git settings (core.worktree, its branch, a remote with a token); and each chat has its own git folder", async () => {
+  const S = await import("../container/server.mjs");
+  const { remote } = await fakeRemote();
+  const data = await mkdtemp(join(tmpdir(), "coder-own-"));
+  const root = join(data, "work"), gitRoot = join(data, "git");
+  await mkdir(root, { recursive: true }); await mkdir(gitRoot, { recursive: true });
+  // Chat A clones, on its own branch.
+  const a = join(root, "shop-aaa9"), ga = join(gitRoot, "shop-aaa9");
+  assert.equal((await S.prepareRepo({ dir: a, repo: "ana/shop", base: "main", branch: "coder/shop-aaa9", token: "", remote, gitRoot, root, netWaits: [] })).ok, true);
+  await S.historyReady(a);
+  const g = (gd, wt, ...args) => execFileSync("git", ["--git-dir=" + gd, "--work-tree=" + wt, ...args], { encoding: "utf8" });
+  g(ga, a, "config", "branch.coder/shop-aaa9.remote", "origin");
+  g(ga, a, "config", "remote.leak.url", "https://x-access-token:SECRET@github.com/ana/shop.git");
+  g(ga, a, "config", "remote.origin.url", "https://x-access-token:SECRET@github.com/ana/shop.git");
+  assert.equal(g(ga, a, "config", "--get", "core.worktree").trim(), a, "git init names A's folder");
+  // The environment's saved copy of A's disk becomes chat B's: renamed and marked, as takeCopy's moveRepo does.
+  const b = join(root, "shop-bbb9"), gb = join(gitRoot, "shop-bbb9");
+  await writeFile(join(ga, S.SETUP_MADE), JSON.stringify({ repo: [], root: [] }));
+  execFileSync("mv", [a, b]); execFileSync("mv", [ga, gb]);
+  await rm(join(b, ".git"), { force: true });
+  await writeFile(join(b, ".git"), "gitdir: " + gb + "\n");
+  await writeFile(join(gb, S.COPY_REPO_MARK), "1");
+  const r = await S.prepareRepo({ dir: b, repo: "ana/shop", base: "main", branch: "coder/shop-bbb9", token: "", remote, gitRoot, root, netWaits: [] });
+  assert.deepEqual([r.ok, r.fetched], [true, true], JSON.stringify(r));
+  assert.equal(g(gb, b, "config", "--get", "core.worktree").trim(), b, "core.worktree is B's own folder");
+  const cfg = await readFile(join(gb, "config"), "utf8");
+  assert.doesNotMatch(cfg, /shop-aaa9/, "no path or branch of A's");
+  assert.doesNotMatch(cfg, /SECRET|leak/, "no remote with a token");
+  assert.equal(execFileSync("git", ["-C", b, "rev-parse", "--show-toplevel"], { encoding: "utf8" }).trim(), b, "plain git in B's folder works in B's folder");
+  // Set wrong again by hand: the next message (no fresh look at GitHub) puts it right too.
+  g(gb, b, "config", "core.worktree", a);
+  assert.equal((await S.prepareRepo({ dir: b, repo: "ana/shop", base: "main", branch: "coder/shop-bbb9", token: "", remote, gitRoot, root, netWaits: [], refresh: false })).ok, true);
+  assert.equal(g(gb, b, "config", "--get", "core.worktree").trim(), b);
+  // Each chat its own git folder.
+  assert.notEqual(S.gitDirFor(join(root, "shop-ccc9"), gitRoot), S.gitDirFor(b, gitRoot));
 });
 
 test("CD153f audit T1 (2026-11-18): an early start's word that reaches the machine after the chat's first message never makes its second message clear the chat's own disk", async () => {

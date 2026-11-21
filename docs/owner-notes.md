@@ -4,6 +4,10 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-21: a chat's git settings name only that chat
+
+- Found live: a chat started from the saved setup copy had `core.worktree` pointing at the folder of the chat that made the copy (git writes it when the repository is first made, and the copy kept it). Now every time a chat's repository is got ready, it is set to that chat's own folder, and any remote other than origin, or one with a login in it, is removed. Each chat already had its own git folder (not shared). Tests added.
+
 ## 2026-11-21: .git fixes checked live
 
 - Deployed; live on gofarther.dev reading .git/HEAD and .git/config works (no token shown) and writing in .git is refused at once with no card. All pass.
