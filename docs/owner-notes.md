@@ -4,6 +4,10 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-21: Delete fixes tested live
+
+- Deployed (run 44862172185) and tested live in the browser, Grok on Low, all passed: a failed delete (server error or no connection) now shows "The chat was not removed" with the reason, and the chat stays as it was, card still waiting, no false "Stopped". A real delete while a card waits removes the chat for good.
+
 ## 2026-11-21: A failed delete says so, and stops nothing
 
 - **The box "The chat was not removed" now always shows** when a delete fails: a refusal, a server error, no connection, or a sign-in check that broke on the way. It opens before the page redraws, so nothing can hide it.
