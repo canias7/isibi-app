@@ -1614,11 +1614,24 @@
     }
   }
 
+  function tellRemoveFailed(text) {
+    const wrap = document.createElement('div'); wrap.className = 'cd-sure'; wrap.id = 'cdRemoveFailed';
+    const box = document.createElement('div'); box.className = 'cd-sure-box'; box.setAttribute('role', 'alertdialog'); box.setAttribute('aria-modal', 'true');
+    const h = document.createElement('div'); h.className = 'cd-sure-title'; h.textContent = 'The chat was not removed';
+    const p = document.createElement('div'); p.className = 'cd-sure-text'; p.textContent = text;
+    const row = document.createElement('div'); row.className = 'cd-sure-row';
+    const ok = document.createElement('button'); ok.type = 'button'; ok.className = 'cd-sure-yes'; ok.textContent = 'OK';
+    row.append(ok); box.append(h, p, row); wrap.append(box); document.body.append(wrap);
+    const end = () => { document.removeEventListener('keydown', key); wrap.remove(); };
+    const key = (e) => { if (e.key === 'Escape' || e.key === 'Enter') end(); };
+    ok.onclick = end; document.addEventListener('keydown', key); ok.focus();
+  }
   async function removeChat(id) {
     const x = S.projects.find((p) => p.id === id);
     if (!x || !(await askSure('Remove “' + (x.title || 'New chat') + '”?', 'Its branch and pull request stay on GitHub.', 'Remove'))) return;
     const r = await call('/projects/' + encodeURIComponent(id), { method: 'DELETE' });
-    if (r.status !== 200) { S.error = (r.data && r.data.error) || 'The chat could not be removed.'; return draw(); }
+    // (A refusal is shown in a box of its own, wherever the page is: live test, 2026-11-21, it was not seen.)
+    if (r.status !== 200) { S.error = (r.data && r.data.error) || 'The chat could not be removed.'; draw(); return tellRemoveFailed(S.error); }
     S.projects = S.projects.filter((p) => p.id !== id);
     if (S.project && S.project.id === id) { stopPoll(); S.project = null; S.draft = ''; S.pics = []; S.comments = []; S.draftOf = null; return S.projects.length ? openProject(S.projects[0].id) : showPicker('new'); }
     delete S.drafts[id]; if (S.draftOf === id) S.draftOf = null;

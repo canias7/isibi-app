@@ -489,8 +489,8 @@ test("CD17 chats: each is its own session (two on one repo get their own id and 
     if (u.startsWith("https://api.github.com/repos/ana/shop/branches")) return new Response(JSON.stringify([{ name: "main" }, { name: "release-2.4" }, { name: "coder/other-chat" }, ...(chatB ? [{ name: chatB.branch }] : [])]));
     return base.fetchFn(url, init);
   };
-  let turns = 0;
-  const deps = { fetchFn, authUser: async () => ({ id: "user-1234567890abcdef", email: "me@x.y" }), container: () => ({ fetch: async (req) => { if (new URL(req.url).pathname === "/turn") turns++; return new Response(JSON.stringify({ ok: true }), { status: 200 }); } }) };
+  let turns = 0, stops = 0;
+  const deps = { fetchFn, authUser: async () => ({ id: "user-1234567890abcdef", email: "me@x.y" }), container: () => ({ fetch: async (req) => { if (new URL(req.url).pathname === "/turn") turns++; if (new URL(req.url).pathname === "/stop") stops++; return new Response(JSON.stringify({ ok: true }), { status: 200 }); } }) };
   const go = (path, init = {}) => handleCoder(new Request("https://gofarther.dev/api/coder/" + path, { ...init, headers: { "content-type": "application/json" } }), env, {}, deps);
   await connectGithub(go, env, deps);
   const a = (await (await go("projects", { method: "POST", body: JSON.stringify({ repo: "ana/shop" }) })).json()).project;
@@ -520,11 +520,30 @@ test("CD17 chats: each is its own session (two on one repo get their own id and 
   const ui2 = readFileSync(HERE("public/coder.js"), "utf8");
   assert.match(ui2, /'<div class="cd-compare"><label for="cdCompare">Compare against<\/label><select id="cdCompare">'/);
   assert.match(ui2, /'\/changes' \+ \(S\.compareAgainst \? '\?against=' \+ encodeURIComponent\(S\.compareAgainst\) : ''\)/);
-  // REMOVE: a running chat is refused; an idle one goes from the list.
-  assert.equal((await go("projects/" + a.id, { method: "DELETE" })).status, 409);
+  // REMOVE: an idle chat goes from the list; a running one too (live test, 2026-11-21, like Claude Code): its job is
+  // stopped first, as Stop does, it leaves the watch list, and only its own records go.
+  const P = "coder/user-1234567890abcdef/";
   assert.equal((await go("projects/" + b.id, { method: "DELETE" })).status, 200);
   assert.deepEqual((await (await go("projects")).json()).projects.map((x) => x.id), [a.id]);
   assert.equal((await go("projects/" + b.id)).status, 404);
+  const c = (await (await go("projects", { method: "POST", body: JSON.stringify({ repo: "ana/shop" }) })).json()).project;
+  const watched = () => [...bucket.m.keys()].filter((k) => k.includes("__" + a.id + "__"));
+  assert.ok(watched().length, "the running job is on the watch list");
+  assert.equal(stops, 0);
+  assert.equal((await go("projects/" + a.id, { method: "DELETE" })).status, 200, "a running chat is deleted");
+  assert.equal(stops, 1, "its job was stopped first");
+  assert.deepEqual(watched(), [], "and taken off the watch list");
+  assert.equal(bucket.m.has(P + a.id + "/meta.json"), false);
+  assert.equal(bucket.m.has(P + c.id + "/meta.json"), true, "another chat is untouched");
+  // A CHAT WAITING ON ITS CARD (paused: idle, with its parked record) is deleted, and its record goes with it.
+  const cm = JSON.parse(bucket.m.get(P + c.id + "/meta.json"));
+  bucket.m.set(P + c.id + "/meta.json", JSON.stringify({ ...cm, status: "idle", parked: { pid: "p1", at: Date.now() }, waiting: "permission" }));
+  bucket.m.set(P + c.id + "/parked.json", JSON.stringify({ pid: "p1" }));
+  assert.equal((await go("projects/" + c.id, { method: "DELETE" })).status, 200, "a chat waiting on a card is deleted");
+  assert.equal(bucket.m.has(P + c.id + "/parked.json"), false);
+  assert.deepEqual((await (await go("projects")).json()).projects, []);
+  // THE PAGE SHOWS A DELETE THAT FAILED, in a box of its own.
+  assert.match(ui2, /if \(r\.status !== 200\) \{ S\.error = \(r\.data && r\.data\.error\) \|\| 'The chat could not be removed\.'; draw\(\); return tellRemoveFailed\(S\.error\); \}/);
 });
 
 test("CD18 a command past its time limit keeps running in the background, its output in a log the AI is told about", async () => {

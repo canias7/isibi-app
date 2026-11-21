@@ -4,6 +4,10 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-21: A chat waiting on its card can be deleted
+
+- **Delete works at any time now, like Claude Code.** Deleting a chat that was busy (working, or waiting on a permission card) was refused with "stop it first", and the page didn't show that. Now Delete stops the job first, the way Stop does, then deletes the chat as before (only that chat's records; its branch and pull request stay on GitHub). If a delete still fails, a box says why.
+
 ## 2026-11-21: Fixes from the live test
 
 - **A. The Rewind list is no longer empty.** Each message's place was saved one step too early, on the "starting up" or "skills" line Coder's machine puts just before your message, and the list only takes places that are messages. Now the place is saved on the message itself when the job ends, and the page also finds the message just after such a line, so chats saved before the fix list their messages again. Checked /compact too: it clears the places of the messages it summarized on purpose (they are one summary now and can't be gone back to one by one); messages after it are listed as usual.

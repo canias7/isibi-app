@@ -3204,7 +3204,13 @@ export async function handleCoder(request, env, ctx, deps) {
 
   // DELETE A CHAT from the list (its branch and pull request stay on GitHub).
   if (!action && request.method === "DELETE") {
-    if (meta.status === "running") return json({ error: "Coder is still working in this chat: stop it first" }, 409);
+    // A CHAT THAT IS BUSY IS DELETED TOO (live test, 2026-11-21: one waiting on its card stayed in Recents; Claude Code deletes
+    // a session at any time): its job is stopped first, as Stop does, and it is taken off the watch list, so nothing of it
+    // comes back. Only this chat's records go, below.
+    if (meta.status === "running" || startingOf(meta)) {
+      await post("/stop", { project: id }).catch(() => null);
+      if (typeof bucket.delete === "function") await bucket.delete(watchKey(uid, id, meta.turn)).catch(() => {});
+    }
     // ITS UNPUSHED WORK GOES TO GITHUB FIRST (owner, 2026-11-16): the machine's disk, the only place it is, goes below. If the
     // push fails, the chat is kept unless the page says to delete it anyway (`?force=1`).
     if (Number(meta.unpushed) > 0 && !meta.readOnly && url.searchParams.get("force") !== "1") {
