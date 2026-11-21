@@ -366,6 +366,12 @@ export const REFUSED_STREAK_SHOWN = DENY_INSTEAD_MAX + " actions were refused an
 export const PROTECTED_DIRS = [".git", ".config/git", ".vscode", ".idea", ".husky", ".cargo", ".devcontainer", ".yarn", ".mvn", ".claude", ".coder"];
 export const PROTECTED_FILES = [".gitconfig", ".gitmodules", ".bashrc", ".bash_profile", ".bash_login", ".bash_aliases", ".bash_logout", ".zshrc", ".zprofile", ".zshenv", ".zlogin", ".zlogout", ".profile", ".envrc", ".npmrc", ".yarnrc", ".yarnrc.yml", ".pnp.cjs", ".pnp.loader.mjs", ".pnpmfile.cjs", "bunfig.toml", ".bunfig.toml", ".bazelrc", ".bazelversion", ".bazeliskrc", ".pre-commit-config.yaml", "lefthook.yml", "lefthook.yaml", ".lefthook.yml", ".lefthook.yaml", "gradle-wrapper.properties", "maven-wrapper.properties", ".devcontainer.json", ".ripgreprc", "pyrightconfig.json", ".mcp.json", ".claude.json"];
 /** Whether a path (as the project names it) is a protected file: the folder or file name that makes it one, or "". */
+/** A PATH IN A PROJECT'S .git FOLDER (or the .git itself): short, its first part; full, under one of the given folders' .git. */
+export function gitFolderPath(p, roots = []) {
+  if (typeof p !== "string" || !p) return false;
+  if (!p.startsWith("/")) return p.split("/")[0] === ".git";
+  return roots.some((r) => typeof r === "string" && r.startsWith("/") && (p === r.replace(/\/+$/, "") + "/.git" || p.startsWith(r.replace(/\/+$/, "") + "/.git/")));
+}
 export function protectedFile(path) {
   const parts = String(path || "").replace(/\\/g, "/").split("/").filter((x) => x && x !== ".").map((x) => x.toLowerCase());
   if (!parts.length) return "";
@@ -6865,6 +6871,16 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // in ~/.claude/plans/, or in the plansDirectory you set". Only this chat's file. D3, round 4, 2026-11-14.)
         const ownPlanFile = !!guarded && !!planPath() && targetFor(c.name, args) === planPath();
         let why = guarded && !ownPlanFile ? protectedFile(guarded) : "", linkTo = "";
+        // A WRITE OR EDIT IN .git, REFUSED AT ONCE (live test, 2026-11-21: a "sensitive file" card came first, and after Yes the
+        // tool refused it anyway, "the .git folder is off limits"): the tool never writes there (coder-tools.mjs), so no card is
+        // shown; the same refusal comes straight away. Commands are not covered here.
+        if (guarded && gitFolderPath(pathPosix.normalize(guarded), [deps.root, ...(Array.isArray(workdirs) ? workdirs : [])])) {
+          const m = "error: the .git folder is off limits";
+          emit({ type: "bash", id: c.id, tool: c.name, verb: spec.verb, command: scrub(visibleChars(guarded)).slice(0, 300) });
+          emit({ type: "result", id: c.id, code: 1, ran: false, output: m });
+          reply(m);
+          continue;
+        }
         // WRITES THROUGH A LINK (Claude Code's permissions docs, "Writes through a symlink": a write that "resolves to a protected
         // path that the requested path doesn't name" gets that path's outcome, prompted for where it would go to the checker,
         // "The prompt names the path the write resolves to"): the place the write really lands is checked too, and the card

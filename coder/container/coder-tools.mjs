@@ -152,6 +152,28 @@ async function inside(p, { mustExist = false, tool = "", output = false } = {}) 
   // .git (.git/HEAD, .git/config); only writes there are protected. So the read tool may look in; write, edit and every
   // other tool are still kept out.
   const gitGuard = tool !== "read";
+  // A .git THAT IS A GITFILE (live test, 2026-11-21: read of .git/HEAD gave "no such file"): on Coder's machine the chat's
+  // git folder lives outside the work tree (server.mjs gitDirFor, GIT_ROOT/<the folder's name>), and the work tree's .git is
+  // a file, "gitdir: <that folder>". Read follows it, as git does, to that folder only: named by the folder's own name (never
+  // another chat's), never out of it through a link, and nothing named for credentials.
+  if (!gitGuard && rel.split(sep)[0] === ".git") {
+    const hereGit = join(home, ".git");
+    const st = await lstat(hereGit).catch(() => null);
+    if (st && st.isFile()) {
+      const m = /^gitdir:\s*(.+?)\s*$/m.exec(await readFile(hereGit, "utf8").catch(() => ""));
+      const gd = m ? m[1] : "";
+      if (!gd || !isAbsolute(gd) || basename(normalize(gd)) !== basename(home)) fail("the .git folder is off limits");
+      const rest = relative(hereGit, abs);
+      if (rest.split(sep).some((x) => /credential/i.test(x))) fail("the .git folder is off limits");
+      const target = rest ? join(normalize(gd), rest) : normalize(gd);
+      let real = "";
+      try { real = await realpath(target); } catch { if (mustExist) fail(missingFile(home === SCRATCH || BASE !== ROOT || !roots.includes(home) ? abs : rel)); return { abs: target, rel }; }
+      const gdReal = await realpath(gd).catch(() => gd);
+      const r2 = relative(gdReal, real);
+      if (climbsOut(r2) || isAbsolute(r2)) fail("that path leads outside the project");
+      return { abs: real, rel: home === SCRATCH || BASE !== ROOT || !roots.includes(home) ? abs : rel };
+    }
+  }
   if (gitGuard && rel.split(sep)[0] === ".git") fail("the .git folder is off limits");
   // (Never the .git folder of any of them that holds it: a working folder around the project, or inside another one.)
   if (gitGuard && [...roots, ...work].some((r) => holds(r) && relative(r, abs).split(sep)[0] === ".git")) fail("the .git folder is off limits");

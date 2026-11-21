@@ -4,6 +4,12 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-21: .git reading and writing fixed
+
+- Reading .git/HEAD now works: on the live machine the chat's .git is a small file pointing to its git folder elsewhere, and the read tool now follows it, only to that chat's own folder (never another chat's, never anything named for credentials).
+- Writing or editing in .git is now refused straight away, with no "sensitive file" card first. Commands are unchanged.
+- New tests in coder/test/git-dir-fixes.test.mjs; full suite 1647 pass, 0 fail. Not deployed yet.
+
 ## 2026-11-21: Round 6 live checks
 
 - After deploying, 8 of 9 live checks passed: secret card, secret file, @ folders, pull-request reason, /init, /review, /btw and archive.
