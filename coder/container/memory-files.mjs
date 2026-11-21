@@ -13,6 +13,14 @@ export const MEMORY_FILES_MAX = 50, MEMORY_FILE_MAX = 40_000, MEMORY_FILES_TOTAL
 /** A topic file's name: letters, digits, `_`, `-` and `.`, ending in `.md`; never hidden, never the index itself. */
 export const MEMORY_NAME = /^[A-Za-z0-9_][\w.-]{0,99}\.md$/;
 export const MEMORY_INDEX = "MEMORY.md";
+/**
+ * ONE MEMORY PER REPOSITORY (Claude Code keeps a project's memory by its project, not by its session; live test, 2026-11-21:
+ * the folder was named after the chat while what it held was the repository's). The repository's name as both the Worker's
+ * storage key (coder/<uid>/memory/<this>.md, unchanged, so memory saved before still loads) and the machine's memory folder
+ * (<this>.memory: the dot keeps it apart from a chat's own folders, whose names have none).
+ */
+export const memorySlug = (repo) => String(repo || "").replace(/[^A-Za-z0-9._-]+/g, "__");
+export const memoryFolderName = (repo) => { const s = memorySlug(repo); return s && !/^\.*$/.test(s) ? s + ".memory" : ""; };
 export const memoryTopicName = (n) => typeof n === "string" && MEMORY_NAME.test(n) && n !== MEMORY_INDEX && !n.includes("..");
 
 /**

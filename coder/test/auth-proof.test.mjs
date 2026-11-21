@@ -647,7 +647,7 @@ test("CD89 (the audit, 2026-11-06) the page keeps the ticket of the code sent (a
   // send() marks its message as on its way before the call and clears the mark after it; the chat box reads gf_ask at page load.
   // (Up to 1000 characters between them since Gloopy's chat merged in, 2026-11-13: the message's own id, and the files
   // attached to it, are made in between.)
-  assert.match(ui, /S\.sending = true; S\.error = ''; S\.draft = ''; S\.unsent = text;[^\n]*\n[\s\S]{0,1700}?\n    const r = await call\('\/projects\/' \+ encodeURIComponent\(S\.project\.id\) \+ '\/message', [^\n]*\n(?:[^\n]*\n){0,4}?    if \(S\.sendingFor === sent\.id\) \{ S\.sendingFor = null; S\.sending = false; S\.unsent = ''; \}\n/);
+  assert.match(ui, /S\.sending = true; S\.error = ''; boxEmpty\(\); S\.unsent = text;[^\n]*\n[\s\S]{0,1700}?\n    const r = await call\('\/projects\/' \+ encodeURIComponent\(S\.project\.id\) \+ '\/message', [^\n]*\n(?:[^\n]*\n){0,4}?    if \(S\.sendingFor === sent\.id\) \{ S\.sendingFor = null; S\.sending = false; S\.unsent = ''; \}\n/);
   assert.match(ui, /draft: \(\(\) => \{ try \{ const a = sessionStorage\.getItem\('gf_ask'\) \|\| ''; sessionStorage\.removeItem\('gf_ask'\); return a\.slice\(0, 4000\); \}/);
   // Other refusals are not about the session: it stays.
   for (const [status, data] of [[401, { error: "Connect GitHub again first." }], [403, { error: "Coder is not open to this account yet." }], [503, { error: "Sign-in could not be checked. Try again in a minute." }]]) {

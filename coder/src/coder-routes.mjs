@@ -35,7 +35,7 @@
 //   POST /api/coder/projects/:id/stop
 import { pickModel, CODER_MODELS } from "../container/coder-model.mjs";
 import { recordedSystem } from "../container/coder-compact.mjs";
-import { cleanMemoryFiles, sameMemoryFiles } from "../container/memory-files.mjs";
+import { cleanMemoryFiles, sameMemoryFiles, memorySlug } from "../container/memory-files.mjs";
 /**
  * THE EFFORT SAVED ON AN ACCOUNT, AS IT COUNTS NOW (owner, 2026-11-10: "can you do the effort level on low and make sure
  * it's actually on low"). Coder's default became Low. A "high" saved before then was the old default (a save of the
@@ -510,7 +510,7 @@ export async function changeRules(bucket, uid, repo, kind, list, { remove = fals
   return now;
 }
 
-const memoryKey = (uid, repo) => ["coder", uid, "memory", String(repo).replace(/[^A-Za-z0-9._-]+/g, "__") + ".md"].join("/");
+export const memoryKey = (uid, repo) => ["coder", uid, "memory", memorySlug(repo) + ".md"].join("/");
 /** THE MEMORY'S TOPIC FILES (audit M-f-17; Claude Code's memory folder: a MEMORY.md index and one file per memory): beside
  * the index's own text (memoryKey, as before, so a repository's old memory loads as its index), as `{ name: text }`. */
 export const memoryFilesKey = (uid, repo) => memoryKey(uid, repo).replace(/\.md$/, ".files.json");
@@ -880,6 +880,20 @@ export const QUEUED_NOTE_HEAD = "The owner sent a new message while you were wor
  * owner's queued messages shown in this job's steps (`events`, the chat's whole list) and found in Coder's history
  * (`messages`, as the job left it), not marked already.
  */
+/**
+ * REWIND'S MARKS ON THE OWNER'S MESSAGES (live test, 2026-11-21): a mark is taken at the job's start, where its first step will
+ * go; the machine may put a `startup` or `skills` step there before the message. A mark not on a `user` step moves forward
+ * past those to the message. (One with nothing to move to stays as it was.)
+ */
+export function marksOnUser(marks, events) {
+  const evs = Array.isArray(events) ? events : [];
+  return (Array.isArray(marks) ? marks : []).map((m) => {
+    if (!m || !Number.isInteger(m.ev) || m.ev < 0 || (evs[m.ev] && evs[m.ev].type === "user")) return m;
+    let i = m.ev;
+    while (evs[i] && (evs[i].type === "startup" || evs[i].type === "skills")) i++;
+    return evs[i] && evs[i].type === "user" ? { ...m, ev: i } : m;
+  });
+}
 export function queuedMarks(events, messages, meta) {
   const marks = Array.isArray(meta && meta.marks) ? meta.marks : [];
   const have = new Set(marks.filter((m) => m && m.qid).map((m) => m.qid));
@@ -2018,7 +2032,7 @@ export async function handleCoder(request, env, ctx, deps) {
       next.timing.asked = Date.now();
       next.timing.w = wt;
       try {
-      r = await post("/turn", { start: claim.id, secrets, egress, live, model: modelNow, extra: extraFor(meta), ...connOn, project: id, chatUrl: chatLinkOf(env, id), emailMark: emailNow, cwd: typeof meta.cwd === "string" ? meta.cwd : "", mode: noAuto(normMode(meta.mode), saved), prePlanMode: noAuto(saved.mode === "acceptEdits" ? "acceptEdits" : "auto", saved), rules: await rulesOf(bucket, uid, meta.repo), ...sessionRulesOn(meta), ...customTitleOn(meta), ...wakeOn, ...shellOn, ...compactOn, ...takeUpOn, ...bgOn, ...lastAtOn, text: takeUp || wake || shell || compactJob ? "" : review ? review.text.split("BASE_BRANCH").join(meta.base) : (text || "(see the picture)") + fileMentions(text), shown: takeUp || wake || shell || compactJob ? "" : body.fromGithub === true && body.autofix !== true && typeof body.shown === "string" && body.shown.trim() ? body.shown.slice(0, 300) : body.autofix === true ? "Auto-fix: " + String((text.split("<<<GITHUB\n")[1] || text.split("\n").filter(Boolean)[1] || "").split("\n")[0]).slice(0, 160) : text || "(see the picture)", images: pics.images, messages, repo: meta.repo, base: meta.base, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn + 1), fetch: fetchWanted(meta, { fromGithub: body.fromGithub === true, autofix: body.autofix === true, review }), ...(meta.readOnly ? { readOnly: true } : {}), effort: pick.effort, prefs: machinePrefs(saved), hooks: machineHooks(saved), autoMode: machineAutoMode(saved), memory, memoryFiles, setup, github: body.fromGithub === true, away: body.fromGithub !== true && messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0, lastJob: lastJobFor(meta), environment, envMoved: meta.envMoved === true, cache: { make: copyOn && !copyWait, ...(copyWait ? { note: copyWait } : {}) }, ...(next.jobReplyTo ? { replyTo: next.jobReplyTo } : {}) }, useCopy ? { [FROM_COPY]: useCopy.snapshot, [FROM_COPY_GB]: String(Number(useCopy.size) || 0) } : {});
+      r = await post("/turn", { start: claim.id, secrets, egress, live, model: modelNow, extra: extraFor(meta), ...connOn, project: id, chatUrl: chatLinkOf(env, id), coAuthor: await coAuthorFor(env, bucket, uid, fetchFn), emailMark: emailNow, cwd: typeof meta.cwd === "string" ? meta.cwd : "", mode: noAuto(normMode(meta.mode), saved), prePlanMode: noAuto(saved.mode === "acceptEdits" ? "acceptEdits" : "auto", saved), rules: await rulesOf(bucket, uid, meta.repo), ...sessionRulesOn(meta), ...customTitleOn(meta), ...wakeOn, ...shellOn, ...compactOn, ...takeUpOn, ...bgOn, ...lastAtOn, text: takeUp || wake || shell || compactJob ? "" : review ? review.text.split("BASE_BRANCH").join(meta.base) : (text || "(see the picture)") + fileMentions(text), shown: takeUp || wake || shell || compactJob ? "" : body.fromGithub === true && body.autofix !== true && typeof body.shown === "string" && body.shown.trim() ? body.shown.slice(0, 300) : body.autofix === true ? "Auto-fix: " + String((text.split("<<<GITHUB\n")[1] || text.split("\n").filter(Boolean)[1] || "").split("\n")[0]).slice(0, 160) : text || "(see the picture)", images: pics.images, messages, repo: meta.repo, base: meta.base, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn + 1), fetch: fetchWanted(meta, { fromGithub: body.fromGithub === true, autofix: body.autofix === true, review }), ...(meta.readOnly ? { readOnly: true } : {}), effort: pick.effort, prefs: machinePrefs(saved), hooks: machineHooks(saved), autoMode: machineAutoMode(saved), memory, memoryFiles, setup, github: body.fromGithub === true, away: body.fromGithub !== true && messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0, lastJob: lastJobFor(meta), environment, envMoved: meta.envMoved === true, cache: { make: copyOn && !copyWait, ...(copyWait ? { note: copyWait } : {}) }, ...(next.jobReplyTo ? { replyTo: next.jobReplyTo } : {}) }, useCopy ? { [FROM_COPY]: useCopy.snapshot, [FROM_COPY_GB]: String(Number(useCopy.size) || 0) } : {});
       } catch (e) {
         await notStarted();
         return json({ error: "Coder's machine could not be started (" + String((e && e.message) || e).replace(/\s+/g, " ").slice(0, 200) + "). Try again in a minute." }, 502);
@@ -2482,6 +2496,9 @@ export async function handleCoder(request, env, ctx, deps) {
       ]);
       // MESSAGES CODER READ PART-WAY (audit M-a-16; Claude Code: in the rewind menu "a message you typed while Claude was still
       // working can be marked No code restore. The marked message has no checkpoint of its own"): each gets a chat-only mark.
+      // (Each mark on the owner's message itself, not on the `startup` or `skills` step the machine put just before it: live test,
+      // 2026-11-21, the Rewind list was empty. marksOnUser.)
+      meta.marks = marksOnUser(meta.marks, allEvents);
       meta.marks = [...(Array.isArray(meta.marks) ? meta.marks : []), ...queuedMarks(allEvents, s.result.messages, meta)].slice(-100);
       // The oldest history may have been trimmed: Rewind's marks move with it.
       const dropM = capped.dropped, dropE = allEvents.length - keptEvents.length;

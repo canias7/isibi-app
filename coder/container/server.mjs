@@ -18,7 +18,7 @@
 // (CODER_RUN_UID), with a bare environment. The token is never written into
 // the repository's settings.
 import http from "node:http";
-import { cleanMemoryFiles, memoryTopicName, MEMORY_FILE_MAX, MEMORY_FILES_MAX } from "./memory-files.mjs";
+import { cleanMemoryFiles, memoryTopicName, MEMORY_FILE_MAX, MEMORY_FILES_MAX, memoryFolderName } from "./memory-files.mjs";
 import os from "node:os";
 import { spawn, spawnSync } from "node:child_process";
 import { createHash, randomUUID, randomBytes, randomInt } from "node:crypto";
@@ -4624,7 +4624,9 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     // session". M-a-17. A chat's first message starts it fresh.)
     const shownSecFile = join(memRoot, project + ".security-shown.json");
     const shownSec = await loadShownSec(shownSecFile, !Array.isArray(body.messages) || body.messages.length <= 1);
-    const memDir = join(memRoot, project);
+    // (THE REPOSITORY'S MEMORY FOLDER, named as the Worker keeps it: one per repository, as its storage is. Live test,
+    // 2026-11-21. Gloopy's, and a chat with no repository, stay in the chat's own folder.)
+    const memDir = join(memRoot, (!gloopy && memoryFolderName(body.repo)) || project);
     const memFile = join(memDir, "MEMORY.md");
     // THE FILES CODER READ OR CHANGED, each with its time, size and fingerprint (the `changed` tool: a command that changes
     // one says so, like Claude Code), kept between messages: dev's own folder beside the memory's (a project id has no dot).

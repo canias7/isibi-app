@@ -4,6 +4,16 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-21: Fixes from the live test
+
+- **A. The Rewind list is no longer empty.** Each message's place was saved one step too early, on the "starting up" or "skills" line Coder's machine puts just before your message, and the list only takes places that are messages. Now the place is saved on the message itself when the job ends, and the page also finds the message just after such a line, so chats saved before the fix list their messages again. Checked /compact too: it clears the places of the messages it summarized on purpose (they are one summary now and can't be gone back to one by one); messages after it are listed as usual.
+- **B. The "Co-authored-by:" line is on every commit.** The end-of-job save sent your GitHub name, but a push Coder made in the middle of the job (push_branch, or a pull request) didn't get it, and that commit then had only the Coder-Chat line. The job now gets it from the start too, so every push carries it (GitHub's private address, ID+login@users.noreply.github.com).
+- **C. A mode picked before the first message stays.** Your first message now carries the mode the page shows, so the chat starts in it and the chip no longer goes back to Auto.
+- **D. An unknown slash command is not sent twice.** The message box is now emptied on the page itself the moment a message goes out (and still gets the text back if sending fails).
+- **E. Memory folder named after the repository.** Memory was already kept per repository (that is why it held facts from earlier chats, as Claude Code's project memory does), but the folder on Coder's machine was named after the chat. It is now named after the repository, the same way as where it is stored. Saved memory is kept exactly where it was and loads as before; nothing was deleted.
+- **F. Plan files.** Checked: the plan file is already kept outside the repository (in Coder's own folder beside the memory, like Claude Code's ~/.claude/plans) and is found again after a restart. The file the test committed was notes/plan-test.txt, which the test's own message asked for, not the plan. A test now guards this.
+- Tests: coder/test/live-fixes-1121.test.mjs, and old checks updated for the new code. Not deployed yet.
+
 ## 2026-11-21: Live test of the audit fixes
 
 - Deployed (run 267) and tested live in the browser, Grok on Low: 11 passed, 2 failed, 2 not tested. Steps and results are saved in docs/live-tests/2026-11-21-audit-fixes.md so the same can be run in Claude Code and compared.

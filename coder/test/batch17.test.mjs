@@ -30,7 +30,7 @@ test("L-page-03 a draft stays with its own chat after a failed or quick switch",
 });
 
 test("L-page-20 a message the server started as a new job (the job had just ended) counts as sent", () => {
-  assert.match(ui, /if \(q\.status === 200 && q\.data && q\.data\.ok && q\.data\.project && !q\.data\.error\) \{ S\.draft = ''; S\.error = ''; stopPoll\(\); S\.project = q\.data\.project; syncEntry\(\); return reloadChat\(id\); \}\n      S\.error = sendFailText\(q, false\);/);
+  assert.match(ui, /if \(q\.status === 200 && q\.data && q\.data\.ok && q\.data\.project && !q\.data\.error\) \{ boxEmpty\(\); S\.error = ''; stopPoll\(\); S\.project = q\.data\.project; syncEntry\(\); return reloadChat\(id\); \}\n      S\.error = sendFailText\(q, false\);/);
 });
 
 test("L-page-23 the landing page's ask is put in the box when Coder first shows after sign-in", () => {
