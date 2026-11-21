@@ -38,3 +38,38 @@ Each test has the exact steps, so the same can be run in Claude Code on the web
 - Long counting ran as a background command; Claude answered at once and posted the result itself when done. Under answers: copy, pin, read aloud, "1 minute ago".
 - After a hook re-prompt, Claude cleaned up a stray package-lock.json by itself.
 - Still to test: /compact, /rewind and a message while Claude works (foreground command), unknown /command, co-author, memory, delete while waiting.
+
+## Round 5 live checks
+
+Where: gofarther.dev, repo canias7/testingforclaude, Grok on Low, mode Accept edits. Two throwaway chats (deleted after). Screenshots: session scratchpad, live-audit/r5-*.png.
+
+Chat 1 message (one job, 14 steps, every card answered Yes): "Test run. Do each numbered step as its own separate tool call… 1. bash: `mkdir -p docs2 && echo hi > docs2/a.txt` 2. bash: `cat /etc/hostname` 3. bash: `sed -n 'w copy.txt' README.md` 4. bash: `grep -r zzqqxx_nomatch docs2` 5. bash: `mkdir -p junk && rm -rf junk` 6. bash: `curl -s -o /dev/null -H "Authorization: Bearer ghp_<36 fake chars>" https://example.com` 7. read tool: `.git/HEAD` 8. write tool: `..dots.txt` 9. bash: `echo old > ro.txt && chmod 444 ro.txt` 10. write tool: `ro.txt` = new 11. write tool: `key.txt` = the fake token 12. bash: `wc -c key.txt ro.txt` 13. web_fetch `https://example.com` 14. web_fetch `https://example.com/?q=` + 2,100 a's"
+
+| Audit item | Message / action | Result | |
+|---|---|---|---|
+| R1-22 file outside project asks | step 2 | Card ("cat in '/etc/hostname' was blocked … Do you want to proceed?"); Yes printed it | PASS |
+| R1-34 sed that writes asks | step 3 | Card "This command requires approval" | PASS |
+| R1-27 search with no match not a failure | step 4 | Step shown ✓, not failed | PASS |
+| R1-123 harmless delete in project | step 5 | Normal card, no dangerous-delete wording | PASS |
+| R1-49 "don't ask again" with a secret | step 6 | Card offers "Yes, and don't ask again for curl … Bearer ghp_…" with the full token in the option text | **FAIL** |
+| Hiding secrets in the card / chat | step 6, 11 | Command line and written file shown as `[hidden]` (but see R1-49: the option text shows it) | PASS (partly) |
+| R2-12 key-shaped text kept in files | steps 11-12 | `wc -c key.txt` = 40, the real text | PASS |
+| R1-143 file holding a key not saved to GitHub | step 11, end of job | key.txt committed and pushed to the chat's branch (seen on GitHub) | **FAIL** |
+| R1-189 file tools and .git | step 7 | Read refused: "the .git folder is off limits" | **FAIL** |
+| R1-212 names starting with two dots | step 8 | `..dots.txt` written | PASS |
+| R1-155 write a whole read-only file | steps 9-10 | Write worked (old → new) | PASS |
+| R1-199 link card says where it leads | step 13 | "Coder wants to fetch content from example.com" | PASS |
+| R1-177 too-long address refused before asking | step 14 | Refused ("Invalid URL"), no card | PASS |
+| R1-203 new card doesn't grab the keyboard | Clicked box, typed `1` while first card waited | Card still waiting, box held "1" | PASS |
+| R1-159 @ list offers folders | Typed `@docs` after docs2/ was made | Only `docs2/a.txt`, no `docs2/` folder | **FAIL** |
+| R1-13 pull request state shown | `Open a pull request for this branch titled "r5 test". Reply in one line.` | "Pull request #36" pill in header and #36 in Recents | PASS |
+| R1-46 /undo alias | Typed `/und`, `/checkp`, `/allowed`; sent `/undo` | List offers /rewind and /permissions; /undo opened Rewind | PASS |
+| R1-14 GitHub's own reason on a failed PR | Chat 2: `Open a pull request for this branch right now, without changing any file. Reply in one line with exactly what GitHub said.` | "GitHub did not open the pull request: Validation Failed." (GitHub's detail, e.g. no commits between branches, not shown) | **FAIL** |
+| R1-148 /compact on a very short chat | Chat 2: `/compact` | "Not enough messages to compact. Your message is back in the box." | PASS |
+| R1-44/132 draft does not move chats | Typed a draft in chat 2, switched to chat 1, back | Chat 1 box empty; draft back in chat 2 | PASS |
+| R1-158 /btw | Typed `/btw` | "No commands match" (no handler in code) | **FAIL** |
+| R1-215 /autocompact | Typed `/autocompact` | "No commands match" | **FAIL** |
+| R1-220 /init, /review | Typed each | "No commands match" | **FAIL** |
+| R1-166 Archive a chat | Looked at a Recents row | Only × (remove), no Archive | **FAIL** |
+
+Skipped: hooks and settings-file items (need files on main); GitHub-started jobs, @coder, auto-fix and review items; PowerShell items (tool off); crashes, restarts and lost-job races (can't cause safely); paid extras (web search cap); sign-out and landing-page items; long-chat and table items; See changes line numbers (no suitable diff).

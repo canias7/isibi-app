@@ -4,6 +4,11 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-21: Round 5 live checks
+
+- Tested 24 more audit fixes live (Grok on Low): 15 passed. Failed: "don't ask again" shows a secret, a key file is pushed, .git can't be read, @ list has no folders, failed PR hides GitHub's detail, /btw /autocompact /init /review missing, no Archive.
+- Details: docs/live-tests/2026-11-21-audit-fixes.md (Round 5). Test PR #36 left open on the test repo.
+
 ## 2026-11-21: Delete fixes tested live
 
 - Deployed (run 44862172185) and tested live in the browser, Grok on Low, all passed: a failed delete (server error or no connection) now shows "The chat was not removed" with the reason, and the chat stays as it was, card still waiting, no false "Stopped". A real delete while a card waits removes the chat for good.
