@@ -1141,7 +1141,10 @@ test("CD229 the @ list puts a file whose name matches first, as Claude Code's do
   const a = ui.indexOf("  function rankMentions(list, q) {"), b = ui.indexOf("\n  }\n", a);
   const rankMentions = new Function("return " + ui.slice(a, b + 4).trim())();
   const list = ["cart/index.js", "src/cart.js", "docs/cart-guide.md", "carousel.js", "src/discart.js", "README.md"];
-  assert.deepEqual(rankMentions(list, "cart"), ["src/cart.js", "docs/cart-guide.md", "src/discart.js", "cart/index.js"]);
+  assert.deepEqual(rankMentions(list, "cart"), ["cart/", "src/cart.js", "docs/cart-guide.md", "src/discart.js", "cart/index.js"]);
+  // Folders are offered with a trailing "/", as Claude Code's @ list (round 6).
+  assert.deepEqual(rankMentions(["docs2/a.txt", "README.md"], "docs"), ["docs2/", "docs2/a.txt"]);
+  assert.deepEqual(rankMentions(["a/b/c.js"], "b"), ["a/b/", "a/b/c.js"]);
   assert.deepEqual(rankMentions(list, "CART"), rankMentions(list, "cart"), "any case");
   assert.equal(rankMentions(Array.from({ length: 20 }, (_, i) => "f" + i + ".js"), "f").length, 8);
   assert.match(ui, /return S\.mention\.shell \? shellPathMatches\(S\.files\.list, S\.mention\.q\) : rankMentions\(S\.files\.list, S\.mention\.q\);/);

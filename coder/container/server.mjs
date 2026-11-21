@@ -67,6 +67,7 @@ import { readSkills } from "./coder-skills.mjs";
 import { BUILTIN_RULES, parseRulesFile, checkEdit, editedText } from "./coder-security.mjs";
 export { globMatch, globAny, expandBraces };
 import { normNetwork, okPattern, netWalled, VAR_DROPPED_RE } from "./coder-secrets.mjs";
+import { secretsIn } from "./coder-secretscan.mjs";
 
 const RAW_OUTPUT_MAX = 1024 * 1024;
 /** The owner's own command in Gloopy's terminal (2026-11-12) is ended after this many seconds. */
@@ -2553,6 +2554,25 @@ export function crashedConvo(now, given) {
   return out;
 }
 
+/** The files a save is about to add or change that hold a potential secret: `[{ path, labels }]` (only the first 20). */
+export async function stagedSecrets(dir, o) {
+  const l = await gitIn(dir, ["diff", "--cached", "--name-only", "--diff-filter=ACMR", "-z"], o);
+  if (l.code !== 0) return [];
+  const out = [];
+  for (const path of String(l.stdout ?? l.output).split("\0").filter(Boolean).slice(0, 5000)) {
+    let st = null; try { st = await lstat(join(dir, path)); } catch { continue; }
+    if (!st.isFile() || st.size > 2 * 1024 * 1024) continue;
+    const text = await readFile(join(dir, path), "utf8").catch(() => "");
+    if (!text || text.includes("\0")) continue;
+    const labels = secretsIn(text);
+    if (labels.length) out.push({ path, labels });
+    if (out.length >= 20) break;
+  }
+  return out;
+}
+/** What the chat is told: the files and what was found in each, and what to do (Claude Code's offer: remove it, then save again). */
+export const secretSaveRefused = (hits) => hits.map((h) => h.path + " (" + h.labels.join(", ") + ")").join(", ") + (hits.length === 1 ? " looks like it holds a secret" : " look like they hold secrets") + ", so nothing was committed or pushed. Remove the secret from the file (keep it in an environment secret instead), or delete the file or add it to .gitignore, then save again.";
+
 export async function pushRepo({ dir, repo, branch, token, headers = [], message, trailer = "", text = "", remote = DEFAULT_REMOTE, gitRoot = GIT_ROOT, root = PROJECT_ROOT, noPush = false, netWaits = GIT_NET_WAITS, commitOnly = false }) {
   const o = { gitDir: gitDirFor(dir, gitRoot), remote, root };
   // THE AUDIT (2026-11-06): a project folder that fails the check is refused
@@ -2575,6 +2595,12 @@ export async function pushRepo({ dir, repo, branch, token, headers = [], message
     // Nothing is committed when git could not take the changes in (the final check, 2026-11-06).
     // (Git also answers 1 to say a left-out folder is ignored: only a fatal error stops the save.)
     if (a.code !== 0 && /^fatal:/m.test(a.output)) return { why: "could not save the changes: " + a.output.slice(0, 200) };
+    // A FILE HOLDING A SECRET IS NOT SAVED (round 6 of the live checks, 2026-11-21, the owner: "do how Claude Code does it"):
+    // Claude Code's cloud stops a commit or push that holds a detected secret and says so. The files this save adds or changes
+    // are scanned with Coder's secret patterns (coder-secretscan.mjs); a hit takes them all back out of the save, commits
+    // nothing, and names each file, never the secret.
+    const hits = await stagedSecrets(dir, o);
+    if (hits.length) { await gitIn(dir, ["reset", "-q"], o); return { why: secretSaveRefused(hits), secretFiles: hits.map((h) => h.path) }; }
     const st = await gitIn(dir, ["status", "--porcelain", "--ignore-submodules=all", ...k.pathspec], o);
     // That status hides a staged change to a submodule (its folder removed, or
     // moved to another commit); the index alone shows it, without looking in any folder.
@@ -2585,7 +2611,7 @@ export async function pushRepo({ dir, repo, branch, token, headers = [], message
     }
     return { committed };
   }, (why) => ({ why }));
-  if (saved.why) return { ok: false, pushed: false, why: saved.why, ...told };
+  if (saved.why) return { ok: false, pushed: false, why: saved.why, ...(saved.secretFiles ? { secretFiles: saved.secretFiles } : {}), ...told };
   const committed = saved.committed;
   // A READ-ONLY REPOSITORY (owner item 5): the work is committed here, on the chat's branch, and never pushed.
   if (noPush) {

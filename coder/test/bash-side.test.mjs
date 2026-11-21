@@ -106,7 +106,7 @@ test("CD364 the card says Claude Code's sentence alone (no \"This command requir
   const agent = readFileSync(new URL("../container/coder-agent.mjs", import.meta.url), "utf8");
   assert.ok(!agent.includes('"This command requires approval: " + ask.why'), "no prefix");
   // (At the limit of blocks, Claude Code's fallback line since round 6, limitCard; no pause or mode-switch words of Coder's own.)
-  assert.match(agent, /why: String\(\(rmWhy && rmCardReason\(rmWhy\)\) \|\| rmWhy \|\| \(ask \? ask\.why : limitCard \? limitCard\.why : dec\.why\)\)\.slice\(0, 800\)/);
+  assert.match(agent, /why: scrub\(String\(\(rmWhy && rmCardReason\(rmWhy\)\) \|\| rmWhy \|\| \(ask \? ask\.why : limitCard \? limitCard\.why : dec\.why\)\)\)\.slice\(0, 800\)/);
   assert.match(agent, /reply\("not run yet: " \+ \(ask\.note \|\| ask\.why\)/);
   // (Through decideIn since round 6, the mode and Accept edits' way with file commands given.)
   assert.match(agent, /home: deps\.home \|\| "", ownDirs: Array\.isArray\(deps\.ownDirs\) \? deps\.ownDirs : \[\], byCommand: byCmd, scratch: \[SCRATCH\], planFile: planPath\(\), \.\.\.\(c\.monitor \? \{ settings: MONITOR_SETTINGS \} : \{\}\) \}\)/);

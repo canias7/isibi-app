@@ -149,7 +149,7 @@ import { readPages, pagesForTurn, keepPages, removePage, pageAddress, servePageF
 import { scanCard } from "./gloopy-cardscan.mjs";
 import { readLogins, saveLogin, editLogin, importLogins, removeLogin, loginList, loginFor, loginSite, LOGINS_MAX, readCards, saveCard, editCard, removeCard, cardList, cardLabel, cardBrand, checkCard, cardFor, cardsForTurn, CARDS_MAX, readContacts, saveContact, editContact, removeContact, contactList, CONTACTS_MAX } from "./gloopy-vault.mjs";
 import { cleanSchedule, checkSchedule, whenLocal, whenWords, cleanWebhook, HOOK_ID, okZone } from "../container/gloopy-schedule.mjs";
-import { summarize, compactHistory, marksAfter, COMPACT_HISTORY_AT, CODER_COMPACT_SAFETY } from "./coder-summary.mjs";
+import { summarize, compactHistory, marksAfter, COMPACT_HISTORY_AT, CODER_COMPACT_SAFETY, sideAnswer, BTW_KEEP, BTW_QUESTION_MAX } from "./coder-summary.mjs";
 import { summaryMessage, filesTouched, tooShortToCompact, TOO_SHORT_TO_COMPACT, compactSettings } from "../container/coder-compact.mjs";
 import { egressPass, machineKeyRules, EGRESS_PATH, sendHeld, dropHeld } from "./coder-egress.mjs";
 import { keepBackup, readBackup, forgetSite, WORK_MAX, BROWSER_MAX } from "./gloopy-backup.mjs";
@@ -267,6 +267,21 @@ export const REVIEWS = {
   code: { label: "Review", text: "Review the changes on this chat's branch compared with BASE_BRANCH (git diff BASE_BRANCH...HEAD). Look for bugs, broken edge cases, missing tests and anything a careful reviewer would flag. Run the tests if there are any. Do NOT change any files: answer with a short list of findings, most serious first, each with the file and line and a one-line fix. If everything looks fine, say so." },
   security: { label: "Security review", text: "Do a security review of the changes on this chat's branch compared with BASE_BRANCH (git diff BASE_BRANCH...HEAD): injection, unsafe input handling, secrets in code, auth or permission mistakes, unsafe dependencies, path traversal, XSS, SSRF. Do NOT change any files: answer with a short list of real risks, most serious first, each with the file and line, why it matters and a one-line fix. If you find nothing serious, say so." },
 };
+/**
+ * /init AND /review, AS CLAUDE CODE HAS THEM ON THE WEB (round 6, 2026-11-21; its commands reference: "/init: Initialize
+ * project with a CLAUDE.md guide"; "/review: Alias of /code-review: reviews the current diff"): the owner's command, shown as
+ * typed, runs as a turn with Claude Code's own ask; what follows the command goes with it. Anything else: null.
+ */
+export const INIT_TEXT = "Please analyze this codebase and create a CLAUDE.md file in the repository's root, which will be given to future sessions working in this repository. Add: 1. the commands used most (how to build, lint, run the tests, and run a single test); 2. the high-level architecture and structure, the big picture that takes reading several files to understand. If there is already a CLAUDE.md, read it and improve it instead of starting over, keeping what is still right. If there are README.md, .cursorrules, .github/copilot-instructions.md or similar rule files, include their important parts. Do not repeat yourself, do not list every file, and do not add generic advice or made-up sections. Begin the file with:\n\n# CLAUDE.md\n\nThis file provides guidance to Coder and other coding agents when working with code in this repository.";
+export function slashTurn(text) {
+  const t = String(text || "").trim();
+  const m = /^\/(init|review|code-review)(?:\s+([\s\S]*))?$/i.exec(t);
+  if (!m) return null;
+  const more = String(m[2] || "").trim().slice(0, 2000);
+  const label = t.slice(0, 300);
+  if (m[1].toLowerCase() === "init") return { label, text: INIT_TEXT + (more ? "\n\nThe owner added: " + more : "") };
+  return { label, text: REVIEWS.code.text + (more ? "\n\nThe owner added (a level, a pull request number, a branch or a path to review instead): " + more : "") };
+}
 // THE REPO'S ENVIRONMENT (owner, 2026-11-05, "14"): a setup script and the
 // owner's own variables, per repository, sealed like the GitHub token.
 /** What the page may see of the saved secrets: never the values. */
@@ -595,7 +610,7 @@ export async function dropBranchRecords(bucket, uid, id, meta) {
 function listEntry(meta) {
   // `waiting`: its last job ended asking the owner something; `ran`: how long that job took (the desktop
   // app's notifications, owner item 8).
-  return { id: meta.id, name: meta.repo, repo: meta.repo, title: meta.title || "", status: meta.status || "idle", pr: meta.pr ? meta.pr.number : null, at: meta.at, waiting: meta.waiting || null, ran: Number(meta.ran) || 0 };
+  return { id: meta.id, name: meta.repo, repo: meta.repo, title: meta.title || "", status: meta.status || "idle", pr: meta.pr ? meta.pr.number : null, at: meta.at, waiting: meta.waiting || null, ran: Number(meta.ran) || 0, ...(meta.archived ? { archived: true } : {}) };
 }
 // THE AUDIT (2026-11-05): one shared index.json lost updates when two chats
 // changed at once. Now each chat keeps only its own meta.json, and the list is
@@ -1737,7 +1752,7 @@ export async function handleCoder(request, env, ctx, deps) {
         if (got.error) return got.error;
         takeUp = got;
       }
-      const review = typeof body.review === "string" && REVIEWS[body.review] ? REVIEWS[body.review] : null;
+      const review = typeof body.review === "string" && REVIEWS[body.review] ? REVIEWS[body.review] : body.fromGithub !== true && body.autofix !== true && !body.fromBackground ? slashTurn(body.text) : null;
       // A TURN ONLY TO TELL CODER ITS BACKGROUND COMMAND ENDED (tool 4, part 2; Claude Code "re-invokes you when it exits"):
       // started by the every-minute run (coder-watch.mjs), with no message of the owner's; the machine starts it only when it
       // has something to tell.
@@ -2368,7 +2383,7 @@ export async function handleCoder(request, env, ctx, deps) {
           else extraNotes.push("The pull request in " + x.repo + " could not be opened on GitHub: " + prFailNote(x.repo, x.base, meta.branch, made, "is its branch saved?"));
         }
         if (!p.ok) {
-          pushNote = (meta.readOnly ? "Not kept: " : "Not sent to GitHub: ") + String(p.why || "the push failed").slice(0, 200);
+          pushNote = (meta.readOnly ? "Not kept: " : "Not sent to GitHub: ") + String(p.why || "the push failed").slice(0, Array.isArray(p.secretFiles) ? 900 : 200);
           // (The audit, 2026-11-20: the commit made before the push failed is still the job's, kept for Undo and Rewind.)
           if (!meta.readOnly && p.changed && typeof p.sha === "string" && /^[0-9a-f]{7,64}$/.test(p.sha) && !commits.some((c) => c.sha === p.sha)) commits = [...commits, { sha: p.sha, turn: meta.turn, title: turnTitle(s.result), at: Date.now(), local: true, ...commitTracking(commits, s.result, p) }].slice(-50);
           // (Batch 21, I01: work that exists on no remote is never forgotten, as Claude Code's: the chat counts it, so the Push
@@ -2732,6 +2747,38 @@ export async function handleCoder(request, env, ctx, deps) {
     await saveMeta(bucket, uid, next);
     return json({ ok: true, project: next, events: [ev] });
     })(); } finally { await held.release().catch(() => {}); }
+  }
+
+  // /btw, CLAUDE CODE'S SIDE QUESTION (round 6, 2026-11-21; coder-summary.mjs): answered here from the chat's conversation,
+  // with no tools and no job, even while Coder works; the question and its answer go in the chat's own side thread
+  // (btw.json, the newest BTW_KEEP), never in its messages or what the chat shows. GET: the thread, newest last.
+  if (action === "btw" && (request.method === "POST" || request.method === "GET")) {
+    if (meta.kind === "gloopy") return json({ error: "not found" }, 404);
+    const kept = await getJson(bucket, keyOf(uid, id, "btw.json"), []);
+    const thread = Array.isArray(kept) ? kept.filter((x) => x && typeof x.q === "string" && typeof x.a === "string").slice(-BTW_KEEP) : [];
+    if (request.method === "GET") return json({ ok: true, thread });
+    let body = {}; try { body = await request.json(); } catch { body = {}; }
+    const q = String(body.question || "").trim();
+    if (!q) return json({ error: "Type your side question after /btw, like /btw what was that file called?" }, 400);
+    if (q.length > BTW_QUESTION_MAX) return json({ error: "The side question is over " + BTW_QUESTION_MAX + " characters." }, 413);
+    const msgs = await getJson(bucket, keyOf(uid, id, "messages.json"), []);
+    const a = typeof deps.sideAnswer === "function" ? await deps.sideAnswer(msgs, thread, q) : await sideAnswer(env, msgs, thread, q, { fetchFn });
+    if (!a) return json({ error: "The side question could not be answered. Try again in a minute." }, 502);
+    const next = [...thread, { q: q.slice(0, BTW_QUESTION_MAX), a: a.slice(0, 20000), at: Date.now() }].slice(-BTW_KEEP);
+    await putJson(bucket, keyOf(uid, id, "btw.json"), next);
+    return json({ ok: true, answer: a, thread: next });
+  }
+
+  // ARCHIVE A CHAT, AS CLAUDE CODE ON THE WEB ARCHIVES A SESSION (round 6, 2026-11-21): only a mark on the chat. It leaves
+  // the main list and is shown under Archived, where it can be opened or unarchived; nothing of it is deleted or stopped.
+  if (action === "archive" && request.method === "POST") {
+    let body = {}; try { body = await request.json(); } catch { body = {}; }
+    if (typeof body.archived !== "boolean") return json({ error: "say archived: true or false" }, 400);
+    const fresh = (await getJson(bucket, metaKey, null)) || meta;
+    const next = { ...fresh };
+    if (body.archived) next.archived = Date.now(); else delete next.archived;
+    await saveMeta(bucket, uid, next);
+    return json({ ok: true, project: next });
   }
 
   // REWIND, like Claude Code's (its docs, read 2026-11-06: "Restore code and

@@ -4,6 +4,16 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-21: Round 5 failures fixed the Claude Code way
+
+- **Permission card:** when a command looks like it holds a secret, the card offers only Yes and No (no "don't ask again"), and the secret is hidden everywhere on it.
+- **Saving to GitHub:** before a save or push, the files being added are checked for secret-looking values. If one is found, nothing is committed or pushed, and the chat names the file and says what to do (remove the secret or the file, then save again).
+- **.git:** Coder's read tool can open files in .git now (like Claude Code); writing there is still blocked.
+- **@ list:** folders show up too, with a "/" at the end (docs2/).
+- **Failed pull request:** shows GitHub's own detail (e.g. "No commits between main and …"), also when GitHub only gives a field and code.
+- **New commands:** /init (makes or updates CLAUDE.md), /review (reviews the branch's changes), /btw (a side question answered from the chat, no tools, works while Coder is busy, never added to the chat). /autocompact not added (you asked for none; note: Claude Code's docs do list an /autocompact command now).
+- **Archive:** the ⋯ on a chat in Recents has Archive. Archived chats go under "Archived (N)" at the bottom, with Unarchive. Nothing is deleted.
+
 ## 2026-11-21: Round 5 live checks
 
 - Tested 24 more audit fixes live (Grok on Low): 15 passed. Failed: "don't ask again" shows a secret, a key file is pushed, .git can't be read, @ list has no folders, failed PR hides GitHub's detail, /btw /autocompact /init /review missing, no Archive.

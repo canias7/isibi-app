@@ -5618,12 +5618,16 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         if (hookAnswer || rmWhy || ask || dec.verdict === "ask" || limitCard) {
           // (A command too long for the card to show whole gets only a one-time Yes, as Claude Code: "Claude Code offers those
           // options only when the prompt can show you everything they would allow".)
-          const once = !!(rmWhy || ask || dec.byRule || cardLines(command).more);
+          // (A command that holds a secret-looking value gets only a one-time Yes too, and the secret is hidden on every part of
+          // the card: round 6 of the live checks, 2026-11-21, the owner: "do how Claude Code does it". Claude Code offers no
+          // "don't ask again" for it, as a rule would keep the secret, and never shows it.)
+          const secretCmd = scrub(command) !== command || ruleHoldsSecret(command);
+          const once = !!(rmWhy || ask || dec.byRule || cardLines(command).more || secretCmd);
           const suggested = limitCard ? limitCard.suggest : dec.suggest;
           // (`told`: Claude Code's message for a rule's or a hook's ask, or at the limit of blocks, where it differs from the card's
           // line: round 6.)
           const told = rmWhy || ask ? "" : limitCard ? limitCard.told : dec.told || "";
-          const card = { tool: c.ps ? "powershell" : "bash", id: c.id, ...(rmTimed && rmWhy ? { blockAt: now() + RM_PROMPT_MS } : {}), ...cardLines(command), ...(hostsFor ? { hosts: hostsFor.slice() } : {}), ...(desc ? { desc } : {}), why: String((rmWhy && rmCardReason(rmWhy)) || rmWhy || (ask ? ask.why : limitCard ? limitCard.why : dec.why)).slice(0, 800), ...(!once && suggested ? { rules: suggested } : {}), ...(!once && !limitCard && !c.ps && modeB === "acceptEdits" && autoOff !== true ? { toAuto: true } : {}), ...(told ? { told: String(told).slice(0, 800) } : {}) };
+          const card = { tool: c.ps ? "powershell" : "bash", id: c.id, ...(rmTimed && rmWhy ? { blockAt: now() + RM_PROMPT_MS } : {}), ...cardLines(command), ...(hostsFor ? { hosts: hostsFor.slice() } : {}), ...(desc ? { desc: scrub(desc) } : {}), why: scrub(String((rmWhy && rmCardReason(rmWhy)) || rmWhy || (ask ? ask.why : limitCard ? limitCard.why : dec.why))).slice(0, 800), ...(!once && suggested ? { rules: suggested } : {}), ...(!once && !limitCard && !c.ps && modeB === "acceptEdits" && autoOff !== true ? { toAuto: true } : {}), ...(told ? { told: scrub(String(told)).slice(0, 800) } : {}), ...(secretCmd ? { secret: true } : {}) };
           approval = hookAnswer || await askOwner(card, { hooks: !c.rerun });
           // (Auto's 2-minute card: no answer by then blocks the removal, and Coder goes on, as in Claude Code; an answer, Yes
           // or No, starts the count of unanswered ones again.)

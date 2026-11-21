@@ -375,7 +375,7 @@ test("CD281 (tool 4, part 3) shell mode on the Worker and the page: a message st
   assert.match(page, /'<div class="cd-bubble' \+ \(e\.shell \? ' cd-bubble-shell' : ''\) \+ '">'/);
   // The background list above the box (part 2), each with its Stop; asked for every 20 seconds while the chat waits.
   assert.match(page, /const BG_POLL_MS = 20000;/);
-  assert.match(page, /return '<div class="cd-composewrap">' \+ bgHTML\(\) \+ slashHTML\(\) \+ bangHTML\(\) \+ mentionHTML\(\)/);
+  assert.match(page, /return '<div class="cd-composewrap">' \+ btwHTML\(\) \+ bgHTML\(\) \+ slashHTML\(\) \+ bangHTML\(\) \+ mentionHTML\(\)/);
   assert.match(page, /on\('\[data-bg-stop\]', 'click', \(e\) => \{ stopBg\(e\.currentTarget\.dataset\.bgStop, e\.currentTarget\); \}\);/);
   const css = readFileSync(new URL("../public/coder.css", import.meta.url), "utf8");
   assert.match(css, /\.cd-compose\.is-shell \+ \.cd-shellhint \{ display: block; \}/);

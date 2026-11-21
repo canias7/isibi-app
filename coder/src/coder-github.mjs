@@ -277,7 +277,14 @@ export async function openPullRequest(token, repo, { head, base, title, body, dr
 export function prRefusal(data) {
   if (!data || typeof data !== "object") return "";
   const parts = [String(data.message || "")];
-  for (const e of Array.isArray(data.errors) ? data.errors : []) { const t = e && typeof e === "object" ? e.message : e; if (t) parts.push(String(t)); }
+  // GitHub's errors[] (round 6, 2026-11-21: live, only "Validation Failed" was shown): each entry's own message, or, when it
+  // has none, what its resource, field and code say ({ resource: "PullRequest", field: "head", code: "invalid" }).
+  const CODES = { missing: "does not exist", missing_field: "is missing", invalid: "is not valid", already_exists: "already exists", unprocessable: "could not be processed" };
+  for (const e of Array.isArray(data.errors) ? data.errors : []) {
+    let t = e && typeof e === "object" ? e.message : e;
+    if (!t && e && typeof e === "object" && (e.field || e.code)) t = [e.resource, e.field].filter(Boolean).join(" ") + " " + (CODES[e.code] || String(e.code || "was refused")) + (e.field === "head" || e.field === "base" ? " (is that branch on GitHub?)" : "");
+    if (t) parts.push(String(t).trim());
+  }
   return parts.filter(Boolean).join(": ").replace(/\s+/g, " ").trim().slice(0, 300);
 }
 /** What to say when a pull request was not opened: GitHub's reason (else `guess`), and where to open it on GitHub. */

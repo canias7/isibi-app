@@ -140,3 +140,13 @@ body { padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) en
 }
 .gf-failed { font-style: normal; font-weight: 700; font-size: 11px; color: #c0392b; flex: none; }
 .gf-item:hover .gf-failed { display: none; }
+/* Archive (round 6, 2026-11-21): the row's ⋯ menu, the Archived list and Unarchive */
+.gf-item { position: relative; }
+.gf-more { display: none; border: 0; background: none; color: #8a857d; font-size: 15px; line-height: 1; padding: 0 3px; cursor: pointer; flex: none; }
+.gf-item:hover .gf-more, .gf-more[aria-expanded="true"] { display: block; }
+.gf-rowmenu { position: absolute; right: 6px; top: calc(100% - 2px); z-index: 20; background: #fff; border: 1px solid #e0dbd2; border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.1); padding: 4px; min-width: 120px; }
+.gf-rowmenu button { display: block; width: 100%; text-align: left; border: 0; background: none; padding: 7px 10px; border-radius: 7px; font: inherit; font-size: 13px; cursor: pointer; }
+.gf-rowmenu button:hover { background: #f3efe8; }
+.gf-archived { display: block; width: 100%; text-align: left; border: 0; background: none; color: #8a857d; font: inherit; font-size: 12px; padding: 10px 10px 4px; cursor: pointer; }
+.gf-item.is-archived .gf-item-t { color: #8a857d; }
+.gf-unarch { border: 1px solid #e0dbd2; background: #fff; color: #5b564e; font-size: 11px; border-radius: 6px; padding: 1px 6px; cursor: pointer; flex: none; }

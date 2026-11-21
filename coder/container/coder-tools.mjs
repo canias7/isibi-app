@@ -148,9 +148,13 @@ async function inside(p, { mustExist = false, tool = "", output = false } = {}) 
   const home = roots.find(holds) || work[0] || ROOT;
   const rel = relative(home, abs);
   if (climbsOut(rel) || isAbsolute(rel)) fail("that path is outside the project");
-  if (rel.split(sep)[0] === ".git") fail("the .git folder is off limits");
+  // READING .git IS ALLOWED (round 6, 2026-11-21, the owner: "do how Claude Code does it"): Claude Code's Read opens files in
+  // .git (.git/HEAD, .git/config); only writes there are protected. So the read tool may look in; write, edit and every
+  // other tool are still kept out.
+  const gitGuard = tool !== "read";
+  if (gitGuard && rel.split(sep)[0] === ".git") fail("the .git folder is off limits");
   // (Never the .git folder of any of them that holds it: a working folder around the project, or inside another one.)
-  if ([...roots, ...work].some((r) => holds(r) && relative(r, abs).split(sep)[0] === ".git")) fail("the .git folder is off limits");
+  if (gitGuard && [...roots, ...work].some((r) => holds(r) && relative(r, abs).split(sep)[0] === ".git")) fail("the .git folder is off limits");
   // How the file is named in the tool's answer: from the project's folder, or by its full path when the commands are in
   // another folder (or it is in the scratch folder, or one of the owner's working folders).
   const shown = home === SCRATCH || BASE !== ROOT || !roots.includes(home) ? abs : rel;
@@ -163,7 +167,7 @@ async function inside(p, { mustExist = false, tool = "", output = false } = {}) 
       const r2 = relative(rootReal, real);
       if (climbsOut(r2) || isAbsolute(r2)) fail("that path leads outside the project");
       // (Nor the .git folder reached through a link: where the path really lands counts. Audit I28.)
-      if (r2.split(sep)[0] === ".git") fail("the .git folder is off limits");
+      if (gitGuard && r2.split(sep)[0] === ".git") fail("the .git folder is off limits");
       break;
     } catch (e) {
       if (e instanceof ToolError) throw e;

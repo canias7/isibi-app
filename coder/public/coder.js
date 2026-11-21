@@ -325,7 +325,7 @@
   }
 
   // THE CHAT LIST (each chat its own session): what the sidebar shows.
-  const entryOf = (m) => ({ id: m.id, repo: m.repo, title: m.title || '', status: m.status || 'idle', pr: m.pr ? (m.pr.number || m.pr) : null, at: m.at, waiting: m.waiting || null, ran: Number(m.ran) || 0 });
+  const entryOf = (m) => ({ id: m.id, repo: m.repo, title: m.title || '', status: m.status || 'idle', pr: m.pr ? (m.pr.number || m.pr) : null, at: m.at, waiting: m.waiting || null, ran: Number(m.ran) || 0, ...(m.archived ? { archived: true } : {}) });
   function syncEntry() {
     if (!S.project) return;
     const e = entryOf(S.project);
@@ -1720,6 +1720,9 @@
     if (!GLOOPY && S.rewinding && text) { S.error = 'Coder is still rewinding this chat: send it once that is done.'; return draw(); }
     if (!GLOOPY && text) S.rewindAfter = false;
     if (!GLOOPY && /^\/(permissions|allowed-tools)$/i.test(text)) { boxEmpty(); S.modeMenu = true; draw(); return; }
+    // /btw, CLAUDE CODE'S SIDE QUESTION (round 6, 2026-11-21): answered in a panel over the chat, even while Coder works; it
+    // never joins the chat or its history. Alone, it opens the last answer again.
+    if (!GLOOPY && /^\/btw(?:\s|$)/i.test(text)) { boxEmpty(); btwAsk(text.replace(/^\/btw\s*/i, '')); return; }
     if (/^!\s*\S/.test(text)) rememberShell(text);
     // COMMENTS ON THE CHANGES go with the message; the server writes them in.
     const comments = S.comments.map((c) => ({ file: c.file, line: c.line, quote: c.quote, text: c.text }));
@@ -3724,18 +3727,39 @@
       '<button type="button" class="gf-nav" id="cdSideNew"' + (ready ? '' : ' disabled') + '>' + SIDE_ICON.plus + 'New chat</button>' +
       '<button type="button" class="gf-nav" id="cdSideRepos"' + (ready ? '' : ' disabled') + '>' + ICON.gh.replace('width="16" height="16"', 'width="18" height="18"') + 'Repositories</button>';
     const cur = S.project && S.phase === 'chat' ? S.project.id : '';
-    sd.recents.innerHTML = S.projects.length ? S.projects.map((x) =>
-      '<div class="gf-item' + (x.id === cur ? ' on' : '') + '" data-chat="' + esc(x.id) + '" role="button" tabindex="0" title="' + esc((x.title || 'New chat') + ' · ' + x.repo) + '">' +
+    // ARCHIVED CHATS (round 6, 2026-11-21; Claude Code on the web: an archived session leaves the list and can be shown and
+    // restored): the row's ⋯ menu archives; "Archived (N)" at the end of Recents shows them, each with Unarchive.
+    const row = (x) =>
+      '<div class="gf-item' + (x.id === cur ? ' on' : '') + (x.archived ? ' is-archived' : '') + '" data-chat="' + esc(x.id) + '" role="button" tabindex="0" title="' + esc((x.title || 'New chat') + ' · ' + x.repo) + '">' +
         '<span class="gf-item-t">' + esc(x.title || 'New chat · ' + x.repo.split('/').pop()) + '</span>' +
         (x.status === 'running' ? '<i class="gf-dot" title="Coder is working"></i>' : x.status === 'failed' ? '<i class="gf-failed" title="Coder stopped: auto mode could not check its steps">!</i>' : x.pr ? '<em class="gf-prn">#' + esc(x.pr) + '</em>' : '') +
+        (x.archived ? '<button type="button" class="gf-unarch" data-unarchive="' + esc(x.id) + '" aria-label="Unarchive this chat">Unarchive</button>'
+          : '<button type="button" class="gf-more" data-rowmenu="' + esc(x.id) + '" aria-label="More for this chat" aria-expanded="' + (S.rowMenu === x.id) + '">⋯</button>') +
         '<button type="button" class="gf-x" data-remove="' + esc(x.id) + '" aria-label="Remove this chat">×</button>' +
-      '</div>').join('') : '<p class="gf-none">' + (ready ? 'No chats yet. Start one with New chat.' : 'Connect GitHub to start.') + '</p>';
+        (S.rowMenu === x.id && !x.archived ? '<div class="gf-rowmenu" role="menu"><button type="button" role="menuitem" data-archive="' + esc(x.id) + '">Archive</button></div>' : '') +
+      '</div>';
+    const live = S.projects.filter((x) => !x.archived), kept = S.projects.filter((x) => x.archived);
+    sd.recents.innerHTML = (live.length ? live.map(row).join('') : '<p class="gf-none">' + (!ready ? 'Connect GitHub to start.' : kept.length ? 'No chats outside the archive.' : 'No chats yet. Start one with New chat.') + '</p>') +
+      (kept.length ? '<button type="button" class="gf-archived" id="cdSideArchived" aria-expanded="' + !!S.showArchived + '">' + (S.showArchived ? 'Hide archived' : 'Archived (' + kept.length + ')') + '</button>' + (S.showArchived ? kept.map(row).join('') : '') : '');
     const on = (el, sel, ev, fn) => el.querySelectorAll(sel).forEach((n) => n.addEventListener(ev, fn));
     on(sd.tools, '#cdSideNew', 'click', () => showPicker('new'));
     on(sd.tools, '#cdSideRepos', 'click', () => showPicker('repos'));
     on(sd.recents, '.gf-item', 'click', (e) => { if (e.target.closest('.gf-x')) return; openProject(e.currentTarget.dataset.chat); });
     on(sd.recents, '.gf-item', 'keydown', (e) => { if (e.key === 'Enter') openProject(e.currentTarget.dataset.chat); });
     on(sd.recents, '.gf-x', 'click', (e) => { e.stopPropagation(); removeChat(e.currentTarget.dataset.remove); });
+    on(sd.recents, '[data-rowmenu]', 'click', (e) => { e.stopPropagation(); const id = e.currentTarget.dataset.rowmenu; S.rowMenu = S.rowMenu === id ? '' : id; drawSide(); });
+    on(sd.recents, '[data-archive]', 'click', (e) => { e.stopPropagation(); archiveChat(e.currentTarget.dataset.archive, true); });
+    on(sd.recents, '[data-unarchive]', 'click', (e) => { e.stopPropagation(); archiveChat(e.currentTarget.dataset.unarchive, false); });
+    on(sd.recents, '#cdSideArchived', 'click', () => { S.showArchived = !S.showArchived; drawSide(); });
+  }
+  // Archive or unarchive: only the chat's mark changes, on the server; nothing is deleted, and a failure leaves it as it was.
+  async function archiveChat(id, archived) {
+    S.rowMenu = '';
+    const r = await call('/projects/' + encodeURIComponent(id) + '/archive', { method: 'POST', body: JSON.stringify({ archived }) });
+    if (r.status !== 200 || !r.data || r.data.ok !== true) { S.error = (r.data && r.data.error) || 'The chat could not be ' + (archived ? 'archived' : 'unarchived') + '.'; drawSide(); return draw(); }
+    S.projects = S.projects.map((p) => (p.id === id ? { ...p, archived: archived || undefined } : p)).map((p) => (p.archived ? p : (({ archived: _a, ...rest }) => rest)(p)));
+    if (S.project && S.project.id === id) S.project = { ...S.project, archived: archived ? r.data.project.archived : undefined };
+    drawSide();
   }
 
   // WHAT CODER CHANGED, file by file (from its branch against the main branch).
@@ -3874,14 +3898,19 @@
    * query now ranks above one that only matches across its folder names"): a file whose name starts with what was
    * typed, then one whose name has it, then one that matches only through its folders; shorter paths first.
    */
+  // FOLDERS TOO (round 6, 2026-11-21, the owner: "do how Claude Code does it"): Claude Code's @ suggestions offer folders,
+  // written with a trailing "/" ("@docs2/"); each file's folders are offered beside it, ranked by the folder's own name.
   function rankMentions(list, q) {
     q = String(q || '').toLowerCase();
-    const rank = (p) => { const l = p.toLowerCase(), name = l.slice(l.lastIndexOf('/') + 1); return name.startsWith(q) ? 0 : name.includes(q) ? 1 : 2; };
-    return list.filter((p) => p.toLowerCase().includes(q)).sort((a, b) => rank(a) - rank(b) || a.length - b.length || (a < b ? -1 : 1)).slice(0, 8);
+    const all = new Set(list);
+    for (const p of list) { let i = p.indexOf('/'); while (i > 0) { all.add(p.slice(0, i + 1)); i = p.indexOf('/', i + 1); } }
+    const rank = (p) => { const l = p.toLowerCase().replace(/\/$/, ''), name = l.slice(l.lastIndexOf('/') + 1); return name.startsWith(q) ? 0 : name.includes(q) ? 1 : 2; };
+    return [...all].filter((p) => p.toLowerCase().includes(q)).sort((a, b) => rank(a) - rank(b) || a.length - b.length || (a < b ? -1 : 1)).slice(0, 8);
   }
   // THE "/" LIST, LIKE CLAUDE CODE'S (the owner, 2026-11-15: "make sure the list comes up when i press it"): typing / at the
   // start of the box lists Coder's commands with a line each; ↑↓ to move, Enter or Tab or a click to pick, Esc to close.
-  const SLASH = [['/compact', 'Shrink this chat into a short summary (add what to keep after it)'], ['/permissions', 'Choose the mode: Auto, Accept edits or Plan', ['allowed-tools']], ['/rewind', 'Go back to an earlier message', ['checkpoint', 'undo']]];
+  // (/btw, /init and /review: Claude Code's, round 6, 2026-11-21. Its auto-compact is a setting: no command here.)
+  const SLASH = [['/btw', 'Ask a side question without adding to the conversation'], ['/compact', 'Shrink this chat into a short summary (add what to keep after it)'], ['/init', 'Create or update CLAUDE.md for this repository'], ['/permissions', 'Choose the mode: Auto, Accept edits or Plan', ['allowed-tools']], ['/review', 'Review the changes on this branch', ['code-review']], ['/rewind', 'Go back to an earlier message', ['checkpoint', 'undo']]];
   // As Claude Code's / list: from the start of a name, of a word inside it, or of one of its other names; '-', '_' and ':' ignored.
   // THE REPOSITORY'S SKILLS (Claude Code's "/skill-name"; the machine names them at each message): after Coder's own commands.
   function skillsSlash() {
@@ -3909,8 +3938,32 @@
   function pickSlash(c) {
     S.slashSel = 0;
     if (c !== '/compact' && skillsSlash().some(([n]) => n === c)) { S.draft = c + ' '; draw(); const i = S.root.querySelector('#cdIn'); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } return; }
-    if (c === '/compact') { S.draft = '/compact '; draw(); const i = S.root.querySelector('#cdIn'); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } return; }
+    if (c === '/compact' || c === '/btw') { S.draft = c + ' '; draw(); const i = S.root.querySelector('#cdIn'); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } return; }
     S.draft = ''; draw(); send(c);
+  }
+  // THE /btw PANEL: the answer, the five newest earlier side questions dimmed above it, Copy, and Close (Esc).
+  async function btwAsk(q) {
+    if (!S.project) return;
+    const id = S.project.id;
+    S.btw = { id, q, a: '', busy: !!q, err: '', thread: (S.btw && S.btw.id === id && S.btw.thread) || [] };
+    draw();
+    const r = q ? await call('/projects/' + encodeURIComponent(id) + '/btw', { method: 'POST', body: JSON.stringify({ question: q }) }) : await call('/projects/' + encodeURIComponent(id) + '/btw');
+    if (!S.btw || S.btw.id !== id) return;
+    if (r.status !== 200) { S.btw = { ...S.btw, busy: false, err: (r.data && r.data.error) || 'The side question could not be answered.' }; return draw(); }
+    const thread = Array.isArray(r.data.thread) ? r.data.thread : [];
+    const last = thread[thread.length - 1];
+    if (!q && !last) { S.btw = { ...S.btw, busy: false, err: 'Usage: /btw <your side question>. It is answered from this chat, without tools, and is not added to it.' }; return draw(); }
+    S.btw = { id, q: q || last.q, a: q ? r.data.answer : last.a, busy: false, err: '', thread };
+    draw();
+  }
+  function btwHTML() {
+    const b = S.btw;
+    if (GLOOPY || !b || !S.project || b.id !== S.project.id) return '';
+    const older = (b.thread || []).filter((x) => !(x.q === b.q && x.a === b.a)).slice(-5);
+    return '<div class="cd-btw" role="dialog" aria-label="Side question"><div class="cd-btw-h"><b>/btw</b><span>Side question · not added to the chat</span><button type="button" class="cd-btw-x" data-btw-close="1" aria-label="Close">×</button></div>' +
+      (older.length ? '<div class="cd-btw-old">' + older.map((x) => '<p>' + esc(x.q) + '</p>').join('') + '</div>' : '') +
+      (b.q ? '<p class="cd-btw-q">' + esc(b.q) + '</p>' : '') +
+      (b.busy ? '<p class="cd-btw-a cd-btw-wait">Answering…</p>' : b.err ? '<p class="cd-btw-a cd-btw-err">' + esc(b.err) + '</p>' : '<div class="cd-btw-a">' + prose(b.a) + '</div>' + '<button type="button" class="cd-btw-copy" data-btw-copy="1">Copy</button>') + '</div>';
   }
   function mentionHTML() {
     const list = mentionMatches();
@@ -4140,7 +4193,9 @@
     if (e.tool === 'plan') return [['auto', 'Yes, and use auto mode'], ['acceptEdits', 'Yes, and accept edits'], ['no', 'No, keep planning']].filter(([c]) => !(S.autoOff && c === 'auto'));
     const o = [['yes', 'Yes']];
     // (Not everything could be shown: only a one-time Yes, as Claude Code withholds "don't ask again" then.)
-    const partial = Number(e.more) > 0 || !!(e.change && (Number(e.change.more) > 0 || e.change.cut === true));
+    // (A command holding a secret-looking value: only a one-time Yes, as Claude Code, and never the secret in an option's
+    // text. Round 6, 2026-11-21: the "don't ask again" line showed the whole token. Also when the machine hid part of it.)
+    const partial = Number(e.more) > 0 || !!(e.change && (Number(e.change.more) > 0 || e.change.cut === true)) || e.secret === true || (Array.isArray(e.lines) && e.lines.some((l) => String(l).includes('[hidden]')));
     if (partial) { o.push(['no', e.tool === 'web_fetch' ? 'No, and tell Coder what to do differently' : 'No']); return o; }
     if (Array.isArray(e.rules) && e.rules.length) o.push(['always', 'Yes, and don\'t ask again for ' + e.rules.map((r) => '<code>' + esc(ruleShown(r)) + '</code>').join(' and ')]);
     if (e.toAuto && !S.autoOff) o.push(['auto', 'Yes, and switch to auto mode']);
@@ -4556,7 +4611,7 @@
   function composerHTML() {
     const busy = (S.running && !S.ending) || S.sending;
     const m = MODELS.find((x) => x.id === S.pick.model) || MODELS[0];
-    return '<div class="cd-composewrap">' + bgHTML() + slashHTML() + bangHTML() + mentionHTML() + commentsHTML() + picsHTML() + attachHTML() +
+    return '<div class="cd-composewrap">' + btwHTML() + bgHTML() + slashHTML() + bangHTML() + mentionHTML() + commentsHTML() + picsHTML() + attachHTML() +
       '<form class="cd-compose' + (/^!/.test(S.draft || '') ? ' is-shell' : '') + '" id="cdForm">' +
         '<textarea id="cdIn" rows="1"' + (suggestNow() ? ' class="has-suggest" data-suggest="' + esc(suggestNow()) + '"' : '') + ' placeholder="' + (suggestNow() ? esc(suggestNow()) : S.ending && !S.sending && !GLOOPY ? 'Saving to the branch… a message now goes out right after' : busy ? (GLOOPY ? 'Gloopy is working… you can close this tab' : 'Enter to send, Ctrl+Enter to queue for later') : GLOOPY ? 'Ask Gloopy anything' : 'Ask Coder to build, fix or explain something · @ for a file') + '">' + esc(S.draft) + '</textarea>' +
         '<button type="button" class="cd-attach" id="cdAttach" aria-label="' + (GLOOPY ? 'Attach a file' : 'Attach a picture') + '" title="' + (GLOOPY ? 'Attach a file or a picture' : 'Attach a picture (or paste one)') + '">' + ICON.clip + '</button><input type="file" id="cdFile" accept="' + (GLOOPY ? 'image/png,image/jpeg,image/webp,image/gif,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.odt,.ods,.odp,.rtf,.txt,.md,.csv,.tsv,.json,.xml,.yaml,.yml,.html,.htm,.ics,.vcf,.eml,.ipynb,.log,.zip,.mp3,.m4a,.wav,.mp4,.mov,.webm,.heic,.svg' : 'image/png,image/jpeg,image/webp,image/gif') + '" multiple hidden>' +
@@ -5428,6 +5483,8 @@
       const a = document.createElement('a'); a.href = href; a.download = name; document.body.appendChild(a); a.click(); a.remove();
     });
     on('[data-slash]', 'mousedown', (e) => { e.preventDefault(); pickSlash(e.currentTarget.dataset.slash); });
+    on('[data-btw-close]', 'click', () => { S.btw = null; draw(); });
+    on('[data-btw-copy]', 'click', () => { try { navigator.clipboard.writeText(String((S.btw && S.btw.a) || '')); } catch { /* no clipboard */ } });
     on('.cd-mention-i', 'mousedown', (e) => { e.preventDefault(); if (e.currentTarget.dataset.slash) return; const f = e.currentTarget.dataset.file; return S.mention && S.mention.shell ? pickShellPath(f) : pickMention(f); });
     on('#cdPush', 'click', () => pushBranch());
     on('#cdChanges', 'click', () => { S.showChanges = !S.showChanges; if (S.showChanges) loadChanges(); draw(); });

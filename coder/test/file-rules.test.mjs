@@ -296,7 +296,8 @@ test("CD382g the owner's additional working folders work with Coder's file tools
   assert.match(tool("read", { path: join(extra, "sub", "b.txt") }), /^\s*1\thello extra/);
   assert.equal(tool("read", { path: join(extra, "sub", "b.txt") }, ""), "error: that path is outside the project", "only the owner's own");
   assert.equal(tool("read", { path: join(outside, "s.txt") }), "error: that path is outside the project", "nothing else");
-  assert.equal(tool("read", { path: join(extra, ".git", "config") }), "error: the .git folder is off limits");
+  assert.match(tool("read", { path: join(extra, ".git", "config") }), /^\s*1\tx/, "reading .git is allowed, as Claude Code's Read");
+  assert.equal(tool("write", { path: join(extra, ".git", "config"), content: "y" }), "error: the .git folder is off limits", "writing there is not");
   assert.equal(tool("read", { path: join(extra, "nope.txt") }), "error: no such file: " + join(extra, "nope.txt") + ". Note: your current working directory is " + main + ".", "named by its full path");
   assert.ok(tool("write", { path: join(extra, "new.txt"), content: "made\n" }).startsWith("File created successfully at: " + join(extra, "new.txt") + " "));
   assert.match(tool("edit", { path: join(extra, "new.txt"), old_string: "made", new_string: "changed" }), /has been updated successfully/);
@@ -308,7 +309,8 @@ test("CD382g the owner's additional working folders work with Coder's file tools
   }
   // A working folder around the project: the project's .git is still off limits, and its files are named as before.
   await mkdir(join(main, ".git"), { recursive: true }); await writeFile(join(main, ".git", "HEAD"), "ref\n"); await writeFile(join(main, "src", "a.js"), "a\n");
-  assert.equal(tool("read", { path: join(main, ".git", "HEAD") }, top), "error: the .git folder is off limits");
+  assert.match(tool("read", { path: join(main, ".git", "HEAD") }, top), /^\s*1\tref/);
+  assert.equal(tool("edit", { path: join(main, ".git", "HEAD"), old_string: "ref", new_string: "x" }, top), "error: the .git folder is off limits");
   assert.equal(tool("read", { path: "nope.js" }, top), "error: no such file: nope.js. Note: your current working directory is " + main + ".");
   // Coder's machine names them to the tools, from the folders it worked out (addDirs), never from a variable of the owner's or
   // the repository's (CODER_… names are dropped from both).

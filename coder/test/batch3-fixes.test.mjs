@@ -27,9 +27,11 @@ test("B3-01 'don't ask again' on a rule that holds a secret keeps it for this ch
   for (const c of ["Bash(npm test *)", "Bash(npm run *)", "Bash(FOO=1 npm test)", "Read(//tmp/**)", "Bash(git commit *)"]) assert.ok(!ruleHoldsSecret(c), c);
   const cmd = "API_KEY=sk9fj2kd8s7a6d5f4g3h npm test";
   const a = await job([say("", [call("bash", { command: cmd }, "b1")]), say("", [call("bash", { command: cmd }, "b2")]), say("Done.")], { answers: [{ choice: "always" }] });
-  assert.equal(a.cards.length, 1, "allowed for the rest of the chat");
+  // (Round 6, 2026-11-21, the owner: "do how Claude Code does it": a command holding a secret is offered no "don't ask
+  // again" at all, only a one-time Yes, so each run asks again and no rule keeps the secret.)
+  assert.equal(a.cards.length, 2, "asked each time");
+  assert.ok(a.cards.every((c) => !c.rules), "no rule offered");
   assert.ok(!(a.r.rulesAdded || []).some((r) => /sk9fj2/.test(r)), "not saved with the repository's rules");
-  assert.ok(a.r.sessionRules && a.r.sessionRules.allow.some((r) => /sk9fj2/.test(r)), "kept as the chat's own");
   const b = await job([say("", [call("bash", { command: "npm test" }, "b1")]), say("Done.")], { answers: [{ choice: "always" }] });
   assert.deepEqual(b.r.rulesAdded, ["Bash(npm test *)"]);
 });
