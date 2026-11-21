@@ -1629,9 +1629,17 @@
   async function removeChat(id) {
     const x = S.projects.find((p) => p.id === id);
     if (!x || !(await askSure('Remove “' + (x.title || 'New chat') + '”?', 'Its branch and pull request stay on GitHub.', 'Remove'))) return;
-    const r = await call('/projects/' + encodeURIComponent(id), { method: 'DELETE' });
-    // (A refusal is shown in a box of its own, wherever the page is: live test, 2026-11-21, it was not seen.)
-    if (r.status !== 200) { S.error = (r.data && r.data.error) || 'The chat could not be removed.'; draw(); return tellRemoveFailed(S.error); }
+    // NOTHING OF THE CHAT CHANGES UNTIL THE SERVER SAYS IT IS GONE (live test, 2026-11-21: after a DELETE that failed, the chat
+    // looked stopped): no stop, no poll ended, no card closed here. A failed delete leaves it exactly as it was.
+    let r;
+    try { r = await call('/projects/' + encodeURIComponent(id), { method: 'DELETE' }); } catch (e) { r = { status: 0, data: {} }; }
+    // (A refusal, a server error or no answer at all is shown in a box of its own, wherever the page is, and before the page
+    // is redrawn, so a redraw can never hide it: live test, 2026-11-21, it was not seen.)
+    if (!r || r.status !== 200 || !r.data || r.data.ok !== true) {
+      const why = (r && r.data && typeof r.data.error === 'string' && r.data.error) || (!r || !r.status ? 'Coder could not be reached. Check your connection.' : 'Server error (' + r.status + '): try again in a moment.');
+      tellRemoveFailed(why);
+      return;
+    }
     S.projects = S.projects.filter((p) => p.id !== id);
     if (S.project && S.project.id === id) { stopPoll(); S.project = null; S.draft = ''; S.pics = []; S.comments = []; S.draftOf = null; return S.projects.length ? openProject(S.projects[0].id) : showPicker('new'); }
     delete S.drafts[id]; if (S.draftOf === id) S.draftOf = null;

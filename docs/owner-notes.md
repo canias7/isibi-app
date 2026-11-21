@@ -4,6 +4,11 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-21: A failed delete says so, and stops nothing
+
+- **The box "The chat was not removed" now always shows** when a delete fails: a refusal, a server error, no connection, or a sign-in check that broke on the way. It opens before the page redraws, so nothing can hide it.
+- **A failed delete leaves the chat exactly as it was.** The server stopped a busy chat's job before the one check that can still refuse the delete (unpushed work that would not push), so a refused delete left the chat in Recents looking stopped ("Stopped", "not run"). The job is now stopped only once the delete will go through. The page changes nothing about the chat until the server says it is gone.
+
 ## 2026-11-21: A chat waiting on its card can be deleted
 
 - **Delete works at any time now, like Claude Code.** Deleting a chat that was busy (working, or waiting on a permission card) was refused with "stop it first", and the page didn't show that. Now Delete stops the job first, the way Stop does, then deletes the chat as before (only that chat's records; its branch and pull request stay on GitHub). If a delete still fails, a box says why.

@@ -490,7 +490,8 @@ test("CD17 chats: each is its own session (two on one repo get their own id and 
     return base.fetchFn(url, init);
   };
   let turns = 0, stops = 0;
-  const deps = { fetchFn, authUser: async () => ({ id: "user-1234567890abcdef", email: "me@x.y" }), container: () => ({ fetch: async (req) => { if (new URL(req.url).pathname === "/turn") turns++; if (new URL(req.url).pathname === "/stop") stops++; return new Response(JSON.stringify({ ok: true }), { status: 200 }); } }) };
+  const deps = { fetchFn, authUser: async () => ({ id: "user-1234567890abcdef", email: "me@x.y" }), container: () => ({ fetch: async (req) => { if (new URL(req.url).pathname === "/turn") turns++; if (new URL(req.url).pathname === "/stop") stops++; if (new URL(req.url).pathname === "/push" && pushFails) return new Response(JSON.stringify({ ok: false, why: "no network" }), { status: 200 }); return new Response(JSON.stringify({ ok: true }), { status: 200 }); } }) };
+  let pushFails = false;
   const go = (path, init = {}) => handleCoder(new Request("https://gofarther.dev/api/coder/" + path, { ...init, headers: { "content-type": "application/json" } }), env, {}, deps);
   await connectGithub(go, env, deps);
   const a = (await (await go("projects", { method: "POST", body: JSON.stringify({ repo: "ana/shop" }) })).json()).project;
@@ -530,6 +531,17 @@ test("CD17 chats: each is its own session (two on one repo get their own id and 
   const watched = () => [...bucket.m.keys()].filter((k) => k.includes("__" + a.id + "__"));
   assert.ok(watched().length, "the running job is on the watch list");
   assert.equal(stops, 0);
+  // A DELETE THAT IS REFUSED STOPS NOTHING (live test, 2026-11-21: a refused delete left the chat looking stopped): its unpushed
+  // work could not be pushed, so the chat is kept, and its job goes on as it was.
+  const am = JSON.parse(bucket.m.get(P + a.id + "/meta.json"));
+  bucket.m.set(P + a.id + "/meta.json", JSON.stringify({ ...am, unpushed: 2 }));
+  pushFails = true;
+  assert.equal((await go("projects/" + a.id, { method: "DELETE" })).status, 409, "the push failed, so the chat is kept");
+  pushFails = false;
+  assert.equal(stops, 0, "and its job was not stopped");
+  assert.ok(watched().length, "it is still watched");
+  assert.equal(JSON.parse(bucket.m.get(P + a.id + "/meta.json")).status, "running");
+  bucket.m.set(P + a.id + "/meta.json", JSON.stringify({ ...am, unpushed: 0 }));
   assert.equal((await go("projects/" + a.id, { method: "DELETE" })).status, 200, "a running chat is deleted");
   assert.equal(stops, 1, "its job was stopped first");
   assert.deepEqual(watched(), [], "and taken off the watch list");
@@ -543,7 +555,8 @@ test("CD17 chats: each is its own session (two on one repo get their own id and 
   assert.equal(bucket.m.has(P + c.id + "/parked.json"), false);
   assert.deepEqual((await (await go("projects")).json()).projects, []);
   // THE PAGE SHOWS A DELETE THAT FAILED, in a box of its own.
-  assert.match(ui2, /if \(r\.status !== 200\) \{ S\.error = \(r\.data && r\.data\.error\) \|\| 'The chat could not be removed\.'; draw\(\); return tellRemoveFailed\(S\.error\); \}/);
+  // (Its box comes before any redraw, for a refusal, a server error or no answer: test/cc-remove-fail.test.mjs tries it in a browser.)
+  assert.match(ui2, /if \(!r \|\| r\.status !== 200 \|\| !r\.data \|\| r\.data\.ok !== true\) \{/);
 });
 
 test("CD18 a command past its time limit keeps running in the background, its output in a log the AI is told about", async () => {
