@@ -1723,6 +1723,11 @@
     // /btw, CLAUDE CODE'S SIDE QUESTION (round 6, 2026-11-21): answered in a panel over the chat, even while Coder works; it
     // never joins the chat or its history. Alone, it opens the last answer again.
     if (!GLOOPY && /^\/btw(?:\s|$)/i.test(text)) { boxEmpty(); btwAsk(text.replace(/^\/btw\s*/i, '')); return; }
+    // /autocompact [auto|<tokens>], CLAUDE CODE'S (2026-11-21): sets this chat's auto-compact window; alone, says the current one.
+    if (!GLOOPY && /^\/autocompact(?:\s|$)/i.test(text)) { boxEmpty(); autoCompactCmd(text.replace(/^\/autocompact\s*/i, '')); return; }
+    // AN UNKNOWN COMMAND, AS IN CLAUDE CODE (its docs: "Enter submits your text as typed and reports Unknown command"): the box
+    // empties and the chat says "Unknown command: /name", with a "Did you mean" when one is close; nothing goes to the AI.
+    { const u = !GLOOPY ? unknownSlash(text) : null; if (u) { boxEmpty(); note('Unknown command: /' + u.name + (u.near ? ' · Did you mean ' + u.near + '?' : '')); return; } }
     if (/^!\s*\S/.test(text)) rememberShell(text);
     // COMMENTS ON THE CHANGES go with the message; the server writes them in.
     const comments = S.comments.map((c) => ({ file: c.file, line: c.line, quote: c.quote, text: c.text }));
@@ -3909,8 +3914,8 @@
   }
   // THE "/" LIST, LIKE CLAUDE CODE'S (the owner, 2026-11-15: "make sure the list comes up when i press it"): typing / at the
   // start of the box lists Coder's commands with a line each; ↑↓ to move, Enter or Tab or a click to pick, Esc to close.
-  // (/btw, /init and /review: Claude Code's, round 6, 2026-11-21. Its auto-compact is a setting: no command here.)
-  const SLASH = [['/btw', 'Ask a side question without adding to the conversation'], ['/compact', 'Shrink this chat into a short summary (add what to keep after it)'], ['/init', 'Create or update CLAUDE.md for this repository'], ['/permissions', 'Choose the mode: Auto, Accept edits or Plan', ['allowed-tools']], ['/review', 'Review the changes on this branch', ['code-review']], ['/rewind', 'Go back to an earlier message', ['checkpoint', 'undo']]];
+  // (/btw, /init and /review: Claude Code's, round 6, 2026-11-21. /autocompact: Claude Code's, 2026-11-21, per chat here.)
+  const SLASH = [['/autocompact', 'Set the auto-compact window: auto, or a size such as 500k'], ['/btw', 'Ask a side question without adding to the conversation'], ['/compact', 'Shrink this chat into a short summary (add what to keep after it)'], ['/init', 'Create or update CLAUDE.md for this repository'], ['/permissions', 'Choose the mode: Auto, Accept edits or Plan', ['allowed-tools']], ['/review', 'Review the changes on this branch', ['code-review']], ['/rewind', 'Go back to an earlier message', ['checkpoint', 'undo']]];
   // As Claude Code's / list: from the start of a name, of a word inside it, or of one of its other names; '-', '_' and ':' ignored.
   // THE REPOSITORY'S SKILLS (Claude Code's "/skill-name"; the machine names them at each message): after Coder's own commands.
   function skillsSlash() {
@@ -3923,6 +3928,30 @@
     const q = flat(S.draft.slice(1));
     const hit = (name) => flat(name).startsWith(q) || name.toLowerCase().split(/[-_:]/).slice(1).some((w) => w.startsWith(q));
     return [...SLASH, ...skillsSlash()].filter(([c, , other]) => hit(c.slice(1)) || (other || []).some(hit));
+  }
+  // The commands Coder knows by name: its / list and their other names, the repository's skills, and those its server reads.
+  const SLASH_MORE = ['/compact', '/init', '/review', '/code-review', '/signins', '/signout', '/pause', '/resume', '/schedules'];
+  function unknownSlash(text) {
+    const m = /^\/([A-Za-z][\w:-]*)(?:\s|$)/.exec(String(text || ''));
+    if (!m) return null;
+    const name = m[1].toLowerCase();
+    // (Before the machine has named the repository's skills, a name could be one: it goes as typed.)
+    if (!(S.events || []).some((e) => e && e.type === 'skills')) return null;
+    const known = [...SLASH.flatMap(([c, , other]) => [c, ...(other || []).map((o) => '/' + o)]), ...SLASH_MORE, ...skillsSlash().map(([c]) => c)].map((c) => c.toLowerCase());
+    if (known.includes('/' + name)) return null;
+    S.draft = '/' + name;
+    const near = slashMatches()[0];
+    S.draft = '';
+    return { name: m[1], near: near ? near[0] : '' };
+  }
+  async function autoCompactCmd(arg) {
+    if (!S.project) return;
+    const id = S.project.id;
+    if (!arg.trim()) { const w = S.project.autoCompactWindow; return note('Auto-compact window: ' + (w ? Number(w).toLocaleString('en-US') + ' tokens (set for this chat with /autocompact)' : 'auto, the window tuned for the model') + '. Use /autocompact <tokens> (such as 500k) or /autocompact auto.'); }
+    const r = await call('/projects/' + encodeURIComponent(id) + '/autocompact', { method: 'POST', body: JSON.stringify({ value: arg.trim() }) });
+    if (r.status !== 200) return note((r.data && r.data.error) || 'The auto-compact window could not be set.');
+    if (S.project && S.project.id === id && r.data.project) S.project = r.data.project;
+    note(r.data.window ? 'Auto-compact window set to ' + Number(r.data.window).toLocaleString('en-US') + ' tokens for this chat.' : 'Auto-compact window set to auto, the window tuned for the model.');
   }
   function slashHTML() {
     const list = slashMatches();
@@ -3938,7 +3967,7 @@
   function pickSlash(c) {
     S.slashSel = 0;
     if (c !== '/compact' && skillsSlash().some(([n]) => n === c)) { S.draft = c + ' '; draw(); const i = S.root.querySelector('#cdIn'); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } return; }
-    if (c === '/compact' || c === '/btw') { S.draft = c + ' '; draw(); const i = S.root.querySelector('#cdIn'); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } return; }
+    if (c === '/compact' || c === '/btw' || c === '/autocompact') { S.draft = c + ' '; draw(); const i = S.root.querySelector('#cdIn'); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } return; }
     S.draft = ''; draw(); send(c);
   }
   // THE /btw PANEL: the answer, the five newest earlier side questions dimmed above it, Copy, and Close (Esc).

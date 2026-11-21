@@ -43,6 +43,25 @@ import { cleanMemoryFiles, sameMemoryFiles, memorySlug } from "../container/memo
  * carries `pickV` 2 and counts as chosen, High included.
  */
 export const PICK_V = 2;
+/**
+ * CLAUDE CODE'S /autocompact [auto|<tokens>] (its docs, model-config "Set the auto-compact window"): a window of 100K tokens or
+ * more, as a plain count (200000), with k or M (500k, 1M), or a bare 100 to 1000 meaning thousands (200 = 200,000); "auto"
+ * returns to the window tuned for the model. Coder keeps it per chat, at most 1M (the machine caps it at Grok's window).
+ * → { window } (a number, or null for auto), or { error }.
+ */
+export const AUTOCOMPACT_MIN = 100_000, AUTOCOMPACT_MAX = 1_000_000;
+export function parseAutoCompact(arg) {
+  const a = String(arg ?? "").trim();
+  if (/^auto$/i.test(a)) return { window: null };
+  const m = /^(\d+(?:\.\d+)?)\s*([kKmM]?)$/.exec(a);
+  const bad = { error: "Usage: /autocompact [auto|<tokens>]. Give a window of 100K tokens or more, such as 200000, 500k or 1M, or auto." };
+  if (!m) return bad;
+  let n = Number(m[1]) * (/k/i.test(m[2]) ? 1e3 : /m/i.test(m[2]) ? 1e6 : 1);
+  if (!m[2] && n >= 100 && n <= 1000) n *= 1000;
+  n = Math.round(n);
+  if (n < AUTOCOMPACT_MIN) return bad;
+  return { window: Math.min(n, AUTOCOMPACT_MAX) };
+}
 export function savedEffort(saved) {
   if (!saved || typeof saved !== "object") return undefined;
   return saved.pickV === PICK_V || saved.effort !== "high" ? saved.effort : undefined;
@@ -2047,7 +2066,7 @@ export async function handleCoder(request, env, ctx, deps) {
       next.timing.asked = Date.now();
       next.timing.w = wt;
       try {
-      r = await post("/turn", { start: claim.id, secrets, egress, live, model: modelNow, extra: extraFor(meta), ...connOn, project: id, chatUrl: chatLinkOf(env, id), coAuthor: await coAuthorFor(env, bucket, uid, fetchFn), emailMark: emailNow, cwd: typeof meta.cwd === "string" ? meta.cwd : "", mode: noAuto(normMode(meta.mode), saved), prePlanMode: noAuto(saved.mode === "acceptEdits" ? "acceptEdits" : "auto", saved), rules: await rulesOf(bucket, uid, meta.repo), ...sessionRulesOn(meta), ...customTitleOn(meta), ...wakeOn, ...shellOn, ...compactOn, ...takeUpOn, ...bgOn, ...lastAtOn, text: takeUp || wake || shell || compactJob ? "" : review ? review.text.split("BASE_BRANCH").join(meta.base) : (text || "(see the picture)") + fileMentions(text), shown: takeUp || wake || shell || compactJob ? "" : body.fromGithub === true && body.autofix !== true && typeof body.shown === "string" && body.shown.trim() ? body.shown.slice(0, 300) : body.autofix === true ? "Auto-fix: " + String((text.split("<<<GITHUB\n")[1] || text.split("\n").filter(Boolean)[1] || "").split("\n")[0]).slice(0, 160) : text || "(see the picture)", images: pics.images, messages, repo: meta.repo, base: meta.base, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn + 1), fetch: fetchWanted(meta, { fromGithub: body.fromGithub === true, autofix: body.autofix === true, review }), ...(meta.readOnly ? { readOnly: true } : {}), effort: pick.effort, prefs: machinePrefs(saved), hooks: machineHooks(saved), autoMode: machineAutoMode(saved), memory, memoryFiles, setup, github: body.fromGithub === true, away: body.fromGithub !== true && messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0, lastJob: lastJobFor(meta), environment, envMoved: meta.envMoved === true, cache: { make: copyOn && !copyWait, ...(copyWait ? { note: copyWait } : {}) }, ...(next.jobReplyTo ? { replyTo: next.jobReplyTo } : {}) }, useCopy ? { [FROM_COPY]: useCopy.snapshot, [FROM_COPY_GB]: String(Number(useCopy.size) || 0) } : {});
+      r = await post("/turn", { start: claim.id, secrets, egress, live, model: modelNow, extra: extraFor(meta), autoCompactWindow: Number.isInteger(meta.autoCompactWindow) ? meta.autoCompactWindow : 0, ...connOn, project: id, chatUrl: chatLinkOf(env, id), coAuthor: await coAuthorFor(env, bucket, uid, fetchFn), emailMark: emailNow, cwd: typeof meta.cwd === "string" ? meta.cwd : "", mode: noAuto(normMode(meta.mode), saved), prePlanMode: noAuto(saved.mode === "acceptEdits" ? "acceptEdits" : "auto", saved), rules: await rulesOf(bucket, uid, meta.repo), ...sessionRulesOn(meta), ...customTitleOn(meta), ...wakeOn, ...shellOn, ...compactOn, ...takeUpOn, ...bgOn, ...lastAtOn, text: takeUp || wake || shell || compactJob ? "" : review ? review.text.split("BASE_BRANCH").join(meta.base) : (text || "(see the picture)") + fileMentions(text), shown: takeUp || wake || shell || compactJob ? "" : body.fromGithub === true && body.autofix !== true && typeof body.shown === "string" && body.shown.trim() ? body.shown.slice(0, 300) : body.autofix === true ? "Auto-fix: " + String((text.split("<<<GITHUB\n")[1] || text.split("\n").filter(Boolean)[1] || "").split("\n")[0]).slice(0, 160) : text || "(see the picture)", images: pics.images, messages, repo: meta.repo, base: meta.base, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn + 1), fetch: fetchWanted(meta, { fromGithub: body.fromGithub === true, autofix: body.autofix === true, review }), ...(meta.readOnly ? { readOnly: true } : {}), effort: pick.effort, prefs: machinePrefs(saved), hooks: machineHooks(saved), autoMode: machineAutoMode(saved), memory, memoryFiles, setup, github: body.fromGithub === true, away: body.fromGithub !== true && messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0, lastJob: lastJobFor(meta), environment, envMoved: meta.envMoved === true, cache: { make: copyOn && !copyWait, ...(copyWait ? { note: copyWait } : {}) }, ...(next.jobReplyTo ? { replyTo: next.jobReplyTo } : {}) }, useCopy ? { [FROM_COPY]: useCopy.snapshot, [FROM_COPY_GB]: String(Number(useCopy.size) || 0) } : {});
       } catch (e) {
         await notStarted();
         return json({ error: "Coder's machine could not be started (" + String((e && e.message) || e).replace(/\s+/g, " ").slice(0, 200) + "). Try again in a minute." }, 502);
@@ -2970,6 +2989,17 @@ export async function handleCoder(request, env, ctx, deps) {
     const next = { ...meta, base };
     await saveMeta(bucket, uid, next);
     return json({ ok: true, project: next });
+  }
+  // /autocompact (Claude Code's; applied to this chat from its next message on).
+  if (action === "autocompact" && request.method === "POST") {
+    let body = {}; try { body = await request.json(); } catch { body = {}; }
+    const got = parseAutoCompact(body.value);
+    if (got.error) return json({ error: got.error }, 400);
+    const now = await getJson(bucket, metaKey, meta);
+    const next = { ...now };
+    if (got.window) next.autoCompactWindow = got.window; else delete next.autoCompactWindow;
+    await saveMeta(bucket, uid, next);
+    return json({ ok: true, window: got.window, project: next });
   }
   if (action === "environment" && request.method === "POST") {
     if (meta.turn > 0) return json({ error: "this chat's environment was picked before its first message; start a new chat to use another one" }, 409);

@@ -1028,6 +1028,12 @@ export const compactVarsOf = (vars) => Object.fromEntries(COMPACT_VARS.filter((k
  * sessions set CLAUDE_AUTOCOMPACT_PCT_OVERRIDE over the user's (coder-compact.mjs CLOUD_AUTOCOMPACT_PCT).
  */
 export const compactVarsFor = (vars) => ({ ...compactVarsOf(vars), CODER_AUTOCOMPACT_PCT_OVERRIDE: String(CLOUD_AUTOCOMPACT_PCT) });
+/**
+ * THE CHAT'S /autocompact WINDOW (Claude Code's: the command's value beats the autoCompactWindow setting; its
+ * CLAUDE_CODE_AUTO_COMPACT_WINDOW variable beats the command): over the repository's setting, never over the owner's own
+ * CODER_AUTO_COMPACT_WINDOW (`owner`). Only a window from 100K to 1M tokens.
+ */
+export const withChatWindow = (vars, owner, w) => (Number.isInteger(w) && w >= 100_000 && w <= 1_000_000 && !(owner && Object.hasOwn(owner, "CODER_AUTO_COMPACT_WINDOW")) ? { ...vars, CODER_AUTO_COMPACT_WINDOW: String(w) } : vars);
 /** The owner's variables, with the repository's own command settings (repoSettings' `own`) under them. */
 /** The machine's environment with the job's retry count (the owner's or the repository's CODER_MAX_RETRIES) over it. */
 export function retryEnv(env, vars) {
@@ -2253,7 +2259,7 @@ export async function prepareRepo({ dir, repo, base, branch, token, headers = []
   // `core.worktree` naming the chat the copy was made by, which `git init` with a separate git folder writes; the AI's own git
   // commands then worked in that other chat's folder). Claude Code's cloud session has a clean checkout whose git setup names
   // only that session.
-  const own = await ownGitConfig(dir, o);
+  const own = await ownGitConfig(dir, o, { base, branch });
   if (!own.ok) return { ok: false, why: own.why };
   const cur = (await gitIn(dir, ["rev-parse", "--abbrev-ref", "HEAD"], o)).stdout.trim();
   // NO LOOK AT GITHUB ON EVERY MESSAGE (owner, 2026-11-16; Claude Code's cloud session clones once and works from its copy):
@@ -2336,7 +2342,7 @@ async function repoFromCopy({ dir, url, repo, base, branch, gitDir, o, token, he
  * remote but `origin` (finishPrepare sets its address, with no login in it) is kept, so none from another chat, and none with a
  * token, stays.
  */
-export async function ownGitConfig(dir, o) {
+export async function ownGitConfig(dir, o, { base = "", branch = "" } = {}) {
   const wt = await gitIn(dir, ["config", "--get", "core.worktree"], o);
   if (wt.stdout.trim() !== dir) {
     const s = await gitIn(dir, ["config", "core.worktree", dir], o);
@@ -2346,6 +2352,15 @@ export async function ownGitConfig(dir, o) {
   for (const r of String(rs.stdout || "").split("\n").map((x) => x.trim()).filter((x) => x && x !== "origin")) await gitIn(dir, ["config", "--remove-section", "remote." + r], o);
   const ou = (await gitIn(dir, ["config", "--get", "remote.origin.url"], o)).stdout.trim();
   if (/^[a-z][a-z0-9+.-]*:\/\/[^/]*@/i.test(ou)) await gitIn(dir, ["config", "--unset-all", "remote.origin.url"], o);
+  // ONLY THIS CHAT'S BRANCH AND ITS BASE BRANCH (live test round 8, 2026-11-21): a `[branch "..."]` section for any other
+  // name (one another chat left in the saved copy after its branch itself was gone) is removed. The base branch's own section
+  // stays: it is the tracking git writes when the main branch is checked out from origin, as in Claude Code's clean clone.
+  if (base || branch) {
+    const keep = new Set([base, branch].filter(Boolean));
+    const ks = await gitIn(dir, ["config", "--name-only", "--get-regexp", "^branch\\."], o);
+    const names = new Set(String(ks.stdout || "").split("\n").map((x) => x.trim()).filter(Boolean).map((k) => k.slice(7, k.lastIndexOf("."))));
+    for (const n of names) if (n && !keep.has(n)) await gitIn(dir, ["config", "--remove-section", "branch." + n], o);
+  }
   return { ok: true };
 }
 /** The history being fetched in the background for a new clone, by its folder (deepenLater). */
@@ -4779,6 +4794,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     const ownerTyped = body.setup && body.setup.vars && typeof body.setup.vars === "object" ? body.setup.vars : {};
     const ownerRaw = ownerCoderVars(ownerTyped);
     const rawVars = withRepoOwn(ownerRaw, repoSet.own);
+    // (With the chat's own /autocompact window over the repository's: withChatWindow. A fresh object of this job's.)
+    if (!gloopy) Object.assign(rawVars, withChatWindow(rawVars, ownerRaw, Number(body.autoCompactWindow)));
     const fromRepo = (n) => !Object.hasOwn(ownerRaw, n) && Object.hasOwn(repoSet.own, n);
     const setBy = (n) => (fromRepo(n) ? "this repository's .claude/settings.json sets " + REPO_OWN_FROM[n] : "this chat's environment sets " + ownerNameFor(ownerTyped, n));
     // THE POWERSHELL TOOL (coder-ps.mjs; Claude Code's CLAUDE_CODE_USE_POWERSHELL_TOOL, opt-in on Linux), on a machine with pwsh;

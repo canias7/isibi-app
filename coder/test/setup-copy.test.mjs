@@ -734,6 +734,15 @@ test("CD153h live test 2026-11-21: a checkout from another chat's saved copy kee
   assert.doesNotMatch(cfg, /shop-aaa9/, "no path or branch of A's");
   assert.doesNotMatch(cfg, /SECRET|leak/, "no remote with a token");
   assert.equal(execFileSync("git", ["-C", b, "rev-parse", "--show-toplevel"], { encoding: "utf8" }).trim(), b, "plain git in B's folder works in B's folder");
+  // (Live test round 8: a `[branch "..."]` section of another chat's, whose branch itself is gone.) Only B's branch and the
+  // base branch keep a section; the base's is git's own tracking of origin's main branch, as in Claude Code's clone.
+  g(gb, b, "config", "branch.coder/shop-zzz9.remote", "origin");
+  g(gb, b, "config", "branch.coder/shop-zzz9.merge", "refs/heads/coder/shop-zzz9");
+  g(gb, b, "config", "branch.main.remote", "origin");
+  assert.equal((await S.prepareRepo({ dir: b, repo: "ana/shop", base: "main", branch: "coder/shop-bbb9", token: "", remote, gitRoot, root, netWaits: [], refresh: false })).ok, true);
+  const cfg2 = await readFile(join(gb, "config"), "utf8");
+  assert.doesNotMatch(cfg2, /shop-zzz9/, "another chat's branch section is gone");
+  assert.match(cfg2, /\[branch "main"\]/, "the base branch's section stays");
   // Set wrong again by hand: the next message (no fresh look at GitHub) puts it right too.
   g(gb, b, "config", "core.worktree", a);
   assert.equal((await S.prepareRepo({ dir: b, repo: "ana/shop", base: "main", branch: "coder/shop-bbb9", token: "", remote, gitRoot, root, netWaits: [], refresh: false })).ok, true);

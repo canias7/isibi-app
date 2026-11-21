@@ -1675,7 +1675,7 @@ export function suggestFor(cmd) {
  * on a setting). Coder's own checks (control characters, long sleeps, dangerous removals, protected files, very long
  * commands, writes through a link) come first, in coder-agent.mjs.
  */
-export function bashDecision(command, { mode = "auto", rules = {}, cwd = "/", workdirs = [], isProtected = () => "", real = null, input = null, home = "", ownDirs = [], byCommand = true, scratch = [], settings = BASH_SETTINGS, planFile = "", repoOf = machineRepoOf } = {}) {
+export function bashDecision(command, { mode = "auto", rules = {}, cwd = "/", workdirs = [], isProtected = () => "", real = null, input = null, home = "", ownDirs = [], byCommand = true, scratch = [], settings = BASH_SETTINGS, planFile = "", memoryDir = "", repoOf = machineRepoOf } = {}) {
   const read = readCommand(command, { cwd, home });
   // (For deny and ask rules, the command read a second time with the variables it sets put in: readCommand's `vars`.)
   const shadow = readCommand(command, { cwd, home, vars: true });
@@ -1827,6 +1827,11 @@ export function bashDecision(command, { mode = "auto", rules = {}, cwd = "/", wo
   const inScratch = (p) => !!p && scr.some((d) => (p === d || p.startsWith(d.replace(/\/+$/, "") + "/")) && (typeof real !== "function" || (() => { try { const to = real(p); return !to || to === p || to.startsWith(d.replace(/\/+$/, "") + "/"); } catch { return true; } })()));
   const own = [...(Array.isArray(ownDirs) ? ownDirs : []), ...scr].filter((x) => typeof x === "string" && x);
   const isOwn = (p) => own.some((d) => p === d || p.startsWith(d.replace(/\/+$/, "") + "/"));
+  // THE CHAT'S OWN MEMORY FOLDER (live test, 2026-11-21: `ls -la` on it asked, though its files are written without asking;
+  // Claude Code's memory folder is read by its tools without asking): read and listed without asking, never written here,
+  // and never through a link out of it. Only that one folder.
+  const memD = typeof memoryDir === "string" && memoryDir.startsWith("/") && normalPath(memoryDir) !== "/" ? normalPath(memoryDir).replace(/\/+$/, "") : "";
+  const isMem = (p) => !!memD && !!p && (p === memD || p.startsWith(memD + "/")) && (typeof real !== "function" || (() => { try { const to = real(p); return !to || to === p || to === memD || to.startsWith(memD + "/"); } catch { return false; } })());
   // THE CHAT'S OWN PLAN FILE (round 5, 2026-11-14; Claude Code 2.1.325's "Plan files for current session are allowed for
   // writing", and "… for reading", in its check of each path a file command (mkdir, touch, rm, rmdir, mv, cp, sed, tee) or
   // an output redirection names, before its protected paths): as the scratch folder is, after the deny and ask rules; that
@@ -1864,7 +1869,7 @@ export function bashDecision(command, { mode = "auto", rules = {}, cwd = "/", wo
   for (const x of read.reads) {
     if (x.glob || x.afterCd) { needFor(x.cmd, inputUnsureWhy(x.raw)); continue; }
     if (x.expand || !x.path) { needFor(x.cmd, VAR_UNCHECKED); continue; }
-    if (isOwn(x.path) || isPlan(x.path)) continue;
+    if (isOwn(x.path) || isPlan(x.path) || isMem(x.path)) continue;
     const inside = insideWork(x.path, workdirs), to = inside ? leads(x.path) : x.path;
     if (inside && (to === x.path || insideWork(to, workdirs))) continue;
     if (readOk(x.path)) continue;
@@ -1963,7 +1968,7 @@ export function bashDecision(command, { mode = "auto", rules = {}, cwd = "/", wo
         if (a.dotdot) { needFor(c, globDotDotWhy(a.p, " against the working directories")); break; }
         if (a.unknownDir) { if (a.updir) { needFor(c, (uname || name) + " in '" + a.p + "' requires manual approval: the path it names depends on a directory change in the same command."); break; } continue; }
         if (a.computed || !a.full) { needFor(c, VAR_UNCHECKED); break; }
-        if (isOwn(a.full) || isPlan(a.full)) continue;
+        if (isOwn(a.full) || isPlan(a.full) || isMem(a.full)) continue;
         const inside = insideWork(a.full, workdirs), to = inside ? leads(a.full) : a.full;
         if (inside && (to === a.full || insideWork(to, workdirs))) continue;
         // (A folder it lists or searches counts as read when the rule opens what is in it.)

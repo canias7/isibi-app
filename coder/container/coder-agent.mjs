@@ -4819,7 +4819,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       const here = typeof deps.here === "function" ? String(deps.here() || "") : "";
       if (commandAsk(cmd, deps, here, { real: (q) => realPath(q), allowed: () => false })) return false;
       if (readBlock && readBlockWhy(cmd, { cwd: here || deps.root || "/", workdirs: readBlockDirs(), home: deps.home || "", real: (q) => realPath(q), ownDirs: [...(Array.isArray(deps.ownDirs) ? deps.ownDirs : []), SCRATCH, ...(planPath() ? [planPath()] : []), ...(typeof deps.memFile === "string" && deps.memFile ? [deps.memFile, pathPosix.dirname(deps.memFile)] : [])], exists: (q) => pathExists(q) })) return false;
-      return bashDecision(cmd, { mode: "plan", rules: ownRules, cwd: here || deps.root || "/", workdirs, isProtected: isProt, real: (q) => realPath(q), home: deps.home || "", ownDirs: Array.isArray(deps.ownDirs) ? deps.ownDirs : [], scratch: [SCRATCH], planFile: planPath() }).verdict === "allow";
+      return bashDecision(cmd, { mode: "plan", rules: ownRules, cwd: here || deps.root || "/", workdirs, isProtected: isProt, real: (q) => realPath(q), home: deps.home || "", ownDirs: Array.isArray(deps.ownDirs) ? deps.ownDirs : [], scratch: [SCRATCH], planFile: planPath(), memoryDir: typeof deps.memFile === "string" && deps.memFile ? pathPosix.dirname(deps.memFile) : "" }).verdict === "allow";
     };
     const startAhead = (x) => {
       const descIn = [x.args.description, x.args.command_description].find((d) => typeof d === "string" && d.trim());
@@ -5056,7 +5056,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       if (x.name === "bash") {
         if (!runsAhead(x, true, hooked) || (emailMark && await emailRefused("Bash", x.args, emailMark, { cwd: here || deps.root || "" }))) return;
         const command = x.args.command;
-        const ctxB = { cwd: here || deps.root || "/", workdirs, isProtected: isProt, real: (q) => realPath(q), home: deps.home || "", ownDirs: Array.isArray(deps.ownDirs) ? deps.ownDirs : [], scratch: [SCRATCH], planFile: planPath() };
+        const ctxB = { cwd: here || deps.root || "/", workdirs, isProtected: isProt, real: (q) => realPath(q), home: deps.home || "", ownDirs: Array.isArray(deps.ownDirs) ? deps.ownDirs : [], scratch: [SCRATCH], planFile: planPath(), memoryDir: typeof deps.memFile === "string" && deps.memFile ? pathPosix.dirname(deps.memFile) : "" };
         if (!checker || mode0 !== "auto" || hookAllow || autoRulesCover(command, ctxB)) { early.start(x.id, "bash\n" + command, () => startAhead(x)); return; }
         const dec = bashDecision(command, { mode: "auto", rules: ownRules, ...ctxB, input: x.args, byCommand: fileEdits !== false });
         if (dec.verdict !== "allow" || dec.byRule || discardsWork(command)) return;
@@ -5550,7 +5550,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         let limitCard = null;
         const checkSt = checkerState(...checkKey());
         const autoLike = modeB === "auto" || github;
-        let wantsCheck = !c.rerun && !!checker && (!rmWhy || rmToChecker) && !ask && !dec.byRule && (!!protToChecker || (!!hostsFor && dec.verdict === "allow") || (!(c.hook && c.hook.decision === "allow" && modeB !== "plan") && ((autoLike && dec.verdict === "allow" && !(github && autoOff === true && (c.ps ? dec.readOnly === true : wholeReadOnly(command))) && !(c.ps ? dec.covered === true : autoRulesCover(command, { cwd: where0 || deps.root || "/", workdirs, isProtected: isProt, real: (p) => realPath(p), home: deps.home || "", ownDirs: Array.isArray(deps.ownDirs) ? deps.ownDirs : [], scratch: [SCRATCH], planFile: planPath() }))) || (modeB === "plan" && planChecks && dec.verdict === "ask"))));
+        let wantsCheck = !c.rerun && !!checker && (!rmWhy || rmToChecker) && !ask && !dec.byRule && (!!protToChecker || (!!hostsFor && dec.verdict === "allow") || (!(c.hook && c.hook.decision === "allow" && modeB !== "plan") && ((autoLike && dec.verdict === "allow" && !(github && autoOff === true && (c.ps ? dec.readOnly === true : wholeReadOnly(command))) && !(c.ps ? dec.covered === true : autoRulesCover(command, { cwd: where0 || deps.root || "/", workdirs, isProtected: isProt, real: (p) => realPath(p), home: deps.home || "", ownDirs: Array.isArray(deps.ownDirs) ? deps.ownDirs : [], scratch: [SCRATCH], planFile: planPath(), memoryDir: typeof deps.memFile === "string" && deps.memFile ? pathPosix.dirname(deps.memFile) : "" }))) || (modeB === "plan" && planChecks && dec.verdict === "ask"))));
         // (Auto mode turned off, in a job from GitHub: no checker may approve, and no one can answer a card there; Claude
         // Code's session then starts in "default", where a run that can't ask is denied what needs approval, and a read-only
         // command runs unreviewed, as no review runs outside auto mode.)

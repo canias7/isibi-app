@@ -130,10 +130,10 @@ test("CC6 /btw answers from the chat, while Coder works, without joining the cha
   assert.match(w.R.slashTurn("/review 12").text, /The owner added .*: 12$/);
   assert.equal(w.R.slashTurn("/autocompact"), null);
   assert.equal(w.R.slashTurn("please /init"), null);
-  // The page lists them, and has no /autocompact.
+  // The page lists them, and /autocompact too (2026-11-21, the owner: add it the Claude Code way; open-items-1121.test.mjs).
   const ui = read("public/coder.js");
   for (const c of ["/btw", "/init", "/review"]) assert.ok(ui.includes("['" + c + "', "), c);
-  assert.ok(!ui.includes("['/autocompact'"));
+  assert.ok(ui.includes("['/autocompact'"));
   assert.match(ui, /btwAsk\(text\.replace/);
 });
 

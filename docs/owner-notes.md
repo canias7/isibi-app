@@ -4,6 +4,14 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-21: the four open items from the live round
+
+- **Branch entry in .git/config:** not a leftover. `coder/testingforclaude-c51d` is the test repo's default branch on GitHub (an early Coder chat made it while the repo was empty). The entry is git's normal tracking for the main branch, as in Claude Code's clone, and pull requests correctly go into that branch, so no pull-request bug. To be safe, each chat's git settings now keep a branch entry only for its own branch and its base branch; any other is removed. Rename the repo's default branch to `main` on GitHub if you want PRs to go there.
+- **Unknown / command:** done as Claude Code's docs say ("Enter submits your text as typed and reports Unknown command"). Typing `/nosuchthing` and Enter now empties the box and the chat says "Unknown command: /nosuchthing", with "Did you mean /…?" when one is close. Nothing goes to the AI. "No commands match" still shows while typing, as in Claude Code.
+- **Memory folder:** commands like `ls -la` and `cat` on this chat's own memory folder no longer ask. Only that folder; not another repo's, not the folder above it, not through a link out of it. Writing there by command is as before.
+- **/autocompact:** new, as Claude Code's: `/autocompact 500k` (or `200000`, `1M`, or a bare `200` meaning 200,000; at least 100K) sets this chat's auto-compact window; `/autocompact auto` goes back to the default; `/autocompact` alone says the current one. It shows in the / list. Your own CODER_AUTO_COMPACT_WINDOW variable still wins, as Claude Code's variable does.
+- Tests in coder/test/open-items-1121.test.mjs and setup-copy.test.mjs. Not tried live in the browser yet; not deployed.
+
 ## 2026-11-21: checked live, each chat's git settings name its own folder
 
 - Round 8 live check passed: a new chat's `.git/config` and git commands point only at its own folder, no token. One leftover: a branch entry from the setup copy (`coder/testingforclaude-c51d`) is still in the file.
