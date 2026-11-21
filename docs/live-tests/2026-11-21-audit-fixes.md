@@ -73,3 +73,19 @@ Chat 1 message (one job, 14 steps, every card answered Yes): "Test run. Do each 
 | R1-166 Archive a chat | Looked at a Recents row | Only × (remove), no Archive | **FAIL** |
 
 Skipped: hooks and settings-file items (need files on main); GitHub-started jobs, @coder, auto-fix and review items; PowerShell items (tool off); crashes, restarts and lost-job races (can't cause safely); paid extras (web search cap); sign-out and landing-page items; long-chat and table items; See changes line numbers (no suitable diff).
+
+## Round 6 live checks
+
+Deploy run 271 (main, 5320e8dd) succeeded. Tested live on gofarther.dev, canias7/testingforclaude, Grok 4.7 on Low, Accept edits. Throwaway chats deleted afterwards. Screenshots: `r6-*.png` in the session's live-audit folder.
+
+| Check | What was done | Result | Verdict |
+|---|---|---|---|
+| 1 Secret card | Asked for the curl with a fake `ghp_` Bearer token | Card showed `Bearer [hidden]`, options only Yes / No; token not in card text or HTML. Answered No: "Not allowed". (On the first try Grok refused the step itself without a card.) | **PASS** |
+| 2 Secret file | Wrote key.txt with a fake token, then "commit and push now" | Push refused: "Not sent to GitHub: key.txt (GitHub PAT) looks like it holds a secret…"; diff shows `[hidden]`. GitHub: key.txt 404 on the branch (docs3/a.txt is there). | **PASS** |
+| 3 .git | read tool on `.git/HEAD`; write tool on `.git/zz-test.txt` | Read fails: `error: no such file: .git/HEAD. Note: your current working directory is /data/work/<chat>` (twice). Write was refused ("Refused: .git is off limits"), but only after a "sensitive file" card offering Yes, which was clicked. The repo's git dir lives at `/data/git/<chat>`, so `.git` is not in the work tree. | **FAIL** (read) |
+| 4 @ folders | Typed `@docs` after docs3/a.txt was made | List: `docs3/`, `docs3/a.txt` | **PASS** |
+| 5 PR reason | Fresh chat, no changes, "open a pull request" | Reply quotes GitHub: "Validation Failed: No commits between coder/testingforclaude-c51d and coder/testingforclaude-hqzvv5l3". Grok took 9 bash steps first and created the branch ref with `gh api`. | **PASS** |
+| 6a /init | `/init` | Read README, wrote CLAUDE.md (11 lines). It was auto-pushed to the throwaway chat branch with no card to answer No to. | **PASS** (note the auto-push) |
+| 6b /review | `/review` | Reviewed the branch diff against its base, flagged key.txt as a secret | **PASS** |
+| 6c /btw | `/btw what is 2+2?` while a 45 s command ran | Side panel answered "4"; the question did not appear in the chat | **PASS** |
+| 7 Archive | ⋯ then Archive, reload, Unarchive | Left Recents, "Archived (1)" shown and kept after reload; Unarchive put it back and the button went away | **PASS** |

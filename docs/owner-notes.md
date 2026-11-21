@@ -4,6 +4,11 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-21: Round 6 live checks
+
+- After deploying, 8 of 9 live checks passed: secret card, secret file, @ folders, pull-request reason, /init, /review, /btw and archive.
+- Still failing: Coder's read tool can't open .git/HEAD ("no such file"); writing to .git is refused but a card asks first.
+
 ## 2026-11-21: Round 5 failures fixed the Claude Code way
 
 - **Permission card:** when a command looks like it holds a secret, the card offers only Yes and No (no "don't ask again"), and the secret is hidden everywhere on it.
