@@ -4,6 +4,11 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-21: Live test of the audit fixes
+
+- Deployed (run 267) and tested live in the browser, Grok on Low: 11 passed, 2 failed, 2 not tested. Steps and results are saved in docs/live-tests/2026-11-21-audit-fixes.md so the same can be run in Claude Code and compared.
+- Failed: the Rewind list can be empty (A), and no co-author line on Coder's commits (B). Seen once: a mode picked before the first message went back to Auto (C). Not fixed yet.
+
 ## 2026-11-20: Bigger Claude Code fixes, part 13
 
 - **Coder's memory is now a folder of notes, like Claude Code's:** MEMORY.md is an index (one line per memory) and each memory sits in its own small file beside it, marked as being about you, your feedback, the project, or where to find things. Only the index loads when a chat starts; Coder opens a note when it needs it. The notes are kept per repository between chats, a note gets a "modified" time when Coder changes it, and Coder is told to skip what the code or git history already shows. Old memories load as before (as the index). Gloopy's notes are unchanged.
