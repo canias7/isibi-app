@@ -113,3 +113,29 @@ Deploy run 44949090776 (main @ 1e4a663a) succeeded. One new throwaway chat on go
 | No other chat | Any `/data/work/...` other than this chat's | none | **PASS**, with one note: the file still has `[branch "coder/testingforclaude-c51d"]` (remote origin, merge refs/heads/coder/testingforclaude-c51d), a branch that is not this chat's (its branch is `coder/testingforclaude-fe28im2f`), kept from the setup copy |
 
 Screenshots: r8-1-git-config.png, r8-2-git-cmds.png, r8-99-cleanup.png.
+
+## Round 9 live checks
+
+Deploy run 274 (commit ab0b4db1) succeeded. Tested live on gofarther.dev in one
+throwaway chat (canias7/testingforclaude, Grok 4.7 Low, Accept edits), deleted
+at the end. Screenshots `r9-*.png` in the live-audit scratch folder.
+
+1. **FAIL** Unknown `/nosuchthing` + Enter: the box kept `/nosuchthing`, the
+   list said `No commands match "/nosuchthing"`, and the text then went to Grok,
+   which answered "I don't know /nosuchthing...". No "Unknown command" note.
+   (`r9-1-unknown.png`)
+2. **FAIL** `Run ls -la on your memory folder.` showed an approval card: "ls in
+   '/data/memory/canias7__testingforclaude.memory' was blocked ... may only list
+   files in ... '/data/work/testingforclaude-hrb5be1o'". After Allow it listed
+   MEMORY.md, favourite_colour.md, favourite_fruit.md. The remember step wrote
+   the memory without a card. (`r9-2a-remember.png`, `r9-2b-ls.png`)
+3. **Partly FAIL** `/autocompact 200k`: "Auto-compact window set to 200,000
+   tokens for this chat." PASS. `/autocompact` alone: no note; the box was left
+   as `/autocompact ` (Enter seems to have picked the list entry instead of
+   running it). FAIL. `/autocompact auto`: "Auto-compact window set to auto,
+   the window tuned for the model." PASS. In the / list: PASS.
+   (`r9-3a-set.png`, `r9-3b-show.png`, `r9-3c-clear.png`, `r9-3d-list.png`)
+4. **PASS** `git config --get-regexp '^branch\.'` printed only
+   `branch.coder/testingforclaude-c51d.remote origin` and `.merge
+   refs/heads/coder/testingforclaude-c51d`. Note: this read-only command still
+   asked for approval. (`r9-4-branch.png`)

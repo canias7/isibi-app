@@ -4,6 +4,8 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-21: round 9 live check of the four items: branch entries pass, /autocompact set/clear pass; unknown /command, memory-folder ls (still asks) and bare /autocompact fail (docs/live-tests/2026-11-21-audit-fixes.md)
+
 ## 2026-11-21: the four open items from the live round
 
 - **Branch entry in .git/config:** not a leftover. `coder/testingforclaude-c51d` is the test repo's default branch on GitHub (an early Coder chat made it while the repo was empty). The entry is git's normal tracking for the main branch, as in Claude Code's clone, and pull requests correctly go into that branch, so no pull-request bug. To be safe, each chat's git settings now keep a branch entry only for its own branch and its base branch; any other is removed. Rename the repo's default branch to `main` on GitHub if you want PRs to go there.
