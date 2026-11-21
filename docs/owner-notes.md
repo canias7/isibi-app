@@ -4,6 +4,10 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-21: .git fixes checked live
+
+- Deployed; live on gofarther.dev reading .git/HEAD and .git/config works (no token shown) and writing in .git is refused at once with no card. All pass.
+
 ## 2026-11-21: .git reading and writing fixed
 
 - Reading .git/HEAD now works: on the live machine the chat's .git is a small file pointing to its git folder elsewhere, and the read tool now follows it, only to that chat's own folder (never another chat's, never anything named for credentials).

@@ -89,3 +89,15 @@ Deploy run 271 (main, 5320e8dd) succeeded. Tested live on gofarther.dev, canias7
 | 6b /review | `/review` | Reviewed the branch diff against its base, flagged key.txt as a secret | **PASS** |
 | 6c /btw | `/btw what is 2+2?` while a 45 s command ran | Side panel answered "4"; the question did not appear in the chat | **PASS** |
 | 7 Archive | ⋯ then Archive, reload, Unarchive | Left Recents, "Archived (1)" shown and kept after reload; Unarchive put it back and the button went away | **PASS** |
+
+## Round 7 live checks
+
+Deploy run 44932394624 (main at f55b7ebb) succeeded. Tested live on gofarther.dev, canias7/testingforclaude, Grok 4.7 Low, Accept edits, one throwaway chat (deleted afterwards).
+
+| Test | Asked | Result | Verdict |
+|---|---|---|---|
+| 1a Read .git/HEAD | Read tool on `.git/HEAD` | Read card ✓, showed `ref: refs/heads/coder/testingforclaude-myrcvjbu` | **PASS** |
+| 1b Read .git/config | Read tool on `.git/config` | Opened; core, user, origin URL `https://github.com/canias7/testingforclaude.git` (no token), one branch section. No secret shown. | **PASS** (note: `core.worktree` names another chat's folder, `testingforclaude-ea41pu3o`, as the git folder is shared) |
+| 2 Write .git | Write tool on `.git/zz-test.txt` | "✕ not run", tool said `error: the .git folder is off limits`; no permission card | **PASS** |
+
+Screenshots: r7-1a-git-head.png, r7-1b-git-config.png, r7-2-git-write.png, r7-99-cleanup.png.
