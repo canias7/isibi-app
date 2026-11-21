@@ -37,7 +37,7 @@ test("OI2 the chat's own memory folder is listed and read by commands without as
   assert.equal(P.bashDecision("cat " + M + "/link", ctx({ real: (p) => (p === M + "/link" ? "/etc/passwd" : p) })).verdict, "ask", "a link out of it");
   for (const c of ["echo x > " + M + "/MEMORY.md", "cp a.txt " + M + "/b.md"]) for (const mode of ["default", "acceptEdits"]) assert.deepEqual(P.bashDecision(c, ctx({ mode })), P.bashDecision(c, ctx({ mode, memoryDir: "" })), "writing there is as before: " + c);
   const agent = readFileSync(new URL("../container/coder-agent.mjs", import.meta.url), "utf8");
-  assert.equal(agent.split('memoryDir: typeof deps.memFile === "string" && deps.memFile ? pathPosix.dirname(deps.memFile) : ""').length - 1, 3, "every command check gets it");
+  assert.equal(agent.split('memoryDir: typeof deps.memFile === "string" && deps.memFile ? pathPosix.dirname(deps.memFile) : ""').length - 1, 4, "every command check gets it, decideIn too (live round 9)");
 });
 
 test("OI3 /autocompact [auto|<tokens>], Claude Code's: its sizes (100K or more; k and M; a bare 100 to 1000 is thousands), auto, per chat, sent with each message, the owner's own variable still beating it; in the / list", async () => {

@@ -42,7 +42,7 @@ test("LK5 typing / lists Coder's commands (Claude Code's list): /compact, /permi
   const ui = read("coder.js");
   assert.match(ui, /const SLASH = \[\['\/autocompact', [^\]]+\], \['\/btw', [^\]]+\], \['\/compact', [^\]]+\], \['\/init', [^\]]+\], \['\/permissions', [^\]]+\]\], \['\/review', [^\]]+\]\], \['\/rewind', [^\]]+\]\]\];/);
   assert.match(ui, /bgHTML\(\) \+ slashHTML\(\) \+ bangHTML\(\) \+ mentionHTML\(\) \+/);
-  assert.match(ui, /if \(sl\.length && \(e\.key === 'Enter' \|\| e\.key === 'Tab'\)[^\n]*pickSlash\(/);
+  assert.match(ui, /if \(sl\.length && !whole && \(e\.key === 'Enter' \|\| e\.key === 'Tab'\)[^\n]*pickSlash\(/);
   assert.match(ui, /if \(sl\.length && e\.key === 'Escape'\) \{ S\.slashOff = true;/);
   assert.match(ui, /on\('\[data-slash\]', 'mousedown', \(e\) => \{ e\.preventDefault\(\); pickSlash\(e\.currentTarget\.dataset\.slash\); \}\);/);
 });

@@ -3936,7 +3936,9 @@
     if (!m) return null;
     const name = m[1].toLowerCase();
     // (Before the machine has named the repository's skills, a name could be one: it goes as typed.)
-    if (!(S.events || []).some((e) => e && e.type === 'skills')) return null;
+    // (The machine names them before each message only when the repository has some: once the chat has had an answer with
+    // no skills step, it has none. Live round 9, 2026-11-21: `/nosuchthing` went to Grok in a chat with no skills.)
+    if (!(S.events || []).some((e) => e && (e.type === 'skills' || e.type === 'done'))) return null;
     const known = [...SLASH.flatMap(([c, , other]) => [c, ...(other || []).map((o) => '/' + o)]), ...SLASH_MORE, ...skillsSlash().map(([c]) => c)].map((c) => c.toLowerCase());
     if (known.includes('/' + name)) return null;
     S.draft = '/' + name;
@@ -5588,7 +5590,10 @@
         }
         const sl = slashMatches();
         if (sl.length && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) { e.preventDefault(); S.slashSel = ((S.slashSel || 0) + (e.key === 'ArrowDown' ? 1 : sl.length - 1)) % sl.length; return draw(); }
-        if (sl.length && (e.key === 'Enter' || e.key === 'Tab') && !e.shiftKey && !e.isComposing) { e.preventDefault(); return pickSlash(sl[Math.min(S.slashSel || 0, sl.length - 1)][0]); }
+        // (ENTER ON A COMMAND'S WHOLE NAME RUNS IT, as Claude Code's: live round 9, 2026-11-21, `/autocompact` + Enter had picked
+        // the list's entry and left `/autocompact ` in the box. Tab still picks; Enter on part of a name picks the entry.)
+        const whole = e.key === 'Enter' && sl.some(([c]) => c.toLowerCase() === String(input.value || '').trim().toLowerCase());
+        if (sl.length && !whole && (e.key === 'Enter' || e.key === 'Tab') && !e.shiftKey && !e.isComposing) { e.preventDefault(); return pickSlash(sl[Math.min(S.slashSel || 0, sl.length - 1)][0]); }
         if (sl.length && e.key === 'Escape') { S.slashOff = true; return draw(); }
         const list = mentionMatches();
         if (list.length && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) { e.preventDefault(); S.mentionSel = ((S.mentionSel || 0) + (e.key === 'ArrowDown' ? 1 : list.length - 1)) % list.length; return draw(); }

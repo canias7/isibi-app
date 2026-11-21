@@ -4,6 +4,14 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-21: fixes for the round 9 live failures
+
+- **Unknown / command:** the page only reported it after the machine had named the repo's skills, and it names them only when the repo has some, so in a chat with no skills `/nosuchthing` went to Grok. Now, once the chat has had an answer, no skills step means no skills: Enter empties the box and says "Unknown command: /nosuchthing". (In a brand-new chat with no answer yet, a /name still goes as typed, because it could be one of the repo's skills.)
+- **`/autocompact` alone (and /compact, /init, /review, /btw, /rewind):** Enter on a command's whole name now runs it, as in Claude Code, instead of picking the list entry and leaving `/autocompact ` in the box. Tab still picks; Enter on part of a name still picks the entry.
+- **Memory folder:** the earlier fix reached every command check except the main one that decides whether to ask, so `ls -la` on the memory folder still asked. It reaches that one too now. Read, grep and glob on the memory folder itself also stay allowed when reads outside the project are blocked.
+- **`git config` reads:** `--get-regexp`, `--get-all`, `--list` and `-l` now run without asking, like `--get` (Claude Code counts `git config --get` as read-only, and these only print settings). Writes such as `git config x y`, `--unset`, `--add`, `--file`, `-e` still ask.
+- Tests: coder/test/round9-live.test.mjs (the page ones type real keys in the browser). Not deployed yet.
+
 ## 2026-11-21: round 9 live check of the four items: branch entries pass, /autocompact set/clear pass; unknown /command, memory-folder ls (still asks) and bare /autocompact fail (docs/live-tests/2026-11-21-audit-fixes.md)
 
 ## 2026-11-21: the four open items from the live round
