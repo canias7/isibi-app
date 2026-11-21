@@ -101,3 +101,15 @@ Deploy run 44932394624 (main at f55b7ebb) succeeded. Tested live on gofarther.de
 | 2 Write .git | Write tool on `.git/zz-test.txt` | "✕ not run", tool said `error: the .git folder is off limits`; no permission card | **PASS** |
 
 Screenshots: r7-1a-git-head.png, r7-1b-git-config.png, r7-2-git-write.png, r7-99-cleanup.png.
+
+## Round 8 live checks
+
+Deploy run 44949090776 (main @ 1e4a663a) succeeded. One new throwaway chat on gofarther.dev, repo canias7/testingforclaude, Grok 4.7 Low, Accept edits. Chat id `testingforclaude-fe28im2f`; deleted at the end.
+
+| Check | What was asked | What happened | Result |
+|---|---|---|---|
+| 1 Read .git/config | Read tool on `.git/config` | `worktree = /data/work/testingforclaude-fe28im2f`; one remote, origin `https://github.com/canias7/testingforclaude.git` (no login); no token | **PASS** |
+| 2 git commands | `git rev-parse --show-toplevel`, `git config --get core.worktree` | both printed `/data/work/testingforclaude-fe28im2f`; no permission cards | **PASS** |
+| No other chat | Any `/data/work/...` other than this chat's | none | **PASS**, with one note: the file still has `[branch "coder/testingforclaude-c51d"]` (remote origin, merge refs/heads/coder/testingforclaude-c51d), a branch that is not this chat's (its branch is `coder/testingforclaude-fe28im2f`), kept from the setup copy |
+
+Screenshots: r8-1-git-config.png, r8-2-git-cmds.png, r8-99-cleanup.png.
