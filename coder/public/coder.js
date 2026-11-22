@@ -1635,6 +1635,14 @@
     try { r = await call('/projects/' + encodeURIComponent(id), { method: 'DELETE' }); } catch (e) { r = { status: 0, data: {} }; }
     // (A refusal, a server error or no answer at all is shown in a box of its own, wherever the page is, and before the page
     // is redrawn, so a redraw can never hide it: live test, 2026-11-21, it was not seen.)
+    // THE PUSH BEFORE A DELETE FAILED (409 with unpushed commits): asked once more, as the message's "Delete it anyway" says;
+    // yes deletes with ?force=1 and the commits are lost. (Claude Code deletes a session once you confirm; Coder's push first
+    // is the owner's, 2026-11-16. Batch 2 of "Go Claude Code way", 2026-11-22: there was no way to do "anyway" on the page.)
+    if (r && r.status === 409 && r.data && Number(r.data.unpushed) > 0) {
+      const n = Number(r.data.unpushed);
+      if (!(await askSure('Remove anyway and lose ' + n + ' commit' + (n === 1 ? '' : 's') + '?', r.data.error || 'The push to GitHub failed.', 'Remove anyway'))) return;
+      try { r = await call('/projects/' + encodeURIComponent(id) + '?force=1', { method: 'DELETE' }); } catch (e) { r = { status: 0, data: {} }; }
+    }
     if (!r || r.status !== 200 || !r.data || r.data.ok !== true) {
       const why = (r && r.data && typeof r.data.error === 'string' && r.data.error) || (!r || !r.status ? 'Coder could not be reached. Check your connection.' : 'Server error (' + r.status + '): try again in a moment.');
       tellRemoveFailed(why);
@@ -1725,6 +1733,9 @@
     if (!GLOOPY && /^\/btw(?:\s|$)/i.test(text)) { boxEmpty(); btwAsk(text.replace(/^\/btw\s*/i, '')); return; }
     // /autocompact [auto|<tokens>], CLAUDE CODE'S (2026-11-21): sets this chat's auto-compact window; alone, says the current one.
     if (!GLOOPY && /^\/autocompact(?:\s|$)/i.test(text)) { boxEmpty(); autoCompactCmd(text.replace(/^\/autocompact\s*/i, '')); return; }
+    // /model <name> AND /effort <level>, CLAUDE CODE'S (batch 2 of "Go Claude Code way", 2026-11-22): set them at once, as the
+    // two pickers on the box do; alone, they say the current one and the choices. Nothing goes to the AI.
+    if (!GLOOPY && /^\/(model|effort)(?:\s|$)/i.test(text)) { boxEmpty(); const r = pickCmd(text, MODELS, S.pick); if (r.pick) { S.pick = r.pick; savePick(); } note(r.text); return; }
     // AN UNKNOWN COMMAND, AS IN CLAUDE CODE (its docs: "Enter submits your text as typed and reports Unknown command"): the box
     // empties and the chat says "Unknown command: /name", with a "Did you mean" when one is close; nothing goes to the AI.
     { const u = !GLOOPY ? unknownSlash(text) : null; if (u) { boxEmpty(); note('Unknown command: /' + u.name + (u.near ? ' · Did you mean ' + u.near + '?' : '')); return; } }
@@ -3915,7 +3926,7 @@
   // THE "/" LIST, LIKE CLAUDE CODE'S (the owner, 2026-11-15: "make sure the list comes up when i press it"): typing / at the
   // start of the box lists Coder's commands with a line each; ↑↓ to move, Enter or Tab or a click to pick, Esc to close.
   // (/btw, /init and /review: Claude Code's, round 6, 2026-11-21. /autocompact: Claude Code's, 2026-11-21, per chat here.)
-  const SLASH = [['/autocompact', 'Set the auto-compact window: auto, or a size such as 500k'], ['/btw', 'Ask a side question without adding to the conversation'], ['/compact', 'Shrink this chat into a short summary (add what to keep after it)'], ['/init', 'Create or update CLAUDE.md for this repository'], ['/permissions', 'Choose the mode: Auto, Accept edits or Plan', ['allowed-tools']], ['/review', 'Review the changes on this branch', ['code-review']], ['/rewind', 'Go back to an earlier message', ['checkpoint', 'undo']]];
+  const SLASH = [['/autocompact', 'Set the auto-compact window: auto, or a size such as 500k'], ['/btw', 'Ask a side question without adding to the conversation'], ['/compact', 'Shrink this chat into a short summary (add what to keep after it)'], ['/effort', 'Set the effort level for the model'], ['/init', 'Create or update CLAUDE.md for this repository'], ['/model', 'Set the AI model for this chat'], ['/permissions', 'Choose the mode: Auto, Accept edits or Plan', ['allowed-tools']], ['/review', 'Review the changes on this branch', ['code-review']], ['/rewind', 'Go back to an earlier message', ['checkpoint', 'undo']]];
   // As Claude Code's / list: from the start of a name, of a word inside it, or of one of its other names; '-', '_' and ':' ignored.
   // THE REPOSITORY'S SKILLS (Claude Code's "/skill-name"; the machine names them at each message): after Coder's own commands.
   function skillsSlash() {
@@ -3946,6 +3957,24 @@
     S.draft = '';
     return { name: m[1], near: near ? near[0] : '' };
   }
+  // /model and /effort: the new pick (or none) and the chat's line. Pure, so a test can run it.
+  function pickCmd(text, models, pick) {
+    const m = /^\/(model|effort)\s*(.*)$/i.exec(String(text || '').trim());
+    if (!m) return { text: '' };
+    const kind = m[1].toLowerCase(), arg = m[2].trim().toLowerCase();
+    const cur = models.find((x) => x.id === (pick && pick.model)) || models[0];
+    if (kind === 'model') {
+      const list = models.map((x) => x.id).join(', ');
+      if (!arg) return { text: 'Model: ' + cur.name + '. Use /model <name> to switch (' + list + ').' };
+      const to = models.find((x) => x.id.toLowerCase() === arg || x.name.toLowerCase() === arg);
+      if (!to) return { text: 'Unknown model: ' + m[2].trim() + '. Choose one of: ' + list + '.' };
+      return { pick: { model: to.id, effort: to.efforts.includes(pick && pick.effort) ? pick.effort : to.effort }, text: 'Set model to ' + to.name };
+    }
+    const list = cur.efforts.join(', ');
+    if (!arg) return { text: 'Effort: ' + (pick && pick.effort || cur.effort) + '. Use /effort <level> to switch (' + list + ').' };
+    if (!cur.efforts.includes(arg)) return { text: 'Unknown effort: ' + m[2].trim() + '. Choose one of: ' + list + '.' };
+    return { pick: { model: cur.id, effort: arg }, text: 'Set effort level to ' + arg };
+  }
   async function autoCompactCmd(arg) {
     if (!S.project) return;
     const id = S.project.id;
@@ -3969,7 +3998,7 @@
   function pickSlash(c) {
     S.slashSel = 0;
     if (c !== '/compact' && skillsSlash().some(([n]) => n === c)) { S.draft = c + ' '; draw(); const i = S.root.querySelector('#cdIn'); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } return; }
-    if (c === '/compact' || c === '/btw' || c === '/autocompact') { S.draft = c + ' '; draw(); const i = S.root.querySelector('#cdIn'); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } return; }
+    if (c === '/compact' || c === '/btw' || c === '/autocompact' || c === '/model' || c === '/effort') { S.draft = c + ' '; draw(); const i = S.root.querySelector('#cdIn'); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } return; }
     S.draft = ''; draw(); send(c);
   }
   // THE /btw PANEL: the answer, the five newest earlier side questions dimmed above it, Copy, and Close (Esc).

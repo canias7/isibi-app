@@ -4,6 +4,15 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-22: Claude Code way, batch 2
+
+- You can now type "/model" or "/effort" with a choice after it (for example "/effort high") to switch at once, as in Claude Code. Alone, each says what is set and the choices. Nothing goes to the AI. Both are in the "/" list.
+- Coder's notify tool now also answers to Claude Code's name for it, PushNotification, so a rule or hook written for Claude Code reaches it. Its wording and its limit of 3 stay as they are.
+- Removing a chat whose push to GitHub failed: the page now asks "Remove anyway and lose N commits?" and does it on yes. Before, the message said "delete it anyway" but there was no button.
+- Already as Claude Code: a busy chat is stopped and removed in one step. The changed-files box with Undo stays as you asked.
+- Left for you to decide (money, or Claude Code lacks it): see the questions in this batch's summary.
+- Not live-tested in the browser yet.
+
 ## 2026-11-22: Claude Code way, batch 1
 
 You said "Go Claude Code way", so for this batch of audit items Coder now does what Claude Code does, unless doing that would cost money, delete data or need your secrets.
