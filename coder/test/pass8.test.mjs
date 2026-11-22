@@ -456,11 +456,10 @@ test("CD416 Auto mode's details, as Claude Code's docs and program give them: ev
   assert.deepEqual([t.checks.length, t.cards.length], [1, 0]);
   t = await job(one("npm install"), { mode: "plan", autoOff: true });
   assert.deepEqual([t.checks.length, t.cards.length], [0, 1], "Auto mode off: asked");
-  // A dangerous removal in Plan with the checker: as in Auto (Auto's 2-minute card, fix 5; no answer refuses it); without
-  // it: asked.
+  // A dangerous removal in Plan with the checker: as in Auto (refused at once, as Claude Code does away from a terminal,
+  // batch 7); without it: asked.
   t = await job(one("rm -rf ~"), { mode: "plan", answers: [{ choice: "none" }] });
-  assert.deepEqual([t.checks.length, t.cards.length, t.ran.length], [0, 1, 0]);
-  assert.ok(t.cards[0].blockAt > 0);
+  assert.deepEqual([t.checks.length, t.cards.length, t.ran.length], [0, 0, 0]);
   assert.match(t.told("b1"), /Dangerous rm operation detected: '~'/);
   t = await job(one("rm -rf ~"), { mode: "plan", checkerInPlan: false, answers: [{ choice: "no" }] });
   assert.deepEqual([t.checks.length, t.cards.length], [0, 1]);
@@ -546,12 +545,12 @@ test("CD416 Auto mode's details, as Claude Code's docs and program give them: ev
   const keep = { load: () => saved, save: (o) => { saved = o; } };
   const st = C.checkerState("chat-kept-" + Math.random(), keep);
   // (With the count of Auto's unanswered questions for a dangerous removal, fix 5 of "Yes all 7": 0 when none was saved.)
-  assert.deepEqual({ ...st }, { row: 2, total: 7, byRow: false, rmUnanswered: 0 });
+  assert.deepEqual({ ...st }, { row: 2, total: 7, byRow: false });
   assert.deepEqual(C.countBlock(st), { total: false, n: 3 }, "the third in a row, counted from before the sleep");
-  assert.deepEqual(saved, { row: 3, total: 8, byRow: true, rmUnanswered: 0 });
+  assert.deepEqual(saved, { row: 3, total: 8, byRow: true });
   C.resume(st);
-  assert.deepEqual(saved, { row: 0, total: 8, byRow: true, rmUnanswered: 0 });
-  assert.deepEqual({ ...C.checkerState("chat-bad-" + Math.random(), { load: () => ({ row: -1, total: "x", paused: "yes", rmUnanswered: -2 }) }) }, { row: 0, total: 0, byRow: false, rmUnanswered: 0 }, "nonsense read as nothing");
+  assert.deepEqual(saved, { row: 0, total: 8, byRow: true });
+  assert.deepEqual({ ...C.checkerState("chat-bad-" + Math.random(), { load: () => ({ row: -1, total: "x", paused: "yes" }) }) }, { row: 0, total: 0, byRow: false }, "nonsense read as nothing");
   const fs = await import("node:fs");
   const server = fs.readFileSync(new URL("../container/server.mjs", import.meta.url), "utf8");
   assert.match(server, /checkerKeep: checksKeep\(join\(memRoot, project \+ "\.checks\.json"\)\),/);

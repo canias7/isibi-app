@@ -24,7 +24,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { createHash, randomUUID, randomBytes, randomInt } from "node:crypto";
 import { mkdir, readdir, readFile, writeFile, stat, chown, open, unlink, rm, lstat, realpath, lchown, chmod, rename, rmdir, symlink } from "node:fs/promises";
 import { constants } from "node:fs";
-import { createWriteStream, realpathSync, openSync, closeSync, readSync, writeSync, ftruncateSync, fstatSync, fchownSync, lstatSync, lchownSync, existsSync, readdirSync, mkdirSync, chownSync, chmodSync, writeFileSync, readFileSync, statfsSync, truncateSync, rmdirSync, unlinkSync } from "node:fs";
+import { createWriteStream, realpathSync, readlinkSync, openSync, closeSync, readSync, writeSync, ftruncateSync, fstatSync, fchownSync, lstatSync, lchownSync, existsSync, readdirSync, mkdirSync, chownSync, chmodSync, writeFileSync, readFileSync, statfsSync, truncateSync, rmdirSync, unlinkSync } from "node:fs";
 import { join, dirname, relative, resolve, basename, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runCoder, connectorTools, connectorCaller, connectorHookCaller, MACHINE_TOOLS, MACHINE_ADMIN, CWD_MARK, CWD_WORDS, monitorMs, TOOLS_SCRIPT, hookModeName, boxDownTold, boxDownShown } from "./coder-agent.mjs";
@@ -71,6 +71,15 @@ import { secretsIn } from "./coder-secretscan.mjs";
 
 const RAW_OUTPUT_MAX = 1024 * 1024;
 /** The owner's own command in Gloopy's terminal (2026-11-12) is ended after this many seconds. */
+/**
+ * WHAT A COMMAND'S OWN allowed_domains CAN DO, by the environment's network access (batch 7 of "Go Claude Code way",
+ * 2026-11-22, item M-b-08): Claude Code's cloud has no list a command can widen ("Limited" is the default list plus the hosts
+ * the owner adds, nothing else); only Claude Code's sandbox on a person's own computer opens hosts for one command in auto
+ * mode. So on Limited the list is fixed: Auto refuses allowed_domains (HOSTS_FIXED) and the input is not offered; another
+ * host is an environment change the owner approves (update_environment). Full: ignored; None: nothing can be added (HOSTS_LOCKED).
+ * (The per-command opening of pass 6, item 7, stays in runCoder as hostLists "on", which nothing passes now.)
+ */
+export const hostListsFor = (mode) => (mode === "full" ? null : mode === "none" ? "none" : "fixed");
 export const TERM_S = 60;
 /**
  * THE OWNER'S SAVED LOGINS, AS GLOOPY'S MACHINE IS TOLD THEM (2026-11-12, the Vault): each one's id, site, username and
@@ -3048,6 +3057,72 @@ async function entriesOf(path) {
   } catch { return []; }
 }
 /**
+ * INSTRUCTION AND RULE FILES REACHED THROUGH A LINK THAT STAYS IN THE PROJECT (batch 7 of "Go Claude Code way", 2026-11-22,
+ * item M-f-30; Claude Code's memory.md: "The `.claude/rules/` directory supports symlinks ... Circular symlinks are detected
+ * and handled gracefully", and a CLAUDE.md may link to AGENTS.md). Before, Coder never followed a link in them (the owner's
+ * safety choice of 2026-11-05/06: a repository could commit CODER.md as a link to a secret file of the machine). Now a link
+ * is followed only when where it really leads is inside the project's own folder: the target is opened without following
+ * a link at its end (O_NOFOLLOW), and the file actually opened is checked again, by what /proc/self/fd says it is, so a part
+ * swapped for a link in between leads nowhere. Still only a plain file with one name (never a hard link). A link that leads
+ * out of the project is what Claude Code calls an outside import, which loads only after the owner approves outside
+ * imports; Coder has no such approval, so it is not loaded and the chat says so (LINKED_OUT_NOTE). Used only for the
+ * instruction files and their rules; the repository's other files Coder's machine reads (its settings, its security rules)
+ * still never go through a link.
+ */
+const insideOf = (p, top) => p === top || p.startsWith(top === "/" ? "/" : top + "/");
+/** `rel` (inside `base`) through its links: `{ fd, real }`, `real` its path in the project; fd -1 when it leads out (or nowhere). */
+function linkedOpen(base, rel, folder = false) {
+  let fd = -1;
+  try {
+    const top = realpathSync(base);
+    const real = realpathSync(join(base, rel));
+    if (!insideOf(real, top)) return { fd: -1, out: true };
+    fd = openSync(real, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK | (folder ? constants.O_DIRECTORY : 0));
+    const now = readlinkSync("/proc/self/fd/" + fd);
+    if (!insideOf(now, top)) { closeSync(fd); return { fd: -1, out: true }; }
+    return { fd, real: relative(top, now) };
+  } catch { if (fd >= 0) { try { closeSync(fd); } catch { /* closed */ } } return { fd: -1 }; }
+}
+/** A file through its links, inside the project only: `{ text, real }`, or null. */
+export function linkedText(base, rel, max) {
+  const { fd, real } = linkedOpen(base, rel);
+  if (fd < 0) return null;
+  try {
+    const st = fstatSync(fd);
+    if (!st.isFile() || st.nlink !== 1) return null;
+    const buf = Buffer.alloc(Math.min(st.size, max * 4));
+    const n = buf.length ? readSync(fd, buf, 0, buf.length, 0) : 0;
+    return { text: buf.subarray(0, n).toString("utf8").slice(0, max), real };
+  } catch { return null; } finally { try { closeSync(fd); } catch { /* closed */ } }
+}
+/** Where a link (`rel`, inside `base`) leads: "dir", "file", "out" (out of the project), or "" (nowhere, a loop). */
+function linkKind(base, rel) {
+  const { fd, out } = linkedOpen(base, rel);
+  if (fd < 0) return out ? "out" : "";
+  try { const st = fstatSync(fd); return st.isDirectory() ? "dir" : st.isFile() ? "file" : ""; } catch { return ""; } finally { try { closeSync(fd); } catch { /* closed */ } }
+}
+/**
+ * A folder's entries for the instruction files: entriesOf (or, while the AI's commands may run, heldEntries), and a folder
+ * that is itself a link inside the project listed through it; each entry that is a link marked as what it leads to
+ * (`link`: true; dir or file, inside the project only; `out`: it leads out of the project). `rel`: inside `base`.
+ */
+async function linkedEntries(base, rel, plain) {
+  let list = await plain(rel);
+  if (!list.length && rel) {
+    const { fd } = linkedOpen(base, rel, true);
+    if (fd >= 0) { try { list = readdirSync("/proc/self/fd/" + fd, { withFileTypes: true }).map((e) => ({ name: e.name, dir: e.isDirectory(), file: e.isFile(), sym: e.isSymbolicLink() })); } catch { list = []; } finally { try { closeSync(fd); } catch { /* closed */ } } }
+  } else if (list.some((e) => !e.dir && !e.file)) {
+    try { const syms = new Set(readdirSync(rel ? join(base, rel) : base, { withFileTypes: true }).filter((e) => e.isSymbolicLink()).map((e) => e.name)); list = list.map((e) => (syms.has(e.name) ? { ...e, sym: true } : e)); } catch { /* as listed */ }
+  }
+  return list.map((e) => {
+    if (!e.sym) return { name: e.name, dir: e.dir, file: e.file };
+    const k = linkKind(base, (rel ? rel + "/" : "") + e.name);
+    return { name: e.name, dir: k === "dir", file: k === "file", link: true, ...(k === "out" ? { out: true } : {}) };
+  });
+}
+/** What the chat says of rule files that link out of the project (M-f-30). */
+export const linkedOutNote = (names) => "Not loaded: " + (names.length === 1 ? "this rule file links" : "these rule files link") + " to a place outside the project: " + names.slice(0, 5).join(", ") + (names.length > 5 ? " and " + (names.length - 5) + " more" : "") + ". Claude Code treats such a link as an outside import, which loads only once you approve it, and Coder has no such approval.";
+/**
  * A FOLDER OF THE PROJECT HELD OPEN, ONE PART OF ITS PATH AT A TIME (for what is read while the AI's commands may run, audit
  * M-f-12): each part opened inside the one before through /proc/self/fd/N, never following a link (O_NOFOLLOW) and only a
  * real folder (O_DIRECTORY), so a part swapped for a link in between leads nowhere. The open folder's number, or -1.
@@ -3175,7 +3250,9 @@ export async function topNotes(dir, notes) {
   for (const n of Array.isArray(notes) ? notes : []) {
     let text = n.text;
     if (/^(CODER|AGENTS|CLAUDE|CLAUDE\.local)\.md$/.test(n.name)) {
-      const raw = await plainText(dir, n.name, (NOTES_MAX + 1) * 4);
+      // (One that is a link inside the project is read through it, as at the job's start: M-f-30.)
+      let raw = await plainText(dir, n.name, (NOTES_MAX + 1) * 4);
+      if (raw === null) { const l = linkedText(dir, n.name, (NOTES_MAX + 1) * 4); raw = l ? l.text : null; }
       if (raw === null) continue;
       const loaded = withoutComments(raw), kept = loaded.text.slice(0, Math.max(0, left));
       text = kept + (loaded.text.length > kept.length ? "\n[" + n.name + " goes on: read the rest of it with the read tool, from line " + lineAfter(loaded, kept) + "]" : "");
@@ -3229,6 +3306,14 @@ export const IMPORT_HOPS = 4;
  * left out and the @ imports put in, up to four hops; each file once (`seen`). Answers { load, withheld }.
  */
 function instructionLoader(dir, { excludes = [], withhold = null, read = plainText } = {}) {
+  // (A file not read as a plain file may be a link inside the project, read through it (M-f-30): its real path must pass the
+  // same claudeMdExcludes and Read deny rules, and a file read once, under either name, is not read again.)
+  const readAny = async (rel, max) => {
+    const raw = await read(dir, rel, max);
+    if (raw !== null) return { raw, real: rel };
+    const l = linkedText(dir, rel, max);
+    return l ? { raw: l.text, real: l.real } : null;
+  };
   const withheld = [];
   // (A file the job's Read deny rules cover is not given to Grok, and the chat is told, as Claude Code's "Instruction file not
   // loaded (a Read deny rule covers it)". M-r2-18. `withhold(rel)`: why it is held back, or "".)
@@ -3249,10 +3334,10 @@ function instructionLoader(dir, { excludes = [], withhold = null, read = plainTe
         const target = importTarget(dir, rel, tok);
         if (!target || seen.has(target) || mdExcluded(excludes, dir, target)) continue;
         if (held(target)) continue;
-        const raw = await read(dir, target, (NOTES_MAX + 1) * 4);
-        if (raw === null) continue;
-        seen.add(target);
-        const sub = await expand(target, withoutComments(raw), hops + 1);
+        const got = await readAny(target, (NOTES_MAX + 1) * 4);
+        if (got === null || (got.real !== target && (seen.has(got.real) || mdExcluded(excludes, dir, got.real) || held(got.real)))) continue;
+        seen.add(target); seen.add(got.real);
+        const sub = await expand(target, withoutComments(got.raw), hops + 1);
         for (const x of sub.text.split("\n")) { out.push(x); lines.push(at); }
       }
     }
@@ -3262,10 +3347,11 @@ function instructionLoader(dir, { excludes = [], withhold = null, read = plainTe
   // claudeMdExcludes names is not read at all.
   const load = async (rel, max) => {
     if (mdExcluded(excludes, dir, rel) || seen.has(rel)) return null;
-    const raw = await read(dir, rel, max * 4);
-    if (raw === null || held(rel)) return null;
-    seen.add(rel);
-    return expand(rel, withoutComments(raw), 0);
+    const got = await readAny(rel, max * 4);
+    if (got === null || held(rel)) return null;
+    if (got.real !== rel && (seen.has(got.real) || mdExcluded(excludes, dir, got.real) || held(got.real))) return null;
+    seen.add(rel); seen.add(got.real);
+    return expand(rel, withoutComments(got.raw), 0);
   };
   return { load, withheld };
 }
@@ -3274,20 +3360,27 @@ function instructionLoader(dir, { excludes = [], withhold = null, read = plainTe
  * M-f-12, no longer at most 50 files and 5 folders deep): `{ files, cut }`, `cut` when RULES_GUARD stopped the look.
  * `list(rel)`: a folder's entries (entriesOf before the AI's commands run, heldEntries while they may).
  */
-async function ruleFiles(list, top) {
-  const files = [];
+async function ruleFiles(list, top, realOf = null) {
+  const files = [], out = [];
   let looked = 0, cut = false;
+  // (A folder reached again through a link, a loop, is passed by: Claude Code's "Circular symlinks are detected and handled
+  // gracefully". `realOf(rel)`: where a folder really is. M-f-30.)
+  const been = new Set();
   const go = async (rel) => {
+    if (realOf) { const r0 = realOf(rel); if (r0 === null || been.has(r0)) return; been.add(r0); }
     for (const e of (await list(rel)).sort((a, b) => a.name.localeCompare(b.name))) {
       if (++looked > RULES_GUARD) { cut = true; return; }
       const r = rel + "/" + e.name;
+      if (e.out) { if (/\.md$/i.test(e.name) || !e.name.includes(".")) out.push(r); continue; }
       if (e.dir) { await go(r); if (cut) return; }
       else if (e.file && /\.md$/i.test(e.name)) files.push(r);
     }
   };
   await go(top);
-  return { files, cut };
+  return { files, cut, out };
 }
+/** Where a folder of the project really is (its links followed), or null. */
+const realFolder = (dir) => (rel) => { try { return realpathSync(rel ? join(dir, rel) : dir); } catch { return null; } };
 /** The rules folder a folder (`rel`, "" for the top) uses: its .coder/rules when it has one, else Claude Code's .claude/rules. */
 async function rulesDirOf(list, rel) {
   const at = (r) => (rel ? rel + "/" : "") + r;
@@ -3312,9 +3405,10 @@ export async function repoInstructions(dir, { excludes = [], extra = false, with
   // (An added folder never loads its AGENTS.md: memory.md, "Their `AGENTS.md` doesn't load". M-f-16.)
   if (!found && !extra) for (const f of AGENTS_FILES) now(f, await load(f, NOTES_MAX + 1));
   // .coder/rules/ (else .claude/rules/), every .md file in it and its folders, at any depth.
-  const list = (rel) => entriesOf(rel ? join(dir, rel) : dir);
-  const top = await ruleFiles(list, await rulesDirOf(list, ""));
+  const list = (rel) => linkedEntries(dir, rel, (r) => entriesOf(r ? join(dir, r) : dir));
+  const top = await ruleFiles(list, await rulesDirOf(list, ""), realFolder(dir));
   let rulesCut = top.cut;
+  const linkedOut = top.out.slice();
   for (const r of top.files) {
     const loaded = await load(r, NOTE_ONE_MAX + 1);
     if (loaded === null) continue;
@@ -3334,14 +3428,14 @@ export async function repoInstructions(dir, { excludes = [], extra = false, with
     return true;
   };
   const walk = async (rel, depth) => {
-    const list0 = await entriesOf(rel ? join(dir, rel) : dir);
+    const list0 = await list(rel);
     if (rel) {
       const has = (n) => list0.some((e) => e.file && e.name === n);
       // (Its CODER.md; else Claude Code's CLAUDE.md, .claude/CLAUDE.md and CLAUDE.local.md, M-f-06; else its AGENTS.md, only
       // when the project's top has no instructions of its own, as Claude Code reads AGENTS.md only with no CLAUDE.md, and it
       // loads only on a read, laterNotes. M-f-10.)
       if (later.filter((x) => x.dir !== undefined).length < NESTED_MAX) {
-        const inClaude = list0.some((e) => e.dir && e.name === ".claude") ? await entriesOf(join(dir, rel, ".claude")) : [];
+        const inClaude = list0.some((e) => e.dir && e.name === ".claude") ? await list(rel + "/.claude") : [];
         const mine = has("CODER.md") ? ["CODER.md"] : CLAUDE_FILES.filter((f) => (f.includes("/") ? inClaude.some((e) => e.file && e.name === basename(f)) : has(f)));
         for (const f of mine) await one(rel, f);
         if (!mine.length && !found && has("AGENTS.md")) await one(rel, "AGENTS.md", true);
@@ -3350,8 +3444,9 @@ export async function repoInstructions(dir, { excludes = [], extra = false, with
       // `.claude/rules/`" load on demand, like its CLAUDE.md), else its .claude/rules: each .md file loads once a file under
       // the subfolder is touched; one with `paths:` only for matching files, its globs read from that subfolder.
       if (list0.some((e) => e.dir && (e.name === ".coder" || e.name === ".claude"))) {
-        const sub = await ruleFiles(list, await rulesDirOf(list, rel));
+        const sub = await ruleFiles(list, await rulesDirOf(list, rel), realFolder(dir));
         if (sub.cut) rulesCut = true;
+        linkedOut.push(...sub.out);
         for (const r of sub.files) {
           const loaded = await load(r, NOTE_ONE_MAX + 1);
           if (loaded === null) continue;
@@ -3362,14 +3457,14 @@ export async function repoInstructions(dir, { excludes = [], extra = false, with
         }
       }
     }
-    for (const e of list0.filter((x) => x.dir && !SKIP_DIRS.has(x.name)).sort((a, b) => a.name.localeCompare(b.name))) {
+    for (const e of list0.filter((x) => x.dir && !x.link && !SKIP_DIRS.has(x.name)).sort((a, b) => a.name.localeCompare(b.name))) {
       if (++dirs > WALK_DIRS_MAX || depth >= WALK_DEPTH) return;
       await walk(rel ? rel + "/" + e.name : e.name, depth + 1);
     }
   };
   // (An added folder: only its own top files, as memory.md lists them.)
   if (!extra) await walk("", 0);
-  return { notes, later, ...(withheld.length ? { withheld } : {}), ...(found ? { found: true } : {}), ...(rulesCut ? { rulesCut: true } : {}) };
+  return { notes, later, ...(withheld.length ? { withheld } : {}), ...(found ? { found: true } : {}), ...(rulesCut ? { rulesCut: true } : {}), ...(linkedOut.length ? { linkedOut } : {}) };
 }
 /**
  * A SUBFOLDER'S OWN INSTRUCTIONS, LOOKED UP WHEN A FILE IN IT IS TOUCHED (audit M-f-12, "Go Claude Code way", 2026-11-22;
@@ -3390,7 +3485,7 @@ export async function folderNotes(dir, path, shown, { tool = "read", found = fal
   const parts = rel.split("/");
   if (parts.length < 2 || [".git", ".coder", ".claude"].includes(parts[0])) return [];
   const { load } = instructionLoader(dir, { excludes, withhold, read: heldText });
-  const list = (r) => heldEntries(dir, r);
+  const list = (r) => linkedEntries(dir, r, (x) => heldEntries(dir, x));
   const out = [];
   const take = async (name, scope = null) => {
     if (shown.has(name) || (known && known.has(name))) return false;
@@ -4904,6 +4999,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     for (const text of withheldNotes(ins.withheld)) t.events.push({ at: Date.now(), type: "note", text });
     // (A rules folder past RULES_GUARD: said once, audit M-f-12.)
     if (ins.rulesCut) t.events.push({ at: Date.now(), type: "note", text: RULES_CUT_NOTE });
+    // (Rule files that link out of the project: not loaded, said once, M-f-30.)
+    if (ins.linkedOut && ins.linkedOut.length) t.events.push({ at: Date.now(), type: "note", text: linkedOutNote(ins.linkedOut) });
     const notes = ins.notes;
     // The instruction files that load later (path rules, a subfolder's own file), as read before any command ran.
     const later = ins.later;
@@ -5120,7 +5217,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
             ? "\n\nNETWORK: FULL, but for the environment's blocked sites: " + (net.denied || []).join(", ") + ". Any other site on the internet works; a request to a blocked one fails with \"Blocked: … is on this environment's blocked sites\" (curl: \"CONNECT tunnel failed, response 403\"), whatever else allows it. Don't retry those; only the owner can change that list."
             : net.mode === "none"
             ? "\n\nNETWORK: NONE. The owner turned internet access off in this chat's environment: every request to the internet fails (package installs too). Work offline; if the task truly needs a host, that is a need as get_environment's description defines it (it says when and where to propose a change)."
-            : "\n\nNETWORK: this chat's environment is LIMITED to " + (net.mode === "trusted" ? "the default list (package registries, GitHub, cloud SDKs)" : (net.defaults ? "the default list (package registries, GitHub, cloud SDKs)" + (net.hosts.length ? " and " : "") : "") + net.hosts.join(", ")) + (secretHosts.length ? " (plus sites with saved keys)" : "") + ". A request to any other site fails with \"request blocked: no rule or allowlist entry allows host\" (curl: \"CONNECT tunnel failed, response 403\"), and so does web_fetch: if the task needs that site, that is a need as get_environment's description defines it (it says where a change belongs). Your own web search still works.") + (net.mode !== "full" && net.denied && net.denied.length ? " The environment also blocks these sites whatever else allows them: " + net.denied.join(", ") + "." : "") + (net.mode !== "full" && net.mode !== "none" && walled ? " In Auto mode, a command can name the hosts it needs beyond this list in its allowed_domains: the checker reviews them together with the command, and an approved list opens them for that one command alone." : "") + (walled || fwOn ? "" : " (On this machine the list is a guard for tools that use HTTPS_PROXY, not a firewall.)");
+            : "\n\nNETWORK: this chat's environment is LIMITED to " + (net.mode === "trusted" ? "the default list (package registries, GitHub, cloud SDKs)" : (net.defaults ? "the default list (package registries, GitHub, cloud SDKs)" + (net.hosts.length ? " and " : "") : "") + net.hosts.join(", ")) + (secretHosts.length ? " (plus sites with saved keys)" : "") + ". A request to any other site fails with \"request blocked: no rule or allowlist entry allows host\" (curl: \"CONNECT tunnel failed, response 403\"), and so does web_fetch: if the task needs that site, that is a need as get_environment's description defines it (it says where a change belongs). Your own web search still works.") + (net.mode !== "full" && net.denied && net.denied.length ? " The environment also blocks these sites whatever else allows them: " + net.denied.join(", ") + "." : "") + (walled || fwOn ? "" : " (On this machine the list is a guard for tools that use HTTPS_PROXY, not a firewall.)");
         }
       } catch (e) {
         const why = String((e && e.message) || e).slice(0, 120);
@@ -6022,7 +6119,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         t.answerDone = true;
         return { status: "error", messages, crashed: true, summary: why };
       };
-      picsIn(Array.isArray(body.messages) ? body.messages : [], picsTo).then((msgsIn) => runCoder(turnDeps, { notices, lost, stalls, ...(takeUp ? { takeUp: { ...takeUp, ...(envNote ? { note: envNote } : {}) } } : {}), timeouts: t.tmo, outLimits: t.outLimits, cmdShell: t.shell, compactVars: compactVarsFor(rawVars), noBg: t.noBg, diskWarnGib: warnGibFrom(body.setup && body.setup.vars, "DISK", PREFS.diskWarnGib), memWarnGib: warnGibFrom(body.setup && body.setup.vars, "MEMORY", PREFS.memWarnGib), searchLimits: t.searchLimits, hooks: turnHooks, autoMode: autoModeIn(body.autoMode), denyInstead: PREFS.denyInstead === true, tasksOff: varOff(rawVars.CODER_ENABLE_TASKS), mentionsOff: varOn(rawVars.CODER_DISABLE_FILE_MENTIONS), stopCap: stopCapOf(rawVars.CODER_STOP_HOOK_BLOCK_CAP), box: !!t.box, autoOff: PREFS.autoOff === true || repoSet.autoOff, suggest: !gloopy && PREFS.suggestOff !== true && process.env.CODER_ENABLE_PROMPT_SUGGESTION !== "false", fileEdits: repoSet.defaultMode === "acceptEdits", startMode: repoSet.defaultMode, resumed, lastAt: Number(body.lastAt) || 0, hostLists: nn.mode === "full" ? null : nn.mode === "none" ? "none" : walled ? "on" : "off", rmChecksOff: { subst: varOn(rawVars.CODER_DISABLE_SUBSTITUTION_RM_PROMPT), inline: varOn(rawVars.CODER_DISABLE_INLINE_SHELL_RM_PROMPT), mounted: varOn(rawVars.CODER_DISABLE_MOUNTED_DRIVE_RM_PROMPT), timeout: varOn(rawVars.CODER_DISABLE_DANGEROUS_RM_TIMEOUT) }, powershell: psOn ? { bypass: !varOn(rawVars.CODER_POWERSHELL_RESPECT_EXECUTION_POLICY), defaultShell: String(rawVars.CODER_DEFAULT_SHELL || "").trim().toLowerCase() === "powershell", parseMs: Number(rawVars.CODER_PWSH_PARSE_TIMEOUT_MS) > 0 ? Math.min(Number(rawVars.CODER_PWSH_PARSE_TIMEOUT_MS), 60000) : 0 } : null, planExit: body.prePlanMode === "acceptEdits" ? "acceptEdits" : "auto", respondToBash: !varOff(rawVars.CODER_RESPOND_TO_BASH_COMMANDS), promptNotify: !varOn(rawVars.CODER_DISABLE_PERMISSION_PROMPT_NOTIFY_HOOKS), readBlock: varOn(rawVars.CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockReads, writeBlock: varOn(rawVars.CODER_BLOCK_WRITES_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockWrites, connectors: mcpCall ? connectors : [], connectorNotes: mcpCall && Array.isArray(body.connectorNotes) ? body.connectorNotes.slice(0, 10) : [], connectorsWaiting: Array.isArray(body.connectorsWaiting) ? body.connectorsWaiting.map(String).slice(0, 20) : [], connectorsFailed: Array.isArray(body.connectorsFailed) ? body.connectorsFailed.slice(0, 20) : [], connectorsGone: body.connectorsGone && typeof body.connectorsGone === "object" && !Array.isArray(body.connectorsGone) ? body.connectorsGone : null, checker, checkerInPlan: !varOff(rawVars.CODER_USE_AUTO_MODE_DURING_PLAN), checkWhere: { key: project, repo: String(body.repo || ""), branch: String(body.branch || (body.repo ? "coder/" + project : "")) }, emailMark: typeof body.emailMark === "string" && /^\d{1,3}:[0-9a-f]{64}(?:,\d{1,3}:[0-9a-f]{64})?$/.test(body.emailMark) ? body.emailMark : "", editDiff: varOn(rawVars.CODER_BASH_EDIT_DIFF), checkpoints: checkpointsOn(rawVars), searchTools: body.searchTools === true, cleared: !gloopy && body.cleared === true, mode: t.mode, rules: withRepoRules(body.rules, repoSet), sessionRules: body.sessionRules && typeof body.sessionRules === "object" ? body.sessionRules : null, language: gloopy ? "" : repoSet.language, customTitle: !gloopy && typeof body.customTitle === "string" ? body.customTitle.slice(0, 200) : "", shell: typeof body.shell === "string" ? body.shell.slice(0, 100_000) : "", messages: msgsIn, text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), ...(body.compact && typeof body.compact === "object" ? { compact: { focus: String(body.compact.focus || "").slice(0, 300) } } : {}), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, readOnly: { main: body.readOnly === true, extra: extras.filter((x) => x.readOnly).map((x) => x.repo.toLowerCase()) }, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), replyTo: body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null, ...effortFor(body, repoSet, env, t) , skills: gloopy || body.github === true ? [] : (() => { try { return readSkills(dir); } catch { return []; } })(), ...(!gloopy && body.github !== true && Array.isArray(body.attached) ? { attached: body.attached.filter((x) => x && typeof x.id === "string").slice(0, 20), attachedLeft: Math.max(0, Math.min(1000, Number(body.attachedLeft) || 0)) } : {}), ...gloopyOpts }))
+      picsIn(Array.isArray(body.messages) ? body.messages : [], picsTo).then((msgsIn) => runCoder(turnDeps, { notices, lost, stalls, ...(takeUp ? { takeUp: { ...takeUp, ...(envNote ? { note: envNote } : {}) } } : {}), timeouts: t.tmo, outLimits: t.outLimits, cmdShell: t.shell, compactVars: compactVarsFor(rawVars), noBg: t.noBg, diskWarnGib: warnGibFrom(body.setup && body.setup.vars, "DISK", PREFS.diskWarnGib), memWarnGib: warnGibFrom(body.setup && body.setup.vars, "MEMORY", PREFS.memWarnGib), searchLimits: t.searchLimits, hooks: turnHooks, autoMode: autoModeIn(body.autoMode), denyInstead: PREFS.denyInstead === true, tasksOff: varOff(rawVars.CODER_ENABLE_TASKS), mentionsOff: varOn(rawVars.CODER_DISABLE_FILE_MENTIONS), stopCap: stopCapOf(rawVars.CODER_STOP_HOOK_BLOCK_CAP), box: !!t.box, autoOff: PREFS.autoOff === true || repoSet.autoOff, suggest: !gloopy && PREFS.suggestOff !== true && process.env.CODER_ENABLE_PROMPT_SUGGESTION !== "false", fileEdits: repoSet.defaultMode === "acceptEdits", startMode: repoSet.defaultMode, resumed, lastAt: Number(body.lastAt) || 0, hostLists: hostListsFor(nn.mode), rmChecksOff: { subst: varOn(rawVars.CODER_DISABLE_SUBSTITUTION_RM_PROMPT), inline: varOn(rawVars.CODER_DISABLE_INLINE_SHELL_RM_PROMPT), mounted: varOn(rawVars.CODER_DISABLE_MOUNTED_DRIVE_RM_PROMPT), timeout: varOn(rawVars.CODER_DISABLE_DANGEROUS_RM_TIMEOUT) }, powershell: psOn ? { bypass: !varOn(rawVars.CODER_POWERSHELL_RESPECT_EXECUTION_POLICY), defaultShell: String(rawVars.CODER_DEFAULT_SHELL || "").trim().toLowerCase() === "powershell", parseMs: Number(rawVars.CODER_PWSH_PARSE_TIMEOUT_MS) > 0 ? Math.min(Number(rawVars.CODER_PWSH_PARSE_TIMEOUT_MS), 60000) : 0 } : null, planExit: body.prePlanMode === "acceptEdits" ? "acceptEdits" : "auto", respondToBash: !varOff(rawVars.CODER_RESPOND_TO_BASH_COMMANDS), promptNotify: !varOn(rawVars.CODER_DISABLE_PERMISSION_PROMPT_NOTIFY_HOOKS), readBlock: varOn(rawVars.CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockReads, writeBlock: varOn(rawVars.CODER_BLOCK_WRITES_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockWrites, connectors: mcpCall ? connectors : [], connectorNotes: mcpCall && Array.isArray(body.connectorNotes) ? body.connectorNotes.slice(0, 10) : [], connectorsWaiting: Array.isArray(body.connectorsWaiting) ? body.connectorsWaiting.map(String).slice(0, 20) : [], connectorsFailed: Array.isArray(body.connectorsFailed) ? body.connectorsFailed.slice(0, 20) : [], connectorsGone: body.connectorsGone && typeof body.connectorsGone === "object" && !Array.isArray(body.connectorsGone) ? body.connectorsGone : null, checker, checkerInPlan: !varOff(rawVars.CODER_USE_AUTO_MODE_DURING_PLAN), checkWhere: { key: project, repo: String(body.repo || ""), branch: String(body.branch || (body.repo ? "coder/" + project : "")) }, emailMark: typeof body.emailMark === "string" && /^\d{1,3}:[0-9a-f]{64}(?:,\d{1,3}:[0-9a-f]{64})?$/.test(body.emailMark) ? body.emailMark : "", editDiff: varOn(rawVars.CODER_BASH_EDIT_DIFF), checkpoints: checkpointsOn(rawVars), searchTools: body.searchTools === true, cleared: !gloopy && body.cleared === true, mode: t.mode, rules: withRepoRules(body.rules, repoSet), sessionRules: body.sessionRules && typeof body.sessionRules === "object" ? body.sessionRules : null, language: gloopy ? "" : repoSet.language, customTitle: !gloopy && typeof body.customTitle === "string" ? body.customTitle.slice(0, 200) : "", shell: typeof body.shell === "string" ? body.shell.slice(0, 100_000) : "", messages: msgsIn, text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), ...(body.compact && typeof body.compact === "object" ? { compact: { focus: String(body.compact.focus || "").slice(0, 300) } } : {}), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, readOnly: { main: body.readOnly === true, extra: extras.filter((x) => x.readOnly).map((x) => x.repo.toLowerCase()) }, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), replyTo: body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null, ...effortFor(body, repoSet, env, t) , skills: gloopy || body.github === true ? [] : (() => { try { return readSkills(dir); } catch { return []; } })(), ...(!gloopy && body.github !== true && Array.isArray(body.attached) ? { attached: body.attached.filter((x) => x && typeof x.id === "string").slice(0, 20), attachedLeft: Math.max(0, Math.min(1000, Number(body.attachedLeft) || 0)) } : {}), ...gloopyOpts }))
         // (Its job is over: a connector's question still waiting closes, coder-elicit.mjs.)
         .finally(() => { t.over = true; })
         // The last steps are sent BEFORE the end is handed out, so the Worker never saves the job while some are on their way.

@@ -202,82 +202,63 @@ test("CD556 what each writing cmdlet changes (psWriteTargets): its path settings
   assert.deepEqual(t("Get-Content a.txt"), []);
 });
 
-// ── FIX 5: AUTO'S 2-MINUTE QUESTION FOR A DANGEROUS REMOVAL ───────────────────────────────────────────────────────────
-test("CD557 in Auto a dangerous removal is asked about on a card that blocks it by itself after 2 minutes (Claude Code 2.1.281: \"wait 2 minutes for an answer, then deny the command with a rewrite hint so unattended sessions keep going\"); after 3 such cards in a row that no one answered, none is shown (\"already gone unanswered 3 times in this session, so it was not shown again\"); an answer starts the count again", async () => {
+// ── FIX 5, THEN BATCH 7 OF "GO CLAUDE CODE WAY": A DANGEROUS REMOVAL IN AUTO IS REFUSED AT ONCE ─────────────────────────
+test("CD557 in Auto a dangerous removal is refused at once, with no card, as Claude Code does away from a terminal (its docs: \"auto | Asks you to approve it in the terminal, with a time limit. Elsewhere, denies it\"); the owner's own Ask rule still asks with no time limit; Accept edits asks; from GitHub refused", async () => {
   const A = await import("../container/coder-agent.mjs");
-  const C = await import("../container/coder-checker.mjs");
   const WHY = "Dangerous rm operation detected: '~'";
-  /** A job in `mode` on a pretend machine whose clock the card's wait moves on; `answer` null: no one answers. */
-  async function rmJob(key, answer, { mode = "auto", github = false, rmChecksOff = null, command = "rm -rf ~" } = {}) {
+  async function rmJob(answer, { mode = "auto", github = false, rmChecksOff = null, command = "rm -rf ~", ask = [] } = {}) {
     const events = [], cards = [], ran = [], asks = [];
-    let n = 0, clock = 5_000_000;
+    let n = 0;
     const steps = [say("", [call("bash", { command }, "b1")]), say("ok")];
     const r = await A.runCoder({
       send: async () => steps[Math.min(n++, steps.length - 1)],
       exec: async (x) => { if (/coder-tools\.mjs|--porcelain=v1/.test(String(x.command))) return { code: 0, output: "" }; ran.push(x.command); return { code: 0, output: "ok\n" }; },
       emit: (e) => events.push(e), here: () => ROOT, root: ROOT, home: "/home/dev", chatId: "shop-rm",
-      where: (p) => (p.startsWith("/") ? p : ROOT + "/" + p), now: () => clock,
-      ...(github ? {} : { ask: async (pid, o) => { asks.push(o); cards.push(events.find((e) => e.type === "permission" && e.pid === pid)); if (answer === null) { clock = o.until + 1; return null; } return { choice: answer }; } }),
-    }, { text: "go", mode, github, rules: { allow: [], ask: [], deny: [] }, checkWhere: { key, repo: "ana/shop", branch: "coder/shop-1" }, ...(rmChecksOff ? { rmChecksOff } : {}) });
+      where: (p) => (p.startsWith("/") ? p : ROOT + "/" + p),
+      ...(github ? {} : { ask: async (pid, o) => { asks.push(o); cards.push(events.find((e) => e.type === "permission" && e.pid === pid)); return answer === null ? null : { choice: answer }; } }),
+    }, { text: "go", mode, github, rules: { allow: [], ask, deny: [] }, checkWhere: { key: "chat-rm-" + Math.random(), repo: "ana/shop", branch: "coder/shop-1" }, ...(rmChecksOff ? { rmChecksOff } : {}) });
     const told = r.messages.find((m) => m.role === "tool" && m.tool_call_id === "b1");
-    return { events, cards, ran, asks, told: told ? told.content : "", start: 5_000_000 };
+    return { events, cards, ran, asks, told: told ? told.content : "" };
   }
-  const key = "chat-rm-" + Math.random().toString(36).slice(2);
-  // No answer: the card waits 2 minutes (its own time limit, given to the machine's wait), then the removal is blocked and
-  // Coder goes on; Grok gets Claude Code's words.
-  const t1 = await rmJob(key, null);
-  assert.equal(t1.cards.length, 1);
-  assert.equal(t1.cards[0].blockAt, t1.start + 120_000);
-  assert.equal(t1.asks[0].until, t1.start + 120_000);
-  assert.equal(t1.cards[0].rules, undefined, "only Yes and No");
-  assert.deepEqual(t1.ran, []);
-  assert.equal(t1.events.find((e) => e.type === "result" && e.id === "b1").output, "Not run: no answer within 2 minutes, so Coder blocked it.");
-  assert.ok(t1.told.startsWith("Permission for this command was denied by a built-in Coder safety check, not by the owner. "));
-  assert.match(t1.told, /Only a person may approve such a removal, and no person did \(the permission prompt timed out, or none was shown\)\. The command was NOT run;/);
-  assert.match(t1.told, /What was flagged: Dangerous rm operation detected: '~'/);
-  assert.doesNotMatch(t1.told, /already gone unanswered/);
-  assert.equal(C.checkerState(key).rmUnanswered, 1);
-  // Two more unanswered: 3 in a row. The next is not shown at all.
-  await rmJob(key, null); await rmJob(key, null);
-  assert.equal(C.checkerState(key).rmUnanswered, 3);
-  const t4 = await rmJob(key, null);
-  assert.equal(t4.cards.length, 0);
-  assert.deepEqual(t4.ran, []);
-  assert.equal(t4.told, A.rmDenied(t4.told.slice(t4.told.indexOf("What was flagged: ") + 18), 3));
-  assert.match(t4.told, /no person did \(the permission prompt timed out, or none was shown\)\. The prompt for such removals has already gone unanswered 3 times in this session, so it was not shown again\. The command was NOT run;/);
-  // An answer, No or Yes, starts the count again; Yes runs it.
-  const k2 = "chat-rm-" + Math.random().toString(36).slice(2);
-  await rmJob(k2, null); await rmJob(k2, null);
-  const no = await rmJob(k2, "no");
-  assert.equal(no.cards.length, 1);
-  assert.deepEqual(no.ran, []);
-  assert.equal(C.checkerState(k2).rmUnanswered, 0);
-  const yes = await rmJob(k2, "yes");
-  assert.deepEqual(yes.ran, ["rm -rf ~"]);
-  assert.equal(C.checkerState(k2).rmUnanswered, 0);
-  // Where no one can answer (a job from GitHub): refused at once, no card, no count in the words.
-  const g = await rmJob("chat-rm-gh-" + Math.random(), null, { github: true });
+  // Auto: no card, nothing run; Grok gets Claude Code's words. Again and again, the same (no count of unanswered cards).
+  for (let k = 0; k < 4; k++) {
+    const t = await rmJob(null);
+    assert.equal(t.cards.length, 0);
+    assert.deepEqual(t.ran, []);
+    assert.ok(t.told.startsWith("Permission for this command was denied by a built-in Coder safety check, not by the owner. "));
+    assert.match(t.told, /no person did \(the permission prompt timed out, or none was shown\)\. The command was NOT run;/);
+    assert.match(t.told, /What was flagged: Dangerous rm operation detected: '~'/);
+    assert.doesNotMatch(t.told, /already gone unanswered/);
+  }
+  // (Plan where the checker reviews commands is handled as Auto: pass8.test.mjs.)
+  // The owner's own Ask rule: asked, with no time limit (Claude Code: "Claude Code asks you instead, even in auto mode and
+  // without a time limit"); Yes runs it.
+  const own = await rmJob("yes", { ask: ["Bash(rm *)"] });
+  assert.equal(own.cards.length, 1);
+  assert.equal(own.cards[0].blockAt, undefined);
+  assert.equal(own.asks[0].until, undefined);
+  assert.deepEqual(own.ran, ["rm -rf ~"]);
+  // Where no one can answer (a job from GitHub): refused, no card.
+  const g = await rmJob(null, { github: true });
   assert.equal(g.cards.length, 0);
-  assert.match(g.told, /no person did \(the permission prompt timed out, or none was shown\)\. The command was NOT run;/);
-  // The environment's CODER_DISABLE_DANGEROUS_RM_TIMEOUT turns the card off (Claude Code's
-  // CLAUDE_CODE_DISABLE_DANGEROUS_RM_TIMEOUT); with no checker to decide, refused.
-  const off = await rmJob("chat-rm-off-" + Math.random(), null, { rmChecksOff: { timeout: true } });
+  assert.match(g.told, /The command was NOT run;/);
+  // The environment's CODER_DISABLE_DANGEROUS_RM_TIMEOUT with no checker to decide: refused.
+  const off = await rmJob(null, { rmChecksOff: { timeout: true } });
   assert.equal(off.cards.length, 0);
   assert.match(off.told, /Dangerous rm operation detected/);
-  // Accept edits asks as before, with no time limit; and Plan where the checker reviews commands, as Auto.
-  const ae = await rmJob("chat-rm-ae-" + Math.random(), "no", { mode: "acceptEdits" });
+  // Accept edits asks as before, with no time limit.
+  const ae = await rmJob("no", { mode: "acceptEdits" });
   assert.equal(ae.cards.length, 1);
   assert.equal(ae.cards[0].blockAt, undefined);
   assert.match(ae.cards[0].why, new RegExp("^" + WHY.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
-  // The page: Claude Code's line, counting down, under the card's reason; "Blocked" once no one answered in time.
+  // The page: no countdown any more; an old chat's card that ran out still reads "Blocked".
   const { readFileSync } = await import("node:fs");
   const page = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
-  assert.match(page, /'⚠ Coder will automatically block this request in ' \+ m \+ ':' \+ String\(sec\)\.padStart\(2, '0'\) \+ ', to avoid holding up an unattended session'/);
+  assert.doesNotMatch(page, /automatically block this request/);
+  assert.doesNotMatch(page, /data-block-at/);
   assert.match(page, /if \(c === 'none' && Number\(e\.blockAt\) > 0\) return '<span class="cd-perm-no">✕ Blocked<\/span> · no answer within 2 minutes';/);
-  assert.match(readFileSync(new URL("../public/coder.css", import.meta.url), "utf8"), /\.cd-perm-timer \{/);
-  const blockLeft = new Function("return " + page.slice(page.indexOf("function blockLeft(at)"), page.indexOf("\n  }\n", page.indexOf("function blockLeft(at)")) + 4))();
-  assert.equal(blockLeft(Date.now() + 119_400), "⚠ Coder will automatically block this request in 1:59, to avoid holding up an unattended session");
-  assert.equal(blockLeft(Date.now() - 5), "⚠ Coder will automatically block this request in 0:00, to avoid holding up an unattended session");
+  assert.doesNotMatch(readFileSync(new URL("../public/coder.css", import.meta.url), "utf8"), /\.cd-perm-timer \{/);
+  assert.equal(A.RM_PROMPT_MS, undefined);
 });
 
 // ── FIX 6: CLAUDE CODE'S CLAUDE_CODE_STRICT_INLINE_SHELL_RM_PROMPT ────────────────────────────────────────────────────

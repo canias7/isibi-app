@@ -373,7 +373,7 @@ export const limitWhy = (lim, latest, what = "command") => "Auto mode needs your
 const STATES = new Map();
 /** Where a chat's counts are kept (`{ load, save }`, from Coder's machine): Claude Code's total "persists for the session", and the session outlives the machine's sleep. */
 const KEEP = new WeakMap();
-const keepState = (st) => { const k = KEEP.get(st); if (k && typeof k.save === "function") { try { k.save({ row: st.row, total: st.total, byRow: st.byRow, rmUnanswered: st.rmUnanswered || 0 }); } catch { /* counted in memory still */ } } };
+const keepState = (st) => { const k = KEEP.get(st); if (k && typeof k.save === "function") { try { k.save({ row: st.row, total: st.total, byRow: st.byRow }); } catch { /* counted in memory still */ } } };
 export function checkerState(key, keep = null) {
   const k = String(key || "");
   if (!STATES.has(k)) {
@@ -382,7 +382,7 @@ export function checkerState(key, keep = null) {
     const n = (x, most) => (Number.isInteger(x) && x >= 0 && x < most ? x : 0);
     // (A row past the limit is kept, as Claude Code counts on after its fallback; a pause kept by an older Coder is dropped:
     // round 6, there is none.)
-    STATES.set(k, was && typeof was === "object" ? { row: n(was.row, 1000), total: n(was.total, AUTO_LIMITS.total), byRow: was.byRow === true, rmUnanswered: n(was.rmUnanswered, 101) } : { row: 0, total: 0, byRow: false, rmUnanswered: 0 });
+    STATES.set(k, was && typeof was === "object" ? { row: n(was.row, 1000), total: n(was.total, AUTO_LIMITS.total), byRow: was.byRow === true } : { row: 0, total: 0, byRow: false });
   }
   const st = STATES.get(k);
   if (keep && !KEEP.has(st)) KEEP.set(st, keep);
@@ -406,13 +406,6 @@ export function countBlock(st) {
   return lim;
 }
 export function countAllowed(st) { if (st.row !== 0) { st.row = 0; keepState(st); } }
-/**
- * AUTO'S QUESTIONS FOR A DANGEROUS REMOVAL THAT NO ONE ANSWERED, in a row (Claude Code 2.1.323: its count goes up when the
- * 2-minute question times out, and back to 0 when it is answered, Yes or No; at 3, the question is not shown again). Kept
- * with the chat's other counts.
- */
-export function rmUnanswered(st) { st.rmUnanswered = (st.rmUnanswered || 0) + 1; keepState(st); return st.rmUnanswered; }
-export function rmAnswered(st) { if (st.rmUnanswered) { st.rmUnanswered = 0; keepState(st); } }
 /** The owner's Yes on the card at the limit: the row starts again (Claude Code: "Approving the prompted action resumes auto mode"). */
 export function resume(st) { st.row = 0; keepState(st); }
 

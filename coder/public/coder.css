@@ -285,6 +285,21 @@
 .cd-localnote { color: #6b7280; font-size: 13px; background: #f3f1ed; border-radius: 10px; padding: 8px 12px; white-space: pre-wrap; }
 /* A hook that ended the turn (Claude Code: "the reason appears in the chat as a warning line"), and a hook's statusMessage. */
 .cd-localnote.cd-note-warn { color: #92400e; background: #fef3c7; }
+/* /context, Claude Code's "Context Usage" grid and list (batch 7 of "Go Claude Code way", MISS-62). */
+.cd-ctx { color: #374151; font-size: 13px; background: #f3f1ed; border-radius: 10px; padding: 10px 12px; }
+.cd-ctx-h { margin: 0 0 6px; font-weight: 600; }
+.cd-ctx-top { display: flex; gap: 14px; align-items: flex-start; flex-wrap: wrap; }
+.cd-ctx-grid { display: grid; grid-template-columns: repeat(10, 11px); gap: 3px; flex: none; }
+.cd-ctx-grid i, .cd-ctx-parts i { display: inline-block; width: 11px; height: 11px; border-radius: 2px; }
+.cd-ctx-parts i { margin-right: 6px; vertical-align: -1px; }
+.cd-ctx-sum { margin: 0 0 4px; }
+.cd-ctx-parts, .cd-ctx-items { list-style: none; margin: 0; padding: 0; line-height: 1.6; }
+.cd-ctx-parts span { color: #6b7280; }
+.cd-ctx-items { margin-bottom: 6px; color: #4b5563; }
+.cd-ctx-sys { background: #9ca3af; } .cd-ctx-tools { background: #6b7280; } .cd-ctx-mcp { background: #0891b2; } .cd-ctx-mem { background: #d97706; } .cd-ctx-skills { background: #ca8a04; } .cd-ctx-msgs { background: #7c3aed; }
+.cd-ctx-free { background: transparent; box-shadow: inset 0 0 0 1px #c9c4bb; }
+.cd-ctx-buf { background: repeating-linear-gradient(45deg, #c9c4bb 0 2px, transparent 2px 4px); }
+.cd-ctx-warn { margin: 6px 0 0; color: #92400e; }
 .cd-localnote.cd-note-status { background: transparent; padding: 2px 12px; font-style: italic; }
 .cd-localnote.cd-note-status::before { content: "⋯ "; font-style: normal; }
 /* A monitor's event (Claude Code's Monitor, 2026-11-10): its watch's name, then the lines it printed. */
@@ -302,6 +317,23 @@
 .cd-sure-row button{font:inherit;font-size:14px;border-radius:10px;padding:8px 14px;cursor:pointer;border:1px solid #e5e3dd;background:#fff;color:#1f1e1d}
 .cd-sure-row .cd-sure-yes{background:#b3261e;border-color:#b3261e;color:#fff}
 .cd-sure-row button:hover{filter:brightness(.96)}
+/* Sharing a chat (batch 7 of "Go Claude Code way", MISS-54): the Share window and the read-only view of a shared chat. */
+.cd-share-opts { display: grid; gap: 8px; margin: 10px 0 8px; }
+.cd-share-opt { display: grid; text-align: left; gap: 2px; font: inherit; font-size: 14px; border: 1px solid #e5e3dd; border-radius: 10px; padding: 9px 12px; background: #fff; color: #1f1e1d; cursor: pointer; }
+.cd-share-opt span { color: #6b6a68; font-size: 13px; }
+.cd-share-opt.on { border-color: #1f1e1d; box-shadow: inset 0 0 0 1px #1f1e1d; }
+.cd-share-warn { font-size: 13px; }
+.cd-share-link { display: flex; gap: 8px; margin-top: 10px; }
+.cd-share-link input { flex: 1; min-width: 0; font: inherit; font-size: 13px; border: 1px solid #d9d6cf; border-radius: 10px; padding: 8px 10px; color: #1f1e1d; background: #f8f7f4; }
+.cd-share-link button { font: inherit; font-size: 13px; border: 1px solid #e5e3dd; border-radius: 10px; padding: 8px 12px; background: #fff; cursor: pointer; }
+.cd-share-note { font-size: 12.5px; color: #6b6a68; margin: 6px 0 0; }
+.cd-shared { max-width: 760px; margin: 0 auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+.cd-shared-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; padding-bottom: 10px; border-bottom: 1px solid #ebe8e2; }
+.cd-shared-head b { font-size: 16px; }
+.cd-shared-head span { color: #6b6a68; font-size: 13px; display: inline-flex; align-items: center; gap: 4px; }
+.cd-shared-head a { margin-left: auto; }
+.cd-shared-log { display: flex; flex-direction: column; gap: 10px; }
+.cd-shared-step { color: #6b7280; font-size: 13px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; }
 
 /* Coder's checklist (the todo tool), only the latest one is shown. */
 .cd-todo{border:1px solid #e5e3dd;border-radius:12px;padding:10px 14px;margin:8px 0;background:#fff;font-size:14px}
@@ -895,7 +927,6 @@
 .cd-perm-note:focus { outline: none; border-color: #1f1e1d; }
 .cd-perm-done { font-size: 13px; color: #57534e; margin-top: 4px; overflow-wrap: anywhere; }
 /* Auto's 2-minute question for a dangerous removal: its countdown, in the rules list's warning colours. */
-.cd-perm-timer { font-size: 12.5px; line-height: 1.45; color: #7a4800; background: #fff6e5; border: 1px solid #f1d9a8; border-radius: 8px; padding: 6px 10px; margin: 0 0 8px; font-variant-numeric: tabular-nums; }
 .cd-perm-ok { color: #1d6b3a; font-weight: 600; }
 .cd-perm-no { color: #b3261e; font-weight: 600; }
 .cd-plan .cd-perm-ic { background: #2f5d8a; }
@@ -1445,3 +1476,4 @@ button.cd-vault-tab:hover:not(.is-on){background:#f6f6f6}
 #gfApp .cd-queued-now { border: 0; background: transparent; color: #6b7280; font: 12px Inter, system-ui, sans-serif; line-height: 1; padding: 2px 6px; border-radius: 6px; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
 #gfApp .cd-queued-now:hover { background: #ece8e1; color: #0d1b2a; }
 #gfApp .cd-queued-now:disabled { opacity: .5; cursor: default; }
+

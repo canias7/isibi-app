@@ -123,8 +123,8 @@ test("GM4 one page, two views (Coder's and Gloopy's): the mode and connectors ch
   assert.match(ui, /if \(r\.data\.compacted \|\| r\.data\.handled\) \{ S\.project = r\.data\.project;/);
   // A message sent while Coder works waits in its queue; Gloopy's chat sends once Gloopy is done.
   assert.match(ui, /if \(S\.running(?: \|\| parkedWait)?\) \{\n\s+if \(GLOOPY\) return;[^\n]*\n\s+if \(pics\.length \|\| comments\.length \|\| att\.length \|\| !text\)/);
-  // Auto mode's countdown runs once, in Coder's view (each view runs the page's code once).
-  assert.match(ui, /\n  if \(!GLOOPY\) setInterval\(\(\) => \{ document\.querySelectorAll\('\[data-block-at\]'\)/);
+  // (Auto mode's 2-minute countdown is gone since batch 7 of "Go Claude Code way": Auto refuses a dangerous removal at once.)
+  assert.doesNotMatch(ui, /data-block-at/);
   // No @-file list in Gloopy's chat.
   assert.match(ui, /const m = GLOOPY \? null : \/\(\^\|\\s\)@\(\[\\w\.\/-\]\*\)\$\/\.exec\(before\);/);
 });

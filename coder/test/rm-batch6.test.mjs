@@ -26,7 +26,8 @@ test("M-r2-31: the card's reason for a mounted drive or the folder holding drive
   const events = [];
   let n = 0;
   const steps = [say("x", [{ id: "b1", type: "function", function: { name: "bash", arguments: JSON.stringify({ command: "rm -rf /mnt/data" }) } }]), say("ok")];
-  await A.runCoder({ send: async () => steps[Math.min(n++, 1)], exec: async () => ({ code: 0, output: "" }), emit: (e) => events.push(e), ask: async () => ({ choice: "no" }), here: () => "/work/proj", root: "/work/proj", chatId: "rm-b6" }, { text: "go", messages: [], mode: "default" });
+  await A.runCoder({ send: async () => steps[Math.min(n++, 1)], exec: async () => ({ code: 0, output: "" }), emit: (e) => events.push(e), ask: async () => ({ choice: "no" }), here: () => "/work/proj", root: "/work/proj", chatId: "rm-b6" }, { text: "go", messages: [], mode: "acceptEdits" });
+  // (In Accept edits: Auto refuses such a removal at once since batch 7 of "Go Claude Code way", with no card.)
   const card = events.find((e) => e.type === "permission");
   assert.ok(card, "a card was shown");
   assert.equal(card.why, "Dangerous rm operation on mounted drive path: /mnt/data");

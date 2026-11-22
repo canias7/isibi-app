@@ -607,12 +607,14 @@ test("CD396 a command's own hosts in Auto mode (Claude Code's allowed_domains): 
   // The machine: the gate's pass for the command, closed when it ends (a background one with its job); Coder told in Auto.
   const { readFileSync } = await import("node:fs");
   const server = readFileSync(new URL("../container/server.mjs", import.meta.url), "utf8");
-  assert.match(server, /hostLists: nn\.mode === "full" \? null : nn\.mode === "none" \? "none" : walled \? "on" : "off", /);
+  // (Since batch 7 of "Go Claude Code way", 2026-11-22: the machine no longer turns the per-command lists on, as Claude Code's
+  // cloud has none: cc-way-batch7.test.mjs. The opening itself is kept, switched off.)
+  assert.match(server, /hostLists: hostListsFor\(nn\.mode\), /);
   assert.match(server, /const pass = !tool && Array\.isArray\(hosts\) && hosts\.length && px \? randomBytes\(16\)\.toString\("hex"\) : "";\n\s+if \(pass\) px\.openFor\(pass, hosts\);/);
   assert.match(server, /\.\.\.\(pass \? px\.env\(pass\) : \{\}\), \[TASK_MARK\]: mark/);
   assert.match(server, /if \(pass && !\(r && r\.background && r\.pid\)\) px\.closeFor\(pass\);/);
   assert.match(server, /if \(typeof j\.closePass === "function"\) \{ try \{ j\.closePass\(\); \}/);
-  assert.match(server, /In Auto mode, a command can name the hosts it needs beyond this list in its allowed_domains/);
+  assert.doesNotMatch(server, /In Auto mode, a command can name the hosts it needs beyond this list in its allowed_domains/);
 });
 
 test("CD397 the PowerShell tool (Claude Code's, opt-in on Linux: CODER_USE_POWERSHELL_TOOL): its description, its rules (the shape of Bash's, aliases canonicalized, every part must be allowed), read-only cmdlets, its Start-Sleep check, how it runs (pwsh, no profile, non-interactive, execution policy bypassed unless CODER_POWERSHELL_RESPECT_EXECUTION_POLICY, its folder kept), the owner's ! commands in it (CODER_DEFAULT_SHELL), and hooks with shell: powershell", async () => {

@@ -1257,7 +1257,12 @@ them"). Tests: `test/pass6.test.mjs` (CD387 to CD398).
   the command gets its own pass to the gate (`openFor`, `passOf`, in its proxy
   address), which opens them for it alone while it runs; an unlisted host is
   refused in Claude Code's words (`UNLISTED`). Refused with network None or
-  without the gate; ignored in other modes and from GitHub.
+  without the gate; ignored in other modes and from GitHub. **Switched off since
+  batch 7 of "Go Claude Code way" (2026-11-22):** Claude Code's cloud has no list
+  a command can widen (only its sandbox on a person's own computer does), so on
+  Limited the machine passes `hostLists: "fixed"` (`hostListsFor`): the input is
+  not offered and Auto refuses one (`HOSTS_FIXED`); another host is an
+  environment change the owner approves. The opening code stays, unused.
 - *PowerShell* (`coder-ps.mjs`; Claude Code's PowerShell tool, opt-in on Linux):
   `CODER_USE_POWERSHELL_TOOL` offers it where the machine has pwsh (the full
   image installs PowerShell 7 from Microsoft's own package list), with Claude
@@ -2123,16 +2128,14 @@ where it says so, tried in its command-line version with Haiku.
    (`psProtectedAsk`). Claude Code's own other words for its settings files:
    "… requested permissions to write to …/.claude/settings.json, but you haven't
    granted it yet."
-5. *Auto's 2-minute question for a dangerous delete* (Claude Code 2.1.281): in
-   Auto, and in Plan where the checker reviews commands, a card with only Yes and
-   No and Claude Code's line, "Coder will automatically block this request in
-   1:59, to avoid holding up an unattended session", counted down each second;
-   unanswered, the delete is blocked and Coder goes on, told Claude Code's words
-   ("… and no person did (the permission prompt timed out, or none was shown)").
-   After 3 in a row went unanswered none is shown ("… already gone unanswered 3
-   times in this session, so it was not shown again"); an answer starts the count
-   again. The count is kept with the chat's other Auto counts.
-   `CODER_DISABLE_DANGEROUS_RM_TIMEOUT` keeps the old way (the checker decides).
+5. *A dangerous delete in Auto* (batch 7 of "Go Claude Code way", 2026-11-22,
+   replacing the 2-minute card of 2026-11-13): refused at once, in Auto and in
+   Plan where the checker reviews commands, as Claude Code does away from a
+   terminal ("auto | Asks you to approve it in the terminal, with a time limit.
+   Elsewhere, denies it"). Coder is told Claude Code's words ("… and no person
+   did (the permission prompt timed out, or none was shown)"). The owner's own
+   Ask rule still asks, with no time limit, and
+   `CODER_DISABLE_DANGEROUS_RM_TIMEOUT` lets the checker decide.
 6. *`CLAUDE_CODE_STRICT_INLINE_SHELL_RM_PROMPT`*: Claude Code ran 11 harmless
    commands whose `-c` script or eval text it can't read the same way with and
    without it; Coder's check lets all 11 through too (CD558). Nothing to copy.
@@ -2450,7 +2453,17 @@ leads nowhere (`heldText`). At the start they come to at most 100,000 characters
 (`NOTES_MAX`; Claude Code loads each CLAUDE.md whole), and one that loads later
 to 40,000 (`NOTE_ONE_MAX`, Claude Code's limit for such a file); past either, the
 file is named with a note to read the rest with the read tool, never cut without
-a word.
+a word. A file or rules folder that is a link is followed when it really leads
+inside the project (batch 7, M-f-30; Claude Code: "The `.claude/rules/` directory
+supports symlinks", a CLAUDE.md may link to AGENTS.md): the target opened without
+following a link at its end and checked again through `/proc/self/fd`
+(`linkedOpen`, `linkedText`, `linkedEntries`), still only a plain file with one
+name, its real path under the same claudeMdExcludes and Read deny rules, a file read
+once under either name, a folder reached again (a loop) passed by. A link that leads
+out of the project is Claude Code's outside import, which needs an approval Coder
+doesn't have: not loaded, and the chat says so (`linkedOutNote`). The repository's
+other files Coder's machine reads itself (its settings, its security rules) are
+still never read through a link.
 
 **A security check on each edit** (owner, 2026-11-07, item 12; like Claude
 Code's security-guidance check on each file edit, with no model call:
@@ -2577,6 +2590,28 @@ while Coder works it waits as a command; with pictures, files or line comments i
 refused. The next job (`sessionClear`, then `cleared` to the machine) runs the
 SessionEnd hooks with reason `clear` and the SessionStart ones with source `clear`
 (Claude Code runs them at the /clear itself; Coder's machine may be asleep then).
+
+`/context` (also `/context all`; batch 7, MISS-62) shows what fills the
+conversation, as Claude Code's does ("Visualize current context usage as a colored
+grid"): at the end of each job the machine counts it by Claude Code's parts, System
+prompt, System tools, MCP tools, Memory files, Skills, Messages, Free space and
+Autocompact buffer (`contextUsage` in `coder-compact.mjs`, estimated as the
+auto-compact estimates, the whole from the last answer's real count), with the
+instruction files and memory by name and the connectors' tools; the Worker keeps it on
+the chat (`contextKept`, `meta.context`), `/clear` empties it, and the page draws a
+grid of 100 squares and the list (`contextHTML`). No AI call; it reads as of Coder's
+last answer.
+
+A chat can be shared by its link (batch 7, MISS-54), as Claude Code's sessions on a
+personal plan: the title's ▾ menu has Share, with Private (the start) or Public and
+Claude Code's warning ("Check your chat before sharing ..."). Public means anyone
+signed in to Coder (the accounts in `CODER_USERS`): the Worker keeps a small record by
+the chat's id (`coder-shared/<id>.json`, `{ uid, id }`), and `GET
+/api/coder/shared/<id>` gives the chat's shown steps as they are then, with the
+owner's GitHub name and anything key-like hidden again (`sharedChat`). The page opens
+`/?share=<id>` read only (`sharedHTML`): messages, answers and one line per step, no
+message box and no cards. Private again, or deleting the chat, takes the record away.
+Gloopy's chats can't be shared.
 
 `/compact [what to keep]` makes the whole conversation one summary, as a job on
 the chat's machine that Coder does not answer, so its PreCompact, PostCompact and

@@ -498,3 +498,35 @@ export const TOO_SHORT_TO_COMPACT = "Not enough messages to compact.";
 export function tooShortToCompact(msgs) {
   return !Array.isArray(msgs) || msgs.filter((m) => m && m.role === "user").length <= 1;
 }
+
+/**
+ * WHAT FILLS THE CONVERSATION, FOR /context (batch 7 of "Go Claude Code way", 2026-11-22, item MISS-62; Claude Code's
+ * /context: "Visualize current context usage as a colored grid", in cloud sessions "Shows what's currently in the context
+ * window", with "which CLAUDE.md and auto memory files loaded"). Claude Code's parts, by its names: System prompt, System
+ * tools, MCP tools, Memory files, Skills, Messages, Free space and Autocompact buffer; each part estimated as Coder estimates
+ * for its auto-compact (CHARS_PER_TOKEN), and the whole from the last answer's real count (conversationTokens), Messages being
+ * the rest. No AI call. `system` the system message's text, `tools` Coder's own tool definitions, `connectors` the
+ * connectors' ({ name, tokens } each counted here), `memory` the instruction files and memory as loaded ({ name, text }),
+ * `messages` the conversation, `limits` compactLimits' answer, `window` the window shown. → plain data for the page.
+ */
+export function contextUsage({ system = "", tools = [], connectors = [], memory = [], messages = [], limits = null, window = 0, model = "" } = {}) {
+  const est = (s) => Math.ceil(String(s || "").length / CHARS_PER_TOKEN);
+  const list = Array.isArray(messages) ? messages : [];
+  const sys = est(system);
+  const own = est(JSON.stringify(Array.isArray(tools) ? tools : []));
+  const mcp = (Array.isArray(connectors) ? connectors : []).map((t) => ({ name: String(t.name).slice(0, 120), tokens: est(JSON.stringify(t)) }));
+  const mcpAll = mcp.reduce((n, t) => n + t.tokens, 0);
+  const mem = (Array.isArray(memory) ? memory : []).filter((m) => m && m.text).map((m) => ({ name: String(m.name).slice(0, 200), tokens: est(m.text) }));
+  const memAll = mem.reduce((n, m) => n + m.tokens, 0);
+  const skills = list.filter((m) => m && typeof m.skillsList === "string").reduce((n, m) => n + messageTokens(m), 0);
+  // (Messages: the conversation's own estimate less what loaded in it as memory and skills; or, when the last answer's real
+  // count says more, what that leaves.)
+  const conv = list.reduce((n, m) => n + messageTokens(m), 0);
+  const real = conversationTokens(list, { overhead: sys + own + mcpAll });
+  const msgs = Math.max(0, conv - memAll - skills, real - sys - own - mcpAll - memAll - skills);
+  const total = sys + own + mcpAll + memAll + skills + msgs;
+  const win = Math.max(1, Math.round(Number(window) || 0));
+  const buffer = limits && limits.enabled ? Math.max(0, win - limits.threshold) : 0;
+  const free = Math.max(0, win - buffer - total);
+  return { model: String(model || ""), window: win, used: total, parts: [["System prompt", sys], ["System tools", own], ["MCP tools", mcpAll], ["Memory files", memAll], ["Skills", skills], ["Messages", msgs]].map(([name, tokens]) => ({ name, tokens })), free, buffer, memory: mem.slice(0, 50), connectors: mcp.sort((a, b) => b.tokens - a.tokens).slice(0, 50), ...(limits ? { level: compactLevel(total, limits), warning: contextWarning(total, limits) } : {}) };
+}

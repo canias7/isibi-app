@@ -253,7 +253,7 @@
             </ul>
           </li>
           <li>A question is a card under the step: <b>Yes</b>, <b>Yes, and don't ask again</b> for commands like it, <b>Yes, and switch to auto mode</b>, or <b>No</b> (you can add a note).</li>
-          <li>In every mode, Coder asks before a command writes to a protected file (such as one in <code>.git</code> or <code>.husky</code>), and before a very long command. A dangerous delete asks too. In Auto, its card waits 2 minutes, and then the delete is blocked.</li>
+          <li>In every mode, Coder asks before a command writes to a protected file (such as one in <code>.git</code> or <code>.husky</code>), and before a very long command. A dangerous delete asks too. In Auto, it is refused at once, as Claude Code does outside a terminal.</li>
         </ul>
 
         <h3 id="bash-rules">Permission rules</h3>

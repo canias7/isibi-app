@@ -171,7 +171,7 @@ test("CD373 (round 6: Claude Code 2.1.325's own fallback) at 3 blocks in a row, 
   assert.deepEqual(j.ran, ["git push origin +main"], "the Yes runs it; the fourth, blocked, does not run");
   assert.match(j.told("b1"), /^Permission for this action was denied by the Coder auto mode classifier\. Reason: \[Git Destructive\] force push\./);
   assert.match(j.told("b4"), /^Permission for this action was denied by the Coder auto mode classifier\./);
-  assert.deepEqual(C.checkerState(key), { row: 1, total: 4, byRow: true, rmUnanswered: 0 }, "the Yes started the row again; the fourth's block counts");
+  assert.deepEqual(C.checkerState(key), { row: 1, total: 4, byRow: true }, "the Yes started the row again; the fourth's block counts");
   // The counts: the block that reaches 3 in a row gives the limit; the row goes on past it (Claude Code's "4 consecutive …");
   // an allowed action, or the owner's Yes, starts it again; the total goes on.
   const st = C.checkerState("chat-count");
@@ -199,7 +199,7 @@ test("CD373 (round 6: Claude Code 2.1.325's own fallback) at 3 blocks in a row, 
   assert.equal(g.cards.length, 0);
   // A pause kept by an older Coder is dropped: the next action goes to the checker.
   const old = C.checkerState("chat-old", { load: () => ({ row: 0, total: 5, paused: true, byRow: true }), save: () => {} });
-  assert.deepEqual(old, { row: 0, total: 5, byRow: true, rmUnanswered: 0 });
+  assert.deepEqual(old, { row: 0, total: 5, byRow: true });
 });
 
 test("CD374 Plan: a command Plan would ask about is judged instead (Claude Code: \"Approved commands run, and rejected ones are blocked\"); CODER_USE_AUTO_MODE_DURING_PLAN off asks as before", async () => {

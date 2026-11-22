@@ -4,6 +4,30 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-22: Claude Code way, batch 7
+
+I checked this batch's 12 items against Claude Code's docs (read again today), its changelog (up to version 2.1.330) and Coder's code. Five are built, two were already the same, and five need your answer.
+
+**Built, the way Claude Code does it:**
+- **A dangerous delete in Auto is refused at once.** On 13 November we copied the 2-minute question card from Claude Code in a terminal. Its docs say that away from a terminal (its apps, its web page, its cloud runs) Auto refuses such a delete straight away, and Coder is a web page, so Coder does that again now. Your own "always ask" rule for a command still asks you, with no time limit, and `CODER_DISABLE_DANGEROUS_RM_TIMEOUT` still lets the checker decide. Old chats keep their "Blocked · no answer within 2 minutes" lines.
+- **Limited network is a fixed list.** In Claude Code's cloud, Limited means the default list plus the sites you add, nothing else. Coder no longer lets a command in Auto open an extra site for itself (that only exists in Claude Code on a person's own computer). If Coder needs another site, it asks you with the environment card, as Claude Code's cloud does. The old code is kept, switched off, in case you want it back.
+- **Rule files that are shortcuts (links) now load,** as in Claude Code: a rules folder or rule file that links to another place inside the project, and a CLAUDE.md that links to AGENTS.md. A link that leads outside the project is not loaded, and the chat says so (Claude Code loads those only after an approval Coder doesn't have). Each file is checked where it really is, so your "never read" rules still hold, and a link that loops is passed by.
+- **/context**, as in Claude Code: type it and the chat shows what fills the conversation, as a grid of 100 squares and Claude Code's list (System prompt, System tools, MCP tools, Memory files, Skills, Messages, Free space, Autocompact buffer), with the instruction files and memory by name. No AI call. It is counted at the end of each answer, so it shows "as of Coder's last answer"; /clear empties it. (A screenshot is in the chat.)
+- **Share a chat by its link**, as Claude Code's sessions on a personal plan: the chat's ▾ menu has Share, with Private (the start) or Public, and Claude Code's warning ("Check your chat before sharing. Chats may contain code and credentials from private GitHub repositories."). Public means anyone signed in to Coder can open the link. They see the chat as it is when they open it, read only, with your GitHub name; they can't type in it or answer anything. Set it back to Private, or delete the chat, and the link stops working. Gloopy's chats can't be shared. (Screenshots are in the chat.)
+
+**Already the same:**
+- An unknown /word is already answered "Unknown command: /word" without going to Grok (done on 21 November), which is what Claude Code's docs say.
+- A rule on one exact web search (`WebSearch(query:...)`) works the way Claude Code's own program does. Its docs say such rules take nothing in brackets, but its own rule checker suggests `WebSearch(claude ai)`, so I left Coder as it is.
+
+**Waiting for your answer:**
+- Coder refuses to fetch web pages at private network addresses (you kept this on 14 November, so a web page can't steer Coder at machines inside our Fly.io network). Claude Code only refuses "localhost"-style names. Keep Coder's stricter rule?
+- Claude Code can repeat a request inside a chat on a timer (`/loop`, for example "check the deploy every 5 minutes"). Every repeat would be a paid Grok job. Do you want it, and with what limit?
+- Claude Code can run a saved task by itself (on a timetable, from a web link, or when something happens on GitHub), each run a new chat. Every run would be paid Grok time with nobody pressing send. Do you want it, and how many runs a day?
+- Claude Code loads "helper" definitions from a repository's `.claude/agents` folder, but Coder's chats don't have helpers yet, and every helper means extra Grok calls. Shall I add helpers first (then load these files), or leave both out?
+- Claude Code's docs only show the terminal's plan buttons, and Coder's card already uses them. Can you send a screenshot of Claude Code's web plan card (Reject / Revise… / Accept / Accept and use auto mode, and the plan in a side panel with comments) so I can copy it exactly? The side panel would also bring back a right-hand panel, which you removed on 16 November.
+
+- Tests: `coder/test/cc-way-batch7.test.mjs` (the page parts in a real browser); older tests that checked the 2-minute card and the per-command sites now check the new way. Full test suite: 1693 of 1693 pass. (One Gloopy browser test, GL122, sometimes fails on its own, with or without these changes; it passed in this run.) Not tried live on gofarther.dev yet; not deployed.
+
 ## 2026-11-22: Claude Code way, batch 6
 
 I checked this batch's 12 items against Claude Code's docs, its changelog and, for the search tools, Claude Code's own Grep and Glob tried on real folders. Six are built, two were already the same, and the rest need your answer.

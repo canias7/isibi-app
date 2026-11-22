@@ -140,6 +140,19 @@ export function usageSummary(list, turn) {
   const check = all.filter((u) => u.kind === "check");
   return { turn: Number(turn) || 0, ...part(all.filter((u) => u.kind !== "check")), ...(check.length ? { checker: part(check) } : {}) };
 }
+/**
+ * WHAT FILLS THE CONVERSATION, KEPT ON THE CHAT FOR /context (batch 7 of "Go Claude Code way", MISS-62): the machine's
+ * breakdown at the end of each job (container/coder-compact.mjs contextUsage), checked to plain numbers and short names, or
+ * null. No AI call: the page shows it when /context is typed.
+ */
+export function contextKept(c) {
+  if (!c || typeof c !== "object" || Array.isArray(c)) return null;
+  const n = (v) => (Number.isFinite(Number(v)) && Number(v) > 0 ? Math.min(Math.round(Number(v)), 100_000_000) : 0);
+  const named = (arr, max) => (Array.isArray(arr) ? arr : []).filter((x) => x && typeof x.name === "string").slice(0, max).map((x) => ({ name: scrub(x.name).slice(0, 200), tokens: n(x.tokens) }));
+  const window = n(c.window);
+  if (!window) return null;
+  return { model: typeof c.model === "string" ? c.model.slice(0, 60) : "", window, used: n(c.used), parts: named(c.parts, 10), free: n(c.free), buffer: n(c.buffer), memory: named(c.memory, 50), connectors: named(c.connectors, 50), level: ["ok", "warn", "compact", "blocked"].includes(c.level) ? c.level : "ok", warning: typeof c.warning === "string" ? c.warning.slice(0, 200) : "", at: Date.now() };
+}
 import { normMode, ruleProblem, ruleWarning, ruleSaved, MODES } from "../container/coder-perms.mjs";
 import { hooksSetting } from "../container/coder-hooks.mjs";
 import { autoModeSetting } from "../container/coder-checker.mjs";
@@ -613,6 +626,29 @@ export function coderAllowed(env, user) {
 
 const json = (obj, status = 200) => new Response(JSON.stringify(obj), { status, headers: { "content-type": "application/json", "cache-control": "no-store" } });
 const keyOf = (uid, ...rest) => ["coder", uid, ...rest].join("/");
+/**
+ * A SHARED CHAT (batch 7 of "Go Claude Code way", 2026-11-22, item MISS-54; Claude Code's web sessions: "To share a session,
+ * toggle its visibility ... After that, share the session link as-is. Recipients see the latest state when they open the
+ * link, but their view doesn't update in real time"; on a personal plan "Private and Public. Public visibility makes the
+ * session visible to any user logged into claude.ai", and "your account's display name is visible to all recipients"):
+ * Public here is anyone signed in to Coder (the accounts in CODER_USERS). A public chat has a small record by its id, whose
+ * chat it is; Private takes it away. Read only: no route but this one reads it, and none writes to it.
+ */
+const sharedKey = (id) => "coder-shared/" + id + ".json";
+export const SHARE_GONE = "This chat isn't shared: it is private, or it no longer exists.";
+async function sharedChat(bucket, id, viewer) {
+  if (!PROJECT_ID.test(String(id || ""))) return json({ error: SHARE_GONE }, 404);
+  const rec = await getJson(bucket, sharedKey(id), null);
+  if (!rec || typeof rec.uid !== "string" || rec.id !== id) return json({ error: SHARE_GONE }, 404);
+  const meta = await getJson(bucket, keyOf(rec.uid, id, "meta.json"), null);
+  if (!meta || meta.visibility !== "public" || isGloopy(meta)) return json({ error: SHARE_GONE }, 404);
+  const gh = await getJson(bucket, "coder/" + rec.uid + "/github.json", null);
+  const owner = gh && typeof gh.login === "string" && gh.login ? gh.login : "A Coder user";
+  // (What the chat shows, as it is now; a card still waiting is shown as one, never answerable here; anything that looks like a
+  // key is hidden again.)
+  const events = (await getJson(bucket, keyOf(rec.uid, id, "events.json"), [])).filter((e) => e && typeof e === "object").map((e) => JSON.parse(JSON.stringify(e, (k, v) => (typeof v === "string" ? scrub(v) : v))));
+  return json({ ok: true, shared: { id, title: String(meta.title || meta.name || "").slice(0, 200), repo: meta.repo || "", branch: meta.branch || "", base: meta.base || "", at: Number(meta.at) || 0, owner, mine: rec.uid === viewer }, events });
+}
 async function getJson(bucket, key, fallback) {
   const o = await bucket.get(key);
   if (!o) return fallback;
@@ -1624,6 +1660,7 @@ export async function handleCoder(request, env, ctx, deps) {
     return json({ ok: true, gloopy: g, events: await getJson(bucket, keyOf(uid, GLOOPY_ID, "events.json"), []), rules: await readRules(bucket, uid), sites: await readSites(bucket, uid), logins: loginList(await readLogins(env, bucket, uid)), cards: cardList(await readCards(env, bucket, uid)), contacts: contactList(await readContacts(env, bucket, uid)), webhooks: webhooksForTurn(env, await readWebhooks(bucket, uid)), files: filesForTurn(await readFiles(bucket, uid)), keys: secretList((await readEnvData(env, bucket, uid, GLOOPY_ENV)).secrets).map((x) => ({ id: x.id, name: x.name, host: x.host, hosts: x.hosts })), browser: flyOn(env), schedules: schedulesForTurn(await readSchedules(bucket, uid)), permissions: await readPermissions(bucket, uid), permissionList: PERMISSIONS, pages: await readPages(bucket, uid) });
   }
 
+  if (parts[0] === "shared" && parts[1] && parts.length === 2 && request.method === "GET") return sharedChat(bucket, parts[1], uid);
   if (parts[0] !== "projects") return json({ error: "not found" }, 404);
   if (parts.length === 1) {
     const index = await listChats(bucket, uid);
@@ -1985,7 +2022,8 @@ export async function handleCoder(request, env, ctx, deps) {
           await putJson(bucket, keyOf(uid, id, "messages.json"), []);
           const events = [...(await getJson(bucket, keyOf(uid, id, "events.json"), [])), { at: Date.now(), type: "note", text: CLEARED_NOTE, cleared: true }].slice(-MAX_EVENTS);
           await putJson(bucket, keyOf(uid, id, "events.json"), events);
-          const next = { ...fresh, marks: [], sessionClear: true, rewinding: null, at: Date.now() };
+          // (What filled the old conversation no longer does: /context waits for the next answer.)
+          const next = { ...fresh, marks: [], sessionClear: true, rewinding: null, context: null, at: Date.now() };
           await saveMeta(bucket, uid, next);
           return json({ ok: true, cleared: true, project: next, events, reload: true });
         } finally { await held.release().catch(() => {}); }
@@ -2683,7 +2721,7 @@ export async function handleCoder(request, env, ctx, deps) {
       const knownShas = new Set((Array.isArray(meta.commits) ? meta.commits : []).map((c) => c && c.sha));
       const firstNew = meta.restoredPrior && typeof meta.restoredPrior === "object" ? commits.find((c) => c && !knownShas.has(c.sha)) : null;
       if (firstNew) commits = commits.map((c) => (c === firstNew ? { ...c, prior: meta.restoredPrior } : c));
-      const ended = { ...meta, ...modeNow, ...hookTitle, ...planTitle, ...(sessionRules ? { sessionRules } : {}), background, saved: meta.turn, ...(cwd ? { cwd } : {}), attribution, pr, prs, pushed, commits, ...(firstNew ? { restoredPrior: undefined } : {}), unpushed, unpushedSince: unpushed ? unpushedSince : 0, refetch: false, ...(keptHere ? { kept: true } : {}), waiting: asked ? asked.type : null, ran: Math.max(0, Date.now() - Number(meta.at || Date.now())), usage: usageSummary(s.result.usage, meta.turn), summary: String(s.result.summary || "").slice(0, 4000) || meta.summary || "", status: s.result.status === "done" ? "idle" : s.result.status, at: Date.now(), jobReplyTo: null, ...afMeta };
+      const ended = { ...meta, ...modeNow, ...hookTitle, ...planTitle, ...(sessionRules ? { sessionRules } : {}), background, saved: meta.turn, ...(cwd ? { cwd } : {}), attribution, pr, prs, pushed, commits, ...(firstNew ? { restoredPrior: undefined } : {}), unpushed, unpushedSince: unpushed ? unpushedSince : 0, refetch: false, ...(keptHere ? { kept: true } : {}), waiting: asked ? asked.type : null, ran: Math.max(0, Date.now() - Number(meta.at || Date.now())), usage: usageSummary(s.result.usage, meta.turn), ...(contextKept(s.result.context) ? { context: contextKept(s.result.context) } : {}), summary: String(s.result.summary || "").slice(0, 4000) || meta.summary || "", status: s.result.status === "done" ? "idle" : s.result.status, at: Date.now(), jobReplyTo: null, ...afMeta };
       // A JOB PAUSED ON A CARD LEFT OPEN (coder-park.mjs; Claude Code: "Questions stay open until you answer them", and in its
       // cloud "you can still answer when you come back"): the chat is idle, waiting on that card (`parked`, `waiting` for the
       // notifications), its record kept beside the chat for the answer that takes the turn up again.
@@ -3124,6 +3162,20 @@ export async function handleCoder(request, env, ctx, deps) {
     await saveMeta(bucket, uid, next);
     return json({ ok: true, project: next });
   }
+  // SHARE, PRIVATE OR PUBLIC (MISS-54): the chat's visibility, and the record a link is read through.
+  if (action === "share" && request.method === "POST") {
+    let body = {}; try { body = await request.json(); } catch { body = {}; }
+    if (body.visibility !== "public" && body.visibility !== "private") return json({ error: "Visibility is Private or Public." }, 400);
+    const now = await getJson(bucket, metaKey, meta);
+    if (body.visibility === "public") {
+      const had = await getJson(bucket, sharedKey(id), null);
+      if (had && had.uid !== uid) return json({ error: "This chat can't be shared: its link is taken. Start a new chat to share it." }, 409);
+      await bucket.put(sharedKey(id), JSON.stringify({ uid, id }), { httpMetadata: { contentType: "application/json" } });
+    } else if (typeof bucket.delete === "function") await bucket.delete(sharedKey(id));
+    const next = { ...now, visibility: body.visibility };
+    await saveMeta(bucket, uid, next);
+    return json({ ok: true, visibility: body.visibility, project: next });
+  }
   // /autocompact (Claude Code's; applied to this chat from its next message on).
   if (action === "autocompact" && request.method === "POST") {
     let body = {}; try { body = await request.json(); } catch { body = {}; }
@@ -3455,6 +3507,8 @@ export async function handleCoder(request, env, ctx, deps) {
     // still sent `@coder` on its pull request to it, "Coder could not start: no such project", and would have kept another
     // chat from turning on auto-fix for that pull request, "belongs to another chat").
     await dropBranchRecords(bucket, uid, id, meta).catch(() => {});
+    // (A shared chat's link goes with it: MISS-54. Only its own record, never another's.)
+    if (meta.visibility === "public" && typeof bucket.delete === "function") { const sh = await getJson(bucket, sharedKey(id), null); if (sh && sh.uid === uid) await bucket.delete(sharedKey(id)).catch(() => {}); }
     // ITS MACHINE GOES TOO (Fly.io: the chat's own VM and its kept disk; worker.js).
     if (typeof deps.dropMachine === "function") await deps.dropMachine(uid + "-" + id).catch(() => {});
     return json({ ok: true });

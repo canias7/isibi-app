@@ -208,6 +208,9 @@
   // ── LOADING: who am I on GitHub, which projects ───────────────────────────
   async function load() {
     if (GLOOPY) return loadGloopy();
+    // A SHARED CHAT'S LINK (batch 7 of "Go Claude Code way", MISS-54; Claude Code: "Recipients see the latest state when they
+    // open the link, but their view doesn't update in real time"): /?share=<id> shows it, read only, to anyone signed in to Coder.
+    { const share = new URLSearchParams(location.search).get('share'); if (share) return openShared(share); }
     loadSettings().then(() => draw());
     S.phase = 'loading'; draw();
     const g = await call('/github');
@@ -333,6 +336,64 @@
     if (i >= 0) S.projects[i] = { ...S.projects[i], ...e, title: e.title || S.projects[i].title };
   }
   // CODER'S OWN "ARE YOU SURE?" (not the browser's popup).
+  // ── SHARING A CHAT (MISS-54), like Claude Code's on a personal plan: Private or Public (here: anyone signed in to Coder), its
+  // warning in Claude Code's words, and the link as it is. ──
+  const SHARE_WARN = 'Check your chat before sharing. Chats may contain code and credentials from private GitHub repositories.';
+  const shareLink = (id) => location.origin + '/?share=' + encodeURIComponent(id);
+  function shareDialog() {
+    const p = S.project; if (!p || GLOOPY) return;
+    const id = p.id;
+    const wrap = document.createElement('div'); wrap.className = 'cd-sure';
+    const box = document.createElement('div'); box.className = 'cd-sure-box cd-share'; box.setAttribute('role', 'dialog'); box.setAttribute('aria-modal', 'true'); box.setAttribute('aria-label', 'Share chat');
+    wrap.append(box); document.body.append(wrap);
+    let vis = p.visibility === 'public' ? 'public' : 'private', busy = false, err = '', copied = false;
+    const paint = () => {
+      const opt = (v, name, line) => '<button type="button" class="cd-share-opt' + (vis === v ? ' on' : '') + '" data-share-vis="' + v + '" role="radio" aria-checked="' + (vis === v ? 'true' : 'false') + '"' + (busy ? ' disabled' : '') + '><b>' + name + '</b><span>' + line + '</span></button>';
+      box.innerHTML = '<div class="cd-sure-title">Share chat</div>' +
+        '<div class="cd-share-opts" role="radiogroup" aria-label="Visibility">' + opt('private', 'Private', 'Only you can see this chat.') + opt('public', 'Public', 'Anyone signed in to Coder can open the link.') + '</div>' +
+        '<p class="cd-sure-text cd-share-warn">' + esc(SHARE_WARN) + '</p>' +
+        (vis === 'public' ? '<div class="cd-share-link"><input readonly id="cdShareLink" aria-label="Link" value="' + esc(shareLink(id)) + '"><button type="button" id="cdShareCopy">' + (copied ? 'Copied' : 'Copy link') + '</button></div><p class="cd-share-note">People who open the link see the chat as it is then; it doesn’t update as they watch. Your GitHub name shows on it.</p>' : '') +
+        (err ? '<p class="cd-errline">' + esc(err) + '</p>' : '') +
+        '<div class="cd-sure-row"><button type="button" class="cd-sure-no" id="cdShareDone">Done</button></div>';
+    };
+    const end = () => { document.removeEventListener('keydown', key); wrap.remove(); };
+    const key = (e) => { if (e.key === 'Escape') end(); };
+    box.addEventListener('click', async (e) => {
+      const b = e.target.closest('button'); if (!b) return;
+      if (b.id === 'cdShareDone') return end();
+      if (b.id === 'cdShareCopy') { try { await navigator.clipboard.writeText(shareLink(id)); copied = true; } catch (x) { const i = box.querySelector('#cdShareLink'); if (i) { i.focus(); i.select(); } } return paint(); }
+      const want = b.getAttribute('data-share-vis');
+      if (!want || want === vis || busy) return;
+      busy = true; err = ''; paint();
+      const r = await call('/projects/' + encodeURIComponent(id) + '/share', { method: 'POST', body: JSON.stringify({ visibility: want }) });
+      busy = false;
+      if (r.status === 200 && r.data && r.data.ok) { vis = r.data.visibility; copied = false; if (S.project && S.project.id === id && r.data.project) S.project = r.data.project; }
+      else err = (r.data && r.data.error) || 'The chat’s visibility was not changed. Try again.';
+      paint();
+    });
+    wrap.onclick = (e) => { if (e.target === wrap) end(); };
+    document.addEventListener('keydown', key);
+    paint();
+  }
+  async function openShared(id) {
+    S.phase = 'loading'; draw();
+    const r = await call('/shared/' + encodeURIComponent(id));
+    if (r.status === 200 && r.data && r.data.ok) { S.shared = r.data; S.phase = 'shared'; return draw(); }
+    S.phase = 'error'; S.error = (r.data && r.data.error) || 'This chat could not be opened.'; draw();
+  }
+  // A SHARED CHAT, READ ONLY: your messages, Coder's answers, and each step as one line; nothing in it can be answered or changed.
+  function sharedHTML() {
+    const d = S.shared || {}, c = d.shared || {}, out = [];
+    for (const e of Array.isArray(d.events) ? d.events : []) {
+      if (!e || typeof e !== 'object') continue;
+      if (e.type === 'user' && typeof e.text === 'string') out.push('<div class="cd-user"><div class="cd-bubble">' + esc(e.text) + '</div></div>');
+      else if ((e.type === 'text' || e.type === 'done') && typeof e.text === 'string' && e.text.trim() && e.quiet !== true) out.push('<div class="cd-ai">' + prose(e.text) + '</div>');
+      else if (e.type === 'bash') out.push('<div class="cd-shared-step">' + esc(String((e.verb || 'Ran') + ' ' + String(e.command || e.tool || '').split('\n')[0]).slice(0, 200)) + '</div>');
+      else if (e.type === 'note' && typeof e.text === 'string' && !e.ctxUsage) out.push('<div class="cd-localnote">' + esc(noColor(e.text)) + '</div>');
+    }
+    return '<div class="cd-shared"><div class="cd-shared-head"><b>' + esc(c.title || 'Shared chat') + '</b><span>' + (c.repo ? ICON.gh + ' ' + esc(c.repo) + (c.branch ? ' · ' + esc(c.branch) : '') : '') + '</span><span class="cd-shared-by">Shared by ' + esc(c.owner || 'a Coder user') + ' · Read only</span><a class="cd-btn-2" href="/">Your chats</a></div>' +
+      '<div class="cd-shared-log">' + (out.length ? out.join('') : '<p class="cd-sub">This chat has no messages yet.</p>') + '</div></div>';
+  }
   function askSure(title, text, yes) {
     return new Promise((done) => {
       const wrap = document.createElement('div'); wrap.className = 'cd-sure';
@@ -1736,6 +1797,9 @@
     if (!GLOOPY && /^\/btw(?:\s|$)/i.test(text)) { boxEmpty(); btwAsk(text.replace(/^\/btw\s*/i, '')); return; }
     // /autocompact [auto|<tokens>], CLAUDE CODE'S (2026-11-21): sets this chat's auto-compact window; alone, says the current one.
     if (!GLOOPY && /^\/autocompact(?:\s|$)/i.test(text)) { boxEmpty(); autoCompactCmd(text.replace(/^\/autocompact\s*/i, '')); return; }
+    // /context [all], CLAUDE CODE'S (batch 7 of "Go Claude Code way", MISS-62): what fills the conversation, as of Coder's last
+    // answer (the machine counts it at each job's end; no AI call), shown in the chat as Claude Code's grid and list.
+    if (!GLOOPY && /^\/context(?:\s+all)?$/i.test(text)) { boxEmpty(); contextCmd(); return; }
     // /model <name> AND /effort <level>, CLAUDE CODE'S (batch 2 of "Go Claude Code way", 2026-11-22): set them at once, as the
     // two pickers on the box do; alone, they say the current one and the choices. Nothing goes to the AI.
     if (!GLOOPY && /^\/(model|effort)(?:\s|$)/i.test(text)) { boxEmpty(); const r = pickCmd(text, MODELS, S.pick); if (r.pick) { S.pick = r.pick; savePick(); } note(r.text); return; }
@@ -3056,6 +3120,7 @@
       // on Gloopy's last stop, while nothing came after it, a Resume button.
       else if (e.type === 'stopped') out.push('<div class="cd-note">Stopped.' + (GLOOPY && !S.running && !S.sending && i === S.events.length - 1 ? ' <button type="button" class="cd-card-no cd-resume" data-resume="1">Resume</button>' : '') + '</div>');
       // (A hook's line: its warning when it ended the turn, `warn`; its statusMessage while it ran, `hookStatus`.)
+      else if (e.type === 'note' && e.ctxUsage && typeof e.ctxUsage === 'object') out.push(contextHTML(e.ctxUsage));
       else if (e.type === 'note') out.push(e.monitor && typeof e.monitor === 'object' ? monitorHTML(e.monitor) : '<div class="cd-localnote' + (e.warn === true || e.denied === true ? ' cd-note-warn' : e.hookStatus === true ? ' cd-note-status' : '') + '">' + esc(noColor(e.text)) + '</div>');
       else if (e.type === 'expired') return;
       // CODER'S START-UP, DONE (2026-11-16): one quiet "Initialized session ›" line; › shows its steps and their times.
@@ -3714,7 +3779,7 @@
         // THE TITLE'S ▾ MENU, like Claude Code's (2026-11-15): Rename, an inline edit (Enter saves, Esc cancels) in the title's place.
         (S.renaming ? '<input class="cd-title-in" id="cdTitleIn" maxlength="80" aria-label="Chat name" value="' + esc(p.title || '') + '">' : '') +
         (S.renaming ? '' : '<span class="cd-title-wrap"><button type="button" class="cd-title-more" id="cdTitleMore" aria-label="Chat menu" aria-expanded="' + (S.titleMenu ? 'true' : 'false') + '">▾</button>' +
-          (S.titleMenu ? '<span class="cd-title-menu" role="menu"><button type="button" role="menuitem" id="cdRename">Rename</button></span>' : '') + '</span>') +
+          (S.titleMenu ? '<span class="cd-title-menu" role="menu"><button type="button" role="menuitem" id="cdRename">Rename</button><button type="button" role="menuitem" id="cdShare">Share</button></span>' : '') + '</span>') +
         '<span class="cd-repo-bar" title="' + esc(p.repo) + '">' + ICON.gh + '<span class="cd-ell">' + esc(p.repo) + '</span></span>' : '') +
       (p ? '<span class="cd-branch" title="' + esc(p.branch) + '">' + ICON.branch + '<span class="cd-ell">' + esc(p.branch) + '</span></span>' : '') +
       // A READ-ONLY REPOSITORY (owner item 5, like Claude Code: any public repository can be worked on).
@@ -3935,7 +4000,7 @@
   // start of the box lists Coder's commands with a line each; ↑↓ to move, Enter or Tab or a click to pick, Esc to close.
   // (/btw, /init and /review: Claude Code's, round 6, 2026-11-21. /autocompact: Claude Code's, 2026-11-21, per chat here.
   // /clear with its other names /reset and /new: Claude Code's, batch 6, MISS-61; the Worker empties what Coder reads.)
-  const SLASH = [['/autocompact', 'Set the auto-compact window: auto, or a size such as 500k'], ['/btw', 'Ask a side question without adding to the conversation'], ['/clear', 'Start a new conversation with empty context', ['reset', 'new']], ['/compact', 'Shrink this chat into a short summary (add what to keep after it)'], ['/effort', 'Set the effort level for the model'], ['/init', 'Create or update CLAUDE.md for this repository'], ['/model', 'Set the AI model for this chat'], ['/permissions', 'Choose the mode: Auto, Accept edits or Plan', ['allowed-tools']], ['/review', 'Review the changes on this branch', ['code-review']], ['/rewind', 'Go back to an earlier message', ['checkpoint', 'undo']]];
+  const SLASH = [['/autocompact', 'Set the auto-compact window: auto, or a size such as 500k'], ['/btw', 'Ask a side question without adding to the conversation'], ['/clear', 'Start a new conversation with empty context', ['reset', 'new']], ['/compact', 'Shrink this chat into a short summary (add what to keep after it)'], ['/context', 'Visualize current context usage as a colored grid'], ['/effort', 'Set the effort level for the model'], ['/init', 'Create or update CLAUDE.md for this repository'], ['/model', 'Set the AI model for this chat'], ['/permissions', 'Choose the mode: Auto, Accept edits or Plan', ['allowed-tools']], ['/review', 'Review the changes on this branch', ['code-review']], ['/rewind', 'Go back to an earlier message', ['checkpoint', 'undo']]];
   // As Claude Code's / list: from the start of a name, of a word inside it, or of one of its other names; '-', '_' and ':' ignored.
   // THE REPOSITORY'S SKILLS (Claude Code's "/skill-name"; the machine names them at each message): after Coder's own commands.
   function skillsSlash() {
@@ -3983,6 +4048,41 @@
     if (!arg) return { text: 'Effort: ' + (pick && pick.effort || cur.effort) + '. Use /effort <level> to switch (' + list + ').' };
     if (!cur.efforts.includes(arg)) return { text: 'Unknown effort: ' + m[2].trim() + '. Choose one of: ' + list + '.' };
     return { pick: { model: cur.id, effort: arg }, text: 'Set effort level to ' + arg };
+  }
+  // WHAT FILLS THE CONVERSATION (Claude Code's /context: "Context Usage", a grid of 100 squares and its parts by name, then
+  // the memory files and connector tools it loaded): the chat's breakdown from Coder's last answer (S.project.context).
+  const CTX_FMT = (n) => (n < 1000 ? String(n) : n < 100000 ? (n / 1000).toFixed(1).replace(/\.0$/, '') + 'k' : Math.round(n / 1000) + 'k');
+  const CTX_PCT = (n, w) => { const p = (n / Math.max(1, w)) * 100; return (p >= 10 ? p.toFixed(0) : p.toFixed(1)).replace(/\.0$/, '') + '%'; };
+  const CTX_KINDS = { 'System prompt': 'sys', 'System tools': 'tools', 'MCP tools': 'mcp', 'Memory files': 'mem', Skills: 'skills', Messages: 'msgs' };
+  function contextText(c) {
+    const model = (MODELS.find((x) => x.id === c.model) || {}).name || c.model || 'Grok';
+    const lines = ['Context Usage', model + ' · ' + CTX_FMT(c.used) + '/' + CTX_FMT(c.window) + ' tokens (' + CTX_PCT(c.used, c.window).replace(/\.\d+%$/, '%') + ')'];
+    for (const p of c.parts || []) if (p.tokens > 0) lines.push(p.name + ': ' + CTX_FMT(p.tokens) + ' tokens (' + CTX_PCT(p.tokens, c.window) + ')');
+    lines.push('Free space: ' + CTX_FMT(c.free) + ' (' + CTX_PCT(c.free, c.window) + ')');
+    if (c.buffer > 0) lines.push('Autocompact buffer: ' + CTX_FMT(c.buffer) + ' tokens (' + CTX_PCT(c.buffer, c.window) + ')');
+    if ((c.connectors || []).length) { lines.push('', 'MCP tools'); for (const t of c.connectors) lines.push('└ ' + t.name + ': ' + CTX_FMT(t.tokens) + ' tokens'); }
+    if ((c.memory || []).length) { lines.push('', 'Memory files'); for (const m of c.memory) lines.push('└ ' + m.name + ': ' + CTX_FMT(m.tokens) + ' tokens'); }
+    if (c.warning) lines.push('', c.warning);
+    return lines.join('\n');
+  }
+  function contextHTML(c) {
+    const cells = [];
+    for (const p of c.parts || []) { const k = Math.round((p.tokens / Math.max(1, c.window)) * 100); for (let i = 0; i < (p.tokens > 0 ? Math.max(1, k) : 0) && cells.length < 100; i++) cells.push(CTX_KINDS[p.name] || 'msgs'); }
+    const tail = c.buffer > 0 ? Math.max(1, Math.round((c.buffer / Math.max(1, c.window)) * 100)) : 0;
+    while (cells.length < 100 - tail) cells.push('free');
+    while (cells.length < 100) cells.push('buf');
+    const grid = '<div class="cd-ctx-grid" aria-hidden="true">' + cells.map((k) => '<i class="cd-ctx-' + k + '"></i>').join('') + '</div>';
+    const model = (MODELS.find((x) => x.id === c.model) || {}).name || c.model || 'Grok';
+    const row = (k, label, n, words) => '<li><i class="cd-ctx-' + k + '"></i>' + esc(label) + ': ' + esc(CTX_FMT(n)) + (words ? ' tokens' : '') + ' <span>(' + esc(CTX_PCT(n, c.window)) + ')</span></li>';
+    const parts = (c.parts || []).filter((p) => p.tokens > 0).map((p) => row(CTX_KINDS[p.name] || 'msgs', p.name, p.tokens, true)).join('') + row('free', 'Free space', c.free, false) + (c.buffer > 0 ? row('buf', 'Autocompact buffer', c.buffer, true) : '');
+    const list = (title, arr) => (arr && arr.length ? '<p class="cd-ctx-h">' + esc(title) + '</p><ul class="cd-ctx-items">' + arr.map((x) => '<li>└ ' + esc(x.name) + ': ' + esc(CTX_FMT(x.tokens)) + ' tokens</li>').join('') + '</ul>' : '');
+    return '<div class="cd-ctx" role="group" aria-label="Context usage"><p class="cd-ctx-h">Context Usage</p><div class="cd-ctx-top">' + grid + '<div><p class="cd-ctx-sum">' + esc(model) + ' · ' + esc(CTX_FMT(c.used)) + '/' + esc(CTX_FMT(c.window)) + ' tokens (' + esc(CTX_PCT(c.used, c.window).replace(/\.\d+%$/, '%')) + ')</p><ul class="cd-ctx-parts">' + parts + '</ul></div></div>' + list('MCP tools', c.connectors) + list('Memory files', c.memory) + (c.warning ? '<p class="cd-ctx-warn">' + esc(c.warning) + '</p>' : '') + '</div>';
+  }
+  function contextCmd() {
+    const c = S.project && S.project.context;
+    if (!c || !Number(c.window)) return note('No context usage yet: it shows after Coder\'s next answer.');
+    S.events.push({ type: 'note', text: contextText(c), ctxUsage: c, at: Date.now(), local: true });
+    draw(true);
   }
   async function autoCompactCmd(arg) {
     if (!S.project) return;
@@ -4290,17 +4390,11 @@
     if (c === 'claudeDir') return '<span class="cd-perm-ok">✓ Allowed</span> · Coder may edit its own settings for this session';
     if (c === 'auto') return '<span class="cd-perm-ok">✓ Allowed</span> · switched to Auto';
     if (c === 'no') return '<span class="cd-perm-no">✕ Not allowed</span>' + note;
+    // (A card from before batch 7 of "Go Claude Code way", 2026-11-22, when Auto asked about a dangerous removal for 2 minutes:
+    // Auto now refuses one at once, as Claude Code does away from a terminal. Old chats keep their line.)
     if (c === 'none' && Number(e.blockAt) > 0) return '<span class="cd-perm-no">✕ Blocked</span> · no answer within 2 minutes';
     return '<span class="cd-perm-no">' + (c === 'stop' ? 'Stopped' : 'No answer') + '</span>';
   }
-  // AUTO'S 2-MINUTE QUESTION FOR A DANGEROUS REMOVAL (fix 5 of the owner's "Yes all 7"): Claude Code's line, "Claude Code will
-  // automatically block this request in 1:59, to avoid holding up an unattended session", counted down each second.
-  function blockLeft(at) {
-    const w = Math.max(0, at - Date.now()), m = Math.floor(w / 60000), sec = Math.floor((w % 60000) / 1000);
-    return '⚠ Coder will automatically block this request in ' + m + ':' + String(sec).padStart(2, '0') + ', to avoid holding up an unattended session';
-  }
-  // (Once, in Coder's view: the page makes two views, and these cards are Auto mode's, which is Coder's alone. Merged 2026-11-13.)
-  if (!GLOOPY) setInterval(() => { document.querySelectorAll('[data-block-at]').forEach((el) => { el.textContent = blockLeft(Number(el.getAttribute('data-block-at'))); }); }, 1000);
   // A KEY FOR ONE HOST (owner, 2026-11-06, like Claude Code's card): typed here, sealed on the server, added by the proxy;
   // Coder never sees it. In Gloopy's chat (2026-11-09): a key kept for Gloopy alone (its own store, not one of Coder's
   // environments). CLAUDE CODE'S request_credential FORM (the owner, 2026-11-14: "Do all the talk to you tools execpt for the
@@ -4385,8 +4479,6 @@
       '<div class="cd-perm-head"><span class="cd-perm-ic">' + (plan ? ICON.plan : ICON.term) + '</span><b>' + (plan ? 'Coder\'s plan' : esc(PERM_TITLE[e.tool] || 'Coder asks')) + '</b>' + (dn ? '<span class="cd-perm-dn" title="' + esc(dn) + '">' + esc(dn) + '</span>' : '') + '</div>' +
       body +
       (!plan && e.why ? '<p class="cd-perm-why">' + esc(e.why) + '</p>' : '') +
-      // (Auto's question for a dangerous removal blocks it by itself after 2 minutes: Claude Code's line, counting down.)
-      (live && Number(e.blockAt) > 0 ? '<p class="cd-perm-timer" data-block-at="' + Number(e.blockAt) + '">' + esc(blockLeft(Number(e.blockAt))) + '</p>' : '') +
       (live
         ? '<p class="cd-perm-q">' + (plan ? 'Would you like to proceed?' : 'Do you want to proceed?') + '</p>' +
           '<div class="cd-perm-opts">' + opts.map(([c, label], k) => '<button type="button" class="cd-perm-opt' + (c === 'no' ? ' is-no' : '') + (sent === c ? ' is-sent' : '') + '" data-perm-pid="' + esc(e.pid) + '" data-perm-choice="' + c + '"' + (sent ? ' disabled' : '') + '><kbd>' + (k + 1) + '</kbd><span>' + label + '</span></button>').join('') + '</div>' +
@@ -4727,6 +4819,7 @@
 
   function bodyHTML() {
     if (S.phase === 'loading') return centerHTML('<span class="cd-spin cd-spin-lg"></span>');
+    if (S.phase === 'shared') return sharedHTML();
     if (S.phase === 'off') return centerHTML('<b class="cd-title">' + (GLOOPY ? 'Gloopy is not switched on yet.' : 'Coder is not switched on yet.') + '</b>');
     if (S.phase === 'error') return centerHTML('<b class="cd-title">' + esc(S.error) + '</b><button type="button" class="cd-btn-2" id="cdRetry">Try again</button>');
     if (S.phase === 'connect') return centerHTML(
@@ -5467,6 +5560,7 @@
     on('#cdMakeDraft', 'click', () => send(PR_ASK_DRAFT));
     on('#cdTitleMore', 'click', () => { S.titleMenu = !S.titleMenu; draw(); });
     on('#cdRename', 'click', () => { S.titleMenu = false; S.renaming = true; draw(); const i = root.querySelector('#cdTitleIn'); if (i) { i.focus(); i.select(); } });
+    on('#cdShare', 'click', () => { S.titleMenu = false; draw(); shareDialog(); });
     on('#cdTitleIn', 'keydown', async (e) => {
       if (e.key === 'Escape') { e.preventDefault(); S.renaming = false; return draw(); }
       if (e.key !== 'Enter') return;
