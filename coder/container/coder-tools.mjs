@@ -150,8 +150,9 @@ async function inside(p, { mustExist = false, tool = "", output = false } = {}) 
   if (climbsOut(rel) || isAbsolute(rel)) fail("that path is outside the project");
   // READING .git IS ALLOWED (round 6, 2026-11-21, the owner: "do how Claude Code does it"): Claude Code's Read opens files in
   // .git (.git/HEAD, .git/config); only writes there are protected. So the read tool may look in; write, edit and every
-  // other tool are still kept out.
-  const gitGuard = tool !== "read";
+  // other tool are still kept out. SO MAY GREP AND GLOB ("search", batch 6, M-a-33, tried on Claude Code's own tools: its Grep
+  // searches a path inside .git it is given, and its Glob lists .git like any hidden folder).
+  const gitGuard = tool !== "read" && tool !== "search";
   // A .git THAT IS A GITFILE (live test, 2026-11-21: read of .git/HEAD gave "no such file"): on Coder's machine the chat's
   // git folder lives outside the work tree (server.mjs gitDirFor, GIT_ROOT/<the folder's name>), and the work tree's .git is
   // a file, "gitdir: <that folder>". Read follows it, as git does, to that folder only: named by the folder's own name (never
@@ -1681,10 +1682,11 @@ async function editAnswer({ rel, abs, said, before, after, show_change, check, b
 
 /**
  * GREP AND GLOB, CLAUDE CODE'S (coder-search.mjs; the owner, 2026-11-14: "start fixing and filling in gaps on those tools"):
- * their search runs there, with this file's own path check (`inside`: the project, never .git) and where Grok's commands are
+ * their search runs there, with this file's own path check (`inside`: the project; .git as Claude Code's own Grep and Glob
+ * reach it, M-a-33) and where Grok's commands are
  * (BASE). `ctx`, from Coder's loop: the owner's Read deny rules and the environment's search settings.
  */
-const searchEnv = (ctx) => ({ ...(ctx && typeof ctx === "object" ? ctx : {}), base: BASE, inside });
+const searchEnv = (ctx) => ({ ...(ctx && typeof ctx === "object" ? ctx : {}), base: BASE, inside: (p, o = {}) => inside(p, { ...o, tool: "search" }) });
 export async function toolGrep(args, ctx = {}) { return grepTool(args, searchEnv(ctx)); }
 export async function toolGlob(args, ctx = {}) { return globTool(args, searchEnv(ctx)); }
 

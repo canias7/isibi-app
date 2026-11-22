@@ -103,8 +103,8 @@ test("MF6 the Worker keeps the topic files per repository beside the index: sent
   // The old single text still loads, unchanged, as the index.
   assert.match(routes, /const mo = await bucket\.get\(memoryKey\(uid, meta\.repo\)\); return mo \? \(await mo\.text\(\)\)\.slice\(0, MEMORY_MAX\) : "";/);
   const server = readFileSync(HERE("container/server.mjs"), "utf8");
-  assert.match(server, /if \(!gloopy && body\.memoryFiles && typeof body\.memoryFiles === "object"\) await writeMemoryFiles\(memDir, body\.memoryFiles/);
-  assert.match(server, /const memoryFiles = gloopy \? undefined : await readMemoryFiles\(memDir\);/);
+  assert.match(server, /if \(memOn && !gloopy && body\.memoryFiles && typeof body\.memoryFiles === "object"\) await writeMemoryFiles\(memDir, body\.memoryFiles/);
+  assert.match(server, /const memoryFiles = gloopy \|\| !memOn \? undefined : await readMemoryFiles\(memDir\);/);
   assert.match(server, /This file is the INDEX of your memory: one line per memory, each pointing at its own topic file/);
   assert.match(server, /`type:` \(one of user, feedback, project, reference\)/);
   assert.ok(!/add one short line to that file/.test(server));

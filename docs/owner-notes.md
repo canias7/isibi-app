@@ -4,6 +4,31 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-22: Claude Code way, batch 6
+
+I checked this batch's 12 items against Claude Code's docs, its changelog and, for the search tools, Claude Code's own Grep and Glob tried on real folders. Six are built, two were already the same, and the rest need your answer.
+
+**Built, the way Claude Code does it:**
+- **Rewind and Undo no longer make a commit.** "Restore code" (and the Undo button under an answer) now puts the files back on Coder's machine with no new commit and nothing pushed, as Claude Code's checkpoints do. Your next message's save takes them to the branch, in that job's own commit. Until then GitHub still shows the later work, as with Claude Code. Nothing on GitHub is ever deleted. If you rewind again later, the files go back exactly as the earlier rewind left them. The Rewind box and the chat line say this.
+- **/clear, /reset and /new.** As in Claude Code, these start a fresh conversation in the same chat: Coder forgets the conversation so far, but the machine, its files, the branch and the memory all stay. The chat still shows everything above a grey line, and the Rewind list starts again from there. The old conversation is kept, not deleted. No Grok call. Sent while Coder works, it waits until the job is done. Your SessionEnd and SessionStart hooks run with "clear" at the next message.
+- **Add a repository to a chat that has already started.** "+ Repository" now also works between messages, not only before the first one, as Claude Code can add a repository to a running session. The next message opens it. It can't be added while Coder is working, and a repository can still only be taken out before the first message. (Claude Code can also let the AI add one by itself; that part is not built.)
+- **Switches for memory and instruction files.** As in Claude Code, you can set `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1` in an environment (or `"autoMemoryEnabled": false` in a repository's `.claude/settings.json`) to turn Coder's memory off; `CLAUDE_CODE_DISABLE_AUTO_MEMORY=0` turns it back on over the repository's setting. `CLAUDE_CODE_DISABLE_CLAUDE_MDS=1` stops all instruction files (CODER.md, CLAUDE.md, AGENTS.md, rules) and the memory. With memory off, your saved memory is left exactly as it was.
+- **The search tools and the .git folder.** I tried Claude Code's own Grep and Glob: Grep skips .git when searching the folders around it but searches inside .git when asked to, and Glob lists .git like any hidden folder. Coder's grep and glob (now used only by helper checks) do the same. Files named like credentials stay off limits, and writing in .git is still refused.
+- **What `gh` can change, written down truthfully.** Coder's own git pushes can only touch the chat's branch. But `gh` commands, like Claude Code's, can change other branches or merge pull requests in the chat's repositories. Claude Code's docs say the guard is GitHub's branch protection, so please turn on branch protection for `main` on GitHub. The README now says this.
+
+**Already the same:**
+- With "Trust this repository's settings" unticked, a repository's own hooks still run. That is what Claude Code does in its cloud and in its scripted runs.
+- A desktop pop-up already shows while a card waits ("Coder needs your approval"), and auto-fix already refuses a pull request whose own branch is the main branch, in Claude Code's words.
+
+**Waiting for your answer:**
+- Coder has a few extra safety guards Claude Code's docs don't mention (a warning when reading web pages, a line on the repository's instruction files, and jobs started by writing @coder on GitHub can't use your saved keys). Keep them?
+- Claude Code's docs say its "never run" and "always ask" command rules don't catch the same program run by its full path or inside another shell. Coder catches both, as you approved on 11 November. Keep Coder's stricter way?
+- In Claude Code you ask the AI to rebase or merge main when a pull request has a conflict, because it runs git itself. Coder's AI can't change git history (Coder's app makes the commits, for safety). Shall I add a step where Coder's app merges the newest main into the chat's branch and Coder then fixes the conflicted files?
+- Repositories that keep big files in Git LFS get small stand-in files in Coder. Claude Code's cloud docs don't say it downloads them, and downloading uses your GitHub LFS allowance (paid past the free part). Download them, or just say plainly that LFS isn't supported?
+- Claude Code's docs don't show what its web approval card looks like, and Coder's card already uses Claude Code's own words ("Yes", "Yes, and don't ask again for …", "No"). Should I change it to "Allow Coder to use X?" with Always allow and Deny? A screenshot of Claude Code's card would help.
+
+- Tests: `coder/test/cc-way-batch6.test.mjs`; older tests that checked the old rules (the Rewind commit, repositories fixed after the first message, grep and glob never in .git) now check the new. Full test suite: 1687 of 1687 pass. Not tried live in the browser yet; not deployed.
+
 ## 2026-11-22: Claude Code way, batch 5
 
 I checked this batch's 12 items against Claude Code's docs, its changelog (up to version 2.1.330) and its own program. Six are built, one was already the same, and the rest need your answer.

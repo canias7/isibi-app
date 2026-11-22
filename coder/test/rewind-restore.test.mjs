@@ -132,13 +132,14 @@ test("CD563 Rewind's Restore code in the Worker: the machine is asked to restore
   assert.equal(sent.message, "Rewind: files back as they were before \"Job two\"");
   assert.deepEqual([sent.repo, sent.branch, sent.project], ["ana/shop", "coder/" + id, id]);
   assert.deepEqual(r.project.commits.map((c) => c.sha), ["a1"], "the later jobs are no longer on record");
-  assert.equal(x.read("events.json").at(-1).text, "Rewound to before an earlier message: the code is back as it was (2 files restored, saved to the branch coder/shop-r2; files only commands changed stay as they are).");
+  // (Batch 6, M-a-08, as Claude Code's checkpoints: no commit and no push; the next message's save takes it to the branch.)
+  assert.equal(x.read("events.json").at(-1).text, "Rewound to before an earlier message: the code is back as it was (2 files restored, not committed: your next message's save takes it to the branch; files only commands changed stay as they are).");
   assert.equal(x.read("messages.json").at(-1).content, "(Note from Coder's app: the owner restored the code to before an earlier message, as Claude Code's checkpoints do. The files your file tools (write, edit) had changed since then are back as they were: src/app.js, src/new.js. Files that only commands changed were left as they are. Nothing to do now.)");
   // THE CHANGED-FILES BOX'S UNDO BUTTON (2026-11-17): the same restore, said like an undo; Rewind keeps its own words.
   x = await setup(tracked);
   await rw(x.go, { turn: 2, code: true, undo: true });
   assert.deepEqual(x.asked.map((a) => a[0]), ["/restore"]);
-  assert.equal(x.read("events.json").at(-1).text, "Undid this turn's changes: src/app.js, src/new.js are back as they were (2 files). Saved to the branch coder/shop-r2.");
+  assert.equal(x.read("events.json").at(-1).text, "Undid this turn's changes: src/app.js, src/new.js are back as they were (2 files). Not committed: your next message's save takes it to the branch.");
   x = await setup(tracked, { ok: true, sha: "", restored: [], skipped: [] });
   await rw(x.go, { turn: 3, code: true, undo: true });
   assert.equal(x.read("events.json").at(-1).text, "Nothing to undo: this turn's changes were already gone.");
@@ -191,7 +192,7 @@ async function serve(handle) {
   return { post, close: () => new Promise((r) => srv.close(r)) };
 }
 
-test("CD564 the machine's restore (real git): a file the tools changed goes back, a file only commands changed stays, a command's later change to a tracked file is undone, a file the tools made is removed, links and hard-linked files are skipped; one commit with the chat's link, pushed (never forced); bad lists refused", async () => {
+test("CD564 the machine's restore (real git): a file the tools changed goes back, a file only commands changed stays, a command's later change to a tracked file is undone, a file the tools made is removed, links and hard-linked files are skipped; no commit and no push, as Claude Code's checkpoints (batch 6), the next save carrying it; bad lists refused", async () => {
   const S = await import("../container/server.mjs");
   // "GitHub": ana/shop with README.md and src/app.js on main.
   const gh = await tmp("coder-rw-gh-"), work = await tmp("coder-rw-seed-");
@@ -234,19 +235,38 @@ test("CD564 the machine's restore (real git): a file the tools changed goes back
     assert.equal(await readFile(join(dir, "src/hard.js"), "utf8"), "h3\n", "a hard-linked file is left untouched");
     assert.equal(await readFile(join(dir, "src/linked.js"), "utf8"), "# shop\n", "a link is left untouched");
     await assert.rejects(readFile(join(dir, "src/new.js")), "a file the tools made after it is removed");
-    // One commit on the branch, with the chat's link, pushed on top of job 3 (never a force push).
-    assert.equal(git(bare, "rev-parse", branch).trim(), body.sha);
+    // NO COMMIT AND NO PUSH (batch 6, M-a-08, as Claude Code's checkpoints: "Rewinding puts the files back on the disk and makes
+    // no commit"): the branch on GitHub is still job 3, and the machine answers what each restored file is now.
+    assert.equal(body.sha, undefined);
+    assert.equal(git(bare, "rev-parse", branch).trim(), j3.sha);
+    assert.equal(git(bare, "show", branch + ":src/app.js"), "v2 by a command\n", "GitHub is unchanged until the next save");
+    assert.equal(git(dir, "rev-parse", "HEAD").trim(), j3.sha, "no commit on the machine either");
+    assert.deepEqual(Object.keys(body.prior).sort(), ["src/app.js", "src/new.js"]);
+    assert.equal(body.prior["src/new.js"], null, "removed");
+    assert.equal(git(dir, "cat-file", "-p", body.prior["src/app.js"].blob), "v1\n");
+    assert.equal(body.prior["src/app.js"].mode, "100644");
+    // The next job's save carries it to the branch, in that job's own commit.
+    const j4 = await job(async () => { await writeFile(join(dir, "README.md"), "# shop 4\n"); }, "Job four");
+    assert.equal(git(bare, "rev-parse", branch).trim(), j4.sha);
     assert.equal(git(bare, "rev-parse", branch + "~1").trim(), j3.sha);
-    assert.equal(git(bare, "log", "-1", "--format=%s", branch).trim(), "Rewind: files back as they were before \"Job two\"");
-    assert.match(git(bare, "log", "-1", "--format=%b", branch), /^Coder-Chat: https:\/\/gofarther\.dev\/\?chat=shop-rw1$/m);
     assert.equal(git(bare, "show", branch + ":src/app.js"), "v1\n");
     assert.equal(git(bare, "show", branch + ":build.log"), "log2\n");
     assert.throws(() => git(bare, "show", branch + ":src/new.js"));
+    // A later restore to before that job puts the files back as the restore left them (its saved copy), not as in job 3.
+    await writeFile(join(dir, "src/app.js"), "v5\n");
+    await writeFile(join(dir, "src/new.js"), "n5\n");
+    const j5 = await job(async () => {}, "Job five");
+    const back = await (await post("/restore", { project: name, repo: "ana/shop", base: "main", branch, token: "", items: [{ path: "src/app.js", blob: body.prior["src/app.js"].blob, mode: "100644" }, { path: "src/new.js", gone: true }] })).json();
+    assert.deepEqual([back.ok, back.restored.sort()], [true, ["src/app.js", "src/new.js"]], JSON.stringify(back));
+    assert.equal(await readFile(join(dir, "src/app.js"), "utf8"), "v1\n");
+    await assert.rejects(readFile(join(dir, "src/new.js")));
+    assert.equal(git(bare, "rev-parse", branch).trim(), j5.sha, "still no commit");
+    await job(async () => {}, "Job six");
     // Nothing more to restore: no new commit.
     const again = await (await post("/restore", { project: name, repo: "ana/shop", base: "main", branch, token: "", items: items.slice(0, 1) })).json();
     assert.deepEqual([again.ok, again.restored], [true, []]);
     // Lists refused: none, a path out of the project or into git's folder, a bad commit.
-    for (const bad of [[], [{ path: "../etc/passwd", before: j2.sha }], [{ path: "/etc/passwd", before: j2.sha }], [{ path: ".git/config", before: j2.sha }], [{ path: "src/app.js", before: "nope" }], [{ path: ":(glob)*", before: j2.sha }]]) {
+    for (const bad of [[], [{ path: "../etc/passwd", before: j2.sha }], [{ path: "/etc/passwd", before: j2.sha }], [{ path: ".git/config", before: j2.sha }], [{ path: "src/app.js", before: "nope" }], [{ path: ":(glob)*", before: j2.sha }], [{ path: "src/app.js", blob: "nope" }], [{ path: "../x", gone: true }]]) {
       const x = await post("/restore", { project: name, repo: "ana/shop", base: "main", branch, token: "", items: bad });
       assert.equal(x.status, 400, JSON.stringify(bad));
     }

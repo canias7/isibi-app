@@ -194,7 +194,7 @@ test("CD132 wiring: every job, save, Undo and Rewind sends the machine the pass,
     assert.deepEqual(gitFrom({ git: bad, token: "old" }, { via: true, remote: "https://github.com/" }), { remote: "https://github.com/", headers: [], token: "old" }, JSON.stringify(bad));
   }
   const server = readFileSync(new URL("../container/server.mjs", import.meta.url), "utf8");
-  assert.equal((server.match(/\.\.\.gitFrom\(body, \{ via: gitVia, remote \}\)/g) || []).length, 9, "the job's repository and its others, Undo, the save, a read-only chat's See changes, and Rewind's restore (its fetch and its push, 2026-11-13)");
+  assert.equal((server.match(/\.\.\.gitFrom\(body, \{ via: gitVia, remote \}\)/g) || []).length, 8, "the job's repository and its others, Undo, the save, a read-only chat's See changes, and Rewind's restore (its fetch, 2026-11-13; since batch 6 it pushes nothing, as Claude Code's checkpoints)");
   assert.doesNotMatch(server.replace(/export function gitFrom[\s\S]*?\n\}\n/, ""), /body\.token/, "no other use of a token from the Worker");
   // THE WHOLE DISK KEPT WHILE ASLEEP, and up to 20 GB (Fly's rootfs, 2026-11-07); the older way (persist_rootfs,
   // Fly's default size), then without it, if Fly ever refuses them.

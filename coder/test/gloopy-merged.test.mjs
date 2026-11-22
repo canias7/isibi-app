@@ -97,7 +97,7 @@ test("GM3 Gloopy's turn on the machine: its own instructions, tools and settings
   // (After the saved chat's pictures are put back, in Coder's chats: picsIn, 2026-11-14; Gloopy's has none.)
   assert.match(server, /\n      picsIn\(Array\.isArray\(body\.messages\) \? body\.messages : \[\], picsTo\)\.then\(\(msgsIn\) => runCoder\(turnDeps, \{ notices, [^\n]*, \.\.\.gloopyOpts \}\)\)\n/);
   // Gloopy's notes are backed up before the end is handed out, and what its turn left waiting is kept before it is over.
-  assert.match(server, /\.then\(async \(r\) => \{ const memory = await readMemory\(memFile\); const memoryFiles = gloopy \? undefined : await readMemoryFiles\(memDir\); if \(gloopy\) await Promise\.race\(\[backupGloopy\(\)/);
+  assert.match(server, /\.then\(async \(r\) => \{ const memory = memOn \? await readMemory\(memFile\) : undefined; const memoryFiles = gloopy \|\| !memOn \? undefined : await readMemoryFiles\(memDir\); if \(gloopy\) await Promise\.race\(\[backupGloopy\(\)/);
   assert.match(server, /\{ const r = t\.result; if \(gloopy && r && \(r\.approvalRequest \|\| r\.signinRequest \|\| r\.cardRequest \|\| r\.keyRequest\)\) pending\.set\(project, [^\n]*\n\s+if \(t\.writes\) t\.writes\.check = null;\n\s+t\.ended = Date\.now\(\);\n\s+t\.running = false;/);
   // The same start twice is one turn (Gloopy's), and a turn has both sides' fields.
   assert.match(server, /const t = \{ running: true, stop: false, events: \[\], result: null, fg: new Set\(\), started: Date\.now\(\), resume: null, queue: \[\], mode: normMode\(body\.mode\), answers: new Map\(\), asking: "", writes: \{ check: null \}, start \};/);

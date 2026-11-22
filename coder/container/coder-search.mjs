@@ -8,8 +8,10 @@
  *     and its validation, in its words;
  *   - the search itself, on Coder's machine (coder-tools.mjs runs it, as the unprivileged user, inside the project);
  *   - its text for Grok, and its result object for the PostToolUse hooks (Claude Code's GrepOutput and GlobOutput).
- * Where Claude Code's docs say nothing, its 2.1.323 program says what to do. Coder's own safety items stay (the owner's
- * choice): no path outside the project, and nothing in .git.
+ * Where Claude Code's docs say nothing, its 2.1.323 program says what to do. Coder's own safety item stays (the owner's
+ * choice): no path outside the project. The .git folder as Claude Code's own Grep and Glob treat it (batch 6, M-a-33, tried on
+ * Claude Code's real tools): Grep leaves the version-control folders out of a search of the folders around them but searches
+ * a path inside .git it is given; Glob lists what is in .git like any hidden folder.
  */
 import { spawn } from "node:child_process";
 import { realpathSync, lstatSync, readlinkSync, constants as FS } from "node:fs";
@@ -561,7 +563,13 @@ export function grepText(d) {
   if (!d.numFiles) return pre + (d.appliedOffset && (d.totalFiles ?? 0) > 0 ? "No entries at this offset. [Showing results with pagination = " + p + "]" : "No files found");
   return pre + "Found " + d.numFiles + " " + (d.numFiles === 1 ? "file" : "files") + (p ? " " + p : "") + "\n" + d.filenames.join("\n");
 }
-const inGit = (p) => /(^|\/)\.git(\/|$)/.test(p);
+/**
+ * A PATH IN .git SHOWN AS ASKED (batch 6, M-a-33): a chat's .git is a small file naming its git folder elsewhere (coder-tools.mjs
+ * follows it, as the read tool does), so what ripgrep prints under that folder is shown under the .git path that was asked.
+ */
+const asAsked = (asked, real) => (p) => (asked && real && asked !== real ? (p === real ? asked : p.startsWith(real + sep) ? asked + p.slice(real.length) : p) : p);
+/** In the chat's git folder, nothing named for credentials, as the read tool keeps it (coder-tools.mjs inside). */
+const gitFolderGlobs = (asked, real) => (asked !== real && /(^|\/)\.git(\/|$)/.test(asked) ? ["--iglob", "!*credential*"] : []);
 /**
  * GREP, ON CODER'S MACHINE: `{ text, facts }`. `env`: `{ base, inside, deny, timeoutMs }` (`base` where the commands are;
  * `inside(path, opts)` coder-tools.mjs's check that keeps a path inside the project; `deny` the owner's Read deny rules).
@@ -574,8 +582,9 @@ export async function grepTool(args, env) {
   const base = env.base;
   const mode = a.output_mode ?? "files_with_matches";
   const target0 = typeof a.path === "string" && a.path ? fullPath(a.path, base) : base;
-  // (Coder's own rule, kept: inside the project, never in .git.)
+  // (Coder's own rule, kept: inside the project. A path in .git is searched, as Claude Code's Grep does: M-a-33.)
   const { abs: target } = await env.inside(target0, { output: true });
+  const shownAsAsked = asAsked(target0, target);
   // (The path's spellings now, and those Coder's permission check saw: checkedSpellings.)
   const now = pathSpellings(target);
   const checked = checkedSpellings(env.spellings, target, now);
@@ -615,17 +624,16 @@ export async function grepTool(args, env) {
   if (a.glob) for (const w of a.glob.split(/\s+/)) for (const g of w.includes("{") && w.includes("}") ? [w] : w.split(",")) if (g) rg.push("--glob", g);
   const globs0 = rootDenyGlobs(env.deny, root);
   for (const g of globs0) rg.push("--iglob", g);
-  // (And .git once more, last: a later glob of the call's own, such as "*", would take it back, and Coder never searches it.)
-  rg.push("--glob", "!.git");
+  rg.push(...gitFolderGlobs(target0, target));
   let run;
   try { denyGlobsAgain(env.deny, root, target, globs0); run = await runRipgrep(rg, root.target, { cwd: root.spawnCwd, inheritFd: root.inheritFd, timeoutMs: timeoutOf(env) }); } finally { await root.close(); }
   // (Each path as the one asked for: Claude Code's wNr.)
-  let lines = (mode === "content" ? contentLines(run.lines, { contextBreaks: [a.context, a["-C"], a["-B"], a["-A"]].some((x) => typeof x === "number" && x > 0), onlyMatching: a["-o"] === true }) : nullEntries(run.lines, mode)).map((l) => askedPath(l, root));
-  // READ DENY RULES AND .git, BEFORE THE PAGE IS CUT: a line, path or count of a file they cover is left out.
+  let lines = (mode === "content" ? contentLines(run.lines, { contextBreaks: [a.context, a["-C"], a["-B"], a["-A"]].some((x) => typeof x === "number" && x > 0), onlyMatching: a["-o"] === true }) : nullEntries(run.lines, mode)).map((l) => shownAsAsked(askedPath(l, root)));
+  // READ DENY RULES, BEFORE THE PAGE IS CUT: a line, path or count of a file they cover is left out.
   const denied = denyCheck(env.deny);
   const pathOf = (l) => (mode === "content" ? (l === "--" ? null : l.slice(0, Math.max(0, l.indexOf("\u0000")))) : mode === "count" ? l.slice(0, Math.max(0, l.lastIndexOf(":"))) : l);
   const before = lines.length;
-  lines = lines.filter((l) => { const p = pathOf(l); return p === null || !(inGit(p) || (denied && denied(p))); });
+  lines = lines.filter((l) => { const p = pathOf(l); return p === null || !(denied && denied(p)); });
   if (lines.length !== before) lines = lines.filter((l, k, all) => l !== "--" || (k > 0 && k < all.length - 1 && all[k - 1] !== "--"));
   // SORTED BY FILE PATH (Claude Code 2.1.327: "content and count results are now sorted by file path"), so paging with
   // offset and head_limit carries on where the last page stopped. A file's own lines keep their order; a "--" goes with
@@ -743,8 +751,9 @@ export async function globTool(args, env) {
   let dir0, own = false;
   if (isAbsolute(pattern)) { const s = splitPattern(pattern); if (s.baseDir) { dir0 = fullPath(s.baseDir, base); pattern = s.relativePattern; own = true; } }
   if (!own) dir0 = typeof a.path === "string" && a.path ? fullPath(a.path, base) : base;
-  // (Coder's own rule, kept: inside the project, never in .git.)
+  // (Coder's own rule, kept: inside the project. A folder in .git is listed, as Claude Code's Glob does: M-a-33.)
   const { abs: dir } = await env.inside(dir0);
+  const shownAsAsked = asAsked(dir0, dir);
   // `path` ITSELF CHECKED when it is the folder searched (Claude Code's UPr): "Directory does not exist: …", "Path is not a
   // directory: …".
   if (typeof a.path === "string" && a.path && dir0 === fullPath(a.path, base)) {
@@ -769,15 +778,15 @@ export async function globTool(args, env) {
     pattern = r === "" || r === ".." || r.startsWith("../") || isAbsolute(r) ? pattern.slice(1) : "/" + r + pattern;
   }
   // RIPGREP'S ARGUMENTS (Claude Code's CPr): the files, oldest first, gitignored and hidden ones too unless the environment
-  // says otherwise; Read deny rules left out; .git never (Coder's).
+  // says otherwise; Read deny rules left out; .git listed like any hidden folder, as Claude Code's Glob does (M-a-33).
   const rg = ["--files", "--null", "--glob", pattern, "--sort=modified", ...(env.noIgnore !== false ? ["--no-ignore"] : []), ...(env.hidden !== false ? ["--hidden"] : [])];
   const globs0 = rootDenyGlobs(env.deny, root);
   for (const g of globs0) rg.push("--iglob", g);
-  rg.push("--glob", "!.git");
+  rg.push(...gitFolderGlobs(dir0, dir));
   let run;
   try { denyGlobsAgain(env.deny, root, dir, globs0); run = await runRipgrep(rg, root.target, { cwd: root.spawnCwd, inheritFd: root.inheritFd, timeoutMs: timeoutOf(env) }); } finally { await root.close(); }
-  // (Each path as the one asked for, Claude Code's Jia; nothing in .git, whatever the pattern: Coder's.)
-  const found = nullEntries(run.lines, "files_with_matches").map((p) => askedPath(p, root)).filter((p) => !inGit(p));
+  // (Each path as the one asked for, Claude Code's Jia.)
+  const found = nullEntries(run.lines, "files_with_matches").map((p) => shownAsAsked(askedPath(p, root)));
   // THE CAP, PAST READ DENY RULES (Claude Code's CPr: with deny rules, files are judged in order until 100 are kept, so the
   // count past them is only a floor).
   const denied = denyCheck(env.deny);

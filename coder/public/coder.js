@@ -1288,7 +1288,9 @@
       ...(S.project.compactOff ? [] : [['sumfrom', 'Summarize from here'], ...(first ? [] : [['sumupto', 'Summarize up to here']])])];
     // (A read-only repository's undo stays on Coder's machine: nothing goes to GitHub there. Live test, 2026-11-13.)
     const kept = S.project.readOnly ? 'kept on Coder\'s machine (you can\'t push to this repository, so nothing goes to GitHub)' : 'on the branch, never deleted from GitHub';
-    const pick = given || await askPick('Rewind to this message?', (noCode ? 'You sent this message while Coder was working, so it has no code checkpoint of its own (No code restore): only the chat can go back. To restore the code from that turn, rewind to the message that started it. ' : changed ? (exact ? 'Restoring the code puts back the files Coder\'s file tools changed, as they were before you sent it; files only commands changed stay as they are. It is undone with a new commit ' + kept + '. ' : 'Restoring goes back to how things were before you sent it. Code changes are undone with new commits ' + kept + '. ') : exact && commits.some((c) => Number(c.turn) >= turn) ? 'Only commands changed files after this message, and those stay as they are, so only the chat can go back. ' : 'No job changed files after this message, so only the chat can go back. ') + 'Summarizing turns that part of the conversation into a summary for Coder, to free room; files stay as they are and the chat still shows everything.', choices);
+    // (Claude Code's checkpoints, batch 6, M-a-08: "Rewinding puts the files back on the disk and makes no commit".)
+    const keptFiles = S.project.readOnly ? 'They are put back on Coder\'s machine with no new commit (you can\'t push to this repository, so nothing goes to GitHub). ' : 'They are put back on Coder\'s machine with no new commit, as Claude Code\'s checkpoints do; your next message\'s save takes them to the branch. ';
+    const pick = given || await askPick('Rewind to this message?', (noCode ? 'You sent this message while Coder was working, so it has no code checkpoint of its own (No code restore): only the chat can go back. To restore the code from that turn, rewind to the message that started it. ' : changed ? (exact ? 'Restoring the code puts back the files Coder\'s file tools changed, as they were before you sent it; files only commands changed stay as they are. ' + keptFiles : 'Restoring goes back to how things were before you sent it. Code changes are undone with new commits ' + kept + '. ') : exact && commits.some((c) => Number(c.turn) >= turn) ? 'Only commands changed files after this message, and those stay as they are, so only the chat can go back. ' : 'No job changed files after this message, so only the chat can go back. ') + 'Summarizing turns that part of the conversation into a summary for Coder, to free room; files stay as they are and the chat still shows everything.', choices);
     if (!pick || !S.project) return;
     let body;
     if (pick === 'sumfrom' || pick === 'sumupto') {
@@ -1346,10 +1348,11 @@
     draw();
   }
   // SEVERAL REPOSITORIES IN ONE CHAT (2026-11-06, like Claude Code): up to 3 more,
-  // added or taken away before the first message.
+  // taken away only before the first message; added between messages too (batch 6, M-d-48: Claude Code adds a repository
+  // to a session that is already going).
   async function loadAllRepos() {
     if (GLOOPY) return;
-    if (S.allRepos || !S.project || S.project.turn) return;
+    if (S.allRepos || !S.project) return;
     const r = await call('/github/repos');
     S.allRepos = ((r.data && r.data.repos) || []).map((x) => x.repo).filter(Boolean);
     draw();
@@ -3930,8 +3933,9 @@
   }
   // THE "/" LIST, LIKE CLAUDE CODE'S (the owner, 2026-11-15: "make sure the list comes up when i press it"): typing / at the
   // start of the box lists Coder's commands with a line each; ↑↓ to move, Enter or Tab or a click to pick, Esc to close.
-  // (/btw, /init and /review: Claude Code's, round 6, 2026-11-21. /autocompact: Claude Code's, 2026-11-21, per chat here.)
-  const SLASH = [['/autocompact', 'Set the auto-compact window: auto, or a size such as 500k'], ['/btw', 'Ask a side question without adding to the conversation'], ['/compact', 'Shrink this chat into a short summary (add what to keep after it)'], ['/effort', 'Set the effort level for the model'], ['/init', 'Create or update CLAUDE.md for this repository'], ['/model', 'Set the AI model for this chat'], ['/permissions', 'Choose the mode: Auto, Accept edits or Plan', ['allowed-tools']], ['/review', 'Review the changes on this branch', ['code-review']], ['/rewind', 'Go back to an earlier message', ['checkpoint', 'undo']]];
+  // (/btw, /init and /review: Claude Code's, round 6, 2026-11-21. /autocompact: Claude Code's, 2026-11-21, per chat here.
+  // /clear with its other names /reset and /new: Claude Code's, batch 6, MISS-61; the Worker empties what Coder reads.)
+  const SLASH = [['/autocompact', 'Set the auto-compact window: auto, or a size such as 500k'], ['/btw', 'Ask a side question without adding to the conversation'], ['/clear', 'Start a new conversation with empty context', ['reset', 'new']], ['/compact', 'Shrink this chat into a short summary (add what to keep after it)'], ['/effort', 'Set the effort level for the model'], ['/init', 'Create or update CLAUDE.md for this repository'], ['/model', 'Set the AI model for this chat'], ['/permissions', 'Choose the mode: Auto, Accept edits or Plan', ['allowed-tools']], ['/review', 'Review the changes on this branch', ['code-review']], ['/rewind', 'Go back to an earlier message', ['checkpoint', 'undo']]];
   // As Claude Code's / list: from the start of a name, of a word inside it, or of one of its other names; '-', '_' and ':' ignored.
   // THE REPOSITORY'S SKILLS (Claude Code's "/skill-name"; the machine names them at each message): after Coder's own commands.
   function skillsSlash() {
@@ -4696,8 +4700,8 @@
         (S.project && !S.project.turn && S.branches && S.branches.length && !S.running
           ? '<label class="cd-pick cd-pick-branch" title="Starting branch (picked before the first message)">' + ICON.branch + '<select id="cdBaseSel" aria-label="Starting branch">' + S.branches.map((b) => '<option value="' + esc(b) + '"' + (b === S.project.base ? ' selected' : '') + '>' + esc(b) + '</option>').join('') + '</select></label>'
           : '') +
-        (S.project && !S.project.turn && !S.running && S.allRepos && S.allRepos.length > 1 && (S.project.repos || []).length < 3
-          ? '<label class="cd-pick cd-pick-repo" title="Add another repository to this chat (before the first message)">' + ICON.gh + '<select id="cdAddRepo" aria-label="Add a repository"><option value="">+ Repository</option>' + S.allRepos.filter((r) => r !== S.project.repo && !(S.project.repos || []).some((x) => x.repo === r)).map((r) => '<option value="' + esc(r) + '">' + esc(r) + '</option>').join('') + '</select></label>'
+        (S.project && !S.running && !S.ending && !S.rewinding && !S.project.parked && S.allRepos && S.allRepos.length > 1 && (S.project.repos || []).length < 3
+          ? '<label class="cd-pick cd-pick-repo" title="Add another repository to this chat (the next message opens it)">' + ICON.gh + '<select id="cdAddRepo" aria-label="Add a repository"><option value="">+ Repository</option>' + S.allRepos.filter((r) => r !== S.project.repo && !(S.project.repos || []).some((x) => x.repo === r)).map((r) => '<option value="' + esc(r) + '">' + esc(r) + '</option>').join('') + '</select></label>'
           : '') +
         (S.project && (S.project.repos || []).length
           ? S.project.repos.map((x) => '<span class="cd-repo-chip" title="Also in this chat, on its branch">' + esc(x.repo) + (!S.project.turn && !S.running ? '<button type="button" data-unrepo="' + esc(x.repo) + '" aria-label="Take ' + esc(x.repo) + ' out of this chat">×</button>' : '') + '</span>').join('')

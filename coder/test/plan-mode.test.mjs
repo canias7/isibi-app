@@ -517,7 +517,7 @@ test("PM16 the Worker hands the owner's plan edit to the machine; the page: the 
   assert.match(routes, /post\("\/answer", \{ project: id, pid: String\(body\.pid \|\| ""\), choice: String\(body\.choice \|\| ""\), comment: [^\n]*\.\.\.\(typeof body\.plan === "string" \? \{ plan: body\.plan\.slice\(0, 200_000\) \} : \{\}\) \}\)/);
   const server = read("container/server.mjs");
   assert.match(server, /\.\.\.\(typeof body\.plan === "string" && \(choice === "auto" \|\| choice === "acceptEdits"\) \? \{ plan: body\.plan\.slice\(0, 200_000\) \} : \{\}\)/);
-  assert.match(server, /CODER_MEMORY_FILE: memFile, \.\.\.\(planBox && planBox\.current\(\) \? \{ CODER_PLAN_FILE: planBox\.current\(\) \} : \{\}\), CODER_SEEN_DIR/);
+  assert.match(server, /CODER_MEMORY_FILE: memOn \? memFile : "", \.\.\.\(planBox && planBox\.current\(\) \? \{ CODER_PLAN_FILE: planBox\.current\(\) \} : \{\}\), CODER_SEEN_DIR/);
   const page = read("public/coder.js");
   assert.match(page, /if \(e\.tool === 'plan' && e\.withheld\) return \[\['no', 'No, keep planning'\]\];/);
   assert.match(page, /<p class="cd-perm-desc">Coder wants to exit plan mode<\/p>/);

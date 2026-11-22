@@ -385,7 +385,7 @@ test("CD110 the machine's proxy hands a keyed request to the Worker with this jo
   } finally { await px.close(); eg.close(); }
 });
 
-test("CD111 several repositories in one chat, like Claude Code: up to 3 more, added before the first message; each in its own folder, reachable by the tools, saved to the chat's branch, with its own pull request", async () => {
+test("CD111 several repositories in one chat, like Claude Code: up to 3 more, added before the first message or between messages; each in its own folder, reachable by the tools, saved to the chat's branch, with its own pull request", async () => {
   const { handleCoder, extraFor } = await import("../src/coder-routes.mjs");
   const { saveConnection } = await import("../src/coder-github.mjs");
   const { extraRepos, extrasNote } = await import("../container/server.mjs");
@@ -415,7 +415,9 @@ test("CD111 several repositories in one chat, like Claude Code: up to 3 more, ad
   assert.deepEqual(extraFor(less.project), [{ repo: "ana/api", base: "develop", branch: "coder/" + id }, { repo: "ana/w1", base: "main", branch: "coder/" + id }], "each on the chat's branch");
   const key = "coder/" + uid + "/" + id + "/meta.json";
   await bucket.put(key, JSON.stringify({ ...JSON.parse(bucket.m.get(key)), turn: 1 }));
-  assert.equal((await add("ana/w2")).status, 409, "fixed after the first message");
+  // (Batch 6, M-d-48, as Claude Code: added between messages too; taken away only before the first message.)
+  assert.equal((await add("ana/w2")).status, 200, "added between messages too");
+  assert.equal((await go("projects/" + id + "/repos?repo=ana%2Fw2", { method: "DELETE" })).status, 409, "not taken away after the first message");
   // The machine: only plain names, at most 3; Coder is told where each one is.
   assert.deepEqual(extraRepos({ extra: [{ repo: "ana/api", base: "develop", branch: "coder/x" }, { repo: "../etc", branch: "coder/x" }, { repo: "a/b", branch: "coder/../x" }, { repo: "a/c", branch: "coder/x" }, { repo: "a/d", branch: "coder/x" }, { repo: "a/e", branch: "coder/x" }] }).map((x) => x.repo), ["ana/api", "a/c", "a/d"]);
   assert.match(extrasNote([{ repo: "ana/api", base: "develop", dir: "/work/shop-m1-x1" }]), /THIS CHAT'S OTHER REPOSITORIES[\s\S]*- ana\/api in \/work\/shop-m1-x1 \(from develop\)[\s\S]*pull_request with its repo/);

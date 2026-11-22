@@ -40,7 +40,9 @@ test("CD566 PowerShell's script is Claude Code's (2.1.323): its line before the 
 test("CD567 Rewind's box in a read-only chat says the undo stays on Coder's machine, not on GitHub", () => {
   const ui = read("public/coder.js");
   assert.match(ui, /const kept = S\.project\.readOnly \? 'kept on Coder\\'s machine \(you can\\'t push to this repository, so nothing goes to GitHub\)' : 'on the branch, never deleted from GitHub';/);
-  assert.match(ui, /It is undone with a new commit ' \+ kept \+ '\. '/);
+  // (Since batch 6, M-a-08, Restore code makes no commit, as Claude Code's checkpoints; the read-only chat's box still says
+  // nothing goes to GitHub.)
+  assert.match(ui, /const keptFiles = S\.project\.readOnly \? 'They are put back on Coder\\'s machine with no new commit \(you can\\'t push to this repository, so nothing goes to GitHub\)\. '/);
   assert.match(ui, /Code changes are undone with new commits ' \+ kept \+ '\. '/);
   assert.doesNotMatch(ui, /It is undone with a new commit on the branch, never deleted from GitHub/);
 });

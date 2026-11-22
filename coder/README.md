@@ -330,8 +330,13 @@ code in **each user's own GitHub**.
      one gets "Error: No such tool available: grep"; they stay in `CODER_TOOLS` for
      Gloopy, agent hooks get them (`SEARCH_TOOLS`), and runCoder's `searchTools`
      (Claude Code's `--tools` naming them) brings them back. Kept, the
-     owner's choice: nothing outside the project and the owner's working folders,
-     nothing in `.git`. Since round 3 (2026-11-14) ripgrep runs inside the folder
+     owner's choice: nothing outside the project and the owner's working folders.
+     `.git` as Claude Code's own tools treat it (batch 6, M-a-33, tried on its real
+     Grep and Glob): grep leaves the version-control folders out of a search of the
+     folders around them (a glob of the call's own such as `*` takes them back), and
+     searches a path inside `.git` it is given; glob lists `.git` like any hidden
+     folder. A chat's `.git` is a gitfile, followed to its own git folder as the read
+     tool follows it, paths shown as `.git/...`, nothing named for credentials. Since round 3 (2026-11-14) ripgrep runs inside the folder
      searched (Claude Code's `/proc/self/fd/N` and "."), so a pattern with a folder in
      it works in a subfolder; a folder Coder can't open or enter gets Claude Code's
      error; what the permission check saw of the path's links is checked again before
@@ -941,6 +946,20 @@ Claude Code's cloud words, as GitHub's JSON so `gh` shows them); GitHub's GraphQ
 `gh api repos/{owner}/{repo}/...`; a job started from GitHub may only read. The
 commands see `GH_TOKEN` and `GITHUB_TOKEN` as `proxy-injected`, as on Claude
 Code's machine, unless the owner set their own in the environment's variables.
+
+**What `gh` may change, and what guards it** (audit I45, "Go Claude Code way",
+2026-11-22). The own-branch, no-delete, no-tag rule above covers **git pushes
+only**. `gh`'s API requests on the chat's own repositories go on with the owner's
+login and nothing limits what they change, exactly as Claude Code's GitHub proxy
+("the proxy serves GitHub API requests for the repositories attached to the
+session"): within the GitHub App's rights a command can delete or move another
+branch, make a tag or a release, or merge a pull request. Claude Code's docs
+name the guard: "use branch protection rules or rulesets on GitHub" ("GitHub
+decides which branches a session can update by applying your repository's
+branch protection rules and rulesets"). So turn on branch protection (or a
+ruleset) for `main` on GitHub. Auto-fix still refuses a pull request whose own
+branch is the default branch, in Claude Code's `/autofix-pr` words ("cannot run
+on the default branch").
 
 **Read-only repositories** (owner, 2026-11-07, item 5; like Claude Code, whose
 docs say "a session can clone any public repository" and pushes back "only when
@@ -1838,7 +1857,12 @@ everything in Bash not tried live before. Tests: `test/round3.test.mjs`.
     private_dest_ip`) and no note; a repository the chat doesn't have, in its
     GitHub proxy's sentence (`REPO_NOT_ENABLED`, `API_PATH_NOT_AVAILABLE` in
     `coder-secrets.mjs`; Coder's AI has no add_repo, so the owner's
-    "+ Repository" is named), test CD512.
+    "+ Repository" is named), test CD512. Since batch 6 (M-d-48) the owner can
+    add a repository between messages too, not only before the first one, as
+    Claude Code adds one to a session that is already going: the next job opens
+    it next to the others; it is refused while Coder works, waits on a card or
+    rewinds (`REPO_ADD_BUSY`), and taking one away stays before the first message
+    (`REPO_REMOVE_LATE`).
 
 **Round 4: Claude Code's command-line version next to round 3** (owner,
 2026-11-11: "yes Haiku", then "yes copy all of them"). Claude Code 2.1.322, in
@@ -2542,6 +2566,18 @@ characters (`TRANSCRIPT_MAX`). Grok's request limit (30 MB, `MODEL_BODY_MAX`) is
 unchanged. The page loads a chat's steps (`events.json`), never its conversation.
 Gloopy's chats, summaries and saved chat are as before.
 
+`/clear` (also `/reset` and `/new`, Claude Code's names; batch 6, MISS-61) starts a
+fresh conversation with empty context in the same chat, as Claude Code's does in a
+cloud session: the Worker (`isClearCmd`) empties what Coder reads (`messages.json`),
+keeps the earlier conversation beside it (`cleared-<time>.json`, never deleted, as
+Claude Code keeps a cleared conversation to resume), leaves the shown history above a
+grey line (`CLEARED_NOTE`) and starts the Rewind list again (`marks`). No Grok call and
+no machine: the machine, its files, the branch and the memory stay as they are. Sent
+while Coder works it waits as a command; with pictures, files or line comments it is
+refused. The next job (`sessionClear`, then `cleared` to the machine) runs the
+SessionEnd hooks with reason `clear` and the SessionStart ones with source `clear`
+(Claude Code runs them at the /clear itself; Coder's machine may be asleep then).
+
 `/compact [what to keep]` makes the whole conversation one summary, as a job on
 the chat's machine that Coder does not answer, so its PreCompact, PostCompact and
 SessionStart hooks run (round 5). Rewind offers Claude Code's choices: Restore code and chat, chat only,
@@ -2554,6 +2590,16 @@ or the repository's `fileCheckpointingEnabled: false` (`CODER_FILE_CHECKPOINTING
 whichever turns them off, the other can't turn them back on (`checkpointsOn`). Such a job
 notes no files and says `checkpointsOff`, so its commit tracks nothing and Rewind offers no
 code to restore for it (`commitTracking`).
+The instruction files and the memory can be switched off as Claude Code's (batch 6, MISS-69),
+in the environment or the repository's settings: `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`
+(`CODER_DISABLE_AUTO_MEMORY`) or the repository's `autoMemoryEnabled: false`
+(`CODER_AUTO_MEMORY_ENABLED`) turn the memory off, and the variable's `0` forces it on
+over the key (`memoryOn`); `CLAUDE_CODE_DISABLE_CLAUDE_MDS=1` (`CODER_DISABLE_CODER_MDS`)
+loads no instruction file (CODER.md, CLAUDE.md, AGENTS.md, rules, a subfolder's) and no
+memory (`instructionsOn`). With memory off the job writes no MEMORY.md on the machine, tells
+Coder nothing of it (nor the style lines kept in it) and sends no memory back, so the
+Worker's saved copy stays exactly as it was. Gloopy's notes are not affected. Claude Code's
+`autoMemoryDirectory` is not read: Coder's memory is kept by the Worker, per repository.
 Since 2026-11-13 Restore code puts back only the files Coder's file tools changed, like
 Claude Code's checkpoints ("A file that only Bash commands changed isn't tracked and stays
 as it is"): each job's result names the files its write and edit changed (`edited`), kept
@@ -2564,10 +2610,17 @@ machine's `/restore` (`restoreTracked`) puts each tracked file back as it was be
 message, or, for one first changed after it, as it was before the job that first changed
 it, so a command's later change to a tracked file is undone too, and a file the tools made
 is removed; a link, a hard-linked file, one under a link or where a folder was is skipped
-with Claude Code's warning ("Restored the code, but skipped N files: …"). One commit with
-the chat's link, saved to the branch, never a force push (in a read-only chat, kept on
-Coder's machine, and the Rewind box says so, CD567); Coder is told which files went
-back. A chat with jobs from before then reverts the later jobs whole, as before. Tests:
+with Claude Code's warning ("Restored the code, but skipped N files: …"). Since batch 6
+(M-a-08, "Go Claude Code way"; Claude Code's checkpoints: "Rewinding puts the files back
+on the disk and makes no commit") there is no commit and no push: the files are back on
+Coder's machine and the next message's save takes them to the branch in that job's own
+commit (`restoreKept`; the Rewind box and the chat line say so). The machine answers
+what each restored file is now (`prior`: a blob it keeps in its git store, or null for
+one removed); the Worker keeps that on the chat (`restoredPrior`) and puts it on the next
+job's first commit, so a later Rewind to before that job puts those files back as the
+restore left them (`restorePlan`'s `blob` and `gone` items), not as the commit's parent
+had them. Until then GitHub still shows the later jobs, as with Claude Code. Coder is
+told which files went back. A chat with jobs from before then reverts the later jobs whole, as before. Tests:
 `test/rewind-restore.test.mjs`.
 
 **Notifications, like Claude Code's** (owner, 2026-11-07, item 8; its mobile and

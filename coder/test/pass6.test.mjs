@@ -252,7 +252,7 @@ test("CD390 the write block (outside Bash; Claude Code's permissions.blockWrites
   // The machine turns it on from the environment's variable, and gives Coder its memory file.
   const server = readFileSync(new URL("../container/server.mjs", import.meta.url), "utf8");
   assert.match(server, /writeBlock: varOn\(rawVars\.CODER_BLOCK_WRITES_OUTSIDE_WORKING_DIRECTORIES\)/);
-  assert.match(server, /ownDirs: \[bgDir, outDir\],\n[^\n]*\n\s+memFile,\n/);
+  assert.match(server, /ownDirs: \[bgDir, outDir\],\n[^\n]*\n[^\n]*\n\s+memFile: memOn \? memFile : "",\n/);
 });
 
 test("CD391 the working folders' own instructions (Claude Code's CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD, here CODER_ADDITIONAL_DIRECTORIES_CODER_MD): each folder's CODER.md, .coder/CODER.md and its rules with no paths load, named by full path; never its AGENTS.md, path rules or subfolders' files; off by default", async () => {

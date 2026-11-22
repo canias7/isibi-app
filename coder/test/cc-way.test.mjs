@@ -37,7 +37,7 @@ test("CC1 a command holding a secret gets only a one-time Yes, and the secret is
 
 test("CC3 the read tool opens files in .git, as Claude Code's Read; writes there are still refused", async () => {
   const src = read("container/coder-tools.mjs");
-  assert.match(src, /const gitGuard = tool !== "read";/);
+  assert.match(src, /const gitGuard = tool !== "read" && tool !== "search";/);
   // (Run for real in file-rules.test.mjs: read .git/config and .git/HEAD; write and edit there refused.)
   assert.doesNotMatch(src, /\n  if \(rel\.split\(sep\)\[0\] === "\.git"\) fail/);
 });

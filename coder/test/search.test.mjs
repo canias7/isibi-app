@@ -136,8 +136,10 @@ test("SR3 Grep's three modes as Claude Code gives them: paths newest first by de
   assert.equal((await grep(d, { pattern: "TODO second\\ny", multiline: true, output_mode: "content" })).text, "src/b.js:2:TODO second\nsrc/b.js:3:y");
   writeFileSync(join(d, "dash.txt"), "-v here\n");
   assert.equal((await grep(d, { pattern: "-v here" })).text.split("\n")[1], "dash.txt");
-  // .git never, even when a glob of the call's own would take it back.
-  assert.doesNotMatch((await grep(d, { pattern: "in git", glob: "*" })).text, /\.git/);
+  // .git left out of a search of the folders around it; a glob of the call's own such as "*" takes it back, exactly as
+  // Claude Code's own Grep does (batch 6, M-a-33, tried on its real tool 2026-11-22: "*" listed .git/HEAD and .hg/x).
+  assert.doesNotMatch((await grep(d, { pattern: "in git" })).text, /\.git/);
+  assert.match((await grep(d, { pattern: "in git", glob: "*" })).text, /\.git\//);
 });
 
 test("SR4 Grep's long and binary lines and its errors in Claude Code's words: a rejected pattern, a missing path (with where the commands are), Coder's own refusals kept, and a result object for the hooks", { skip: !hasRg }, async () => {
@@ -199,14 +201,15 @@ test("SR5 Claude Code's runner on a search that stops or fails: its partial resu
   assert.equal(S.timedOutText(20_000), "Ripgrep search timed out after 20 seconds. The search may have matched files but did not complete in time. Try searching a more specific path or pattern.");
 });
 
-test("SR6 Glob as Claude Code gives it: oldest first, gitignored and hidden files listed (never .git, Coder's), 100 at most with its note, a slash-less pattern at any depth, a full pattern searched from its own folder, ~ in path, the repeated-folder rule, its path errors", { skip: !hasRg }, async () => {
+test("SR6 Glob as Claude Code gives it: oldest first, gitignored and hidden files listed (.git too, as Claude Code's, batch 6), 100 at most with its note, a slash-less pattern at any depth, a full pattern searched from its own folder, ~ in path, the repeated-folder rule, its path errors", { skip: !hasRg }, async () => {
   const d = project();
   let r = await glob(d, { pattern: "*.js" });
   assert.equal(r.text, "a.js\nsrc/deep/c.js\nsrc/b.js\nnode_modules/pkg/i.js");
   assert.deepEqual(Object.keys(r.facts), ["filenames", "durationMs", "numFiles", "truncated", "totalMatches", "countIsComplete"]);
   assert.deepEqual([r.facts.numFiles, r.facts.truncated, r.facts.totalMatches, r.facts.countIsComplete], [4, false, 4, true]);
-  assert.equal((await glob(d, { pattern: "**/HEAD" })).text, "No files found", ".git is never listed");
-  assert.equal((await glob(d, { pattern: "*" })).text.split("\n").filter((p) => p.startsWith(".git/")).length, 0);
+  // (.git listed like any hidden folder, as Claude Code's own Glob lists it: batch 6, M-a-33, tried on its real tool.)
+  assert.equal((await glob(d, { pattern: "**/HEAD" })).text, ".git/HEAD");
+  assert.ok((await glob(d, { pattern: "*" })).text.split("\n").filter((p) => p.startsWith(".git/")).length > 0);
   assert.match((await glob(d, { pattern: "*" })).text, /^a\.js\n/);
   assert.equal((await glob(d, { pattern: "*.JS" })).text, "No files found", "case-sensitive");
   assert.equal((await glob(d, { pattern: "src/*.js" })).text, "src/b.js");

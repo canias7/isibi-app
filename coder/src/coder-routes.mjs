@@ -192,13 +192,21 @@ export const QUEUE_MAX = 20;
 /** The owner's /compact, which waits in line as a command does (audit M-b-24). */
 export const isCompactCmd = (t) => /^\/compact(?:\s|$)/i.test(String(t || "").trim());
 /**
+ * THE OWNER'S /clear, AND ITS OTHER NAMES /reset AND /new (batch 6, MISS-61; Claude Code's: "Start a new conversation with
+ * empty context", which in a cloud session "Starts a fresh conversation with empty context in the same cloud session"). It
+ * waits in line as a command does while Coder works.
+ */
+export const isClearCmd = (t) => /^\/(clear|reset|new)(?:\s|$)/i.test(String(t || "").trim());
+/** The line the chat shows where the conversation was cleared (the shown history above it stays). */
+export const CLEARED_NOTE = "/clear · Started a new conversation with empty context. Coder's machine, its files and the branch stay as they are, and so does the memory.";
+/**
  * QUEUE FOR LATER (audit M-d-12, "Go Claude Code way", 2026-11-22; Claude Code on the web sends a message with "Queue for
  * later", and its 2.1.321 "Fixed a Remote Control message sent with "Queue for later" reaching Claude in the middle of the
  * running turn"): the page's Ctrl+Enter while Coder works. Such a message waits until the job is over and is never handed to
  * the running job; a plain Enter is read in the same turn, as before. Only a message: a `!` command and a /compact wait for
  * the job's end anyway.
  */
-export const laterOf = (body, shell, said) => !!body && body.later === true && shell === null && !isCompactCmd(said);
+export const laterOf = (body, shell, said) => !!body && body.later === true && shell === null && !isCompactCmd(said) && !isClearCmd(said);
 const newQid = () => "q" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 /** The first of what waits to go out when a turn ends: a `!` command alone, or the messages up to the next one (Claude Code: queued commands "run one at a time", messages go out "in the order you typed them"). */
 export function nextQueued(queue) {
@@ -957,6 +965,10 @@ export function queuedMarks(events, messages, meta) {
   }
   return out;
 }
+/** Adding a repository while Coder works (batch 6, M-d-48): it is opened by the next job, so not in the middle of one. */
+export const REPO_ADD_BUSY = "Coder is still working: add the repository once it is done.";
+/** Taking one away after the first message (batch 6, M-d-48): as Claude Code, a repository stays in the session once added. */
+export const REPO_REMOVE_LATE = "a repository can't be taken out of this chat after its first message; start a new chat without it";
 /** What Rewind says to a code restore asked of a message sent while Coder worked (audit M-a-16, as Claude Code guides). */
 export const NO_CODE_RESTORE = "This message was sent while Coder was working, so it has no code checkpoint of its own (No code restore). To restore the code from that turn, rewind to the message that started it.";
 /**
@@ -1165,9 +1177,24 @@ export function restorePlan(commits, turn) {
   if (!cs.every((c) => Array.isArray(c.edited))) return null;
   const first = new Map();
   for (const c of cs) for (const p of c.edited) if (!first.has(p)) first.set(p, c);
-  const items = [...first].map(([path, c]) => ({ path, before: Number(c.turn) >= turn ? c.sha : later[0].sha }));
+  // (A file an earlier restore put back without a commit, as Claude Code's checkpoints do (batch 6, M-a-08), was as that
+  // restore left it when the job began, not as in the job's parent commit: its saved copy (`prior`, a blob, or null when the
+  // restore removed it) is the content to go back to.)
+  const items = [...first].map(([path, c]) => {
+    const at = Number(c.turn) >= turn ? c : later[0];
+    const pr = at.prior && typeof at.prior === "object" && Object.hasOwn(at.prior, path) ? at.prior[path] : undefined;
+    if (pr === null) return { path, gone: true };
+    if (pr && typeof pr === "object" && /^[0-9a-f]{40,64}$/.test(String(pr.blob || ""))) return { path, blob: pr.blob, mode: pr.mode === "100755" ? "100755" : "100644" };
+    return { path, before: at.sha };
+  });
   return { later, items };
 }
+/**
+ * WHERE RESTORED CODE GOES (batch 6, M-a-08, as Claude Code's checkpoints: "Rewinding puts the files back on the disk and makes
+ * no commit"): the files are back on Coder's machine with no new commit and nothing pushed; the next message's save takes them
+ * to the branch with its own commit (a read-only chat keeps them on the machine).
+ */
+export const restoreKept = (readOnly) => (readOnly ? "kept on Coder's machine, not committed" : "not committed: your next message's save takes it to the branch");
 /** Claude Code's warning for the files a code restore skipped (2.1.323), naming them, as the chat can show them. */
 export const RESTORE_SKIP_WHY = "the tracked path is (or became) a link or other non-regular file, its directory changed since the checkpoint, or its backup could not be safely read";
 /** Every file skipped, none put back: a failure, as Claude Code says it (its backups stay, so Rewind can be tried again). */
@@ -1868,7 +1895,7 @@ export async function handleCoder(request, env, ctx, deps) {
         const twin = mid ? queue.find((q) => q && q.mid === mid) : null;
         if (twin) return json({ ok: true, queued: true, qid: twin.qid, queue, project: meta });
         if (queue.length >= QUEUE_MAX) return json({ error: QUEUE_MAX + " messages are already waiting for Coder. Wait for it to read them." }, 429);
-        const entry = { qid: newQid(), text: said, at: Date.now(), ...(shell !== null ? { shell: true } : {}), ...(isCompactCmd(said) ? { cmd: "compact" } : {}), ...(laterOf(body, shell, said) ? { later: true } : {}), ...(mid ? { mid } : {}) };
+        const entry = { qid: newQid(), text: said, at: Date.now(), ...(shell !== null ? { shell: true } : {}), ...(isCompactCmd(said) ? { cmd: "compact" } : isClearCmd(said) ? { cmd: "clear" } : {}), ...(laterOf(body, shell, said) ? { later: true } : {}), ...(mid ? { mid } : {}) };
         const waiting = [...queue, entry];
         await putJson(bucket, keyOf(uid, id, "queue.json"), waiting);
         // (Queued for later: kept from the running job, as a command is, and sent when it ends.)
@@ -1923,7 +1950,7 @@ export async function handleCoder(request, env, ctx, deps) {
           return r2 && r2.status === 200 ? json({ ...got, queue: left, reload: true }) : json({ ...got, closed: closedShown }, r2 ? r2.status : 502);
         }
       } else if (waitingOn) {
-        const queueable = !review && !wake && body.fromGithub !== true && body.autofix !== true && !notes && !pics.images.length && !att.files.length && !!said && !/^\/compact\b/i.test(said);
+        const queueable = !review && !wake && body.fromGithub !== true && body.autofix !== true && !notes && !pics.images.length && !att.files.length && !!said && !/^\/compact\b/i.test(said) && !isClearCmd(said);
         if (!queueable) return json({ error: att.files.length ? "Coder is waiting for your answer on its card: send files once it is done" : pics.images.length || notes ? "Coder is waiting for your answer on its card: send pictures or line comments once it is done" : "Coder is waiting for your answer on its card" }, 409);
         if (waitingOn.kind === "question" && shell === null && !ref) {
           const got = await parkedTake(waitingOn.pid, { choice: "chat", text: said, qid: newQid() });
@@ -1939,6 +1966,29 @@ export async function handleCoder(request, env, ctx, deps) {
           await putJson(bucket, keyOf(uid, id, "queue.json"), waiting);
           return json({ ok: true, queued: true, qid: entry.qid, queue: waiting, project: meta });
         }
+      }
+      // /clear (/reset, /new), CLAUDE CODE'S (batch 6, MISS-61): "Starts a fresh conversation with empty context in the same
+      // cloud session". Nothing goes to Grok and no machine is started: what Coder reads (messages.json) becomes empty, its
+      // earlier conversation is kept beside it (Claude Code keeps it too: "Resume the previous conversation with /resume"), the
+      // shown history stays above a line, and the Rewind list starts again from here. The machine, its files, the branch and
+      // the memory stay as they are. The next job runs the SessionEnd hooks with reason "clear" and the SessionStart ones with
+      // source "clear", as Claude Code's do around a /clear.
+      if (isClearCmd(said) && !review && !wake && body.fromGithub !== true && body.autofix !== true) {
+        if (notes || pics.images.length || att.files.length) return json({ error: "/clear goes on its own: send it without pictures, files or line comments" }, 400);
+        const held = await holdForRewind(bucket, metaKey, meta, "clear");
+        if (!held) return json({ error: REWINDING_SAID, rewinding: true }, 409);
+        try {
+          const fresh = await held.fresh();
+          if (!fresh) return json({ error: MOVED_ON }, 409);
+          const msgs = await getJson(bucket, keyOf(uid, id, "messages.json"), []);
+          if (Array.isArray(msgs) && msgs.length) await putJson(bucket, keyOf(uid, id, "cleared-" + Date.now() + ".json"), msgs);
+          await putJson(bucket, keyOf(uid, id, "messages.json"), []);
+          const events = [...(await getJson(bucket, keyOf(uid, id, "events.json"), [])), { at: Date.now(), type: "note", text: CLEARED_NOTE, cleared: true }].slice(-MAX_EVENTS);
+          await putJson(bucket, keyOf(uid, id, "events.json"), events);
+          const next = { ...fresh, marks: [], sessionClear: true, rewinding: null, at: Date.now() };
+          await saveMeta(bucket, uid, next);
+          return json({ ok: true, cleared: true, project: next, events, reload: true });
+        } finally { await held.release().catch(() => {}); }
       }
       // /compact [what to keep] (like Claude Code's: "Summarizes the conversation to free up context. Accepts
       // optional focus instructions"): the conversation so far becomes one summary for Coder. Made on the chat's machine, as a
@@ -1969,7 +2019,7 @@ export async function handleCoder(request, env, ctx, deps) {
         const twin = mid ? queue.find((q) => q && q.mid === mid) : null;
         if (twin) return json({ ok: true, queued: true, qid: twin.qid, queue, project: now });
         if (queue.length >= QUEUE_MAX) return json({ error: QUEUE_MAX + " messages are already waiting for Coder. Wait for it to read them." }, 429);
-        const entry = { qid: newQid(), text: said, at: Date.now(), ...(shell !== null ? { shell: true } : {}), ...(isCompactCmd(said) ? { cmd: "compact" } : {}), ...(laterOf(body, shell, said) ? { later: true } : {}), ...(mid ? { mid } : {}) };
+        const entry = { qid: newQid(), text: said, at: Date.now(), ...(shell !== null ? { shell: true } : {}), ...(isCompactCmd(said) ? { cmd: "compact" } : isClearCmd(said) ? { cmd: "clear" } : {}), ...(laterOf(body, shell, said) ? { later: true } : {}), ...(mid ? { mid } : {}) };
         const waiting = [...queue, entry];
         await putJson(bucket, keyOf(uid, id, "queue.json"), waiting);
         return json({ ok: true, queued: true, qid: entry.qid, queue: waiting, project: now });
@@ -2082,8 +2132,10 @@ export async function handleCoder(request, env, ctx, deps) {
       // to review comment threads"): only one GitHub's news started the job for; kept for its end.
       const rt = body.autofix === true && body.fromGithub === true && body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null;
       const replyTo = rt && Number.isInteger(rt.pr) && rt.pr > 0 && Array.isArray(rt.ids) ? { pr: rt.pr, ids: rt.ids.filter((x) => Number.isInteger(x) && x > 0).slice(0, 10) } : null;
-      const next = { ...meta, envId, title: meta.title || chatTitle(text), turn: meta.turn + 1, status: "running", at: Date.now(), starting: null, start: claim.id, ...(mid ? { mid } : {}), waiting: null, parked: null, autofixTries: body.autofix === true ? (meta.autofixTries || 0) + 1 : 0, marks, jobFromGithub: body.fromGithub === true, jobReplyTo: replyTo && replyTo.ids.length ? replyTo : null, envMoved: undefined, timing: { got: gotAt }, copyWant: copyOn && !copyWait ? { envId, key: setupKey } : null, asked: takeUp || wake || compactJob || !String(said || "").trim() ? null : { turn: meta.turn + 1, at: gotAt, text: String(shell ? "! " + shell : said).slice(0, 4000) } };
+      const next = { ...meta, envId, title: meta.title || chatTitle(text), turn: meta.turn + 1, status: "running", at: Date.now(), starting: null, start: claim.id, sessionClear: undefined, ...(mid ? { mid } : {}), waiting: null, parked: null, autofixTries: body.autofix === true ? (meta.autofixTries || 0) + 1 : 0, marks, jobFromGithub: body.fromGithub === true, jobReplyTo: replyTo && replyTo.ids.length ? replyTo : null, envMoved: undefined, timing: { got: gotAt }, copyWant: copyOn && !copyWait ? { envId, key: setupKey } : null, asked: takeUp || wake || compactJob || !String(said || "").trim() ? null : { turn: meta.turn + 1, at: gotAt, text: String(shell ? "! " + shell : said).slice(0, 4000) } };
       const wakeOn = wake ? { wake: true } : {}, shellOn = shell ? { shell } : {}, compactOn = compactJob ? { compact: compactJob } : {};
+      // (The first job after a /clear: its clear hooks run on the machine. Batch 6, MISS-61.)
+      const clearOn = meta.sessionClear ? { cleared: true } : {};
       // (A turn taken up again: the paused job's record and the owner's answer, and the messages that waited for its card.)
       // (Not one queued for later: it waits for the turn's end, M-d-12.)
       const takeUpOn = takeUp ? { resume: { ...takeUp.rec, answer: takeUp.ans }, queued: (await queuedP).filter((q) => q && !q.shell && !q.later && typeof q.text === "string").map((q) => ({ qid: q.qid, text: q.text, at: q.at })) } : {};
@@ -2127,7 +2179,7 @@ export async function handleCoder(request, env, ctx, deps) {
       next.timing.asked = Date.now();
       next.timing.w = wt;
       try {
-      r = await post("/turn", { start: claim.id, secrets, egress, live, model: modelNow, extra: extraFor(meta), autoCompactWindow: Number.isInteger(meta.autoCompactWindow) ? meta.autoCompactWindow : 0, ...connOn, project: id, chatUrl: chatLinkOf(env, id), coAuthor: await coAuthorFor(env, bucket, uid, fetchFn), emailMark: emailNow, cwd: typeof meta.cwd === "string" ? meta.cwd : "", mode: noAuto(normMode(meta.mode), saved), prePlanMode: noAuto(saved.mode === "acceptEdits" ? "acceptEdits" : "auto", saved), rules: await rulesOf(bucket, uid, meta.repo), ...sessionRulesOn(meta), ...customTitleOn(meta), ...wakeOn, ...shellOn, ...compactOn, ...takeUpOn, ...bgOn, ...lastAtOn, text: takeUp || wake || shell || compactJob ? "" : review ? review.text.split("BASE_BRANCH").join(meta.base) : (text || blankText) + fileMentions(text), shown: takeUp || wake || shell || compactJob ? "" : body.fromGithub === true && body.autofix !== true && typeof body.shown === "string" && body.shown.trim() ? body.shown.slice(0, 300) : body.autofix === true ? "Auto-fix: " + String((text.split("<<<GITHUB\n")[1] || text.split("\n").filter(Boolean)[1] || "").split("\n")[0]).slice(0, 160) : text || blankText, images: pics.images, ...attachedOn, messages, repo: meta.repo, base: meta.base, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn + 1), fetch: fetchWanted(meta, { fromGithub: body.fromGithub === true, autofix: body.autofix === true, review }), ...(meta.readOnly ? { readOnly: true } : {}), effort: pick.effort, prefs: machinePrefs(saved), hooks: machineHooks(saved), autoMode: machineAutoMode(saved), memory, memoryFiles, setup, github: body.fromGithub === true, away: body.fromGithub !== true && messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0, lastJob: lastJobFor(meta), environment, envMoved: meta.envMoved === true, cache: { make: copyOn && !copyWait, ...(copyWait ? { note: copyWait } : {}) }, ...(next.jobReplyTo ? { replyTo: next.jobReplyTo } : {}) }, useCopy ? { [FROM_COPY]: useCopy.snapshot, [FROM_COPY_GB]: String(Number(useCopy.size) || 0) } : {});
+      r = await post("/turn", { start: claim.id, secrets, egress, live, model: modelNow, extra: extraFor(meta), autoCompactWindow: Number.isInteger(meta.autoCompactWindow) ? meta.autoCompactWindow : 0, ...connOn, project: id, chatUrl: chatLinkOf(env, id), coAuthor: await coAuthorFor(env, bucket, uid, fetchFn), emailMark: emailNow, cwd: typeof meta.cwd === "string" ? meta.cwd : "", mode: noAuto(normMode(meta.mode), saved), prePlanMode: noAuto(saved.mode === "acceptEdits" ? "acceptEdits" : "auto", saved), rules: await rulesOf(bucket, uid, meta.repo), ...sessionRulesOn(meta), ...customTitleOn(meta), ...wakeOn, ...shellOn, ...compactOn, ...takeUpOn, ...bgOn, ...lastAtOn, ...clearOn, text: takeUp || wake || shell || compactJob ? "" : review ? review.text.split("BASE_BRANCH").join(meta.base) : (text || blankText) + fileMentions(text), shown: takeUp || wake || shell || compactJob ? "" : body.fromGithub === true && body.autofix !== true && typeof body.shown === "string" && body.shown.trim() ? body.shown.slice(0, 300) : body.autofix === true ? "Auto-fix: " + String((text.split("<<<GITHUB\n")[1] || text.split("\n").filter(Boolean)[1] || "").split("\n")[0]).slice(0, 160) : text || blankText, images: pics.images, ...attachedOn, messages, repo: meta.repo, base: meta.base, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn + 1), fetch: fetchWanted(meta, { fromGithub: body.fromGithub === true, autofix: body.autofix === true, review }), ...(meta.readOnly ? { readOnly: true } : {}), effort: pick.effort, prefs: machinePrefs(saved), hooks: machineHooks(saved), autoMode: machineAutoMode(saved), memory, memoryFiles, setup, github: body.fromGithub === true, away: body.fromGithub !== true && messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0, lastJob: lastJobFor(meta), environment, envMoved: meta.envMoved === true, cache: { make: copyOn && !copyWait, ...(copyWait ? { note: copyWait } : {}) }, ...(next.jobReplyTo ? { replyTo: next.jobReplyTo } : {}) }, useCopy ? { [FROM_COPY]: useCopy.snapshot, [FROM_COPY_GB]: String(Number(useCopy.size) || 0) } : {});
       } catch (e) {
         await notStarted();
         return json({ error: "Coder's machine could not be started (" + String((e && e.message) || e).replace(/\s+/g, " ").slice(0, 200) + "). Try again in a minute." }, 502);
@@ -2625,7 +2677,13 @@ export async function handleCoder(request, env, ctx, deps) {
       // A PLAN'S TITLE (Claude Code: accepting a plan titles the session after it, unless it was already named): only for a
       // chat the owner, a hook or rename_chat has not named.
       const planTitle = !hookTitle.title && meta.titleCustom !== true && typeof s.result.planTitle === "string" && s.result.planTitle.trim() ? { title: s.result.planTitle.trim().replace(/\s+/g, " ").slice(0, 80) } : {};
-      const ended = { ...meta, ...modeNow, ...hookTitle, ...planTitle, ...(sessionRules ? { sessionRules } : {}), background, saved: meta.turn, ...(cwd ? { cwd } : {}), attribution, pr, prs, pushed, commits, unpushed, unpushedSince: unpushed ? unpushedSince : 0, refetch: false, ...(keptHere ? { kept: true } : {}), waiting: asked ? asked.type : null, ran: Math.max(0, Date.now() - Number(meta.at || Date.now())), usage: usageSummary(s.result.usage, meta.turn), summary: String(s.result.summary || "").slice(0, 4000) || meta.summary || "", status: s.result.status === "done" ? "idle" : s.result.status, at: Date.now(), jobReplyTo: null, ...afMeta };
+      // THE FILES A CODE RESTORE PUT BACK WITHOUT A COMMIT (batch 6, M-a-08): as they were when this job began, kept with its
+      // first commit (`prior`), so a later Rewind to before this job puts them back as the restore left them. Kept until a job
+      // makes a commit.
+      const knownShas = new Set((Array.isArray(meta.commits) ? meta.commits : []).map((c) => c && c.sha));
+      const firstNew = meta.restoredPrior && typeof meta.restoredPrior === "object" ? commits.find((c) => c && !knownShas.has(c.sha)) : null;
+      if (firstNew) commits = commits.map((c) => (c === firstNew ? { ...c, prior: meta.restoredPrior } : c));
+      const ended = { ...meta, ...modeNow, ...hookTitle, ...planTitle, ...(sessionRules ? { sessionRules } : {}), background, saved: meta.turn, ...(cwd ? { cwd } : {}), attribution, pr, prs, pushed, commits, ...(firstNew ? { restoredPrior: undefined } : {}), unpushed, unpushedSince: unpushed ? unpushedSince : 0, refetch: false, ...(keptHere ? { kept: true } : {}), waiting: asked ? asked.type : null, ran: Math.max(0, Date.now() - Number(meta.at || Date.now())), usage: usageSummary(s.result.usage, meta.turn), summary: String(s.result.summary || "").slice(0, 4000) || meta.summary || "", status: s.result.status === "done" ? "idle" : s.result.status, at: Date.now(), jobReplyTo: null, ...afMeta };
       // A JOB PAUSED ON A CARD LEFT OPEN (coder-park.mjs; Claude Code: "Questions stay open until you answer them", and in its
       // cloud "you can still answer when you come back"): the chat is idle, waiting on that card (`parked`, `waiting` for the
       // notifications), its record kept beside the chat for the answer that takes the turn up again.
@@ -2914,7 +2972,7 @@ export async function handleCoder(request, env, ctx, deps) {
     // LIKE CLAUDE CODE'S CHECKPOINTS (the owner, 2026-11-13): only the files Coder's file tools changed go back (restorePlan);
     // a chat with jobs from before then reverts the later jobs whole, as before.
     const plan = code && later.length ? restorePlan(commits, turn) : null;
-    let restored = null, skippedFiles = [], restoreLeft = "", removedFiles = [];
+    let restored = null, skippedFiles = [], restoreLeft = "", removedFiles = [], restoredPrior = null;
     if (code && later.length && plan && !plan.items.length) restored = [];
     else if (code && later.length && plan) {
       const t = await userToken(env, bucket, uid, { fetchFn });
@@ -2927,6 +2985,11 @@ export async function handleCoder(request, env, ctx, deps) {
       removedFiles = Array.isArray(r.removed) ? r.removed.filter((x) => typeof x === "string") : [];
       skippedFiles = Array.isArray(r.skipped) ? r.skipped.filter((x) => typeof x === "string") : [];
       restoreLeft = leftOutNote(r.left);
+      // (What each restored file is now, for the next job's commit: a blob and its mode, or null for one removed. M-a-08.)
+      if (r.prior && typeof r.prior === "object") {
+        restoredPrior = {};
+        for (const p of restored) { const v = r.prior[p]; if (v === null) restoredPrior[p] = null; else if (v && typeof v === "object" && /^[0-9a-f]{40,64}$/.test(String(v.blob || ""))) restoredPrior[p] = { blob: String(v.blob), mode: v.mode === "100755" ? "100755" : "100644" }; }
+      }
       // Nothing put back and something skipped: a failure; the later jobs stay so Rewind can be tried again.
       if (!(restored.length === 0 && skippedFiles.length > 0)) commits = commits.filter((c) => !later.includes(c));
     } else if (code && later.length) {
@@ -2951,7 +3014,7 @@ export async function handleCoder(request, env, ctx, deps) {
     let events = await getJson(bucket, keyOf(uid, id, "events.json"), []);
     let msgs = await getJson(bucket, keyOf(uid, id, "messages.json"), []);
     if (chat) { events = events.slice(0, mark.ev); msgs = msgs.slice(0, mark.msg); }
-    const savedTo = meta.readOnly ? "kept on Coder's machine" : "saved to the branch " + meta.branch;
+    const savedTo = restoreKept(meta.readOnly);
     const codeSaid = !code ? "" : restored ? (restored.length ? "the code is back as it was (" + restored.length + " file" + (restored.length === 1 ? "" : "s") + " restored, " + savedTo + "; files only commands changed stay as they are)" : "the code had no changes to restore") : later.length ? "the code is back as it was (" + undone + " job" + (undone === 1 ? "" : "s") + " undone, saved to the branch " + meta.branch + ")" : "the code had no later changes";
     // (The changed-files box's Undo button reads like an undo, not a rewind: live side-by-side, 2026-11-17.)
     const undoSaid = !asUndo ? "" : restored && restored.length ? undoLine("Undid this turn's changes", restored, savedTo, removedFiles) : restored ? "Nothing to undo: this turn's changes were already gone." : later.length ? undoLine("Undid this turn's changes", later.flatMap((c) => (Array.isArray(c.edited) ? c.edited : [])), "saved to the branch " + meta.branch) : "Nothing to undo: this turn changed no files.";
@@ -2964,9 +3027,11 @@ export async function handleCoder(request, env, ctx, deps) {
     else if (code && !chat && !restored && later.length) msgs = [...msgs, { role: "user", content: "(Note from Coder's app: the owner rewound the code to before an earlier message. The commits of the later jobs were reverted: " + later.map((c) => "\"" + c.title + "\"").join(", ") + ". Those changes are no longer in the files. Nothing to do now.)" }];
     await putJson(bucket, keyOf(uid, id, "events.json"), events);
     await putJson(bucket, keyOf(uid, id, "messages.json"), capHistory(msgs, historyMaxFor(meta)));
-    // (Code put back is pushed, and with it whatever was still only on Coder's machine.)
-    const pa = code && (restored ? restored.length > 0 : later.length > 0) ? pushedAll({ ...meta, commits }) : {};
-    const next = { ...fresh, ...pa, commits: pa.commits || commits, marks: chat ? (fresh.marks || []).filter((m) => mark.qid ? m.ev < mark.ev : m.turn < turn) : fresh.marks, rewinding: null, at: Date.now() };
+    // (Code put back by Claude Code's way is not committed or pushed: its files' state is kept for the next job's commit, `prior`.
+    // The old way for chats from before 2026-11-13, reverting whole jobs, still pushes its revert commits.)
+    const pa = code && !restored && later.length > 0 ? pushedAll({ ...meta, commits }) : {};
+    const prior = restored && restored.length && restoredPrior && typeof restoredPrior === "object" ? { ...(fresh.restoredPrior && typeof fresh.restoredPrior === "object" ? fresh.restoredPrior : {}), ...restoredPrior } : fresh.restoredPrior;
+    const next = { ...fresh, ...pa, commits: pa.commits || commits, ...(prior ? { restoredPrior: prior } : {}), marks: chat ? (fresh.marks || []).filter((m) => mark.qid ? m.ev < mark.ev : m.turn < turn) : fresh.marks, rewinding: null, at: Date.now() };
     await saveMeta(bucket, uid, next);
     return json({ ok: true, project: next, events });
     })(); } finally { await held.release().catch(() => {}); }
@@ -3002,10 +3067,16 @@ export async function handleCoder(request, env, ctx, deps) {
   }
   // SEVERAL REPOSITORIES IN ONE CHAT, like Claude Code (its docs, read 2026-11-06:
   // "You can add multiple repositories"; owner: "Finish all this"): up to 3 more,
-  // added or taken away before the chat's first message, each one the owner's
-  // GitHub lets Coder write to. Each gets its own folder and the chat's branch.
+  // each one the owner's GitHub lets Coder write to. Each gets its own folder and
+  // the chat's branch. ADDED MID-CHAT TOO, between jobs (batch 6, M-d-48; Claude
+  // Code adds a repository to a cloud session that is already going: its changelog,
+  // "when Claude adds a repository to a cloud session"): the next job opens it next
+  // to the others. Taken away only before the first message (Claude Code has no
+  // remove, and a repository the chat worked in keeps its branch and commits).
   if (action === "repos" && (request.method === "POST" || request.method === "DELETE")) {
-    if (meta.turn > 0) return json({ error: "this chat's repositories were picked before its first message; start a new chat to use others" }, 409);
+    if (request.method === "DELETE" && meta.turn > 0) return json({ error: REPO_REMOVE_LATE }, 409);
+    if (meta.status === "running" || startingOf(meta) || rewindingOf(meta)) return json({ error: REPO_ADD_BUSY }, 409);
+    if (parkedOf(meta)) return json({ error: "Coder is waiting for your answer on its card: add the repository once it is done." }, 409);
     const list = Array.isArray(meta.repos) ? meta.repos : [];
     if (request.method === "DELETE") {
       const gone = String(url.searchParams.get("repo") || "");

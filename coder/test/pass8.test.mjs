@@ -400,7 +400,7 @@ test("CD415 a chat's SessionStart hooks run as \"resume\" on its first message a
   assert.match(server, /startMode: repoSet\.defaultMode, resumed, lastAt: Number\(body\.lastAt\) \|\| 0/);
   const routes = fs.readFileSync(new URL("../src/coder-routes.mjs", import.meta.url), "utf8");
   assert.match(routes, /const lastAtOn = messages\.length && Number\(meta\.at\) > 0 \? \{ lastAt: Number\(meta\.at\) \} : \{\};/);
-  assert.match(routes, /\.\.\.bgOn, \.\.\.lastAtOn, text: /);
+  assert.match(routes, /\.\.\.bgOn, \.\.\.lastAtOn, \.\.\.clearOn, text: /);
   // A summary's SessionStart (source "compact") sets no title (Claude Code: sessionTitle "Applies when source is startup, resume, or fork").
   const agent = fs.readFileSync(new URL("../container/coder-agent.mjs", import.meta.url), "utf8");
   assert.match(agent, /if \(o\.sessionTitle && !\(event === "SessionStart" && value === "compact"\)\) sessionTitle = /);
