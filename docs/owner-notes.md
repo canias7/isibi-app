@@ -4,6 +4,15 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-22: Claude Code way, batch 3
+
+I checked this batch's 12 items against Claude Code's cloud docs. None of them could be built without one of your answers, so no code changed this time. The full test suite still passes (1662 tests, 0 failures).
+
+- Seven were already your own choices from earlier (the 24-hour background limit, the tool search wording, the network checkpoint machine, repository hooks in GitHub jobs, the thumbs buttons, more code-checking languages, and "approve and start fresh"). They wait for your answer.
+- A limit on how many web requests a chat makes: Claude Code has no such limit, so I left it.
+- A log of what a hook did, and a screen to see or edit Coder's memory: in Claude Code these are terminal-only screens (`/hooks`, `/memory`); Claude Code's cloud page says terminal-only commands are not available there. Left out unless you want them.
+- The second AI checking file changes in Auto mode costs one extra Grok call per change, and deleting a chat's Fly.io disk copies deletes stored data, so both wait for your word.
+
 ## 2026-11-22: Claude Code way, batch 2
 
 - You can now type "/model" or "/effort" with a choice after it (for example "/effort high") to switch at once, as in Claude Code. Alone, each says what is set and the choices. Nothing goes to the AI. Both are in the "/" list.
