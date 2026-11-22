@@ -969,7 +969,7 @@ export function repoSettingsFiles(root) {
  * lands; GITHUB_ACTIONS and RUNNER_ENVIRONMENT; and, as "In cloud sessions … Claude Code ignores the following variables
  * when they come from a settings file env block", NODE_TLS_REJECT_UNAUTHORIZED and the client-certificate ones.)
  */
-export const REPO_ENV_OFF = /^(PATH|HOME|SHELL|USER|LOGNAME|TMPDIR|TMP|TEMP|CDPATH|PWD|GITHUB_ACTIONS|RUNNER_ENVIRONMENT|NODE_TLS_REJECT_UNAUTHORIZED|CLAUDE_CODE_CLIENT_CERT|CLAUDE_CODE_CLIENT_KEY|CLAUDE_CODE_CLIENT_KEY_PASSPHRASE|ANTHROPIC_CONFIG_DIR|CLAUDE_TMPDIR|XDG_\w*|LD_\w*|NODE_OPTIONS|BASH_ENV|ENV|SHELLOPTS|BASHOPTS|CODER_\w*|GOFARTHER_\w*|AI_AGENT|CLAUDE_CONFIG_DIR|CLAUDE_CODE_TMPDIR|CLAUDE_CODE_REMOTE|CLAUDE_CODE_ACCOUNT_UUID|CLAUDE_CODE_OAUTH_\w*|CLAUDE_CODE_PROCESS_WRAPPER|CLAUDE_CODE_ENABLE_TELEMETRY|OTEL_LOG_RAW_API_BODIES|ENABLE_BETA_TRACING_DETAILED|BETA_TRACING_ENDPOINT|OTEL_(LOGS|METRICS|TRACES)_EXPORTER|OTEL_EXPORTER_\w*|(HTTPS?|ALL|NO)_PROXY|NODE_USE_ENV_PROXY|NODE_EXTRA_CA_CERTS|SSL_CERT_FILE|SSL_CERT_DIR|CURL_CA_BUNDLE|REQUESTS_CA_BUNDLE|GIT_SSL_CAINFO)$/i;
+export const REPO_ENV_OFF = /^(PATH|HOME|SHELL|USER|LOGNAME|TMPDIR|TMP|TEMP|CDPATH|PWD|GITHUB_ACTIONS|RUNNER_ENVIRONMENT|NODE_TLS_REJECT_UNAUTHORIZED|CLAUDE_CODE_CLIENT_CERT|CLAUDE_CODE_CLIENT_KEY|CLAUDE_CODE_CLIENT_KEY_PASSPHRASE|ANTHROPIC_CONFIG_DIR|CLAUDE_TMPDIR|XDG_\w*|LD_\w*|NODE_OPTIONS|BASH_ENV|ENV|SHELLOPTS|BASHOPTS|CODER_\w*|GOFARTHER_\w*|AI_AGENT|CLAUDE_CONFIG_DIR|CLAUDE_CODE_TMPDIR|CLAUDE_CODE_REMOTE|CLAUDECODE|CLAUDE_CODE_SESSION_ID|CLAUDE_CODE_REMOTE_SESSION_ID|CLAUDE_EFFORT|CLAUDE_CODE_ACCOUNT_UUID|CLAUDE_CODE_OAUTH_\w*|CLAUDE_CODE_PROCESS_WRAPPER|CLAUDE_CODE_ENABLE_TELEMETRY|OTEL_LOG_RAW_API_BODIES|ENABLE_BETA_TRACING_DETAILED|BETA_TRACING_ENDPOINT|OTEL_(LOGS|METRICS|TRACES)_EXPORTER|OTEL_EXPORTER_\w*|(HTTPS?|ALL|NO)_PROXY|NODE_USE_ENV_PROXY|NODE_EXTRA_CA_CERTS|SSL_CERT_FILE|SSL_CERT_DIR|CURL_CA_BUNDLE|REQUESTS_CA_BUNDLE|GIT_SSL_CAINFO)$/i;
 /**
  * CLAUDE CODE'S OWN COMMAND SETTINGS IN A REPOSITORY'S FILE (Bash docs pass 8; Claude Code reads its variables from a
  * project's `env` as well, "timeouts and limits, and feature toggles: at startup from every settings file, apart from the
@@ -4172,7 +4172,10 @@ export function coderMarks(project, chatUrl, effort = "") {
   // THE EFFORT LEVEL (Claude Code's CLAUDE_EFFORT: "Set automatically in Bash tool subprocesses … to the effort level setting
   // when the subprocess starts … Only set when the current model supports the effort parameter").
   const lvl = typeof effort === "string" && /^(low|medium|high|xhigh|max)$/.test(effort) ? effort : "";
-  return { GOFARTHER_CODER: "1", GOFARTHER_CODER_CHAT_ID: String(project || ""), ...(url ? { GOFARTHER_CODER_CHAT_URL: url } : {}), ...(lvl ? { GOFARTHER_CODER_EFFORT: lvl } : {}) };
+  // CLAUDE CODE'S OWN NAMES TOO (the owner, 2026-11-22: "Go Claude Code way"): CLAUDECODE=1, CLAUDE_CODE_SESSION_ID and
+  // CLAUDE_CODE_REMOTE_SESSION_ID (the chat's id) and CLAUDE_EFFORT, so a script written for Claude Code works unchanged.
+  const id = String(project || "");
+  return { GOFARTHER_CODER: "1", GOFARTHER_CODER_CHAT_ID: id, ...(url ? { GOFARTHER_CODER_CHAT_URL: url } : {}), ...(lvl ? { GOFARTHER_CODER_EFFORT: lvl } : {}), CLAUDECODE: "1", ...(id ? { CLAUDE_CODE_SESSION_ID: id, CLAUDE_CODE_REMOTE_SESSION_ID: id } : {}), ...(lvl ? { CLAUDE_EFFORT: lvl } : {}) };
 }
 /**
  * THE CHAT'S LINK AS A COMMIT TRAILER (the owner, 2026-11-09: "yes i want that"; Claude Code's `Claude-Session: <url>`):
@@ -6084,7 +6087,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       if (url.pathname === "/answer" && req.method === "POST") {
         const pid = String(body.pid || ""), choice = String(body.choice || "");
         // (And a connector's question, MCP elicitation: Submit or "I'm done, continue" is accept, with a form's values; Decline.)
-        if (!/^p[0-9a-z]{2,24}$/.test(pid) || !(["yes", "always", "auto", "acceptEdits", "no", "saved", "answers", "skip", "approved", "refused"].includes(choice) || ["accept", "decline"].includes(choice))) return send(400, { ok: false, why: "bad answer" });
+        if (!/^p[0-9a-z]{2,24}$/.test(pid) || !(["yes", "always", "claudeDir", "auto", "acceptEdits", "no", "saved", "answers", "skip", "approved", "refused"].includes(choice) || ["accept", "decline"].includes(choice))) return send(400, { ok: false, why: "bad answer" });
         const content = choice === "accept" && body.content !== undefined ? contentFrom(body.content) : null;
         if (choice === "accept" && body.content !== undefined && !content) return send(400, { ok: false, why: "bad answer" });
         const picks = choice === "answers" ? questionPicks(body.answers) : null;

@@ -128,7 +128,7 @@ test("CD339 CODER_SHELL_PREFIX wraps each of the chat's commands (Claude Code's 
 
 test("CD340 the effort level is in each command's environment (Claude Code's CLAUDE_EFFORT: \"Set automatically in Bash tool subprocesses … to the effort level … Only set when the current model supports the effort parameter\"), as GOFARTHER_CODER_EFFORT beside Coder's other marks", async () => {
   const S = await import("../container/server.mjs");
-  assert.deepEqual(S.coderMarks("shop-ab12", "", "high"), { GOFARTHER_CODER: "1", GOFARTHER_CODER_CHAT_ID: "shop-ab12", GOFARTHER_CODER_EFFORT: "high" });
+  assert.deepEqual(S.coderMarks("shop-ab12", "", "high"), { GOFARTHER_CODER: "1", GOFARTHER_CODER_CHAT_ID: "shop-ab12", GOFARTHER_CODER_EFFORT: "high", CLAUDECODE: "1", CLAUDE_CODE_SESSION_ID: "shop-ab12", CLAUDE_CODE_REMOTE_SESSION_ID: "shop-ab12", CLAUDE_EFFORT: "high" });
   assert.equal(S.coderMarks("shop-ab12", "", "turbo").GOFARTHER_CODER_EFFORT, undefined);
   assert.equal(S.coderMarks("shop-ab12", "").GOFARTHER_CODER_EFFORT, undefined, "no model chosen: not set");
   assert.match(serverSrc(), /coderMarks\(project, body\.chatUrl, body\.model \? pickModel\(body\.model, body\.effort\)\.effort : ""\)/);

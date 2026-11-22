@@ -121,6 +121,17 @@ export function compactLevel(tokens, limits) {
   if (tokens >= limits.warn) return "warn";
   return "ok";
 }
+/**
+ * THE WARNING BEFORE A SUMMARY (Claude Code's token warning, shown once the conversation is within 20,000 tokens of where it
+ * compacts): "Context left until auto-compact: N%"; with auto-compact off, "Context low (N% remaining) · Run /compact to
+ * compact & continue". N is the room left as a share of the threshold (of the effective window with auto-compact off). → "" below it.
+ */
+export function contextWarning(tokens, limits) {
+  if (!limits || compactLevel(tokens, limits) !== "warn") return "";
+  const top = limits.enabled ? limits.threshold : limits.effective;
+  const pct = Math.max(0, Math.round(((top - tokens) / top) * 100));
+  return limits.enabled ? "Context left until auto-compact: " + pct + "%" : "Context low (" + pct + "% remaining) \u00b7 Run /compact to compact & continue";
+}
 /** One message's tokens as Coder estimates them: its words (and its calls' inputs) at 4 characters a token, and 2,000 a picture. */
 export function messageTokens(m) {
   if (!m || typeof m !== "object") return 0;

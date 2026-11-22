@@ -4229,6 +4229,8 @@
     const partial = Number(e.more) > 0 || !!(e.change && (Number(e.change.more) > 0 || e.change.cut === true)) || e.secret === true || (Array.isArray(e.lines) && e.lines.some((l) => String(l).includes('[hidden]')));
     if (partial) { o.push(['no', e.tool === 'web_fetch' ? 'No, and tell Coder what to do differently' : 'No']); return o; }
     if (Array.isArray(e.rules) && e.rules.length) o.push(['always', 'Yes, and don\'t ask again for ' + e.rules.map((r) => '<code>' + esc(ruleShown(r)) + '</code>').join(' and ')]);
+    // (Claude Code's option on a card for its .claude folder: "Yes, and allow Claude to edit its own settings for this session".)
+    if (e.claudeDir === true) o.push(['claudeDir', 'Yes, and allow Coder to edit its own settings for this session']);
     if (e.toAuto && !S.autoOff) o.push(['auto', 'Yes, and switch to auto mode']);
     o.push(['no', e.tool === 'web_fetch' ? 'No, and tell Coder what to do differently' : 'No']);
     return o;
@@ -4245,6 +4247,7 @@
     if (e.tool === 'plan') return c === 'auto' || c === 'acceptEdits' ? '<span class="cd-perm-ok">✓ Approved · ' + (c === 'auto' ? 'Auto' : 'Accept edits') + '</span>' + note : c === 'no' ? '<span class="cd-perm-no">Kept planning</span>' + note : '<span class="cd-perm-no">' + (c === 'stop' ? 'Stopped' : 'No answer') + '</span>';
     if (c === 'yes') return '<span class="cd-perm-ok">✓ Allowed</span>' + note;
     if (c === 'always') return '<span class="cd-perm-ok">✓ Allowed</span> · won\'t ask again for ' + (e.rules || []).map((r) => '<code>' + esc(ruleShown(r)) + '</code>').join(' and ');
+    if (c === 'claudeDir') return '<span class="cd-perm-ok">✓ Allowed</span> · Coder may edit its own settings for this session';
     if (c === 'auto') return '<span class="cd-perm-ok">✓ Allowed</span> · switched to Auto';
     if (c === 'no') return '<span class="cd-perm-no">✕ Not allowed</span>' + note;
     if (c === 'none' && Number(e.blockAt) > 0) return '<span class="cd-perm-no">✕ Blocked</span> · no answer within 2 minutes';

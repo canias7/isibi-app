@@ -4,6 +4,17 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-22: Claude Code way, batch 1
+
+You said "Go Claude Code way", so for this batch of audit items Coder now does what Claude Code does, unless doing that would cost money, delete data or need your secrets.
+
+- **Claude Code's labels in every command:** commands now also get `CLAUDECODE=1`, `CLAUDE_CODE_SESSION_ID` and `CLAUDE_CODE_REMOTE_SESSION_ID` (the chat's id) and `CLAUDE_EFFORT` (the effort level), as well as Coder's own. Scripts written for Claude Code now work without changes. A repository's settings cannot change them.
+- **A warning before a chat is summarized:** when the chat gets near the point where it is summarized automatically, Coder shows a grey line once per job, in Claude Code's words: "Context left until auto-compact: N%". If auto-compact is off, the line is "Context low (N% remaining) · Run /compact to compact & continue".
+- **"Yes, and allow Coder to edit its own settings for this session":** when Coder asks before changing a file in the project's `.claude` folder, the card now has Claude Code's extra button. If you pick it, Coder can change other files in `.claude` for the rest of that job without asking again. Commands still ask.
+- **Already the same as Claude Code:** writing over a file that is not plain text is refused (as in Claude Code's own program), and the admin rights inside the sealed sandbox match Claude Code's cloud machine.
+- **Waiting for you** (these cost money, change a choice you made, or Claude Code does not clearly have them): the setup copy timing, auto-fix for teammates' reviews, automatic recaps, removing the Blocked sites list, workflows with many helpers, a warning when a chat is not being saved, and a monthly limit on code review spending.
+- Tests: `coder/test/cc-way-batch1.test.mjs`. Not deployed yet.
+
 ## 2026-11-22: git config reads match Claude Code
 
 - Only `git config --get` runs without asking, as in Claude Code. `--list`, `--get-regexp` and `--get-all` ask again (the extra ones added in round 9 were taken out, your words: "do it how claude code does it"). Writes still ask. Full suite: 1655 of 1655.

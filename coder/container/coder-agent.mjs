@@ -21,7 +21,7 @@
 // `tool_calls` and `tool` answers), which Grok speaks natively; the next
 // message continues from the same messages.
 import { isMemoryPath } from "./memory-files.mjs";
-import { recordedSystem, summaryRequest, summaryMessage, cutPoint, isSummary, viewedFile, filesTouched, compactSettings, compactLimits, compactLevel, conversationTokens, COMPACT_FAILURES_MAX, REFILL_TURNS, REFILL_TIMES, PRECOMPACT_OUTPUT_MAX, CHARS_PER_TOKEN, COMPACTED_SHOWN, THRASHING, contextLimitShown, compactPrompt, summaryText, hasSummary, dropOldestRounds, tokenGap, COMPACT_PTL_RETRIES, COMPACT_TOO_LONG, tooShortToCompact, TOO_SHORT_TO_COMPACT } from "./coder-compact.mjs";
+import { recordedSystem, summaryRequest, summaryMessage, cutPoint, isSummary, viewedFile, filesTouched, compactSettings, compactLimits, compactLevel, contextWarning, conversationTokens, COMPACT_FAILURES_MAX, REFILL_TURNS, REFILL_TIMES, PRECOMPACT_OUTPUT_MAX, CHARS_PER_TOKEN, COMPACTED_SHOWN, THRASHING, contextLimitShown, compactPrompt, summaryText, hasSummary, dropOldestRounds, tokenGap, COMPACT_PTL_RETRIES, COMPACT_TOO_LONG, tooShortToCompact, TOO_SHORT_TO_COMPACT } from "./coder-compact.mjs";
 // A command that views one file counts as reading it (moved to coder-compact.mjs, which the Worker uses too).
 export { viewedFile };
 import { retryLine, apiErrorText, modelWindow, CUT_OFF_ERROR } from "./coder-model.mjs";
@@ -165,6 +165,8 @@ export const NEEDS_ROOT_RE = /(?:^|[\s;&|(`])(?:sudo|su|doas|apt-get|apt|aptitud
 const fn = (name, description, properties, required) => ({ type: "function", function: { name, description, parameters: { type: "object", properties, required } } });
 /** A job's conversation past this many characters has its older steps summarized (owner item 3). */
 export const COMPACT_AT = 450_000;
+/** A path inside the project's .claude folder (its own settings, as Claude Code's card names them), never through "..". */
+export const inClaudeDir = (p) => { const x = String(p ?? "").replace(/^\.\//, ""); return /^\.claude(\/|$)/i.test(x) && !/(^|\/)\.\.(\/|$)/.test(x); };
 /**
  * WHAT RESUMING A CHAT COSTS (Bash docs pass 8; Claude Code 2.1.251: SessionStart hooks get four more fields "when
  * `source` is "resume" or "fork" and the transcript contains at least one response"): from what the first request sends
@@ -2615,7 +2617,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     if (first.hook) { if (first.hook.take) first.hook.take(); hookEnding(pid, first.hook.answer); return first.hook.answer; }
     const a = first.owner;
     if (a && a.choice === "park") parkNow(pid, "permission", siteOfCard(card), shownMode);
-    const choice = a && ["yes", "always", "auto", "acceptEdits", "no", "stop"].includes(a.choice) ? a.choice : "none";
+    const choice = a && ["yes", "always", "claudeDir", "auto", "acceptEdits", "no", "stop"].includes(a.choice) ? a.choice : "none";
     const comment = a && typeof a.comment === "string" ? scrub(a.comment).trim().slice(0, 2000) : "";
     // THE PLAN AS THE OWNER EDITED IT ON ITS CARD, with a Yes (Claude Code: on its web card, or with Ctrl+G, "Press Ctrl+G to
     // open the proposed plan in your default text editor and edit it directly before Claude proceeds"; its result then says
@@ -2700,7 +2702,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   // to Grok after the round's results (coder-park.mjs wordsAfterResults). Gloopy's keep its own sentence in the result.
   const yesWords = new Map();
   const yesNote = (a, id = "") => {
-    if (!(a && a.comment && a.choice !== "no" && a.choice !== "always" && a.choice !== "auto")) return "";
+    if (!(a && a.comment && a.choice !== "no" && a.choice !== "always" && a.choice !== "claudeDir" && a.choice !== "auto")) return "";
     if (offered) return "\n\n(The owner approved this with a note: " + a.comment + ")";
     if (id) yesWords.set(id, a.comment);
     return "";
@@ -3353,7 +3355,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   let compactions = 0, summarizeAgainAt = 0;
   // (Claude Code's auto-compact in this job, autoCompact below: its failures in a row, its refills in a row and the round of the
   // last one, how many it made, and whether a request refused as too long was summarized and sent again.)
-  let compactFailures = 0, rapidRefills = 0, lastCompactRound = null, autoCompacted = 0, reactiveTried = false, imageDropTried = false;
+  let claudeDirOk = false, ctxWarned = false, compactFailures = 0, rapidRefills = 0, lastCompactRound = null, autoCompacted = 0, reactiveTried = false, imageDropTried = false;
   // PICTURES (owner, 2026-11-05): sent to Grok with this message only; the saved
   // history keeps a note in their place (so it stays small).
   const pics = (Array.isArray(images) ? images : []).filter((x) => x && /^image\/(png|jpeg|webp|gif)$/.test(x.type) && typeof x.data === "string").slice(0, 4);
@@ -4364,6 +4366,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     if (!L) return "none";
     const before = sizeFor(L);
     const level = L.chars ? (before > L.threshold ? "compact" : "ok") : compactLevel(before, L);
+    // (Claude Code's warning before the summary, once a job: "Context left until auto-compact: N%".)
+    if (!reactive && level === "warn" && !L.chars && !ctxWarned) { const w = contextWarning(before, L); if (w) { ctxWarned = true; emit({ type: "note", text: w, context: true }); } }
     if (!reactive && level !== "compact" && level !== "blocked") return "none";
     if (cset.off || !L.enabled) {
       if (reactive || level === "blocked") { emit({ type: "error", text: contextLimitShown({ compactOff: cset.off, autoOff: cset.autoOff }) }); return "blocked"; }
@@ -6885,6 +6889,9 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // path that the requested path doesn't name" gets that path's outcome, prompted for where it would go to the checker,
         // "The prompt names the path the write resolves to"): the place the write really lands is checked too, and the card
         // names it. Audit I28.
+        // ("YES, AND ALLOW CODER TO EDIT ITS OWN SETTINGS FOR THIS SESSION", Claude Code's option on a card for its .claude folder:
+        // the rest of this job's write and edit calls inside the project's .claude folder go through without asking. Commands still ask.)
+        if (why && claudeDirOk && inClaudeDir(guarded)) why = "";
         if (guarded && !why && !ownPlanFile) {
           const full0 = targetFor(c.name, args);
           let to0 = "";
@@ -7048,7 +7055,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           // card; at the limit of blocks, what Coder is told where no one can answer, and the card's "don't ask again". Round 6.)
           const ccFetch = fetchLimit || fetchSwitched ? fetchDecision(String(args.url || ""), { mode: "acceptEdits", rules: ownRules }) : null;
           const card = fileAsk
-            ? { tool: c.name, id: c.id, path: shownPath, change: changeShown(), why: why ? (linkTo ? sensitiveWhy(linkTo, targetFor(c.name, args)) : sensitiveWhy(fullFile)) : planWriteWhy(targetFor(c.name, args)), ...(hookLine || {}) }
+            ? { tool: c.name, id: c.id, path: shownPath, change: changeShown(), why: why ? (linkTo ? sensitiveWhy(linkTo, targetFor(c.name, args)) : sensitiveWhy(fullFile)) : planWriteWhy(targetFor(c.name, args)), ...(why && !linkTo && inClaudeDir(guarded) ? { claudeDir: true } : {}), ...(hookLine || {}) }
             : ruleAsk
             ? { tool: c.name, id: c.id, ...(c.name === "web_fetch" ? { url: scrub(String(args.url || "")).slice(0, 500) } : { path: shownPath + readLeads }), ...(c.name === "write" || c.name === "edit" ? { change: changeShown() } : {}), why: fileDec && fileDec.verdict === "ask" ? fileDec.why : "", ...(hookLine || {}), byRule: true }
             : { tool: "web_fetch", id: c.id, url: scrub(String(args.url || "")).slice(0, 500), why: fetchLimit ? fetchLimit.why : fetchSwitched ? ccFetch.why : fetchDec.why, ...((ccFetch ? ccFetch.suggest : fetchDec && fetchDec.suggest) ? { rules: ccFetch ? ccFetch.suggest : fetchDec.suggest } : {}), ...(fetchLimit ? { told: "Coder requested permissions to use WebFetch, but you haven't granted it yet." } : {}) };
@@ -7064,6 +7071,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           if (o === "said") { emit({ type: "result", id: c.id, code: -1, ran: false, output: saidShown(approval), ...saidMarks(approval) }); reply(saidReply(approval)); continue; }
           if (o === "no") { emit({ type: "result", id: c.id, code: -1, ran: false, output: "Not run: you said no." }); reply(REJECTED); return noEnd(i, "stopped: the owner said no"); }
           if (approval.choice === "always") for (const r of card.rules || []) addRule(r);
+          if (approval.choice === "claudeDir" && card.claudeDir) claudeDirOk = true;
           if (fetchLimit) resume(fetchLimit.st);
           // (A PermissionRequest hook's changed input: the call goes through again with it, Bash docs pass 8.)
           if (approval.updatedInput && !c.rerun) { const ni = toolInputFromHook(c.name, approval.updatedInput); if (ni) { c.args = ni; c.rerun = true; postFor = null; i--; continue; } }

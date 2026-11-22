@@ -123,8 +123,8 @@ test("CD292 (docs check: Claude Code's tasks list shows a background task's outp
 
 test("CD293 (docs check: Claude Code's CLAUDECODE=1 and, in its cloud sessions, CLAUDE_CODE_REMOTE_SESSION_ID, \"Read this to construct a link back to the session transcript\") every command of Coder's has GOFARTHER_CODER=1 and the chat's id and link, set after the owner's variables so none of theirs hides them; the setup script gets GOFARTHER_CODER=1", async () => {
   const S = await import("../container/server.mjs");
-  assert.deepEqual(S.coderMarks("shop-x1", "https://gofarther.dev/?chat=shop-x1"), { GOFARTHER_CODER: "1", GOFARTHER_CODER_CHAT_ID: "shop-x1", GOFARTHER_CODER_CHAT_URL: "https://gofarther.dev/?chat=shop-x1" });
-  for (const bad of ["http://gofarther.dev/?chat=x", "https://gofarther.dev/?chat=x\"; rm -rf ~", "https://gofarther.dev/x", 7]) assert.deepEqual(Object.keys(S.coderMarks("shop-x1", bad)), ["GOFARTHER_CODER", "GOFARTHER_CODER_CHAT_ID"], String(bad));
+  assert.deepEqual(S.coderMarks("shop-x1", "https://gofarther.dev/?chat=shop-x1"), { GOFARTHER_CODER: "1", GOFARTHER_CODER_CHAT_ID: "shop-x1", GOFARTHER_CODER_CHAT_URL: "https://gofarther.dev/?chat=shop-x1", CLAUDECODE: "1", CLAUDE_CODE_SESSION_ID: "shop-x1", CLAUDE_CODE_REMOTE_SESSION_ID: "shop-x1" });
+  for (const bad of ["http://gofarther.dev/?chat=x", "https://gofarther.dev/?chat=x\"; rm -rf ~", "https://gofarther.dev/x", 7]) assert.deepEqual(Object.keys(S.coderMarks("shop-x1", bad)), ["GOFARTHER_CODER", "GOFARTHER_CODER_CHAT_ID", "CLAUDECODE", "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_REMOTE_SESSION_ID"], String(bad));
   const R = await import("../src/coder-routes.mjs");
   assert.equal(R.chatLinkOf({ APP_ORIGIN: "https://gofarther.dev/" }, "shop-x1"), "https://gofarther.dev/?chat=shop-x1");
   assert.equal(R.chatLinkOf({}, "a b"), "https://gofarther.dev/?chat=a%20b");
