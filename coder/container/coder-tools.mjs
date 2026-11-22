@@ -9,7 +9,7 @@
 // File tools stay inside the project folder.
 import { isMemoryPath, stampModified } from "./memory-files.mjs";
 import { readFile, writeFile, mkdir, realpath, stat, lstat, unlink, open as openFile, mkdtemp, rm, readdir, rename, chmod, chown } from "node:fs/promises";
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { isUtf8 } from "node:buffer";
 import { resolve, dirname, relative, isAbsolute, sep, extname, join, normalize, basename } from "node:path";
 import { tmpdir, homedir } from "node:os";
@@ -552,7 +552,7 @@ async function readNotebook(raw, rel) {
   const pictures = []; let budget = PICS_BUDGET;
   for (const [i, c] of nb.cells.entries()) {
     if (!c || typeof c !== "object") continue;
-    parts.push("--- Cell " + (i + 1) + " (" + String(c.cell_type || "code") + (Number.isInteger(c.execution_count) ? ", run " + c.execution_count : "") + (typeof c.id === "string" && c.id ? ", id " + c.id.slice(0, 40) : "") + ") ---\n" + str(c.source));
+    parts.push("--- Cell " + (i + 1) + " (" + String(c.cell_type || "code") + (Number.isInteger(c.execution_count) ? ", run " + c.execution_count : "") + ", id " + (typeof c.id === "string" && c.id ? c.id.slice(0, 40) : "cell-" + i) + ") ---\n" + str(c.source));
     for (const o of Array.isArray(c.outputs) ? c.outputs : []) {
       if (!o || typeof o !== "object") continue;
       if (o.output_type === "stream") { parts.push("[" + String(o.name || "stdout") + "]\n" + plain(o.text)); continue; }
@@ -744,6 +744,8 @@ export function fileInputProblem(name, args, when = "before", { memFile = proces
     if (typeof w.content !== "string") return "give the file's content";
     return pathProblem("write", w.path) || memoryProblem(w.path, w.content, memFile);
   }
+  // (Claude Code's NotebookEdit: its inputs, its path's checks, a notebook's name, a cell type to insert. Batch 5.)
+  if (name === "notebook_edit") return notebookInputProblem(a);
   if (name !== "read" && name !== "edit") return "";
   // TWO DIFFERENT PATHS (audit L-machine-22): refused, as write does, so a hook is never shown one file while the tool uses another.
   if (typeof a.path === "string" && typeof a.file_path === "string" && a.path !== a.file_path) return name + " failed due to the following issue: An unexpected parameter `file_path` was provided";
@@ -819,6 +821,7 @@ export function pathProblem(tool, p) {
 export async function toolFileCheck({ tool = "", args = {}, guard = false } = {}) {
   if (tool === "write") await writeFirst(args, { guard: guard === true });
   else if (tool === "edit") await editFirst(args, { guard: guard === true });
+  else if (tool === "notebook_edit") await notebookFirst(args);
   return "ok";
 }
 
@@ -848,7 +851,9 @@ export async function toolRead({ path, offset, limit, pages = "", allow_large = 
   if (kind.isFile() && kind.size > READ_MAX_BYTES && allow_large !== true && ((offset !== undefined && offset !== null && offset !== "") || Number(limit) > 0)) return readBigPart(abs, rel, offset, limit);
   await plainText(abs, rel, READ_MAX_BYTES, undefined, { anyBytes: true });
   const buf = await readFile(abs);
-  const text = fileText(buf);
+  // (A file of Coder's memory, its index or a topic file, made harmless as Claude Code's "recalled memory notes" are: memorySafe.)
+  const memFile = process.env.CODER_MEMORY_FILE;
+  const text = isMemoryPath(toolPath(path), memFile) || isMemoryPath(abs, memFile) ? memorySafe(fileText(buf)) : fileText(buf);
   const notText = notTextOf(buf);
   const oldText = notText ? "\n" + notTextNote(notText) : "";
   // (Noted as read only once the read shows lines: one that fails or shows nothing keeps the old record and its partial
@@ -1082,7 +1087,35 @@ export function memoryLoaded(text) {
     if (c) { if (!l.slice(c[0].length).includes("-->")) open = true; continue; }
     out.push(l);
   }
-  return out.join("\n");
+  return memorySafe(out.join("\n"));
+}
+/**
+ * MEMORY TEXT MADE HARMLESS BEFORE IT REACHES GROK (batch 5, M-f-07; Claude Code 2.1.284: "invisible characters and tags that
+ * imitate Claude Code's own markup are neutralized in MEMORY.md and recalled memory notes before they reach Claude"). Its rule
+ * for an invisible character, from its raw program (2.1.330): a format, private-use, unassigned, surrogate or
+ * default-ignorable character, or a control character other than tab, line feed and carriage return, each removed; the
+ * joiners U+200C and U+200D and the variation selectors U+FE0E and U+FE0F kept. Then text shaped like Coder's own markup is
+ * defused the way Claude Code defuses its tags (`<system-reminder` becomes `<\system-reminder`): Coder's note opener
+ * "(Note from Coder's app" becomes "(\Note from Coder's app", its <command-name> tag "<\command-name>", and each heading
+ * Coder's context starts a part with ("YOUR MEMORY FOR THIS REPO", "THE OWNER'S STYLE", …) gets a "\" in front. For the
+ * memory index as it loads (memoryLoaded), the owner's style lines taken from it, and a memory file the read tool shows.
+ */
+const KEEP_INVISIBLE = new Set([0x200c, 0x200d, 0xfe0e, 0xfe0f]);
+const INVISIBLE_RE = /^[\p{Cf}\p{Co}\p{Cn}\p{Cs}\p{DI}]$/u;
+export function invisibleChar(ch) {
+  const c = String(ch).codePointAt(0);
+  if (KEEP_INVISIBLE.has(c) || c === 9 || c === 10 || c === 13) return false;
+  return INVISIBLE_RE.test(ch) || c < 32 || (c >= 127 && c <= 159);
+}
+export const CODER_HEADINGS = Object.freeze(["THE REPO'S OWN INSTRUCTIONS", "MORE OF THE REPO'S INSTRUCTIONS", "THE REPO'S INSTRUCTIONS FOR THIS FILE", "YOUR MEMORY FOR THIS REPO", "THE OWNER'S STYLE", "GIT STATUS", "CONNECTOR INSTRUCTIONS", "CONNECTORS NOT SIGNED IN YET"]);
+const HEADINGS_RE = new RegExp("(?:" + CODER_HEADINGS.map((h) => h.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/'/g, "['\u2019]")).join("|") + ")", "g");
+export function memorySafe(text) {
+  let out = "";
+  for (const ch of String(text ?? "")) if (!invisibleChar(ch)) out += ch;
+  return out
+    .replace(/\((?=\s*note from coder['\u2019]s app)/gi, "(\\")
+    .replace(/<(?=\/?\s*command-name\b)/gi, "<\\")
+    .replace(HEADINGS_RE, "\\$&");
 }
 export function memoryNote(buf) {
   const size = buf.length, lines = textLines(buf.toString("utf8")).length;
@@ -1248,7 +1281,8 @@ export const EDIT_NOT_FOUND = "String to replace not found in file.";
 export const EDIT_SAME = "No changes to make: old_string and new_string are exactly the same.";
 export const EDIT_EXISTS = "Cannot create new file - file already exists.";
 export const EDIT_OTHER_CHANGES = " (note: the file had been modified on disk since you last read it — the edit applied cleanly, but the file contains other changes not in your context. Read it before edits that depend on surrounding content.)";
-export const EDIT_NOTEBOOK = "File is a Jupyter Notebook. edit changes plain text, and a notebook is JSON whose cells a text change can break: read the notebook, then replace it whole with write, or change a cell with a short python3 script that loads it with the json module and saves it again.";
+// (Claude Code 2.1.330's words since its notebook tool came, batch 5: "File is a Jupyter Notebook. Use the NotebookEdit to edit this file.")
+export const EDIT_NOTEBOOK = "File is a Jupyter Notebook. Use the notebook_edit to edit this file.";
 const editMany = (n) => "Found " + n + " matches of the string to replace, but replace_all is false. To replace all occurrences, set replace_all to true. To replace only one occurrence, please provide more context to uniquely identify the instance.";
 /** The old text, said back after a refusal (as Claude Code's "String: …"), up to 4,000 characters. */
 const saidBack = (x) => "\nString: " + (x.length > 4000 ? x.slice(0, 4000) + "…" : x);
@@ -1446,6 +1480,133 @@ export async function toolEdit(args) {
   const known = !!seen && !changed && !seen.partial && !seen.part && !seen.start;
   const said = "The file " + rel + (all ? " has been updated. All occurrences were successfully replaced." : " has been updated successfully.") + (changed ? EDIT_OTHER_CHANGES : known ? WRITE_FRESH : "");
   return editAnswer({ rel, abs, said, before: text, after: outText.replace(/^\ufeff/, ""), show_change, check, bytes, facts: a.facts === true ? { oldString: old_string, newString: new_string, replaceAll: all } : null });
+}
+/**
+ * NOTEBOOK_EDIT, CLAUDE CODE'S NotebookEdit (batch 5, M-a-07: the owner on 2026-11-09, "Notebook for later, but yea do this";
+ * "Go Claude Code way", 2026-11-22): one cell of a Jupyter notebook replaced, inserted or deleted, by its id, with Claude Code
+ * 2.1.330's checks and words, from its raw program: its inputs (notebook_path, cell_id, new_source, cell_type, edit_mode); the
+ * notebook read in this chat first ("File has not been read yet. Read it first before writing to it."), not changed since, UTF-8
+ * text, valid JSON in a notebook's shape; the cell found by its id, or by "cell-N" (N from 0, as read names a cell with no id);
+ * a new cell gets an id of 8 characters when the notebook's format has them (4.5 or later); a code cell replaced loses its
+ * saved outputs and run number; written with one space of indent, as Jupyter writes it, its byte-order mark, line endings and
+ * last newline kept. Its answer is Claude Code's ("Updated cell … with …", "Inserted cell … with …", "Deleted cell …").
+ */
+export const NB_NOT_NOTEBOOK = "File must be a Jupyter notebook (.ipynb file). For editing other file types, use the edit tool.";
+export const NB_TYPE_NEEDED = "Cell type is required when using edit_mode=insert.";
+export const NB_MISSING = "Notebook file does not exist.";
+export const NB_NOT_JSON = "Notebook is not valid JSON.";
+export const NB_BAD_SHAPE = 'Notebook file is not a valid Jupyter notebook (top-level "cells" must be an array of cell objects, each with a string or string-array "source").';
+export const NB_NO_ID = "Cell ID must be specified when not inserting a new cell.";
+export const NB_NOT_FOUND = (id) => 'Cell with ID "' + id + '" not found in notebook.';
+export const NB_NO_INDEX = (n) => "Cell with index " + n + " does not exist in notebook.";
+export const NB_MODES = Object.freeze(["replace", "insert", "delete"]);
+export const NB_TOO_BIG = () => "Edit rejected: the updated notebook would exceed the maximum size this tool can read (" + ccSize(NOTEBOOK_MAX_BYTES) + "). The file was left unchanged.";
+/** Its inputs as Grok gave them: Claude Code's names; `path` and `file_path` taken for notebook_path. */
+export function notebookInputs(a) {
+  const x = a && typeof a === "object" && !Array.isArray(a) ? a : {};
+  const path = typeof x.notebook_path === "string" ? x.notebook_path : typeof x.path === "string" ? x.path : typeof x.file_path === "string" ? x.file_path : undefined;
+  const cell_id = typeof x.cell_id === "string" && x.cell_id !== "" ? x.cell_id : undefined;
+  const given = (v) => v !== undefined && v !== null && v !== "";
+  return { path, cell_id, new_source: x.new_source, cell_type: given(x.cell_type) ? x.cell_type : undefined, edit_mode: given(x.edit_mode) ? x.edit_mode : "replace" };
+}
+/** Its own checks before its hooks: the inputs, the path, a notebook's name, a cell type to insert (Claude Code's order). → the refusal, or "". */
+export function notebookInputProblem(a) {
+  const x = notebookInputs(a);
+  if (typeof x.path !== "string" || !x.path.trim()) return "give notebook_path: the notebook's path";
+  if (typeof x.new_source !== "string") return "give new_source: the cell's new source (an empty string to delete a cell)";
+  if (x.cell_type !== undefined && x.cell_type !== "code" && x.cell_type !== "markdown") return 'cell_type must be "code" or "markdown"';
+  if (!NB_MODES.includes(x.edit_mode)) return 'edit_mode must be "replace", "insert" or "delete"';
+  const p = pathProblem("notebook_edit", x.path);
+  if (p) return p;
+  if (extname(toolPath(x.path)).toLowerCase() !== ".ipynb") return NB_NOT_NOTEBOOK;
+  if (x.edit_mode === "insert" && !x.cell_type) return NB_TYPE_NEEDED;
+  return "";
+}
+const nbShape = (nb) => { const c = nb && nb.cells; return Array.isArray(c) && !c.some((x) => x === null || typeof x !== "object" || (typeof x.source !== "string" && !(Array.isArray(x.source) && x.source.every((s) => typeof s === "string")))); };
+const nbSource = (s) => (Array.isArray(s) ? s.join("") : String(s ?? ""));
+/** Where the cell is (its index; for an insert, the index the new cell takes: after it, or first with no id), or a refusal. */
+export function nbCellAt(cells, id, mode) {
+  const insert = mode === "insert";
+  if (!id) return insert ? 0 : { error: NB_NO_ID };
+  let at = cells.findIndex((c) => c && c.id === id);
+  if (at === -1) {
+    const m = /^cell-(\d+)$/.exec(id);
+    if (!m) return { error: NB_NOT_FOUND(id) };
+    at = parseInt(m[1], 10);
+    if (!cells[at]) return { error: NB_NO_INDEX(at) };
+  }
+  return insert ? at + 1 : at;
+}
+/** The checks on the machine, before its hooks (and again as it runs): the notebook as it is now. → what the edit needs. */
+async function notebookFirst(a) {
+  const x = notebookInputs(a);
+  const { abs, rel: inRel } = await inside(x.path, { tool: "notebook_edit" });
+  const rel = abs === ROOT || abs.startsWith(ROOT + sep) ? inRel : abs;
+  let st = null;
+  try { st = await lstat(abs); } catch { st = null; }
+  if (st && st.isSymbolicLink()) {
+    let to = "";
+    try { to = showPath(await realpath(abs)); } catch { to = ""; }
+    fail("Refusing to write " + rel + ": it is a symbolic link. Write to the link's target path instead" + (to ? ": " + to : "") + ".");
+  }
+  if (await brokenLinkOnTheWay(abs)) fail("Refusing to write " + rel + ": where it leads on disk could not be determined (a link on the way could not be examined, or the links do not resolve).");
+  const seen = await seenEntry(abs);
+  if (!seen || seen.partial) fail(EDIT_NOT_READ);
+  if (!st) fail(NB_MISSING);
+  if (st.isDirectory()) fail(folderError(abs));
+  if (!st.isFile()) fail(rel + " " + NOT_REGULAR + " notebook_edit only changes regular files.");
+  if (st.size > NOTEBOOK_MAX_BYTES) fail(rel + " is " + kb(st.size) + ", over the " + ccSize(NOTEBOOK_MAX_BYTES) + " a notebook may be: change it with a short python3 script that loads it with the json module");
+  const buf = await readFile(abs);
+  if (changedSince(seen, st, buf)) fail(rel + " " + WRITE_CHANGED + ".");
+  // (UTF-8 only: Claude Code's NotebookEdit "refuses a notebook file that doesn't decode as UTF-8", UTF-16 too.)
+  const notText = notTextOf(buf) || (buf[0] === 0xff && buf[1] === 0xfe ? "not_utf8" : "");
+  if (notText) fail(rel + " " + notTextRefused(notText));
+  const text = buf.toString("utf8");
+  let nb = null;
+  try { nb = JSON.parse(text.replace(/^﻿/, "")); } catch { fail(NB_NOT_JSON); }
+  if (!nbShape(nb)) fail(NB_BAD_SHAPE);
+  const at = nbCellAt(nb.cells, x.cell_id, x.edit_mode);
+  if (typeof at !== "number") fail(at.error);
+  return { ...x, abs, rel, text, nb, at };
+}
+export async function toolNotebookEdit(args) {
+  const a = args && typeof args === "object" ? args : {};
+  { const first = notebookInputProblem(a); if (first) fail(first); }
+  const { abs, rel, text, nb, at, cell_id, new_source, cell_type, edit_mode } = await notebookFirst(a);
+  const language = (nb.metadata && nb.metadata.language_info && nb.metadata.language_info.name) || "python";
+  // A NEW CELL'S ID: 8 characters, where the notebook's format has ids (nbformat 4.5 or later), as Claude Code makes one.
+  const newId = edit_mode === "insert" ? (nb.nbformat > 4 || (nb.nbformat === 4 && nb.nbformat_minor >= 5) ? randomUUID().slice(0, 8) : undefined) : cell_id;
+  let oldSource, typeNow = cell_type || "code";
+  if (edit_mode === "delete") {
+    oldSource = nbSource(nb.cells[at].source); typeNow = nb.cells[at].cell_type || "code";
+    nb.cells.splice(at, 1);
+  } else if (edit_mode === "insert") {
+    nb.cells.splice(at, 0, cell_type === "markdown" ? { cell_type: "markdown", id: newId, source: new_source, metadata: {} } : { cell_type: "code", id: newId, source: new_source, metadata: {}, execution_count: null, outputs: [] });
+  } else {
+    const c = nb.cells[at];
+    oldSource = nbSource(c.source);
+    c.source = new_source;
+    // (Its saved outputs and run number cleared: Claude Code's "When NotebookEdit replaces a code cell, its execution count and
+    // saved outputs are cleared.")
+    if (c.cell_type === "code") { c.execution_count = null; c.outputs = []; }
+    if (cell_type && cell_type !== c.cell_type) c.cell_type = cell_type;
+    typeNow = c.cell_type || "code";
+  }
+  let out = (text.startsWith("﻿") ? "﻿" : "") + JSON.stringify(nb, null, 1) + (text.endsWith("\n") ? "\n" : "");
+  if (/\r\n/.test(text)) out = out.replace(/\r?\n/g, "\r\n");
+  const bytes = Buffer.from(out, "utf8");
+  if (bytes.length > NOTEBOOK_MAX_BYTES) fail(NB_TOO_BIG());
+  await writeOver(abs, bytes, rel, "notebook_edit");
+  // (The notebook as written counts as read: the next edit of it needs no new read, as Claude Code keeps its read state.)
+  await remember(abs, bytes);
+  const said = edit_mode === "delete" ? "Deleted cell " + cell_id : edit_mode === "insert" ? "Inserted " + (newId ? "cell " + newId : "a new cell") + " with " + new_source : "Updated cell " + cell_id + " with " + new_source;
+  // (The cell's own lines for the step's change, as Claude Code's cell-relative diff: the notebook's JSON is not shown.)
+  const change = a.show_change === true ? await writeChange(oldSource === undefined ? null : oldSource, edit_mode === "delete" ? "" : new_source).catch(() => null) : null;
+  const answer = change ? WRITE_MARK + JSON.stringify({ text: said, change }) : said;
+  if (a.facts !== true) return answer;
+  // (Its result object for the PostToolUse hooks: Claude Code's NotebookEdit output.)
+  const small = (s) => (typeof s === "string" && s.length <= FACTS_TEXT_MAX ? s : "");
+  return { text: answer, facts: { new_source, ...(oldSource !== undefined ? { old_source: oldSource } : {}), ...(newId ? { cell_id: newId } : {}), cell_type: typeNow, language, edit_mode, error: "", notebook_path: abs, original_file: small(text), updated_file: small(out) } };
 }
 /**
  * A READ-ONLY FILE IS CHANGED ALL THE SAME, AND STAYS READ-ONLY (the owner, 2026-11-09: "Ok yea fix that"; Claude Code's
@@ -2287,7 +2448,7 @@ export async function toolSendFile({ path }) {
  */
 export const errorLine = (e) => { const m = String((e && e.message) || e); return "error: " + (e && e.whole === true ? m : m.slice(0, e && e.long === true ? 4000 : 600)); };
 
-export const TOOLS = { page_file: toolPageFile, save_file: toolSaveFile, save_upload: toolSaveUpload, send_file: toolSendFile, ps_parse: toolPsParse, save_picture: toolSavePicture, fit_picture: toolFitPicture, lsp: toolLsp, lsp_file: toolLspFile, lsp_take: toolLspTake, read: toolRead, write: toolWrite, edit: toolEdit, file_check: toolFileCheck, grep: toolGrep, glob: toolGlob, web_fetch: toolWebFetch, mtimes: toolMtimes, listing: toolListing, changed: toolChanged, seen: toolSeen, snap: toolSnap, snapdiff: toolSnapDiff, http_hook: toolHttpHook, stamps: toolStamps, ws_watch: toolWsWatch };
+export const TOOLS = { page_file: toolPageFile, save_file: toolSaveFile, save_upload: toolSaveUpload, send_file: toolSendFile, ps_parse: toolPsParse, save_picture: toolSavePicture, fit_picture: toolFitPicture, lsp: toolLsp, lsp_file: toolLspFile, lsp_take: toolLspTake, read: toolRead, write: toolWrite, edit: toolEdit, notebook_edit: toolNotebookEdit, file_check: toolFileCheck, grep: toolGrep, glob: toolGlob, web_fetch: toolWebFetch, mtimes: toolMtimes, listing: toolListing, changed: toolChanged, seen: toolSeen, snap: toolSnap, snapdiff: toolSnapDiff, http_hook: toolHttpHook, stamps: toolStamps, ws_watch: toolWsWatch };
 
 // Run as a command: node coder-tools.mjs <base64 of {"tool": ..., "args": {...}}>
 if (process.argv[1] && import.meta.url === "file://" + process.argv[1]) {

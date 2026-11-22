@@ -35,7 +35,8 @@ test("CD202 a job started from GitHub is not offered the tools that never work t
     // (Offered: sent, or named in tool search's note as deferred, tool-search.test.mjs; under it a chat job has exit_plan_mode
     // too, deferred in every mode as Claude Code's ExitPlanMode.)
     const offered = [...names(seen[0].tools), ...seen[0].messages.filter((m) => m.toolsAnnounced).flatMap((m) => m.toolsAnnounced.added)].filter((n) => n !== "tool_search" && n !== "exit_plan_mode");
-    assert.deepEqual(offered.sort(), names(tools).sort());
+    // (Not grep or glob since batch 5: Claude Code on Linux leaves them out of the chat's tools.)
+    assert.deepEqual(offered.sort(), names(tools).filter((n) => n !== "grep" && n !== "glob").sort());
     assert.equal(seen[0].messages[0].content.includes(GITHUB_NOTE), note);
   }
   assert.match(GITHUB_NOTE, /undoing a job, asking for a key, changing the environment, posting review comments as the owner, and turning auto-fix on or off[\s\S]*say at once[\s\S]*gofarther\.dev[\s\S]*do not ask questions about it first/);
@@ -1489,7 +1490,7 @@ test("CD248 Coder's docs page (the owner, 2026-11-08: \"start making a section f
   for (const f of [".envrc", ".npmrc", ".pre-commit-config.yaml", ".mcp.json"]) assert.ok(A.PROTECTED_FILES.includes(f) && page.includes("<code>" + f + "</code>"), f);
   // Edit's, from the code too: its size limit, the notebook's way round, the card's cut mark, a folder's instructions.
   assert.ok(page.includes("A file over <b>" + T.EDIT_MAX_BYTES / 1048576 + " MB</b>"));
-  assert.match(T.EDIT_NOTEBOOK, /replace it whole with write, or change a cell with a short python3 script/);
+  assert.match(T.EDIT_NOTEBOOK, /Use the notebook_edit to edit this file\./);
   assert.ok(page.includes("Coder replaces it whole with write, or changes a cell with a short script"));
   assert.match(agentSrc, /if \(x\.length > 2000\) \{ cut = true; return x\.slice\(0, 2000\) \+ "\\u2026"; \}/);
   assert.ok(page.includes("A very long line is cut short, with <code>&hellip;</code> at its end"));
@@ -2181,7 +2182,8 @@ test("CD263 edit as Claude Code's Edit, tried side by side (tool 3; the owner, 2
   await put("nb.ipynb", nb);
   assert.equal(await tool("edit", { path: "nb.ipynb", old_string: "print(1)", new_string: "print(2)" }), "error: " + EDIT_NOTEBOOK);
   assert.equal(await has("nb.ipynb"), nb);
-  assert.match(EDIT_NOTEBOOK, /^File is a Jupyter Notebook\. .*replace it whole with write/);
+  // (Claude Code's words since Coder has its notebook tool, batch 5.)
+  assert.equal(EDIT_NOTEBOOK, "File is a Jupyter Notebook. Use the notebook_edit to edit this file.");
   await mkdir(join(dir, "adir"));
   assert.equal(await tool("edit", { path: "adir", old_string: "a", new_string: "b" }), "error: " + join(dir, "adir") + " is a folder, not a file: list what is in it with glob, or a command such as ls");
   // Claude Code's other names; a null byte; a file past the old 5 MB.

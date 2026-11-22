@@ -4,6 +4,31 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-22: Claude Code way, batch 5
+
+I checked this batch's 12 items against Claude Code's docs, its changelog (up to version 2.1.330) and its own program. Six are built, one was already the same, and the rest need your answer.
+
+**Built, the way Claude Code does it:**
+- **A notebook tool.** Coder can now change one cell of a Jupyter notebook (replace it, add a new one, or delete one), as Claude Code's NotebookEdit does, with its checks and its words. Coder must read the notebook first. A code cell that is replaced loses its old outputs, as in Claude Code. Your rules for editing files (`Edit(...)`) cover it too, and Rewind can put it back. Like Claude Code, Coder only loads this tool when it needs it, so it adds nothing to an ordinary message.
+- **No separate search tools.** Claude Code on Linux (where its cloud runs) has no Grep or Glob tool: it searches with `find` and `grep` as commands. Coder now does the same, so your hooks and rules see searches as commands. Coder's helper checks (agent hooks) keep their own search tools, as Claude Code's do, and Gloopy is not changed.
+- **A switch to turn off Rewind's file copies.** As in Claude Code, `CLAUDE_CODE_DISABLE_FILE_CHECKPOINTING=1` in an environment, or `"fileCheckpointingEnabled": false` in a repository's `.claude/settings.json`, turns them off. Then Rewind offers no "Restore code" for those jobs. Whichever one turns it off, the other can't turn it back on.
+- **Memory made harmless before Coder reads it.** As Claude Code does, hidden characters are taken out of Coder's memory, and text that pretends to be one of Coder's own notes or headings (like "(Note from Coder's app" or "THE OWNER'S STYLE") is marked so Coder doesn't take it as real. This covers the memory list, your style lines and memory files Coder reads.
+- **A repository you haven't trusted can't switch off your hooks.** Before, one line in a repository's settings could turn off the hooks you set in Settings. Now that only works once "Trust this repository's settings" is ticked, as in Claude Code since version 2.1.323. The repository can still turn off its own hooks.
+- **`@coder review`, said right.** The Repositories page and Coder's tips said anyone with write access can comment `@coder review`, but it also needs a Coder account. They now say "People who use Coder and have write access". And as Claude Code does, someone who can't start a review (and isn't the pull request's author) now gets a short note saying no review was started and who can ask for one. Before, they got no answer.
+
+**Already the same:** typing `/permissions` (or `/allowed-tools`) opens the mode menu, as it does on Claude Code's web page.
+
+**Waiting for your answer:**
+- When we go over permission rules, should the `/permissions` menu also get a "Permission rules" line? Claude Code's web page doesn't have one.
+- Should jobs started from GitHub be stopped from changing Coder's memory, and should the chat say when a job changed it? Claude Code has neither.
+- In Claude Code, every setting you add to an environment (even PATH or NODE_OPTIONS) reaches the commands. In Coder those few names could also reach the admin programs that build the sealed sandbox, so doing it safely means changing how every command starts. Shall I make that change?
+- Agent teams (several AIs working on one job) are switched off by default in Claude Code, and each teammate is extra Grok calls. Add them later, or leave them out?
+- Ultrareview (many AI reviewers, each finding double-checked) costs many Grok calls per run; Claude Code charges about $5 to $25 a run. Add it, started only when you ask?
+- Claude Code has no 60-step or 45-minute limit on one message. Removing Coder's limit could let one message spend more Grok. Remove it (with a limit you can set), or keep it?
+- In Accept edits, Claude Code's program lets simple file commands (like `touch` or `mkdir`) run without a card on the web, but `curl` should still ask, as it does in Coder. Can you send the same 60-`curl` message in Claude Code on the web, so we know for sure before I change Coder's cards?
+
+- Tests: `coder/test/cc-way-batch5.test.mjs`; older tests that checked the old rules (the repository's hooks switch, the old review wording, grep and glob in the chat's tools) now check the new. Full test suite: 1682 of 1682 pass. Not tried live in the browser yet; not deployed.
+
 ## 2026-11-22: Claude Code way, batch 4
 
 I checked this batch's 12 items against Claude Code's cloud docs, its changelog (up to version 2.1.330) and its own program. Five of them are built (six changes, below), one was already the same, and six need your answer.

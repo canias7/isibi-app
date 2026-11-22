@@ -101,7 +101,9 @@ test("CD382b Read and Edit rules are saved and applied; Claude Code's error for 
   assert.match(P.ruleWarning("deny", "Edit(file_path:a.js)").warning, /targets file_path as a raw string and will not match — use Edit\(…\) for Edit's own matcher\.$/);
   assert.equal(P.ruleWarning("deny", "Read(./.env)"), null);
   // A tool of Claude Code's that Coder has no copy of is still refused.
-  for (const r of ["NotebookEdit", "Agent"]) assert.equal(P.ruleSaved(r), false, r);
+  for (const r of ["Agent"]) assert.equal(P.ruleSaved(r), false, r);
+  // (NotebookEdit is Coder's notebook_edit since batch 5.)
+  assert.equal(P.ruleSaved("NotebookEdit"), true);
   // The Worker takes them, and its message names them.
   const R = await import("../src/coder-routes.mjs");
   const bucket = { m: new Map(), async get(k) { return this.m.has(k) ? { text: async () => this.m.get(k) } : null; }, async put(k, v) { this.m.set(k, String(v)); } };
@@ -192,7 +194,7 @@ test("CD382d Coder's file tools go by them too: a Read deny refuses read, grep a
     send: async () => steps[Math.min(n++, steps.length - 1)], exec, emit: (e) => events.push(e),
     here: () => ROOT, root: ROOT, where: (p) => (p.startsWith("/") ? p : ROOT + "/" + p.replace(/^\.\//, "")),
     ask: async (pid) => { cards.push(events.find((e) => e.type === "permission" && e.pid === pid)); return { choice: "yes" }; },
-  }, { text: "go", mode: "acceptEdits", rules: { allow: [], ask: ["Read(docs/**)"], deny: ["Read(.env)", "Edit(secrets/**)"] } });
+  }, { searchTools: true, text: "go", mode: "acceptEdits", rules: { allow: [], ask: ["Read(docs/**)"], deny: ["Read(.env)", "Edit(secrets/**)"] } });
   const out = (id) => r.messages.find((m) => m.role === "tool" && m.tool_call_id === id).content;
   assert.equal(out("r1"), "File is in a directory that is denied by your permission settings.");
   assert.equal(out("e1"), "File is covered by a Read deny rule in your permission settings and cannot be edited.");
@@ -408,7 +410,7 @@ test("CD382j Read(**) and Edit(**) are path rules, as in Claude Code 2.1.325 (it
     send: async (q) => { seen.push(q); return steps[Math.min(n++, steps.length - 1)]; },
     exec: async (x) => { ran.push(String(x.command)); return { code: 0, output: "ok" }; }, emit: () => {},
     here: () => ROOT, root: ROOT, where: (p) => (p.startsWith("/") ? p : ROOT + "/" + p), toolSearch: "false",
-  }, { text: "go", mode: "acceptEdits", rules: { allow: [], ask: [], deny: ["Read(**)", "Edit(**)"] } });
+  }, { searchTools: true, text: "go", mode: "acceptEdits", rules: { allow: [], ask: [], deny: ["Read(**)", "Edit(**)"] } });
   const offered = (seen[0].tools || []).map((t) => t.function.name);
   assert.ok(offered.includes("read") && offered.includes("edit") && offered.includes("write") && offered.includes("grep"), offered.join(","));
   const out = (id) => r.messages.find((m) => m.role === "tool" && m.tool_call_id === id).content;
@@ -452,7 +454,7 @@ test("CD382k a relative rule's path counts from the folder Coder's commands are 
     send: async () => steps[Math.min(n++, steps.length - 1)],
     exec: async (x) => { const b = String(x.command).split(" ").pop(); try { reqs.push(JSON.parse(Buffer.from(b, "base64").toString("utf8"))); } catch { /* a command */ } return { code: 0, output: "     1\tx\n" }; },
     emit: () => {}, here: () => SUB, root: ROOT, where: (p) => (p.startsWith("/") ? p : SUB + "/" + p), toolSearch: "false",
-  }, { text: "go", mode: "acceptEdits", rules: { allow: [], ask: [], deny: ["Read(config/app.json)"] } });
+  }, { searchTools: true, text: "go", mode: "acceptEdits", rules: { allow: [], ask: [], deny: ["Read(config/app.json)"] } });
   const out = (id) => r.messages.find((m) => m.role === "tool" && m.tool_call_id === id).content;
   assert.equal(out("r1"), "File is in a directory that is denied by your permission settings.");
   assert.match(out("r2"), /\tx/, "anchored: x/config/app.json is read");
@@ -483,7 +485,7 @@ test("CD382l (D3 of recheck 3) the chat's own plan file, in a plansDirectory und
       emit: (e) => events.push(e), here: () => root, root, chatId: "d3", where: (p) => (p.startsWith("/") ? p : join(root, p)),
       ask: async (pid) => { cards.push(events.find((e) => e.type === "permission" && e.pid === pid)); return answers[k++] || null; },
       plan: box, toolSearch: "false",
-    }, { text: "Fix the cart", mode, messages: [], rules: { allow: [], ask: [], deny: [], ...rules } });
+    }, { searchTools: true, text: "Fix the cart", mode, messages: [], rules: { allow: [], ask: [], deny: [], ...rules } });
     return { f, cards, wrote, told: (id) => (r.messages.find((m) => m.role === "tool" && m.tool_call_id === id) || {}).content };
   };
   for (const mode of ["plan", "acceptEdits", "auto"]) {
@@ -544,7 +546,7 @@ test("CD382p (round 5) read's, write's and edit's ask cards in Claude Code 2.1.3
       send: async () => steps[Math.min(n++, steps.length - 1)], exec: async () => ({ code: 0, output: "ok" }), emit: (e) => events.push(e),
       here: () => ROOT, root: ROOT, where: (p) => (p.startsWith("/") ? p : ROOT + "/" + p),
       ...(ask ? { ask: async (pid) => { cards.push(events.find((e) => e.type === "permission" && e.pid === pid)); return { choice: "yes" }; } } : {}),
-    }, { text: "go", mode, rules: { allow: [], ask: ["Edit(src/**)", "Read"], deny: [] } });
+    }, { searchTools: true, text: "go", mode, rules: { allow: [], ask: ["Edit(src/**)", "Read"], deny: [] } });
     return { cards, events, told: (id) => (r.messages.find((m) => m.role === "tool" && m.tool_call_id === id) || {}).content };
   };
   let t = await run("acceptEdits", true);
@@ -579,7 +581,7 @@ async function realLoop(d, steps, { rules = {}, mode = "acceptEdits", hooks = nu
     },
     emit: (e) => events.push(e), here: () => here, root: d, chatId: "r5", where: (p) => (p.startsWith("/") ? p : here + "/" + p),
     ask: ask || (async () => ({ choice: "yes" })), toolSearch: "false", ...(home !== undefined ? { home } : {}),
-  }, { text: "go", mode, messages: [], rules: { allow: [], ask: [], deny: [], ...rules }, ...(hooks ? { hooks: H.hooksFrom({ hooks }, "settings").list } : {}) });
+  }, { searchTools: true, text: "go", mode, messages: [], rules: { allow: [], ask: [], deny: [], ...rules }, ...(hooks ? { hooks: H.hooksFrom({ hooks }, "settings").list } : {}) });
   const told = (id) => ((r.messages.find((m) => m.role === "tool" && m.tool_call_id === id) || {}).content || "").replace(/^\u0000coder-facts\u0000[^\n]*\n/, "");
   return { r, events, hookCalls, ran, told, toolReqs };
 }
@@ -685,7 +687,7 @@ test("CD382n (round 5) a command that writes the chat's own plan file, in a plan
       emit: (e) => events.push(e), here: () => root, root, chatId: "r5p", where: (p) => (p.startsWith("/") ? p : join(root, p)),
       ask: async (pid) => { cards.push(events.find((e) => e.pid === pid)); return { choice: "no" }; },
       plan: box, toolSearch: "false",
-    }, { text: "Fix the cart", mode, messages: [], rules: { allow: [], ask: [], deny: [] } });
+    }, { searchTools: true, text: "Fix the cart", mode, messages: [], rules: { allow: [], ask: [], deny: [] } });
     assert.ok(ran.some((c) => c.includes("echo '1. Fix it' > " + f)), mode + ": the plan file's command ran");
     assert.equal(cards.length, 1, mode + ": one card, for notes.md: " + JSON.stringify(cards.map((c) => c && c.why)));
     assert.match(String(cards[0].why || ""), /notes\.md which is a sensitive file/, mode);
@@ -885,7 +887,7 @@ test("R6R2 (round 6) a PowerShell command that writes or reads the chat's own pl
       emit: (e) => events.push(e), here: () => root, root, home: HOME, chatId: "r6ps", where: (p) => (p.startsWith("/") ? p : join(root, p)),
       ask: async (pid) => { cards.push(events.find((e) => e.type === "permission" && e.pid === pid)); return { choice: "no" }; },
       psParse: async (cmd) => parse(cmd), plan: box, toolSearch: "false",
-    }, { text: "Fix the cart", mode, messages: [], rules: { allow: [], ask: [], deny: [] }, powershell: { bypass: true } });
+    }, { searchTools: true, text: "Fix the cart", mode, messages: [], rules: { allow: [], ask: [], deny: [] }, powershell: { bypass: true } });
     return { f, ran, cards };
   };
   for (const mode of ["acceptEdits", "auto"]) {

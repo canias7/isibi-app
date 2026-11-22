@@ -57,7 +57,7 @@ async function loop(steps, hooks, { tools = {}, hookRun = () => ({}), ask = slow
     emit: (e) => events.push(e),
     here: () => "/work/shop", root: "/work/shop", chatId: "shop-hr", where: (p) => (p.startsWith("/") ? p : "/work/shop/" + p),
     ask, ...(mcp ? { mcp } : {}), ...more,
-  }, { text: "go", mode, messages: [], hooks: H.hooksFrom({ hooks }, "settings").list, ...(rules ? { rules } : {}), ...(connectors ? { connectors } : {}), ...opts });
+  }, { text: "go", mode, messages: [], hooks: H.hooksFrom({ hooks }, "settings").list, ...(rules ? { rules } : {}), ...(connectors ? { connectors } : {}), searchTools: true, ...opts });
   const answer = (id) => (r.messages.find((m) => m.tool_call_id === id) || {}).content;
   return { r, events, hookCalls, requests, ran, answer };
 }

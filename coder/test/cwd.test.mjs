@@ -54,7 +54,7 @@ test("CD230 a cd carries over to the next commands, the Claude Code way: only wh
   try {
     const dir = join(m.roots.root, "cwd-one");
     const run = (id, command, more = {}) => say("", [call("bash", { command, ...more }, id)]);
-    const j = await m.job({ project: "cwd-one", text: "go", messages: [] }, [
+    const j = await m.job({ project: "cwd-one", text: "go", messages: [], searchTools: true }, [
       run("b1", "mkdir -p src/deep && echo top > README.md && echo inner > src/README.md && echo deep > src/deep/x.txt && cd src && pwd"),
       run("b2", "pwd"),
       say("", [call("read", { path: "README.md" }, "r1")]),

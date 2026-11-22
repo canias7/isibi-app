@@ -969,7 +969,8 @@ export function parseRule(text) {
   // (TaskCreate, TaskGet, TaskList and TaskUpdate: Coder's task list since 2026-11-14, the owner: "Do all the talk to you
   // tools execpt for the notify one"; whole-tool rules, as TodoWrite's. EnterPlanMode, Coder's enter_plan_mode, too. And
   // ToolSearch, Coder's tool_search: denied, tool search is off, as Claude Code's MCP docs say; coder-toolsearch.mjs.)
-  const m = /^(Bash|WebFetch|Read|Edit|Write|Grep|Glob|LSP|Monitor|WebSearch|TaskStop|KillShell|KillBash|AskUserQuestion|ExitPlanMode|EnterPlanMode|TodoWrite|TaskCreate|TaskGet|TaskList|TaskUpdate|PowerShell|ToolSearch|Skill)(?:\(([\s\S]*)\))?$/.exec(String(text || "").trim());
+  // (NotebookEdit, Coder's notebook_edit since batch 5: a rule on the whole tool; Edit(...) path rules cover it too.)
+  const m = /^(Bash|WebFetch|Read|Edit|Write|NotebookEdit|Grep|Glob|LSP|Monitor|WebSearch|TaskStop|KillShell|KillBash|AskUserQuestion|ExitPlanMode|EnterPlanMode|TodoWrite|TaskCreate|TaskGet|TaskList|TaskUpdate|PowerShell|ToolSearch|Skill)(?:\(([\s\S]*)\))?$/.exec(String(text || "").trim());
   if (!m) return null;
   // (TaskStop's old names, KillShell and KillBash, name it still: Claude Code 2.1.322 keeps them as its aliases.)
   if (m[1] === "KillShell" || m[1] === "KillBash") m[1] = "TaskStop";
@@ -2030,7 +2031,7 @@ export function fileToolDecision(tool, path, { rules = {}, root = "/", cwd = "",
   // (`roots`: the chat's other working folders, where a deny or ask rule's relative path applies too: Claude Code 2.1.325.)
   // (`cwd`: the folder Coder's commands are in, where a relative rule's path counts from first, as Claude Code's: round 4.)
   const ctx = { root, ...(cwd ? { cwd } : {}), home, isDir, roots, sources: rules && rules.sources ? rules.sources : null, real: typeof real === "function" ? (p) => { try { return real(p) || ""; } catch { return ""; } } : null };
-  const edits = tool === "write" || tool === "edit";
+  const edits = tool === "write" || tool === "edit" || tool === "notebook_edit";
   const whole = (kind) => wholeRule(rules, kind, name);
   // (Grep, Glob and LSP go by Read rules on a path only, as Claude Code's do (2.1.325: their read check takes path rules
   // alone): a rule on the whole Read tool, `Read`, `Read(*)` or a wildcard naming Read, is Read's own. The owner, 2026-11-14.)

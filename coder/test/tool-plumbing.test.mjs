@@ -38,7 +38,7 @@ async function loop(steps, hooks, { tools = {}, hookRun = () => ({}), mode = "au
     emit: (e) => events.push(e),
     here: () => "/work/shop", root: "/work/shop", chatId: "shop-tp", where: (p) => (p.startsWith("/") ? p : "/work/shop/" + p),
     ask: async () => ({ choice: "yes" }),
-  }, { text: "go", mode, messages: [], hooks: H.hooksFrom({ hooks }, "settings").list });
+  }, { searchTools: true, text: "go", mode, messages: [], hooks: H.hooksFrom({ hooks }, "settings").list });
   return { r, events, seen, hookCalls };
 }
 

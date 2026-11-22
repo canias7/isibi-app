@@ -198,7 +198,7 @@ test("CD185 what starts a review: the repository's Review runs (After every push
   assert.equal((await run(pr("ready_for_review", { draft: true }))).r.why, "draft");
   x = await run(pr("opened", { fork: true }));
   assert.equal(x.r.why, "fork");
-  assert.match(x.gh.posts(/\/issues\/7\/comments$/)[0].body.body, /comes from a fork, so Coder doesn't review it on its own\. Someone with write access can comment `@coder review`/);
+  assert.match(x.gh.posts(/\/issues\/7\/comments$/)[0].body.body, /comes from a fork, so Coder doesn't review it on its own\. Someone who uses Coder and has write access can comment `@coder review`/);
   // AFTER EVERY PUSH: a push is reviewed (only what changed).
   await set("push");
   await run(pr("synchronize", { sha: "h2" }));
@@ -213,9 +213,14 @@ test("CD185 what starts a review: the repository's Review runs (After every push
   x = await run(pr("opened"));
   assert.match(x.gh.posts(/\/issues\/7\/comments$/)[0].body.body, /^Coder Review: to get a review of this pull request, comment `@coder review`/);
   assert.equal(job(), null);
-  // COMMANDS. A stranger: no answer at all. A Coder user without write access: a tip.
+  // COMMANDS. A stranger (no Coder account): Claude Code's tip, nothing else read or run (batch 5; before: no answer). A Coder
+  // user without write access: a tip.
   x = await run(cmd("once", "stranger"));
-  assert.deepEqual([x.r.why, x.gh.asked.length], ["not allowed", 0]);
+  assert.equal(x.r.why, "not allowed");
+  assert.equal(x.gh.posts(/\/issues\/7\/comments$/)[0].body.body, "@stranger No review was started: manual reviews can only be requested by someone who uses Coder and has write access to this repository.");
+  assert.equal(x.gh.asked.filter((a) => /\/collaborators\//.test(a.u)).length, 0, "their access is not looked up");
+  x = await run(cmd("once", "stranger"), { pr: { user: { login: "stranger" } } });
+  assert.deepEqual([x.r.why, x.gh.posts(/\/issues\/7\/comments$/).length], ["not allowed", 0], "not on their own pull request");
   x = await run(cmd("once", "reader"), { perm: "read" });
   assert.match(x.gh.posts(/\/issues\/7\/comments$/)[0].body.body, /^@reader No review was started: manual reviews can only be requested by someone with write access to this repository\.$/);
   // Not on the asker's own pull request (Claude Code's troubleshooting page).

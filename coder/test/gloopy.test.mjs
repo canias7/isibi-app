@@ -37,7 +37,8 @@ test("GL1 (2026-11-09) Gloopy's turn is sent with Gloopy's own instructions and 
   // (With Claude Code's tool search since 2026-11-14: the tools it defers named in a note, tool_search after Coder's own;
   // tool-search.test.mjs. Gloopy keeps its own ways: no tool_search, no such note.)
   const { DEFERRED_TOOLS } = await import("../container/coder-toolsearch.mjs");
-  assert.deepEqual(c.seen[0].tools.map((t) => t.function.name), [...CODER_TOOLS.map((t) => t.function.name).filter((n) => !DEFERRED_TOOLS.includes(n)), "tool_search"]);
+  // (Not grep or glob since batch 5: Claude Code on Linux leaves them out of the chat's tools; Gloopy keeps its own.)
+  assert.deepEqual(c.seen[0].tools.map((t) => t.function.name), [...CODER_TOOLS.map((t) => t.function.name).filter((n) => !DEFERRED_TOOLS.includes(n) && n !== "grep" && n !== "glob"), "tool_search"]);
   assert.ok(!g.seen[0].tools.some((t) => t.function.name === "tool_search") && !g.seen[0].messages.some((m) => m.toolsAnnounced));
 });
 

@@ -266,11 +266,13 @@ export const AUTO_OFF_GITHUB = "Not run: auto mode is off in your settings, and 
 /** The most paths one job's `edited` keeps (past it, `editedCut`: Rewind then reverts the later jobs whole), each at most EDITED_PATH_MAX long. */
 export const EDITED_MAX = 200, EDITED_PATH_MAX = 300;
 /** The file tools after which the service may add something for that file (afterFile). */
-export const FILE_HOOK_TOOLS = new Set(["read", "edit", "write"]);
+export const FILE_HOOK_TOOLS = new Set(["read", "edit", "write", "notebook_edit"]);
 export const RUN_TOOLS = {
   read: { verb: "Read", label: (a) => asText(a.path) + (a.pages ? " pages " + asText(a.pages) : a.offset ? " from line " + asText(a.offset) : "") },
   write: { verb: "Wrote", label: (a) => asText(a.path) },
   edit: { verb: "Edited", label: (a) => asText(a.path) },
+  // (Claude Code's NotebookEdit, "Edit Notebook": batch 5.)
+  notebook_edit: { verb: "Edited notebook", label: (a) => asText(typeof a.path === "string" ? a.path : a.notebook_path) },
   grep: { verb: "Searched", label: (a) => JSON.stringify(asText(a.pattern)) + (a.path && a.path !== "." ? " in " + asText(a.path) : "") },
   glob: { verb: "Found", label: (a) => asText(a.pattern) },
   // (Claude Code's LSP inputs since 2026-11-14: operation, filePath, line, character.)
@@ -772,8 +774,10 @@ export function monitorEndLabel(e) {
 export { ACCOUNT_EMAIL_REFUSED, accountEmailRefused, inputText, namesUserAgentWithAddress } from "./coder-privacy.mjs";
 /** The file tools the read block covers (Claude Code: "Read, Grep, Glob, and LSP"), and what Coder is told (its words, with Coder's names). */
 export const READ_TOOLS = new Set(["read", "grep", "glob", "lsp"]);
+/** Claude Code's two search tools, which Coder's chats no longer get (SEARCH_TOOLS). */
+const SEARCH_NAMES = new Set(["grep", "glob"]);
 /** Coder's file tools the owner's Read and Edit rules (and whole-tool Write, Grep, Glob, LSP rules) apply to. */
-const FILE_RULE_TOOLS_HERE = new Set(["read", "grep", "glob", "lsp", "write", "edit"]);
+const FILE_RULE_TOOLS_HERE = new Set(["read", "grep", "glob", "lsp", "write", "edit", "notebook_edit"]);
 /** The file tools' refusal under the read block (Claude Code 2.1.322's words: "/etc/hostname is outside /home/user/cc-live-bash; the permissions.blockReadsOutsideWorkingDirectories setting blocks reads outside the working directories. Ask the user to add the directory with /add-dir, or to remove that setting."), with Coder's setting; Coder has no /add-dir. */
 export const READ_BLOCKED = (path, dirs) => "error: " + path + " is outside " + (Array.isArray(dirs) ? dirs : []).filter((x) => typeof x === "string" && x).join(", ") + "; the CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES setting blocks reads outside the working directories. Ask the owner to remove that setting.";
 /**
@@ -1359,13 +1363,37 @@ export function secretAsk(args) {
 export const SUGGEST_CONNECTORS_WORDS = "Show the owner the Suggested connectors card: each of their connectors (MCP integrations such as Linear, Notion, Zapier, Neon) with a button to Connect, Use (turn on in this chat) or Reconnect it, and a link to browse more. Call it whenever the owner asks about connectors, integrations or MCP (\"search connector tools\", \"what connectors do I have\", \"connect Linear\"), or asks for something in a service you have no tools for. Call it instead of tool_search or request_secret for these. Then tell the owner in a sentence what the card offers.";
 /** (Claude Code 2.1.309: no stray @names in what it posts on GitHub, which would notify strangers.) */
 export const GH_MENTIONS = "GitHub notifies the owner of any @name written in a pull request, issue or comment. Write a bare @name only for a real login you mean to notify; put roles, placeholders and code (@reviewer, @types/node) in backticks or drop the @.";
+/**
+ * CLAUDE CODE'S NotebookEdit (batch 5, M-a-07; coder-tools.mjs toolNotebookEdit): its description, inputs and their
+ * descriptions, from its raw program (2.1.330), with Coder's tool names and read's way of naming a cell; held back until
+ * tool_search loads it, as Claude Code holds it back.
+ */
+export const NOTEBOOK_EDIT_PROMPT = "Replaces, inserts, or deletes a single cell in a Jupyter notebook (.ipynb file).\n- You must use the read tool on the notebook in this conversation before editing \u2014 this tool will fail otherwise.\n- `notebook_path` must be an absolute path.\n- `cell_id` is the `id` shown in the read tool's `--- Cell N (\u2026, id \u2026) ---` line for each cell. It is required for `replace` and `delete`.\n- `edit_mode` defaults to `replace`. Use `insert` to add a new cell after the cell with the given `cell_id` (or at the beginning of the notebook if `cell_id` is omitted) \u2014 `cell_type` is required when inserting. Use `delete` to remove the cell.";
+export const NOTEBOOK_EDIT_PARAMS = {
+  notebook_path: { type: "string", description: "The absolute path to the Jupyter notebook file to edit (must be absolute, not relative)" },
+  cell_id: { type: "string", description: "The ID of the cell to edit. When inserting a new cell, the new cell will be inserted after the cell with this ID, or at the beginning if not specified." },
+  new_source: { type: "string", description: "The new source for the cell" },
+  cell_type: { type: "string", enum: ["code", "markdown"], description: "The type of the cell (code or markdown). If not specified, it defaults to the current cell type. If using edit_mode=insert, this is required." },
+  edit_mode: { type: "string", enum: ["replace", "insert", "delete"], description: "The type of edit to make (replace, insert, delete). Defaults to replace." },
+};
+/**
+ * GREP AND GLOB, CLAUDE CODE'S (coder-search.mjs; the owner, 2026-11-14: "start fixing and filling in gaps on those tools"): its
+ * short descriptions and inputs, word for word. Not among a Coder chat's tools since batch 5 (M-a-32): Claude Code's tools reference,
+ * "On macOS, Linux, and WSL, Claude Code leaves Glob and Grep out of the default tool set, and Claude searches with find and grep
+ * through the Bash tool instead"; they come back for "a subagent [that] lists Glob or Grep in its tools field and leaves out
+ * Bash", as Coder's agent hooks do (read, grep and glob).
+ */
+export const SEARCH_TOOLS = Object.freeze([searchToolDef("grep"), searchToolDef("glob")]);
 export const CODER_TOOLS = Object.freeze([
   // PICTURES, PDFs AND NOTEBOOKS too (owner item 1, 2026-11-07), like Claude Code's Read.
   fn("read", "Read a file in the project (or in " + SCRATCH + ", a scratch folder for crops and conversions that is never saved to the branch), like Claude Code's Read. Text: with line numbers, up to about 100,000 characters a call: a longer file gives its first part (PARTIAL view) and how to read more with offset and limit; a whole file over 256 KB is refused (read a part, or grep); allow_large reads all of it, or a long range, in one call when you truly need it at once. An empty file, or an offset past the end, says so. Use this instead of cat. A picture (PNG, JPG, GIF, WebP; a screenshot you took, say): shown to you as a picture. A PDF: each page's text, and each page shown to you as a picture too (like Claude Code's); pages \"1-5\" picks pages, at most " + PDF_PAGES_MAX + " at a time, and is needed for a PDF of over " + PDF_PAGES_FREE + " pages. A Jupyter notebook (.ipynb): its cells with their outputs, pictures in them shown.", { path: FILE_PATH, offset: { type: "integer" }, limit: { type: "integer" }, pages: { type: "string", description: "PDF pages, e.g. \"3\" or \"1-5\"" }, allow_large: { type: "boolean", description: "read the whole file, or a long range, in one call (sized to the room left in this job); only when you truly need it all at once" } }, ["path"]),
   fn("edit", "Change a file by replacing an exact piece of text (old_string) with new text (new_string). old_string must match the file exactly, spaces and indentation included, and appear only once, unless replace_all is true (then every place changes). Copy it from what read showed without read's line-number prefix (the number and the tab before each line): that is not part of the file. Keep old_string short: the few lines that make it unique are enough. With an empty old_string, a new file is made with new_string. Use this instead of sed.", { path: FILE_PATH, old_string: { type: "string" }, new_string: { type: "string" }, replace_all: { type: "boolean" } }, ["path", "old_string", "new_string"]),
+  fn("notebook_edit", NOTEBOOK_EDIT_PROMPT, NOTEBOOK_EDIT_PARAMS, ["notebook_path", "new_source"]),
   fn("write", "Write a whole file: a new one, or one you have read, replaced in full (it is not appended to or merged). For a change to part of a file, use edit instead. At most about 90,000 characters per call; for a longer file write the start, then add the rest with edit.", { path: FILE_PATH, content: { type: "string" } }, ["path", "content"]),
   // GREP AND GLOB, CLAUDE CODE'S (coder-search.mjs; the owner, 2026-11-14: "start fixing and filling in gaps on those tools"):
-  // its short descriptions, the ones a model that isn't one of Claude's older ones gets, and its inputs, word for word.
+  // its short descriptions, the ones a model that isn't one of Claude's older ones gets, and its inputs, word for word. Kept in
+  // this list for Gloopy and Coder's agent hooks; Coder's own chats leave them out since batch 5 (M-a-32), as Claude Code on
+  // Linux does, unless runCoder's `searchTools` (Claude Code's --tools naming them) brings them back: SEARCH_TOOLS.
   searchToolDef("grep"),
   searchToolDef("glob"),
   // CLAUDE CODE'S LSP TOOL (the owner, 2026-11-14: "start fixing and filling in gaps on those tools"; LSP becomes Claude Code's
@@ -1424,7 +1452,7 @@ export const CODER_TOOLS = Object.freeze([
   // and Claude Code 2.1.319's own Bash description, read and tried that day).
   { type: "function", function: {
     name: "bash",
-    description: "Run ONE shell command (bash) and get back what it printed. Each command runs in a separate process. A cd carries over to your later commands (in later messages too) when the command succeeds and stays inside the project or this chat's other repositories; outside them the next command starts back in the project's folder, and the result says \"Shell cwd was reset to …\". Environment variables do not carry over from one command to the next; the aliases, functions and PATH of the shell's startup file (~/.bashrc, as it was when this message started) are in every command. What a command prints is shown to you, not reliably to the owner: say in your answer what matters. Give `description`: what the command does, in a few plain words in active voice (\"Run the test suite\", \"Install the packages\"), never the command echoed; the owner sees it in place of the command. `timeout` in milliseconds: 120000 by default, at most 600000; a command still running then is moved to the background and you are told its id and output file (a command that starts with `sleep` is stopped instead). A command that runs on (a dev server, a watcher, a long build) goes in the background with run_in_background: true, never with &: you get its id and output file, and you are told when it ends; read its output with read on that file, stop it with stop_job. A background command keeps running after your answer, until it ends, is stopped, or reaches its time limit: 30 minutes, or with run_in_background the `timeout` you give, up to 7200000 (2 hours); you are told when it ends, even after your answer. A foreground `sleep` of 25 seconds or more is refused; use monitor with an until-loop to wait on a condition. Output past 30,000 characters is saved to a file: you get its path and a preview of about 2,000 characters (its start, and its end when it is much longer), and read or grep that file for the rest. Exit code 1 from grep, rg, find, diff, test and git diff or git grep is not a failure. Commands run with no secrets in their environment; every one has GOFARTHER_CODER=1, and this chat's id and link in GOFARTHER_CODER_CHAT_ID and GOFARTHER_CODER_CHAT_URL (for a link back to this chat in a report or a post, when one is wanted). Use it for installs, tests, builds, scripts, git status/log/diff; read, write, edit, grep and glob for files.",
+    description: "Run ONE shell command (bash) and get back what it printed. Each command runs in a separate process. A cd carries over to your later commands (in later messages too) when the command succeeds and stays inside the project or this chat's other repositories; outside them the next command starts back in the project's folder, and the result says \"Shell cwd was reset to …\". Environment variables do not carry over from one command to the next; the aliases, functions and PATH of the shell's startup file (~/.bashrc, as it was when this message started) are in every command. What a command prints is shown to you, not reliably to the owner: say in your answer what matters. Give `description`: what the command does, in a few plain words in active voice (\"Run the test suite\", \"Install the packages\"), never the command echoed; the owner sees it in place of the command. `timeout` in milliseconds: 120000 by default, at most 600000; a command still running then is moved to the background and you are told its id and output file (a command that starts with `sleep` is stopped instead). A command that runs on (a dev server, a watcher, a long build) goes in the background with run_in_background: true, never with &: you get its id and output file, and you are told when it ends; read its output with read on that file, stop it with stop_job. A background command keeps running after your answer, until it ends, is stopped, or reaches its time limit: 30 minutes, or with run_in_background the `timeout` you give, up to 7200000 (2 hours); you are told when it ends, even after your answer. A foreground `sleep` of 25 seconds or more is refused; use monitor with an until-loop to wait on a condition. Output past 30,000 characters is saved to a file: you get its path and a preview of about 2,000 characters (its start, and its end when it is much longer), and read or grep that file for the rest. Exit code 1 from grep, rg, find, diff, test and git diff or git grep is not a failure. Commands run with no secrets in their environment; every one has GOFARTHER_CODER=1, and this chat's id and link in GOFARTHER_CODER_CHAT_ID and GOFARTHER_CODER_CHAT_URL (for a link back to this chat in a report or a post, when one is wanted). Use it for installs, tests, builds, scripts, git status/log/diff, and to find files and text (find, grep, rg); read, write and edit for files.",
     parameters: { type: "object", properties: {
       command: { type: "string", description: "The command to run" },
       description: { type: "string", description: "What the command does, in plain words (e.g. \"Run the test suite\"). The owner sees it." },
@@ -1515,7 +1543,7 @@ export const HOSTS_ONLY_COMMAND = "allowed_domains applies only to a command mon
 export const HOSTS_UNCHECKED = "(Its allowed_domains were not opened: no one approved those hosts, and auto mode does not check hosts in this chat \u2014 do not retry them this turn; the owner can allow them in the environment's network settings.)";
 /** The tools whose calls Coder's permission rules check one by one (the others: only a rule on the whole tool, below). */
 // (web_search checks its own rule on the whole tool, WebSearch, in its own branch: coder-websearch.mjs, 2026-11-14.)
-const RULED_TOOLS = new Set(["bash", "monitor", "read", "write", "edit", "grep", "glob", "lsp", "web_fetch", "web_search"]);
+const RULED_TOOLS = new Set(["bash", "monitor", "read", "write", "edit", "notebook_edit", "grep", "glob", "lsp", "web_fetch", "web_search"]);
 /** Claude Code's tools that it leaves out under permissions.denyInsteadOfPrompting (2.1.325's isEnabled; 2026-11-14). */
 export const PROMPT_TOOLS = Object.freeze(["ask_user", "enter_plan_mode", "exit_plan_mode"]);
 /**
@@ -1829,8 +1857,8 @@ The project lives in the folder your commands start in (WHERE YOUR COMMANDS RUN,
 ${CODER_URLS_LINE}
 
 HOW YOU WORK
-- Your tools: read, edit, write (files), grep, glob (finding things), bash (running anything: installs, tests, servers, git status), web_search (search the web whenever you need current facts or docs) and web_fetch (a separate reader answers your question from one page), task_create, task_get, task_list and task_update (your task list, which the owner sees), pull_request (only when asked), pr_comments (your review as comments on the pull request's lines, only when asked), pr_read (a pull request's reviews and comments), pr_update (mark a pull request ready or draft, resolve a thread, reply, comment), suggest_connectors (the Suggested connectors card: call it when the owner asks about connectors, integrations or MCP, or wants a service you have no tools for), rename_chat (renames this chat, only when asked).
-- Use read, edit, write, grep and glob for files (write takes up to about 90,000 characters a call, as its description says), not cat, sed, heredocs or find: they are safer and clearer to the owner. Use bash for running things.
+- Your tools: read, edit, write (files), bash (running anything: installs, tests, servers, git status, and finding things with find, grep and rg), web_search (search the web whenever you need current facts or docs) and web_fetch (a separate reader answers your question from one page), task_create, task_get, task_list and task_update (your task list, which the owner sees), pull_request (only when asked), pr_comments (your review as comments on the pull request's lines, only when asked), pr_read (a pull request's reviews and comments), pr_update (mark a pull request ready or draft, resolve a thread, reply, comment), suggest_connectors (the Suggested connectors card: call it when the owner asks about connectors, integrations or MCP, or wants a service you have no tools for), rename_chat (renames this chat, only when asked).
+- Use read, edit and write for files (write takes up to about 90,000 characters a call, as its description says), not cat, sed or heredocs: they are safer and clearer to the owner. Search with find and grep (or rg) in bash. Use bash for running things.
 - Use task_create to plan and track work. Mark each task completed as soon as it's done; don't batch.
 - read also shows you pictures (to check a page you built, take a screenshot with Playwright or Chrome and read it), PDFs by their pages, and Jupyter notebooks with their outputs.
 - To change a file: read it, then edit the exact lines. Use write for a new file or a full rewrite.
@@ -2116,7 +2144,7 @@ export function ruleHoldsSecret(rule) {
   }
   return false;
 }
-export async function runCoder(deps, { notices = [], lost = [], stalls = [], promptNotify = true, timeouts = null, outLimits = null, noBg = false, respondToBash = true, shell = "", cmdShell = "", compactVars = null, messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, mode = "auto", rules = null, editDiff = false, readBlock = false, writeBlock = false, checker = false, checkerInPlan = true, checkWhere = null, emailMark = "", diskWarnGib = 0, memWarnGib = 0, hooks = null, autoMode = null, denyInstead = false, autoOff = false, planExit = "auto", hostLists = null, powershell = null, connectors = [], connectorNotes = [], connectorsWaiting = [], connectorsFailed = [], connectorsGone = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS , rmChecksOff = null, fileEdits = true, startMode = "", resumed = false, lastAt = 0, sessionRules = null, language = "", customTitle = "", compact = null, system = CODER_SYSTEM, tools = null, nudges = true, who = "Coder", browserRules: rulesIn = [], granted: grantedIn = [], schedules = [], opening = "user", permissions: permsIn = null, sites: sitesIn = [], monitor = false, ownerSaid: ownerSaidList = null, asHelper = false, helper = null, pages = [], savedLogins = [], savedCards = [], contacts = [], webhooks = [], hookBase = "/api/coder/gloopy-hook/", attached = [], attachedLeft = 0, workNote = "", marked = null, taught = null, files: keptFiles = [], background = false, checkWrites = false, denied: deniedIn = [], zone = "", searchLimits = null, takeUp = null, tasksOff = false, mentionsOff = false, holdBack = null, suggest = false, stopCap = STOP_BLOCK_CAP, box = false, skills = [] } = {}) {
+export async function runCoder(deps, { notices = [], lost = [], stalls = [], promptNotify = true, timeouts = null, outLimits = null, noBg = false, respondToBash = true, shell = "", cmdShell = "", compactVars = null, messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, mode = "auto", rules = null, editDiff = false, readBlock = false, writeBlock = false, checker = false, checkerInPlan = true, checkWhere = null, emailMark = "", diskWarnGib = 0, memWarnGib = 0, hooks = null, autoMode = null, denyInstead = false, autoOff = false, planExit = "auto", hostLists = null, powershell = null, connectors = [], connectorNotes = [], connectorsWaiting = [], connectorsFailed = [], connectorsGone = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS , rmChecksOff = null, fileEdits = true, startMode = "", resumed = false, lastAt = 0, sessionRules = null, language = "", customTitle = "", compact = null, system = CODER_SYSTEM, tools = null, nudges = true, who = "Coder", browserRules: rulesIn = [], granted: grantedIn = [], schedules = [], opening = "user", permissions: permsIn = null, sites: sitesIn = [], monitor = false, ownerSaid: ownerSaidList = null, asHelper = false, helper = null, pages = [], savedLogins = [], savedCards = [], contacts = [], webhooks = [], hookBase = "/api/coder/gloopy-hook/", attached = [], attachedLeft = 0, workNote = "", marked = null, taught = null, files: keptFiles = [], background = false, checkWrites = false, denied: deniedIn = [], zone = "", searchLimits = null, takeUp = null, tasksOff = false, mentionsOff = false, holdBack = null, suggest = false, stopCap = STOP_BLOCK_CAP, box = false, skills = [], checkpoints = true, searchTools = false } = {}) {
   // ANOTHER AGENT ON THE SAME ENGINE (owner, 2026-11-09: Gloopy, container/gloopy-agent.mjs): its own instructions
   // (`system`), the tools it is offered (`tools`; a call to any other is refused), no reminders about Coder's setup script
   // (`nudges`), and its name in the chat's own lines (`who`). Coder's defaults are unchanged.
@@ -2801,7 +2829,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   /** An agent hook's turns (at most AGENT_HOOK_TURNS): read, grep and glob only, under the owner's Read rules. */
   const HOOK_TOOLS = ["read", "grep", "glob"];
   const agentHook = async (ask) => {
-    const tools = chatTools.filter((t) => t && t.function && HOOK_TOOLS.includes(t.function.name));
+    // (Read from the chat's tools; grep and glob as Claude Code's subagents that list them get them back: SEARCH_TOOLS.)
+    const tools = [...chatTools.filter((t) => t && t.function && t.function.name === "read"), ...SEARCH_TOOLS.filter((t) => !toolDenied(t.function.name))];
     const msgs = [{ role: "system", content: HOOK_JUDGE_AGENT + " You may first look at the project with read, grep and glob (they only read)." }, { role: "user", content: ask }];
     for (let turn = 0; turn < AGENT_HOOK_TURNS; turn++) {
       let r;
@@ -3468,9 +3497,11 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   // or the machine's zsh), as Claude Code's Bash description names the user's shell; `shell` is the owner's own `!` command,
   // which it had been given by mistake, so it never said zsh. The cache fix's follow-up, 2026-11-14.)
   const ownOffered = (t) => { if (t && t.function) tsCatalog.set(t.function.name, t); return !(t && t.function && (toolDenied(t.function.name) || (denyInstead === true && PROMPT_TOOLS.includes(t.function.name)))); };
-  const chatTools = [...withPs(toolsFor(github ? GITHUB_TOOLS : CODER_TOOLS, { noBg: noBg === true, inlineMax: Math.min(lim.inlineMax, lim.readBack), bgMaxMs: timeouts && timeouts.bgMaxMs, defaultMs: timeouts && timeouts.defaultMs, maxMs: timeouts && timeouts.maxMs, bgDefaultMs: timeouts && timeouts.bgDefaultMs, shell: cmdShell })).map(withHosts).filter(ownOffered),...(mcpDeferred ? [searchTool(mcpTools)] : []), ...mcpUpfront.map((t) => asFn(t)), ...(skillList.length && !github && !offered && !toolDenied("skill") && skillsListing(skillList) ? [SKILL_TOOL] : [])];
+  const chatTools = [...withPs(toolsFor(github ? GITHUB_TOOLS : CODER_TOOLS, { noBg: noBg === true, inlineMax: Math.min(lim.inlineMax, lim.readBack), bgMaxMs: timeouts && timeouts.bgMaxMs, defaultMs: timeouts && timeouts.defaultMs, maxMs: timeouts && timeouts.maxMs, bgDefaultMs: timeouts && timeouts.bgDefaultMs, shell: cmdShell })).map(withHosts).filter((t) => searchTools === true || !(t && t.function && SEARCH_NAMES.has(t.function.name))).filter(ownOffered),...(mcpDeferred ? [searchTool(mcpTools)] : []), ...mcpUpfront.map((t) => asFn(t)), ...(skillList.length && !github && !offered && !toolDenied("skill") && skillsListing(skillList) ? [SKILL_TOOL] : [])];
   // (WebFetch turned off, or its cache's own time: webFetchTools. 2026-11-14.)
   chatTools.splice(0, chatTools.length, ...webFetchTools(chatTools, webFetch));
+  /** Whether the chat's tools include `name` (grep and glob are no longer among them: SEARCH_TOOLS). */
+  const chatHas = (name) => chatTools.some((t) => t && t.function && t.function.name === name);
   // (web_search with Claude Code's `mode`, and its note as its own part of the system prompt while the tool is offered,
   // coder-websearch.mjs: Coder's own chats and jobs, not Gloopy's. The owner, 2026-11-14, chose to add it.)
   if (!offered) {
@@ -3821,7 +3852,10 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   // Only the project's own files (a path outside it, the scratch folder, another repository's, is no part of its commits).
   const edited = new Set();
   let editedCut = false;
-  const noteEdited = (p) => { if (typeof p !== "string" || !p || p === "." || p.startsWith("/") || p.startsWith("../") || p.length > EDITED_PATH_MAX) return; if (edited.has(p)) return; if (edited.size >= EDITED_MAX) { editedCut = true; return; } edited.add(p); };
+  // CHECKPOINTS OFF (Claude Code's fileCheckpointingEnabled: false, or CLAUDE_CODE_DISABLE_FILE_CHECKPOINTING; batch 5, MISS-68):
+  // nothing is noted, so Rewind has no code of this job's to restore (Claude Code: "doesn't snapshot files, so /rewind can't
+  // restore them"); the job says so (`checkpointsOff`).
+  const noteEdited = (p) => { if (!checkpoints) return; if (typeof p !== "string" || !p || p === "." || p.startsWith("/") || p.startsWith("../") || p.length > EDITED_PATH_MAX) return; if (edited.has(p)) return; if (edited.size >= EDITED_MAX) { editedCut = true; return; } edited.add(p); };
   // THE FILES THE OWNER @-MENTIONED, read into their message (mentionNote). Not in a job from GitHub, where strangers write.
   const mentioned = !github && typeof text === "string" && text.trim() ? mentionedPaths(typeof shown === "string" && shown.trim() ? shown : text) : [];
   if (mentioned.length) {
@@ -3983,11 +4017,11 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     if (!p.ok) {
       const why = String(p.why || "the push failed").slice(0, 300);
       // (The audit, 2026-11-20: a push that failed after its commit was made still keeps the commit for Undo and Rewind.)
-      if (p.changed === true && /^[0-9a-f]{7,64}$/.test(String(p.sha || ""))) midPushes.push({ sha: String(p.sha), changed: true, pushed: false, edited: [...edited], ...(Array.isArray(p.files) ? { files: p.files.slice(0, 1000) } : {}), ...(p.filesCut ? { filesCut: true } : {}) });
+      if (p.changed === true && /^[0-9a-f]{7,64}$/.test(String(p.sha || ""))) midPushes.push({ sha: String(p.sha), changed: true, pushed: false, edited: [...edited], ...(checkpoints ? {} : { checkpointsOff: true }), ...(Array.isArray(p.files) ? { files: p.files.slice(0, 1000) } : {}), ...(p.filesCut ? { filesCut: true } : {}) });
       emit({ type: "result", id, code: 1, output: why });
       return { ok: false, why };
     }
-    midPushes.push({ sha: String(p.sha || ""), changed: p.changed === true, pushed: p.pushed === true, edited: [...edited], ...(Array.isArray(p.files) ? { files: p.files.slice(0, 1000) } : {}), ...(p.filesCut ? { filesCut: true } : {}), ...(Array.isArray(p.extra) ? { extra: p.extra.map((x) => ({ repo: x.repo, ok: !!x.ok, pushed: !!x.pushed, why: x.why ? String(x.why).slice(0, 160) : undefined })) } : {}) });
+    midPushes.push({ sha: String(p.sha || ""), changed: p.changed === true, pushed: p.pushed === true, edited: [...edited], ...(checkpoints ? {} : { checkpointsOff: true }), ...(Array.isArray(p.files) ? { files: p.files.slice(0, 1000) } : {}), ...(p.filesCut ? { filesCut: true } : {}), ...(Array.isArray(p.extra) ? { extra: p.extra.map((x) => ({ repo: x.repo, ok: !!x.ok, pushed: !!x.pushed, why: x.why ? String(x.why).slice(0, 160) : undefined })) } : {}) });
     const bad = (Array.isArray(p.extra) ? p.extra : []).filter((x) => !x.ok).map((x) => x.repo + ": " + String(x.why || "failed").slice(0, 120));
     // EACH REPOSITORY NAMED (the owner's two-repo test, 2026-11-17: only the first was, so Coder tried git by hand in the
     // second): Claude Code pushes each repository itself and sees each push's own result.
@@ -4149,7 +4183,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   let jobOver = false;
   // (After Claude Code's auto-compact, the Worker drops the Rewind marks of what was summarized: every one before this job's
   // end, as the whole conversation was.)
-  const end = (status, extra = {}) => ((jobOver = true), { status, messages: convo.map(saved), rounds, usage, summary: "", ...(autoCompacted ? { compact: { done: true, auto: true, from: 0, to: (Array.isArray(messages) ? messages.length : 0) + 1 } } : {}), ...(approvalRequest ? { approvalRequest } : {}), ...(signinRequest ? { signinRequest } : {}), ...(cardRequest ? { cardRequest } : {}), ...(handoffRequest ? { handoffRequest } : {}), ...(keyRequest ? { keyRequest } : {}), ...(scheduleRemovals.length ? { scheduleRemovals } : {}), ...(scheduleAdds.length ? { scheduleAdds } : {}), ...(scheduleEdits.length ? { scheduleEdits } : {}), ...(schedulePauses.length ? { schedulePauses } : {}), ...(signedIn.length ? { signedIn } : {}), ...(webhookAdds.length ? { webhookAdds } : {}), ...(webhookRemovals.length ? { webhookRemovals } : {}), ...(pageRequests.length ? { pageRequests } : {}), edited: [...edited], ...(editedCut ? { editedCut: true } : {}), ...(prRequest ? { prRequest } : {}), ...(pushRequest ? { push: true } : {}), ...(midPushes.length ? { midPushes } : {}), ...(midNotes.length ? { midNotes } : {}), ...(undoRequest ? { undoRequest } : {}), ...(reviewPost ? { reviewPost } : {}), ...(prExtra.length ? { prExtra } : {}), ...(autofixRequest ? { autofixRequest } : {}), ...(reviewReplies.length ? { reviewReplies } : {}), ...(github ? {} : { mode: modeNow() }), ...(rulesAdded.length ? { rulesAdded } : {}), ...(hadSession || ["allow", "ask", "deny"].some((k) => hookSession[k].length) ? { sessionRules: { allow: hookSession.lost ? [] : hookSession.allow, ask: hookSession.ask, deny: hookSession.deny } } : {}), ...(Object.values(hookSaved).some((l) => l.length) ? { rulesSaved: hookSaved } : {}), ...(sessionTitle ? { sessionTitle } : {}), ...(planTitle && !sessionTitle ? { planTitle } : {}), ...extra });
+  const end = (status, extra = {}) => ((jobOver = true), { status, messages: convo.map(saved), rounds, usage, summary: "", ...(autoCompacted ? { compact: { done: true, auto: true, from: 0, to: (Array.isArray(messages) ? messages.length : 0) + 1 } } : {}), ...(approvalRequest ? { approvalRequest } : {}), ...(signinRequest ? { signinRequest } : {}), ...(cardRequest ? { cardRequest } : {}), ...(handoffRequest ? { handoffRequest } : {}), ...(keyRequest ? { keyRequest } : {}), ...(scheduleRemovals.length ? { scheduleRemovals } : {}), ...(scheduleAdds.length ? { scheduleAdds } : {}), ...(scheduleEdits.length ? { scheduleEdits } : {}), ...(schedulePauses.length ? { schedulePauses } : {}), ...(signedIn.length ? { signedIn } : {}), ...(webhookAdds.length ? { webhookAdds } : {}), ...(webhookRemovals.length ? { webhookRemovals } : {}), ...(pageRequests.length ? { pageRequests } : {}), edited: [...edited], ...(editedCut ? { editedCut: true } : {}), ...(checkpoints ? {} : { checkpointsOff: true }), ...(prRequest ? { prRequest } : {}), ...(pushRequest ? { push: true } : {}), ...(midPushes.length ? { midPushes } : {}), ...(midNotes.length ? { midNotes } : {}), ...(undoRequest ? { undoRequest } : {}), ...(reviewPost ? { reviewPost } : {}), ...(prExtra.length ? { prExtra } : {}), ...(autofixRequest ? { autofixRequest } : {}), ...(reviewReplies.length ? { reviewReplies } : {}), ...(github ? {} : { mode: modeNow() }), ...(rulesAdded.length ? { rulesAdded } : {}), ...(hadSession || ["allow", "ask", "deny"].some((k) => hookSession[k].length) ? { sessionRules: { allow: hookSession.lost ? [] : hookSession.allow, ask: hookSession.ask, deny: hookSession.deny } } : {}), ...(Object.values(hookSaved).some((l) => l.length) ? { rulesSaved: hookSaved } : {}), ...(sessionTitle ? { sessionTitle } : {}), ...(planTitle && !sessionTitle ? { planTitle } : {}), ...extra });
   // A ROUND THAT ENDS EARLY (round 5; the owner, 2026-11-14: "Yes pls"; coder-parallel.mjs). Claude Code 2.1.325, in its cloud
   // sessions: the owner's No without words is its deny with "interrupt", which aborts the turn; their Stop aborts it as
   // "remote-cancel". Its executor keeps what each call of the reply had returned by then, gives a call still running its
@@ -4876,7 +4910,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     // is, from the search's folder. A path of "~" or "~/…" is from the home folder, as Claude Code reads a path.
     const targetFor = (name, args) => {
       const pat = name === "glob" && typeof args.pattern === "string" && args.pattern.startsWith("/") ? splitPattern(args.pattern).baseDir : "";
-      const named = name === "lsp" ? args.filePath : args.path;
+      const named = name === "lsp" ? args.filePath : name === "notebook_edit" && typeof args.path !== "string" ? args.notebook_path : args.path;
       // (The path as the tool opens it, trimmed, ~ the home folder: toolFullPath. Round 6.)
       if (!pat) return toolFullPath(deps, typeof named === "string" && named ? named : ".");
       return typeof deps.where === "function" ? deps.where(pat) : pat;
@@ -4892,9 +4926,10 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     // refusal, or "". (Not Gloopy's, nor a job's from GitHub, where the owner's rules do not apply.)
     const DENY_BEFORE_HOOKS = /^File is (?:in a directory that is denied by|covered by a Read deny rule in) your permission settings/;
     const denyFirst = (name, args) => {
-      if (github || offered || !(name === "read" || name === "write" || name === "edit") || !args || typeof args !== "object" || Array.isArray(args)) return "";
+      if (github || offered || !(name === "read" || name === "write" || name === "edit" || name === "notebook_edit") || !args || typeof args !== "object" || Array.isArray(args)) return "";
       const a = { ...args };
       if (typeof a.path !== "string" && typeof a.file_path === "string") a.path = a.file_path;
+      if (name === "notebook_edit" && typeof a.path !== "string" && typeof a.notebook_path === "string") a.path = a.notebook_path;
       if (typeof a.path !== "string" || !a.path) return "";
       const d = fileToolDecision(name, targetFor(name, a), { rules: ownRules, root: deps.root || "/", cwd: ruleCwd(), home: deps.home || "", real: (q) => realPath(q), input: a, roots: workdirs.slice(1) });
       return d && d.verdict === "deny" && DENY_BEFORE_HOOKS.test(String(d.why || "")) ? d.why : "";
@@ -4908,7 +4943,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     // (fileCheck): a folder, a file not read or changed since, edit's size, a missing file, its old text not found, and the
     // rest. → the refusal, as the tool's own failure reads ("error: …", or a deny rule's words), or "". (Not Gloopy's.)
     const fileFirstHere = (name, args) => {
-      if (offered || !(name === "read" || name === "write" || name === "edit") || !args || typeof args !== "object" || Array.isArray(args)) return "";
+      if (offered || !(name === "read" || name === "write" || name === "edit" || name === "notebook_edit") || !args || typeof args !== "object" || Array.isArray(args)) return "";
       // (With Coder's memory file named, for its check of secrets written there: round 6's follow-up.)
       const before = fileInputProblem(name, args, "before", { memFile: typeof deps.memFile === "string" ? deps.memFile : "" });
       if (before) return "error: " + before;
@@ -4938,7 +4973,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       const out = String((r && r.output) || "");
       return r && r.code === 1 && out.startsWith("error: ") ? out.replace(/\s+$/, "") : "";
     };
-    const fileFirst = async (name, args) => fileFirstHere(name, args) || (!offered && (name === "write" || name === "edit") && args && typeof args === "object" && !Array.isArray(args) ? await fileCheck(name, args) : "");
+    const fileFirst = async (name, args) => fileFirstHere(name, args) || (!offered && (name === "write" || name === "edit" || name === "notebook_edit") && args && typeof args === "object" && !Array.isArray(args) ? await fileCheck(name, args) : "");
     // ONE CALL OF THE TOOLS SCRIPT FOR A FILE TOOL (its turn's below, and its group's start). THE CHAT'S LANGUAGE SERVERS' KEEPER,
     // started by Coder's machine the first time a lookup, a write or an edit needs a server (coder-lsp.mjs needsKeeper; Claude
     // Code starts a server the first time a file it handles is used), and kept for the chat. A lookup goes on without it (its
@@ -5009,7 +5044,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     const isSafe = (x) => safeCall(x, {
       readOnly: (cmd) => !commandProblem(cmd) && wholeReadOnly(cmd),
       connector: (name) => (mcpByName.has(name) ? mcpByName.get(name).readOnly === true : undefined),
-      inputOk: (name, args) => { const f = inputCheckFor(name); if (!f) return true; try { const v = f({ ...args }, { github: !!github, who, webFetchOff: webFetch.off }); return !(v && typeof v.error === "string"); } catch { return false; } },
+      inputOk: (name, args) => { if (SEARCH_NAMES.has(name) && !chatHas(name)) return false; const f = inputCheckFor(name); if (!f) return true; try { const v = f({ ...args }, { github: !!github, who, webFetchOff: webFetch.off }); return !(v && typeof v.error === "string"); } catch { return false; } },
     });
     /** Whether a PreToolUse hook of the owner's runs for this call, with this input (then the call runs in its turn). */
     function preHooked(x, args) { return hookList.length > 0 && hooksFor(hookList, "PreToolUse", ccTool(x.name), { tool: ccTool(x.name), input: hookToolInput(x.name, args, pathAt()), ctx: { cwd: hookCtx().cwd, root: deps.root || "/", home: deps.home || "" } }).length > 0; }
@@ -5220,6 +5255,9 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       // call shows no step in the chat, as Claude Code shows none for these tools; its hooks see the fixed input.
       // (With CLAUDE_CODE_ENABLE_TASKS=0 the task tools are not Coder's, todo_write is; and the other way round. 2026-11-14.)
       if (!offered && (todosOn ? isTaskTool(c.name) : c.name === "todo_write")) { reply("error: No such tool available: " + c.name); continue; }
+      // GREP AND GLOB, NOT THE CHAT'S TOOLS (batch 5, M-a-32: Claude Code on Linux searches with find and grep through Bash): a
+      // call to one is refused in Claude Code's words, before any check or hook, as for any tool it doesn't have.
+      if (!offered && SEARCH_NAMES.has(c.name) && !chatHas(c.name)) { reply("Error: No such tool available: " + c.name); continue; }
       if (!c.rerun && isTaskTool(c.name)) {
         const v = checkTaskInput(c.name, c.args);
         // (A deferred tool called before tool_search loaded it: Claude Code's note after its error, tsHint.)
@@ -6870,6 +6908,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // `file_path`, Claude Code's own name for it, is taken for `path` (Claude Code 2.1.292: Read "ignore[s] a few
         // stray parameters instead of failing the call"; its Grep "accepts file_path for path").
         if (typeof args.path !== "string" && typeof args.file_path === "string") args.path = args.file_path;
+        // (NotebookEdit's notebook_path, the path the file tools' checks below go by: batch 5.)
+        if (c.name === "notebook_edit" && typeof args.path !== "string" && typeof args.notebook_path === "string") args.path = args.notebook_path;
         // And its write's `file_text` or `file_content` for `content` (Claude Code's changelog: "Fixed Write calls failing
         // validation when a model sends `path`, `file_text`, `file_content` … instead of `file_path` and `content`").
         if (c.name === "write" && typeof args.content !== "string") { const alt = [args.file_text, args.file_content].find((x) => typeof x === "string"); if (alt !== undefined) args.content = alt; }
@@ -6885,7 +6925,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         const emailTool = c.name === "write" ? "Write" : c.name === "edit" ? "Edit" : c.name === "web_fetch" ? "WebFetch" : "";
         const emailNo = !!emailMark && !!emailTool && await emailRefused(emailTool, args, emailMark);
         // A PROTECTED FILE (PROTECTED_DIRS, PROTECTED_FILES): written only once the owner allows it.
-        let guarded = (c.name === "write" || c.name === "edit") && typeof args.path === "string" ? toolProjectPath(deps, args.path) : "";
+        const editsFile = c.name === "write" || c.name === "edit" || c.name === "notebook_edit";
+        let guarded = editsFile && typeof args.path === "string" ? toolProjectPath(deps, args.path) : "";
         // (But not the chat's own plan file, wherever plansDirectory puts it, `.claude/plans` too: Claude Code's "Plan files for
         // current session are allowed for writing", which it checks after the owner's deny and ask rules and before its
         // protected paths; permission-modes: ".claude, with a few exceptions, such as: … The current session's own plan files
@@ -6924,6 +6965,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // so no part of one is left.
         const changeShown = () => {
           const rows = (x) => { const l = typeof x === "string" && x !== "" ? x.split(/\r?\n/) : []; if (l.length > 1 && l[l.length - 1] === "") l.pop(); return l; };
+          if (c.name === "notebook_edit") return changeLines("update", [], rows(args.edit_mode === "delete" ? "" : args.new_source));
           const gone = c.name === "edit" ? rows(args.old_string) : [], come = rows(c.name === "edit" ? args.new_string : args.content);
           return changeLines(c.name === "edit" ? "update" : "create", gone, come);
         };
@@ -6937,9 +6979,9 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
             emit({ type: "bash", id: c.id, tool: c.name, verb: spec.verb, command: shownPath }); emit({ type: "result", id: c.id, code: 1, ran: false, output: m }); reply(m); continue;
           }
           // (A machine that cannot wait for an answer asks as Coder did before the modes: the turn ends with the card.)
-          reply((c.name === "edit" ? "not edited yet: " : "not written yet: ") + shownPath + " is a protected file (it can make code run on the owner's computer when the branch is pulled, or change how the project is built), so the owner is asked first, as Claude Code asks for such files. Their answer is the next message; when they allow it, " + (c.name === "edit" ? "make the edit" : "write it") + " again.");
+          reply((c.name !== "write" ? "not edited yet: " : "not written yet: ") + shownPath + " is a protected file (it can make code run on the owner's computer when the branch is pulled, or change how the project is built), so the owner is asked first, as Claude Code asks for such files. Their answer is the next message; when they allow it, " + (c.name === "edit" ? "make the edit" : "write it") + " again.");
           for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: "not run: you asked the owner to allow a protected file first" });
-          emit({ type: "writeask", path: shownPath, because: why, ...(c.name === "edit" ? { edit: true } : {}), change: changeShown() });
+          emit({ type: "writeask", path: shownPath, because: why, ...(c.name !== "write" ? { edit: true } : {}), change: changeShown() });
           return end("done", { summary: lastSaid || "asked to change " + shownPath });
         }
         // The chat names the file as the project does ("src/app.js"), however Grok gave it (a full path, or one from the
@@ -6978,7 +7020,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // .claude/settings.local.json anywhere; Coder's own files stay writable (its scratch folder, its memory file), as
         // Claude Code's scratchpad and auto memory do. Commands are not limited (Claude Code: "The key doesn't limit shell
         // commands").
-        if (writeBlock && (c.name === "write" || c.name === "edit")) {
+        if (writeBlock && editsFile) {
           const full = targetOf();
           const repoOnly = Array.isArray(deps.repoDirs) ? deps.repoDirs : [];
           const dirs = workdirs.filter((d) => !repoOnly.includes(d));
@@ -7049,8 +7091,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         }
         // (In Plan, the chat's plan file is the one file written without asking: Claude Code's plan mode, "NOTE that this is the
         // only file you are allowed to edit". The owner, 2026-11-14.)
-        const toPlanFile = (c.name === "write" || c.name === "edit") && !!planPath() && targetOf() === planPath();
-        const fileAsk = !c.rerun && (c.name === "write" || c.name === "edit") && !github && ((why && !ownerAllowed(convo, guarded)) || (modeT === "plan" && !toPlanFile));
+        const toPlanFile = editsFile && !!planPath() && targetOf() === planPath();
+        const fileAsk = !c.rerun && editsFile && !github && ((why && !ownerAllowed(convo, guarded)) || (modeT === "plan" && !toPlanFile));
         let approval = null;
         // (A hook's allow skips a page fetch's question, never a rule's.)
         // (Nor one Plan's checker approved: it is not asked about again.)
@@ -7063,8 +7105,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           // "Coder requested permissions to edit <path> which is a sensitive file." (sensitiveWhy), and plan mode's, "Cannot write
           // to <path> while in plan mode."; a PreToolUse hook's with no reason of its own, its dialog's "Hook PreToolUse:Write
           // requires confirmation for this edit.", Coder told "Hook PreToolUse:Write asked for confirmation for this tool".)
-          const fullFile = c.name === "write" || c.name === "edit" ? ccPath(targetFor(c.name, args)) : "";
-          const ccName = ccTool(c.name), hookWhat = c.name === "write" || c.name === "edit" ? "edit" : "tool";
+          const fullFile = editsFile ? ccPath(targetFor(c.name, args)) : "";
+          const ccName = ccTool(c.name), hookWhat = editsFile ? "edit" : "tool";
           // (A PreToolUse hook's ask: its line, whatever else would ask, as Claude Code's card shows its hook's ask. Round 6.)
           const hookAsks = !!(c.hook && c.hook.decision === "ask" && !github && !c.rerun);
           const hookLine = hookAsks ? { why: c.hook.reason || hookAskWhy(ccName, hookWhat), told: c.hook.reason || hookAskTold(ccName) } : null;
@@ -7074,7 +7116,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           const card = fileAsk
             ? { tool: c.name, id: c.id, path: shownPath, change: changeShown(), why: why ? (linkTo ? sensitiveWhy(linkTo, targetFor(c.name, args)) : sensitiveWhy(fullFile)) : planWriteWhy(targetFor(c.name, args)), ...(why && !linkTo && inClaudeDir(guarded) ? { claudeDir: true } : {}), ...(hookLine || {}) }
             : ruleAsk
-            ? { tool: c.name, id: c.id, ...(c.name === "web_fetch" ? { url: scrub(String(args.url || "")).slice(0, 500) } : { path: shownPath + readLeads }), ...(c.name === "write" || c.name === "edit" ? { change: changeShown() } : {}), why: fileDec && fileDec.verdict === "ask" ? fileDec.why : "", ...(hookLine || {}), byRule: true }
+            ? { tool: c.name, id: c.id, ...(c.name === "web_fetch" ? { url: scrub(String(args.url || "")).slice(0, 500) } : { path: shownPath + readLeads }), ...(editsFile ? { change: changeShown() } : {}), why: fileDec && fileDec.verdict === "ask" ? fileDec.why : "", ...(hookLine || {}), byRule: true }
             : { tool: "web_fetch", id: c.id, url: scrub(String(args.url || "")).slice(0, 500), why: fetchLimit ? fetchLimit.why : fetchSwitched ? ccFetch.why : fetchDec.why, ...((ccFetch ? ccFetch.suggest : fetchDec && fetchDec.suggest) ? { rules: ccFetch ? ccFetch.suggest : fetchDec.suggest } : {}), ...(fetchLimit ? { told: "Coder requested permissions to use WebFetch, but you haven't granted it yet." } : {}) };
           // (Claude Code's words for a page fetch no one can approve, with nothing in front of them; its PermissionRequest hooks
           // decide first: noOneHooks, fix round 4, D5.)
@@ -7124,7 +7166,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         const lspCheck = lspTold ? true : "sync";
         // (And read's, write's and edit's result objects for the PostToolUse hooks, Claude Code's Read, Write and Edit outputs:
         // `facts`, behind FACTS_MARK. 2026-11-14.)
-        const reqArgs = c.name === "write" ? { ...given, show_change: true, check: lspCheck, facts: true } : c.name === "edit" ? { ...args, show_change: true, check: lspCheck, facts: true } : c.name === "read" ? { ...args, facts: true } : args;
+        const reqArgs = c.name === "write" ? { ...given, show_change: true, check: lspCheck, facts: true } : c.name === "edit" ? { ...args, show_change: true, check: lspCheck, facts: true } : c.name === "notebook_edit" ? { ...args, show_change: true, facts: true } : c.name === "read" ? { ...args, facts: true } : args;
         // (Grep and Glob get the owner's Read deny rules and the search settings with it: searchCtx.)
         const search = c.name === "grep" || c.name === "glob";
         const req = { tool: c.name, args: reqArgs, ...(search ? { ctx: { ...searchCtx(), ...(searchSaw ? { spellings: searchSaw } : {}) } } : {}) };
@@ -7155,10 +7197,10 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // its pictures for Grok (only PNG and JPEG, as the read tool makes them).
         let pics = [], thumbs = [], change = null, problems = [], problemsAll = 0;
         if (c.name === "read" && code === 0) ({ text: raw, pics, thumbs } = readAnswer(raw));
-        if ((c.name === "write" || c.name === "edit") && code === 0) { let diagnostics = ""; ({ text: raw, change, problems, problemsAll, diagnostics } = writeAnswer(raw)); if (diagnostics) roundNotes.push(diagnostics); }
+        if (editsFile && code === 0) { let diagnostics = ""; ({ text: raw, change, problems, problemsAll, diagnostics } = writeAnswer(raw)); if (diagnostics) roundNotes.push(diagnostics); }
         if (cwdSaid) raw = cwdSaid + raw;
         if (code === 0 && FILE_HOOK_TOOLS.has(c.name)) touch(toolProjectPath(deps, args.path));
-        if (code === 0 && (c.name === "write" || c.name === "edit")) noteEdited(toolProjectPath(deps, args.path));
+        if (code === 0 && editsFile) noteEdited(toolProjectPath(deps, args.path));
         // (The owner's Stop while it ran: as for a page fetch, above, once what it changed is noted.)
         if (await ranIntoStop(c.id)) { emit({ type: "result", id: c.id, code: -1, output: "(stopped by the owner while it ran)" }); postFor = null; return stopNow(reply, STOPPED_RUNNING); }
         // A read is never cut here (it gives whole lines up to READ_CHARS itself, like Claude Code's Read), nor a search (its
@@ -7612,7 +7654,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // as Claude Code's get an MCP tool's: c.keepHead.)
         c.keepHead = CONNECTOR_DATA;
         reply(CONNECTOR_DATA + told);
-      } else reply("Error: No such tool available: " + c.name.slice(0, 40) + " (the tools are bash, read, edit, write, grep, glob, lsp, web_fetch, web_search, monitor, stop_job, ask_user, enter_plan_mode, request_secret, get_environment, update_environment, create_environment, switch_environment, list_environments, review, pr_comments, pr_read, pr_update, suggest_connectors, undo_last_job, task_create, task_get, task_list, task_update, notify, rename_chat, push_branch and pull_request; to finish, answer in words)");
+      } else reply("Error: No such tool available: " + c.name.slice(0, 40) + " (the tools are bash, read, edit, write, notebook_edit, lsp, web_fetch, web_search, monitor, stop_job, ask_user, enter_plan_mode, request_secret, get_environment, update_environment, create_environment, switch_environment, list_environments, review, pr_comments, pr_read, pr_update, suggest_connectors, undo_last_job, task_create, task_get, task_list, task_update, notify, rename_chat, push_branch and pull_request; to finish, answer in words)");
       } catch (e) {
         // (ROUND 5: a round that ends early in Coder's own runs. The call whose turn ended it has its answer (one its turn could
         // not give, a card it may no longer show, gets Claude Code's rejection), no PostToolUse hook of its own, and the loop

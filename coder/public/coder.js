@@ -2577,7 +2577,7 @@
    * (its `readFilePaths`, a set), not the steps; a step with no `file` counts as one.
    */
   function groupWords(steps) {
-    const W = { bash: ['ran', 'command', 'commands', 'command'], read: ['read', 'file', 'files', 'read'], write: ['wrote', 'file', 'files', 'write'], edit: ['edited', 'file', 'files', 'edit'], grep: ['searched for', 'pattern', 'patterns', 'search'], glob: ['searched for', 'pattern', 'patterns', 'search'], lsp: ['made', 'code lookup', 'code lookups', 'lookup'], web_fetch: ['fetched', 'page', 'pages', 'fetch'], browser: ['took', 'browser step', 'browser steps', 'browser step'], sign_in: ['asked you to sign in', '', '', 'sign-in'], sign_in_saved: ['signed in with a saved login', '', '', 'sign-in'], pay: ['asked you for a card', '', '', 'card request'], pay_saved: ['filled in your saved card', '', '', 'card fill'], pay_result: ['said how the order went', '', '', 'order note'], vault: ['updated your Vault', '', '', 'Vault change'], webhook: ['worked with', 'webhook', 'webhooks', 'webhook step'], files: ['worked with', 'file', 'files', 'file step'], handoff: ['asked you to take over', '', '', 'handoff'], schedule: ['worked with', 'schedule', 'schedules', 'schedule step'], helpers: ['started', 'helper team', 'helper teams', 'helper team'], page: ['published', 'page', 'pages', 'page'], web_search: ['searched the web', '', '', 'web search'], monitor: ['checked', 'background job', 'background jobs', 'check'], monitor_start: ['started', 'monitor', 'monitors', 'monitor'], stop_job: ['stopped', 'background job', 'background jobs', 'stop'], review: ['reviewed the changes', '', '', 'review'], undo: ['undid the last job', '', '', 'undo'], setup: ['ran the setup script', '', '', 'setup'] };
+    const W = { bash: ['ran', 'command', 'commands', 'command'], read: ['read', 'file', 'files', 'read'], write: ['wrote', 'file', 'files', 'write'], edit: ['edited', 'file', 'files', 'edit'], notebook_edit: ['edited', 'notebook', 'notebooks', 'edit'], grep: ['searched for', 'pattern', 'patterns', 'search'], glob: ['searched for', 'pattern', 'patterns', 'search'], lsp: ['made', 'code lookup', 'code lookups', 'lookup'], web_fetch: ['fetched', 'page', 'pages', 'fetch'], browser: ['took', 'browser step', 'browser steps', 'browser step'], sign_in: ['asked you to sign in', '', '', 'sign-in'], sign_in_saved: ['signed in with a saved login', '', '', 'sign-in'], pay: ['asked you for a card', '', '', 'card request'], pay_saved: ['filled in your saved card', '', '', 'card fill'], pay_result: ['said how the order went', '', '', 'order note'], vault: ['updated your Vault', '', '', 'Vault change'], webhook: ['worked with', 'webhook', 'webhooks', 'webhook step'], files: ['worked with', 'file', 'files', 'file step'], handoff: ['asked you to take over', '', '', 'handoff'], schedule: ['worked with', 'schedule', 'schedules', 'schedule step'], helpers: ['started', 'helper team', 'helper teams', 'helper team'], page: ['published', 'page', 'pages', 'page'], web_search: ['searched the web', '', '', 'web search'], monitor: ['checked', 'background job', 'background jobs', 'check'], monitor_start: ['started', 'monitor', 'monitors', 'monitor'], stop_job: ['stopped', 'background job', 'background jobs', 'stop'], review: ['reviewed the changes', '', '', 'review'], undo: ['undid the last job', '', '', 'undo'], setup: ['ran the setup script', '', '', 'setup'] };
     const said = new Map(), bad = new Map();
     for (const s of steps) {
       const w = Object.prototype.hasOwnProperty.call(W, s.tool || 'bash') ? W[s.tool || 'bash'] : ['did', 'step', 'steps', 'step'];
@@ -3122,7 +3122,7 @@
       const e = events[i], r = e && e.type === 'bash' ? results[e.id] : null;
       if (!r) continue;
       const c = r.change;
-      if ((e.tool === 'write' || e.tool === 'edit') && c && (c.kind === 'create' || c.kind === 'update')) add(String(e.path || e.command || '').replace(/ \(.*\)$/, ''), c.kind, c.add, c.del);
+      if ((e.tool === 'write' || e.tool === 'edit' || e.tool === 'notebook_edit') && c && (c.kind === 'create' || c.kind === 'update')) add(String(e.path || e.command || '').replace(/ \(.*\)$/, ''), c.kind, c.add, c.del);
       const fl = r.files && Array.isArray(r.files.files) ? r.files.files : [];
       for (const f of fl) if (f && typeof f.path === 'string') add(f.path, f.kind === 'create' ? 'create' : f.kind === 'delete' ? 'delete' : 'update', f.add, f.del);
     }
@@ -4358,7 +4358,7 @@
       body = (e.desc ? '<p class="cd-perm-desc">' + esc(e.desc) + '</p>' : '') + '<pre class="cd-perm-pre">' + esc(cardShown(lines, key).join('\n')) + '</pre>' + cardMore(lines, key, Number(e.more) > 0 ? Number(e.more) : 0) +
         // (Its own hosts, Claude Code's allowed_domains: approving covers them too.)
         (Array.isArray(e.hosts) && e.hosts.length ? '<p class="cd-perm-desc cd-perm-hosts" style="max-height:9em;overflow:auto">Also opens, for this command only: ' + e.hosts.map((h) => '<code>' + esc(h) + '</code>').join(', ') + '</p>' : '');
-    } else if (e.tool === 'write' || e.tool === 'edit') {
+    } else if (e.tool === 'write' || e.tool === 'edit' || e.tool === 'notebook_edit') {
       // What the write or edit would do, as under each write's and edit's step.
       const all = e.change && Array.isArray(e.change.lines) ? e.change.lines.filter((l) => typeof l === 'string') : [];
       const more = e.change && Number(e.change.more) > 0 ? Number(e.change.more) : 0;
@@ -4756,7 +4756,7 @@
       return centerHTML((S.pickMode === 'repos' ? '' : playFig()) + '<b class="cd-title">' + (S.pickMode === 'repos' ? 'Your repositories' : 'New chat: pick a repository') + '</b>' +
         '<p class="cd-sub">Signed in as <b>' + esc(S.github && S.github.login) + '</b>. Coder will work on its own branch and never touch your main branch.</p>' +
         (S.pickMode === 'repos' ? '<p class="cd-sub cd-gh-off"><button type="button" class="cd-btn-2" id="cdDisconnectGh">Disconnect GitHub</button></p>' : '') +
-        (S.pickMode === 'repos' ? '<p class="cd-sub cd-review-note">Turn on <b>Code review</b> for a repository and Coder reviews its pull requests, posting what it finds on them. It never approves or blocks one. Anyone with write access can also comment <code>@coder review</code>.</p>' : '') +
+        (S.pickMode === 'repos' ? '<p class="cd-sub cd-review-note">Turn on <b>Code review</b> for a repository and Coder reviews its pull requests, posting what it finds on them. It never approves or blocks one. People who use Coder and have write access can also comment <code>@coder review</code>.</p>' : '') +
         list + hidden + open +
         (install ? '<a class="cd-btn-2" href="' + esc(install) + '" target="_blank" rel="noopener">Add repositories on GitHub</a>' : '') +
         (S.error ? '<p class="cd-errline">' + esc(S.error) + '</p>' : ''));

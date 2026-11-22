@@ -237,7 +237,9 @@ test("CD383c on a real machine: the owner's hooks and the repository's .claude/s
   assert.deepEqual(hooksForTurn(d2, account, { github: true }).map((h) => h.source), ["settings", "settings"], "not the repository's in a job from GitHub");
   assert.deepEqual(hooksForTurn(d2, { ...account, disableAllHooks: true }), []);
   writeFileSync(join(d2, ".claude", "settings.json"), JSON.stringify({ disableAllHooks: true }));
-  assert.deepEqual(hooksForTurn(d2, account), [], "the repository's own disableAllHooks");
+  assert.deepEqual(hooksForTurn(d2, account, { trust: true }), [], "the repository's own disableAllHooks, once its settings are trusted");
+  // (Not trusted: it turns off only its own hooks, as Claude Code 2.1.323; batch 5.)
+  assert.deepEqual(hooksForTurn(d2, account).map((h) => h.source), ["settings", "settings"], "the owner's hooks still run");
   const d3 = mkdtempSync(join(tmpdir(), "coder-hk3-"));
   const outside = mkdtempSync(join(tmpdir(), "coder-hk3o-"));
   writeFileSync(join(outside, "settings.json"), JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: "command", command: "evil.sh" }] }] } }));

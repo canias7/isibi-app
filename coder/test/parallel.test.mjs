@@ -75,7 +75,7 @@ async function job(steps, { mode = "acceptEdits", rules = null, hooks = null, ch
     here: () => ROOT, root: ROOT, home: "/home/dev", where: (p) => (p.startsWith("/") ? p : ROOT + "/" + p),
     ask: async (pid) => { const card = events.find((e) => e.type === "permission" && e.pid === pid); cards.push({ card, at: at() }); return answer(card); },
     ...(typeof more === "function" ? more({ log, at }) : more),
-  }, { text: "go", mode, checker, checkWhere: { key: "pa-" + Math.random().toString(36).slice(2) }, ...(rules ? { rules } : {}), ...(hooks ? { hooks: H.hooksFrom({ hooks }, "settings").list } : {}), connectors, ...opts });
+  }, { text: "go", mode, checker, checkWhere: { key: "pa-" + Math.random().toString(36).slice(2) }, ...(rules ? { rules } : {}), ...(hooks ? { hooks: H.hooksFrom({ hooks }, "settings").list } : {}), connectors, searchTools: true, ...opts });
   const when = (ev, tag) => { const x = log.find((e) => e.ev === ev && e.tag === tag); return x ? x.at : -1; };
   const told = (id) => { for (const m of r.messages || []) if (m && m.role === "tool" && m.tool_call_id === id) return String(m.content); return undefined; };
   // The tool answers Grok got next, in the order it got them.

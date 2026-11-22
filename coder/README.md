@@ -313,8 +313,23 @@ code in **each user's own GitHub**.
      rewrite of lsp's input gets lsp's file check too (the check is awaited), and
      EnterPlanMode's and TodoWrite's output shapes are checked like the others.
      Tests: `test/hook-rewrites.test.mjs`.
+   - *notebook_edit* (`coder-tools.mjs` `toolNotebookEdit`, batch 5): Claude Code's
+     NotebookEdit, held back until tool_search loads it as Claude Code's is: one
+     cell replaced, inserted or deleted by its id (or `cell-N`, which read now shows
+     for a cell with none), the notebook read first, Claude Code's checks and words
+     for each refusal and answer; a replaced code cell loses its outputs and run
+     number; a new cell gets an 8-character id where the format has ids; written with
+     one space of indent, its byte-order mark, line endings and last newline kept.
+     Hooks and rules see `NotebookEdit` and `notebook_path`; `Edit(...)` rules cover
+     it; Rewind tracks it. edit refuses a notebook with Claude Code's "Use the
+     notebook_edit to edit this file."
    - *grep and glob* (`coder-search.mjs`): Claude Code's Grep and Glob on one ripgrep
-     runner: their inputs, outputs, pages and limits, notes and errors. Kept, the
+     runner: their inputs, outputs, pages and limits, notes and errors. Since batch 5
+     (2026-11-22) not among a Coder chat's tools, as Claude Code on Linux leaves them
+     out ("Claude searches with find and grep through the Bash tool instead"): a call to
+     one gets "Error: No such tool available: grep"; they stay in `CODER_TOOLS` for
+     Gloopy, agent hooks get them (`SEARCH_TOOLS`), and runCoder's `searchTools`
+     (Claude Code's `--tools` naming them) brings them back. Kept, the
      owner's choice: nothing outside the project and the owner's working folders,
      nothing in `.git`. Since round 3 (2026-11-14) ripgrep runs inside the folder
      searched (Claude Code's `/proc/self/fd/N` and "."), so a pattern with a folder in
@@ -1184,7 +1199,10 @@ them"). Tests: `test/pass6.test.mjs` (CD387 to CD398).
   rule covers is held back with Claude Code's "Instruction file not loaded"
   note (`instructionWithhold`, `withheldNotes`).
 - *`disableAllHooks`* by Claude Code's settings precedence: the repository's
-  local file, then its shared one, then the owner's.
+  local file, then its shared one, then the owner's, once "Trust this
+  repository's settings" is ticked. Unticked, as Claude Code 2.1.323 does for a
+  repository you have not trusted, the repository's value turns off only its
+  own hooks, never the owner's (`hooksForTurn`'s `trust`).
 - *The working folders' instructions* (`extraInstructions`): with the
   environment's `CODER_ADDITIONAL_DIRECTORIES_CODER_MD` (Claude Code's
   `CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD`), each working folder's CODER.md,
@@ -2530,6 +2548,12 @@ SessionStart hooks run (round 5). Rewind offers Claude Code's choices: Restore c
 code only (the code ones only when a later job changed files), Summarize from
 here and Summarize up to here (each with an optional focus); after the chat
 goes back, the message returns to the box. Rewind's points inside a summary go.
+The checkpoints can be turned off, as Claude Code's (batch 5): the environment's
+`CODER_DISABLE_FILE_CHECKPOINTING=1` (or Claude Code's `CLAUDE_CODE_DISABLE_FILE_CHECKPOINTING`),
+or the repository's `fileCheckpointingEnabled: false` (`CODER_FILE_CHECKPOINTING_ENABLED`);
+whichever turns them off, the other can't turn them back on (`checkpointsOn`). Such a job
+notes no files and says `checkpointsOff`, so its commit tracks nothing and Rewind offers no
+code to restore for it (`commitTracking`).
 Since 2026-11-13 Restore code puts back only the files Coder's file tools changed, like
 Claude Code's checkpoints ("A file that only Bash commands changed isn't tracked and stays
 as it is"): each job's result names the files its write and edit changed (`edited`), kept
@@ -2739,7 +2763,10 @@ and a **level**: Quick (one finder, low effort), Standard (two finders and a
 check) or Deep (three finders, a check, high effort). Automatic reviews skip
 drafts and forks, with a tip where none starts. **Comment commands**, at the
 very start of a new top-level comment on a pull request, from a Coder user with
-write access (checked with GitHub; strangers get no answer): `@coder review`
+write access (checked with GitHub; anyone else, other than the pull request's
+author, gets Claude Code's tip: "No review was started: manual reviews can only
+be requested by someone who uses Coder and has write access to this
+repository."): `@coder review`
 (or `once`), `@coder review always` (also reviews each push), `@coder review
 stop` / `off` / `pause`; they never start a plain @coder job. A review is
 queued with a **Coder Review** check run ("Code review queued..."), one per pull

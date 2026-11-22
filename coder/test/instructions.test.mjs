@@ -91,7 +91,7 @@ test("CD159 a path rule or a subfolder's file comes with the tool's answer once 
     send: async () => steps[i++],
     exec: async ({ command }) => ({ code: /ZWRpd|"edit"/.test(Buffer.from(String(command).split(" ").pop() || "", "base64").toString()) ? 1 : 0, output: "file text" }),
     afterFile: async ({ tool, args }) => { asked.push(tool + ":" + args.path); return "RULES FOR " + args.path; },
-  }, { text: "go" });
+  }, { searchTools: true, text: "go" });
   assert.equal(r.status, "done");
   assert.deepEqual(asked, ["read:src/api/a.ts"], "only after a read, edit or write that worked");
   const toolMsgs = r.messages.filter((m) => m.role === "tool");

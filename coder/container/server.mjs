@@ -31,7 +31,7 @@ import { runCoder, connectorTools, connectorCaller, connectorHookCaller, MACHINE
 // (Each chat's plan file, kept here beside its memory: Claude Code's plan mode with a disk; the owner, 2026-11-14.)
 import { planStore, plansDirectoryFor, plansDirWarning } from "./coder-plan-file.mjs";
 import { envCaller } from "./coder-envtools.mjs";
-import { memoryLoaded } from "./coder-tools.mjs";
+import { memoryLoaded, memorySafe } from "./coder-tools.mjs";
 import { hooksFrom, hooksFor, hookInput, hookShell, splitHookOut, asyncHookTexts, sessionEndBudget, sessionEndHookLimit, httpUrlAllowed, runMcpToolHook, stopCapOf } from "./coder-hooks.mjs";
 import { autoModeSetting } from "./coder-checker.mjs";
 /** The owner's auto mode rules as the Worker sent them, checked again here (autoModeSetting), or null. */
@@ -891,7 +891,15 @@ export function readMonitor(j, { flood = MONITOR_FLOOD, now = Date.now() } = {})
  * settings precedence (its hooks reference: "a "disableAllHooks": false in a project's .claude/settings.json overrides a true
  * in your user settings"): .claude/settings.local.json, then .claude/settings.json, then the owner's own.
  */
-export function hooksForTurn(root, account, { github = false, several = false } = {}) {
+/**
+ * THE TURN'S HOOKS: the owner's (Settings) and the repository's (.claude/settings.json, .claude/settings.local.json), with
+ * disableAllHooks by Claude Code's settings precedence once "Trust this repository's settings" is ticked (`trust`): the
+ * repository's settings.local.json, then its settings.json, then the owner's. Unticked, as Claude Code 2.1.323 does for a
+ * repository you have not trusted ("the repository's settings can no longer disable your hooks"; batch 5, M-r2-02): the
+ * repository's disableAllHooks no longer turns the owner's hooks off, nor its false back on; it still turns off the
+ * repository's own hooks, as before. The owner's own disableAllHooks: true turns every hook off, as before.
+ */
+export function hooksForTurn(root, account, { github = false, several = false, trust = false } = {}) {
   const mine = hooksFrom(account && typeof account === "object" ? account : null, "settings");
   const repo = { list: [], disabled: false, httpUrls: null, httpEnvVars: null };
   const offIn = {}; // each file's own disableAllHooks, when it sets one
@@ -918,8 +926,11 @@ export function hooksForTurn(root, account, { github = false, several = false } 
     }
   }
   const mineOff = account && typeof account === "object" && typeof account.disableAllHooks === "boolean" ? account.disableAllHooks : null;
-  const off = "settings.local.json" in offIn ? offIn["settings.local.json"] : "settings.json" in offIn ? offIn["settings.json"] : mineOff === true;
+  const repoOff = "settings.local.json" in offIn ? offIn["settings.local.json"] : "settings.json" in offIn ? offIn["settings.json"] : null;
+  const off = trust === true ? (repoOff !== null ? repoOff : mineOff === true) : mineOff === true;
   if (off) return [];
+  // (Not trusted, and the repository turns hooks off: only its own go.)
+  if (trust !== true && repoOff === true) repo.list.length = 0;
   // THE HTTP HOOK ALLOWLISTS (Claude Code: "Arrays merge across settings files"; unset: any address, each hook's own
   // allowedEnvVars), on each HTTP hook.
   const merge = (a, b) => (a || b ? [...new Set([...(a || []), ...(b || [])])] : null);
@@ -1005,7 +1016,10 @@ export const REPO_OWN_ENV = { BASH_DEFAULT_TIMEOUT_MS: "BASH_DEFAULT_TIMEOUT_MS"
   // folders' instructions switch, the retry count, and the scrub with its script caps; a repository may only turn the scrub
   // on, see scrubFrom.)
   CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: "CODER_ADDITIONAL_DIRECTORIES_CODER_MD", CLAUDE_CODE_MAX_RETRIES: "CODER_MAX_RETRIES",
-  CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "CODER_SUBPROCESS_ENV_SCRUB", CLAUDE_CODE_SCRIPT_CAPS: "CODER_SCRIPT_CAPS" };
+  CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "CODER_SUBPROCESS_ENV_SCRUB", CLAUDE_CODE_SCRIPT_CAPS: "CODER_SCRIPT_CAPS",
+  // (Rewind's file checkpoints off for the chat, Claude Code's CLAUDE_CODE_DISABLE_FILE_CHECKPOINTING, not on its list of names
+  // project settings can't set: batch 5, MISS-68. With fileCheckpointingEnabled below: checkpointsOn.)
+  CLAUDE_CODE_DISABLE_FILE_CHECKPOINTING: "CODER_DISABLE_FILE_CHECKPOINTING" };
 /**
  * THE SCRUB AND ITS CAPS from the owner's variables and the repository's settings (batch 26): on with the owner's switch on,
  * in a GitHub job unless the owner turned it off, or when the repository turns it on (a repository can never turn it off).
@@ -1017,7 +1031,15 @@ export function scrubFrom(varsGiven, own, github) {
   const caps = typeof v.CODER_SCRIPT_CAPS === "string" ? v.CODER_SCRIPT_CAPS : typeof o.CODER_SCRIPT_CAPS === "string" ? o.CODER_SCRIPT_CAPS : "";
   return { on, caps: on ? caps : "" };
 }
-export const REPO_OWN_KEYS = { bashOutputMaxChars: "CODER_BASH_OUTPUT_MAX_CHARS", defaultShell: "CODER_DEFAULT_SHELL", respondToBashCommands: "CODER_RESPOND_TO_BASH_COMMANDS", autoCompactEnabled: "CODER_AUTO_COMPACT_ENABLED", autoCompactWindow: "CODER_AUTO_COMPACT_WINDOW" };
+export const REPO_OWN_KEYS = { bashOutputMaxChars: "CODER_BASH_OUTPUT_MAX_CHARS", defaultShell: "CODER_DEFAULT_SHELL", respondToBashCommands: "CODER_RESPOND_TO_BASH_COMMANDS", autoCompactEnabled: "CODER_AUTO_COMPACT_ENABLED", autoCompactWindow: "CODER_AUTO_COMPACT_WINDOW", fileCheckpointingEnabled: "CODER_FILE_CHECKPOINTING_ENABLED" };
+/**
+ * REWIND'S FILE CHECKPOINTS, ON OR OFF FOR A JOB (batch 5, MISS-68; Claude Code's fileCheckpointingEnabled, "Default: true", in any
+ * settings file, and CLAUDE_CODE_DISABLE_FILE_CHECKPOINTING, which "turns checkpointing off for one session; whichever of the two
+ * turns it off, the other can't turn it back on"): off when CODER_DISABLE_FILE_CHECKPOINTING (or Claude Code's name) is on, or
+ * CODER_FILE_CHECKPOINTING_ENABLED (the repository's fileCheckpointingEnabled) is false, in the environment or the repository's
+ * settings (the environment's own value of a name first, as for the other settings: withRepoOwn).
+ */
+export const checkpointsOn = (raw) => !(varOn(raw && raw.CODER_DISABLE_FILE_CHECKPOINTING) || varOff(raw && raw.CODER_FILE_CHECKPOINTING_ENABLED));
 /** Coder's name → the name the repository's file gives it (for what Coder is told). */
 export const REPO_OWN_FROM = Object.fromEntries([...Object.entries(REPO_OWN_ENV), ...Object.entries(REPO_OWN_KEYS)].map(([k, v]) => [v, k]));
 /** The chat's auto-compact settings, as coder-compact.mjs compactSettings reads them (Coder's names). */
@@ -5294,7 +5316,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     // (Left out with CODER_DISABLE_GIT_INSTRUCTIONS, Claude Code's CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS.)
     const gitSnap = body.repo && !varOn(rawVars.CODER_DISABLE_GIT_INSTRUCTIONS) ? await gitSnapshot(dir, { gitDir: gitDirFor(dir, gitRoot), root }).catch(() => "") : "";
     const contextFor = (notesNow, memoryNow, laterNow) => {
-      const styleLines = String(memoryNow || "").split("\n").map((l) => l.trim()).filter((l) => /^style:/i.test(l)).slice(-3);
+      const styleLines = memorySafe(String(memoryNow || "")).split("\n").map((l) => l.trim()).filter((l) => /^style:/i.test(l)).slice(-3);
       const style = styleLines.length ? "THE OWNER'S STYLE (saved earlier; follow it in every answer unless they ask otherwise now):\n" + styleLines.map((l) => "- " + l.replace(/^style:\s*/i, "")).join("\n") + "\n\n" : "";
       // (As the context's pieces, coder-context.mjs, fix round 4: told in the conversation, never in the system message, which
       // stays the same for the whole chat, as Claude Code's system prompt does. The same words as before, in the same order;
@@ -5476,7 +5498,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       const rs = repoSettings(dir, repoOpts);
       t.repoSet = rs;
       t.rulesNext = withRepoRules(t.ownerRules || { allow: [], ask: [], deny: [] }, rs) || { allow: [], ask: [], deny: [] };
-      t.hooksNext = hooksForTurn(dir, body.hooks, { github: repoOpts.github, several: repoOpts.several });
+      t.hooksNext = hooksForTurn(dir, body.hooks, { github: repoOpts.github, several: repoOpts.several, trust: repoOpts.trust });
       t.readBlockOn = !!(t.readBlockOn || was.blockReads || rs.blockReads);
       t.blocksNext = { read: ownReadBlock || t.readBlockOn, write: ownWriteBlock || rs.blockWrites };
       for (const h of rs.held) t.events.push({ at: Date.now(), type: "note", text: heldNote(h) });
@@ -5511,7 +5533,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       // A job has worked on this disk: no copy is made of it from now on.
       if (data) { try { writeFileSync(join(data, USED_NOTE), String(Date.now())); } catch { /* read-only */ } }
       const { notices, lost, stalls } = backgroundNews();
-      const turnHooks = hooksForTurn(dir, body.hooks, { github: body.github === true, several: extraRepos(body).length > 0 });
+      const turnHooks = hooksForTurn(dir, body.hooks, { github: body.github === true, several: extraRepos(body).length > 0, trust: !!(body.rules && body.rules.trust === true) });
       const turnDeps = {
         send: timedSend(t.timing, via ? coderSend(retryEnv(env, rawVars), { via }) : send ? sendFn : coderSend(retryEnv(env, rawVars))),
         // (And the chat's mcp_tool hooks call its connectors' tools the same way: connectorHookCaller. Fix round 4, CL4.)
@@ -5939,7 +5961,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         t.answerDone = true;
         return { status: "error", messages, crashed: true, summary: why };
       };
-      picsIn(Array.isArray(body.messages) ? body.messages : [], picsTo).then((msgsIn) => runCoder(turnDeps, { notices, lost, stalls, ...(takeUp ? { takeUp: { ...takeUp, ...(envNote ? { note: envNote } : {}) } } : {}), timeouts: t.tmo, outLimits: t.outLimits, cmdShell: t.shell, compactVars: compactVarsFor(rawVars), noBg: t.noBg, diskWarnGib: warnGibFrom(body.setup && body.setup.vars, "DISK", PREFS.diskWarnGib), memWarnGib: warnGibFrom(body.setup && body.setup.vars, "MEMORY", PREFS.memWarnGib), searchLimits: t.searchLimits, hooks: turnHooks, autoMode: autoModeIn(body.autoMode), denyInstead: PREFS.denyInstead === true, tasksOff: varOff(rawVars.CODER_ENABLE_TASKS), mentionsOff: varOn(rawVars.CODER_DISABLE_FILE_MENTIONS), stopCap: stopCapOf(rawVars.CODER_STOP_HOOK_BLOCK_CAP), box: !!t.box, autoOff: PREFS.autoOff === true || repoSet.autoOff, suggest: !gloopy && PREFS.suggestOff !== true && process.env.CODER_ENABLE_PROMPT_SUGGESTION !== "false", fileEdits: repoSet.defaultMode === "acceptEdits", startMode: repoSet.defaultMode, resumed, lastAt: Number(body.lastAt) || 0, hostLists: nn.mode === "full" ? null : nn.mode === "none" ? "none" : walled ? "on" : "off", rmChecksOff: { subst: varOn(rawVars.CODER_DISABLE_SUBSTITUTION_RM_PROMPT), inline: varOn(rawVars.CODER_DISABLE_INLINE_SHELL_RM_PROMPT), mounted: varOn(rawVars.CODER_DISABLE_MOUNTED_DRIVE_RM_PROMPT), timeout: varOn(rawVars.CODER_DISABLE_DANGEROUS_RM_TIMEOUT) }, powershell: psOn ? { bypass: !varOn(rawVars.CODER_POWERSHELL_RESPECT_EXECUTION_POLICY), defaultShell: String(rawVars.CODER_DEFAULT_SHELL || "").trim().toLowerCase() === "powershell", parseMs: Number(rawVars.CODER_PWSH_PARSE_TIMEOUT_MS) > 0 ? Math.min(Number(rawVars.CODER_PWSH_PARSE_TIMEOUT_MS), 60000) : 0 } : null, planExit: body.prePlanMode === "acceptEdits" ? "acceptEdits" : "auto", respondToBash: !varOff(rawVars.CODER_RESPOND_TO_BASH_COMMANDS), promptNotify: !varOn(rawVars.CODER_DISABLE_PERMISSION_PROMPT_NOTIFY_HOOKS), readBlock: varOn(rawVars.CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockReads, writeBlock: varOn(rawVars.CODER_BLOCK_WRITES_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockWrites, connectors: mcpCall ? connectors : [], connectorNotes: mcpCall && Array.isArray(body.connectorNotes) ? body.connectorNotes.slice(0, 10) : [], connectorsWaiting: Array.isArray(body.connectorsWaiting) ? body.connectorsWaiting.map(String).slice(0, 20) : [], connectorsFailed: Array.isArray(body.connectorsFailed) ? body.connectorsFailed.slice(0, 20) : [], connectorsGone: body.connectorsGone && typeof body.connectorsGone === "object" && !Array.isArray(body.connectorsGone) ? body.connectorsGone : null, checker, checkerInPlan: !varOff(rawVars.CODER_USE_AUTO_MODE_DURING_PLAN), checkWhere: { key: project, repo: String(body.repo || ""), branch: String(body.branch || (body.repo ? "coder/" + project : "")) }, emailMark: typeof body.emailMark === "string" && /^\d{1,3}:[0-9a-f]{64}(?:,\d{1,3}:[0-9a-f]{64})?$/.test(body.emailMark) ? body.emailMark : "", editDiff: varOn(rawVars.CODER_BASH_EDIT_DIFF), mode: t.mode, rules: withRepoRules(body.rules, repoSet), sessionRules: body.sessionRules && typeof body.sessionRules === "object" ? body.sessionRules : null, language: gloopy ? "" : repoSet.language, customTitle: !gloopy && typeof body.customTitle === "string" ? body.customTitle.slice(0, 200) : "", shell: typeof body.shell === "string" ? body.shell.slice(0, 100_000) : "", messages: msgsIn, text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), ...(body.compact && typeof body.compact === "object" ? { compact: { focus: String(body.compact.focus || "").slice(0, 300) } } : {}), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, readOnly: { main: body.readOnly === true, extra: extras.filter((x) => x.readOnly).map((x) => x.repo.toLowerCase()) }, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), replyTo: body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null, ...effortFor(body, repoSet, env, t) , skills: gloopy || body.github === true ? [] : (() => { try { return readSkills(dir); } catch { return []; } })(), ...(!gloopy && body.github !== true && Array.isArray(body.attached) ? { attached: body.attached.filter((x) => x && typeof x.id === "string").slice(0, 20), attachedLeft: Math.max(0, Math.min(1000, Number(body.attachedLeft) || 0)) } : {}), ...gloopyOpts }))
+      picsIn(Array.isArray(body.messages) ? body.messages : [], picsTo).then((msgsIn) => runCoder(turnDeps, { notices, lost, stalls, ...(takeUp ? { takeUp: { ...takeUp, ...(envNote ? { note: envNote } : {}) } } : {}), timeouts: t.tmo, outLimits: t.outLimits, cmdShell: t.shell, compactVars: compactVarsFor(rawVars), noBg: t.noBg, diskWarnGib: warnGibFrom(body.setup && body.setup.vars, "DISK", PREFS.diskWarnGib), memWarnGib: warnGibFrom(body.setup && body.setup.vars, "MEMORY", PREFS.memWarnGib), searchLimits: t.searchLimits, hooks: turnHooks, autoMode: autoModeIn(body.autoMode), denyInstead: PREFS.denyInstead === true, tasksOff: varOff(rawVars.CODER_ENABLE_TASKS), mentionsOff: varOn(rawVars.CODER_DISABLE_FILE_MENTIONS), stopCap: stopCapOf(rawVars.CODER_STOP_HOOK_BLOCK_CAP), box: !!t.box, autoOff: PREFS.autoOff === true || repoSet.autoOff, suggest: !gloopy && PREFS.suggestOff !== true && process.env.CODER_ENABLE_PROMPT_SUGGESTION !== "false", fileEdits: repoSet.defaultMode === "acceptEdits", startMode: repoSet.defaultMode, resumed, lastAt: Number(body.lastAt) || 0, hostLists: nn.mode === "full" ? null : nn.mode === "none" ? "none" : walled ? "on" : "off", rmChecksOff: { subst: varOn(rawVars.CODER_DISABLE_SUBSTITUTION_RM_PROMPT), inline: varOn(rawVars.CODER_DISABLE_INLINE_SHELL_RM_PROMPT), mounted: varOn(rawVars.CODER_DISABLE_MOUNTED_DRIVE_RM_PROMPT), timeout: varOn(rawVars.CODER_DISABLE_DANGEROUS_RM_TIMEOUT) }, powershell: psOn ? { bypass: !varOn(rawVars.CODER_POWERSHELL_RESPECT_EXECUTION_POLICY), defaultShell: String(rawVars.CODER_DEFAULT_SHELL || "").trim().toLowerCase() === "powershell", parseMs: Number(rawVars.CODER_PWSH_PARSE_TIMEOUT_MS) > 0 ? Math.min(Number(rawVars.CODER_PWSH_PARSE_TIMEOUT_MS), 60000) : 0 } : null, planExit: body.prePlanMode === "acceptEdits" ? "acceptEdits" : "auto", respondToBash: !varOff(rawVars.CODER_RESPOND_TO_BASH_COMMANDS), promptNotify: !varOn(rawVars.CODER_DISABLE_PERMISSION_PROMPT_NOTIFY_HOOKS), readBlock: varOn(rawVars.CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockReads, writeBlock: varOn(rawVars.CODER_BLOCK_WRITES_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockWrites, connectors: mcpCall ? connectors : [], connectorNotes: mcpCall && Array.isArray(body.connectorNotes) ? body.connectorNotes.slice(0, 10) : [], connectorsWaiting: Array.isArray(body.connectorsWaiting) ? body.connectorsWaiting.map(String).slice(0, 20) : [], connectorsFailed: Array.isArray(body.connectorsFailed) ? body.connectorsFailed.slice(0, 20) : [], connectorsGone: body.connectorsGone && typeof body.connectorsGone === "object" && !Array.isArray(body.connectorsGone) ? body.connectorsGone : null, checker, checkerInPlan: !varOff(rawVars.CODER_USE_AUTO_MODE_DURING_PLAN), checkWhere: { key: project, repo: String(body.repo || ""), branch: String(body.branch || (body.repo ? "coder/" + project : "")) }, emailMark: typeof body.emailMark === "string" && /^\d{1,3}:[0-9a-f]{64}(?:,\d{1,3}:[0-9a-f]{64})?$/.test(body.emailMark) ? body.emailMark : "", editDiff: varOn(rawVars.CODER_BASH_EDIT_DIFF), checkpoints: checkpointsOn(rawVars), searchTools: body.searchTools === true, mode: t.mode, rules: withRepoRules(body.rules, repoSet), sessionRules: body.sessionRules && typeof body.sessionRules === "object" ? body.sessionRules : null, language: gloopy ? "" : repoSet.language, customTitle: !gloopy && typeof body.customTitle === "string" ? body.customTitle.slice(0, 200) : "", shell: typeof body.shell === "string" ? body.shell.slice(0, 100_000) : "", messages: msgsIn, text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), ...(body.compact && typeof body.compact === "object" ? { compact: { focus: String(body.compact.focus || "").slice(0, 300) } } : {}), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, readOnly: { main: body.readOnly === true, extra: extras.filter((x) => x.readOnly).map((x) => x.repo.toLowerCase()) }, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), replyTo: body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null, ...effortFor(body, repoSet, env, t) , skills: gloopy || body.github === true ? [] : (() => { try { return readSkills(dir); } catch { return []; } })(), ...(!gloopy && body.github !== true && Array.isArray(body.attached) ? { attached: body.attached.filter((x) => x && typeof x.id === "string").slice(0, 20), attachedLeft: Math.max(0, Math.min(1000, Number(body.attachedLeft) || 0)) } : {}), ...gloopyOpts }))
         // (Its job is over: a connector's question still waiting closes, coder-elicit.mjs.)
         .finally(() => { t.over = true; })
         // The last steps are sent BEFORE the end is handed out, so the Worker never saves the job while some are on their way.

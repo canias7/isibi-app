@@ -86,7 +86,7 @@ test("CD352 the read block in Coder's loop: a command that reads outside asks in
         return { code: r.status, output: r.stdout + r.stderr };
       };
       const steps = [say("", calls), say("Done.")];
-      await A.runCoder({ send: async () => steps[Math.min(n++, steps.length - 1)], exec, emit: (e) => events.push(e), here: () => work, root: work, where: (p) => (isAbsolute(p) ? resolve(p) : resolve(work, p)), home: join(base, "home"), ownDirs: [join(base, "out")] }, { text: "go", ...opts });
+      await A.runCoder({ send: async () => steps[Math.min(n++, steps.length - 1)], exec, emit: (e) => events.push(e), here: () => work, root: work, where: (p) => (isAbsolute(p) ? resolve(p) : resolve(work, p)), home: join(base, "home"), ownDirs: [join(base, "out")] }, { searchTools: true, text: "go", ...opts });
       return { events, toolsRan, commands, result: (id) => events.find((e) => e.type === "result" && e.id === id) };
     };
     // Block on, in Auto: the outside read is asked about (no one can answer here, so the turn ends with the card).

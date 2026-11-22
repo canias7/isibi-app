@@ -29,7 +29,7 @@ const join = (...parts) => normalize(parts.join("/"));
 /** Claude Code's file tools whose rules take a path (its "Ur"): a `:*` in one is refused, in its words (ruleProblem). */
 export const FILE_RULE_TOOLS = new Set(["Read", "Edit", "Write", "Glob", "Grep", "NotebookEdit", "MultiEdit"]);
 /** Coder's own tools, by the names Claude Code's rules give them: a rule on the whole tool (`Write`, `Grep` …) matches each call. */
-export const TOOL_RULE_NAMES = { read: "Read", edit: "Edit", write: "Write", grep: "Grep", glob: "Glob", lsp: "LSP" };
+export const TOOL_RULE_NAMES = { read: "Read", edit: "Edit", write: "Write", notebook_edit: "NotebookEdit", grep: "Grep", glob: "Glob", lsp: "LSP" };
 /**
  * THE TOOLS WHOSE ALLOW RULE `X(*)` OR `X()` IS A PATH RULE, "*" (Claude Code 2.1.325's Lg and yzs, its flag on by default,
  * and in its cloud): it covers the working directories only, not every path as `X` does. Round 3, 2026-11-14.

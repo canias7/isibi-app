@@ -113,7 +113,7 @@ test("CD387b the Worker tells the machine the owner's start mode (where a plan a
   assert.equal(t.cards[0].tool, "monitor");
 });
 
-test("CD388 disableAllHooks by Claude Code's settings precedence: the repository's .claude/settings.local.json, then its .claude/settings.json, then the owner's own (\"a \"disableAllHooks\": false in a project's .claude/settings.json overrides a true in your user settings\")", async () => {
+test("CD388 disableAllHooks by Claude Code's settings precedence, once the repository's settings are trusted: the repository's .claude/settings.local.json, then its .claude/settings.json, then the owner's own (\"a \"disableAllHooks\": false in a project's .claude/settings.json overrides a true in your user settings\")", async () => {
   const { mkdtempSync, mkdirSync, writeFileSync } = await import("node:fs");
   const { tmpdir } = await import("node:os");
   const { join } = await import("node:path");
@@ -125,16 +125,16 @@ test("CD388 disableAllHooks by Claude Code's settings precedence: the repository
   const names = (r) => r.map((h) => h.command);
   // The owner's true, the repository's false: the repository's wins, so hooks run (the owner's and the repository's).
   put("settings.json", { disableAllHooks: false, hooks: { Stop: [{ hooks: [{ type: "command", command: "repo.sh" }] }] } });
-  assert.deepEqual(names(hooksForTurn(d, { ...account, disableAllHooks: true })), ["mine.sh", "repo.sh"]);
+  assert.deepEqual(names(hooksForTurn(d, { ...account, disableAllHooks: true }, { trust: true })), ["mine.sh", "repo.sh"]);
   // The owner's false, the repository's true: off.
   put("settings.json", { disableAllHooks: true });
-  assert.deepEqual(hooksForTurn(d, { ...account, disableAllHooks: false }), []);
+  assert.deepEqual(hooksForTurn(d, { ...account, disableAllHooks: false }, { trust: true }), []);
   // settings.local.json over settings.json, either way.
   put("settings.local.json", { disableAllHooks: false });
-  assert.deepEqual(names(hooksForTurn(d, account)), ["mine.sh"]);
+  assert.deepEqual(names(hooksForTurn(d, account, { trust: true })), ["mine.sh"]);
   put("settings.json", { disableAllHooks: false });
   put("settings.local.json", { disableAllHooks: true });
-  assert.deepEqual(hooksForTurn(d, account), []);
+  assert.deepEqual(hooksForTurn(d, account, { trust: true }), []);
   // Neither sets it: the owner's own.
   put("settings.json", {});
   put("settings.local.json", {});

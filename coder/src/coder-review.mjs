@@ -95,9 +95,16 @@ export function reviewCommand(body) {
   return w === "always" ? "always" : ["stop", "off", "pause"].includes(w) ? "stop" : "once";
 }
 
+/** Who can start a review by comment in Coder: a Coder user with write access (the bot's tip names the repository). */
+export const WHO_CAN_REVIEW = (repo) => "Someone who uses Coder and has write access to " + repo + " can comment `@coder review`.";
+/** Claude Code's tip for a commenter who cannot start one, in its words, with Coder's own rule (a Coder user is needed too). */
+export const NOT_A_CODER_USER_TIP = "No review was started: manual reviews can only be requested by someone who uses Coder and has write access to this repository.";
 /**
  * WHAT A WEBHOOK STARTS. `d`: { token(installation), account(login), allowed(email), fetchFn }.
- * Strangers get no answer (as with @coder); a Coder user without write access gets a tip.
+ * Only a Coder user with write access starts a review by comment. Anyone else who comments `@coder review`, other than the
+ * pull request's author, gets Claude Code's tip saying no review was started and who can request one, where Code Review is
+ * on and tips are shown (Claude Code's "A bot, or someone without write access who isn't the pull request's author, comments
+ * @claude review: that no review was started, and who can request one"; batch 5, M-d-47: strangers got no answer before).
  */
 export async function handleReviewEvent(env, d, ev) {
   const bucket = env.CODER_BUCKET;
@@ -108,14 +115,26 @@ export async function handleReviewEvent(env, d, ev) {
   const asked = ev.kind === "command" || ev.kind === "rerun";
   if (asked && ev.bot) {
     // A bot's command: a tip (Claude Code's), where Code Review is on and tips are shown.
-    if (ev.kind === "command" && setting && tips) { const t = await d.token(ev.installation); if (t) await ghApp(t, "/repos/" + ev.repo + "/issues/" + ev.number + "/comments", { method: "POST", body: { body: "@" + ev.login + " No review was started: comments from bots don't start Coder reviews. Someone with write access to " + ev.repo + " can comment `@coder review`." }, fetchFn }); }
+    if (ev.kind === "command" && setting && tips) { const t = await d.token(ev.installation); if (t) await ghApp(t, "/repos/" + ev.repo + "/issues/" + ev.number + "/comments", { method: "POST", body: { body: "@" + ev.login + " No review was started: comments from bots don't start Coder reviews. " + WHO_CAN_REVIEW(ev.repo) }, fetchFn }); }
     return { ok: false, why: "bot" };
   }
   if (ev.kind === "rerun" && ev.fork) return { ok: false, why: "fork" };
   let acct = null;
   if (asked) {
     acct = await d.account(ev.login);
-    if (!acct || !d.allowed(acct.email)) return { ok: false, why: "not allowed" };
+    if (!acct || !d.allowed(acct.email)) {
+      // NOT A CODER USER: Claude Code's tip, unless the pull request is theirs (its troubleshooting page), where Code Review
+      // is on and tips are shown. Nothing else is read or run for them.
+      if (ev.kind === "command" && setting && tips) {
+        const t = await d.token(ev.installation);
+        if (t) {
+          const pr = await ghApp(t, "/repos/" + ev.repo + "/pulls/" + ev.number, { fetchFn });
+          const own = pr.ok && pr.data && pr.data.user && String(pr.data.user.login).toLowerCase() === String(ev.login).toLowerCase();
+          if (!own) await ghApp(t, "/repos/" + ev.repo + "/issues/" + ev.number + "/comments", { method: "POST", body: { body: "@" + ev.login + " " + NOT_A_CODER_USER_TIP }, fetchFn });
+        }
+      }
+      return { ok: false, why: "not allowed" };
+    }
   }
   const token = await d.token(ev.installation);
   if (!token) return { ok: false, why: "no app token" };
@@ -159,7 +178,7 @@ export async function handleReviewEvent(env, d, ev) {
   }
   // A PULL REQUEST OPENED OR PUSHED TO. Tips when no review starts (Claude Code's "Show tips on pull requests").
   if (ev.action === "opened" && setting.runs === "manual" && tips) await say("Coder Review: to get a review of this pull request, comment `@coder review` (or `@coder review always` to review each push).");
-  else if (ev.action === "opened" && ev.fork && tips) await say("Coder Review: this pull request comes from a fork, so Coder doesn't review it on its own. Someone with write access can comment `@coder review`.");
+  else if (ev.action === "opened" && ev.fork && tips) await say("Coder Review: this pull request comes from a fork, so Coder doesn't review it on its own. Someone who uses Coder and has write access can comment `@coder review`.");
   if (ev.draft || ev.fork) return { ok: false, why: ev.draft ? "draft" : "fork" };
   const opening = ev.action !== "synchronize";
   const go = opening ? ["push", "open"].includes(setting.runs) : setting.runs === "push" || state.subscribed === true;

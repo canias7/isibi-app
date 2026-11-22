@@ -323,9 +323,10 @@
 
         <h3 id="ts-which">Which tools wait</h3>
         <ul>
-          <li>Coder's own <code>lsp</code>, <code>web_fetch</code>, <code>web_search</code>, <code>monitor</code> and <code>stop_job</code>, the task tools (<code>task_create</code>, <code>task_get</code>, <code>task_list</code> and <code>task_update</code>, or <code>todo_write</code>) and the plan mode tools (<code>enter_plan_mode</code> and <code>exit_plan_mode</code>).</li>
+          <li>Coder's own <code>lsp</code>, <code>web_fetch</code>, <code>web_search</code>, <code>monitor</code> and <code>stop_job</code>, the task tools (<code>task_create</code>, <code>task_get</code>, <code>task_list</code> and <code>task_update</code>, or <code>todo_write</code>) and the plan mode tools (<code>enter_plan_mode</code> and <code>exit_plan_mode</code>), and <code>notebook_edit</code>, Claude Code's NotebookEdit, which changes one cell of a Jupyter notebook.</li>
           <li>Every connector tool, with no limit on how many. A connector can mark a tool to load at the start.</li>
-          <li>The rest, such as <code>bash</code>, <code>read</code>, <code>edit</code>, <code>write</code>, <code>grep</code>, <code>glob</code>, <code>ask_user</code> and the environment tools, load at the start.</li>
+          <li>The rest, such as <code>bash</code>, <code>read</code>, <code>edit</code>, <code>write</code>, <code>ask_user</code> and the environment tools, load at the start.</li>
+          <li>Like Claude Code on Linux, Coder has no separate search tools: it finds files and text with <code>find</code>, <code>grep</code> and <code>rg</code> in <code>bash</code>, so your hooks and rules see those searches as commands. Agent hooks still get their own read, grep and glob.</li>
         </ul>
 
         <h3 id="ts-how">How it works</h3>

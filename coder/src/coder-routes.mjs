@@ -1138,6 +1138,10 @@ export function undoLine(lead, files, where, removed = []) {
   return lead + ": " + what + (all.length > 1 && all.length <= 5 ? " (" + all.length + " files)" : "") + "." + (w ? " " + w.charAt(0).toUpperCase() + w.slice(1) + "." : "");
 }
 export function commitTracking(commits, result, pushed) {
+  // A JOB WITH CHECKPOINTS OFF (the environment's CODER_DISABLE_FILE_CHECKPOINTING, or the repository's fileCheckpointingEnabled:
+  // false; batch 5, MISS-68): no tracked files, so Rewind has nothing of it to restore (Claude Code: "If no file edits were
+  // captured after that point, the menu offers only Restore conversation"), never the old "revert the job whole".
+  if (result && result.checkpointsOff === true) return { edited: [], tracked: false, checkpointsOff: true };
   const edited = editedOf(result);
   if (!edited || (result && result.editedCut === true) || edited.length > EDITED_KEEP) return {};
   const known = new Set(edited);
@@ -2425,7 +2429,7 @@ export async function handleCoder(request, env, ctx, deps) {
       // each push's commit is the job's own (kept for Undo, which takes the job's commits back one at a time, the last first),
       // and the chat says it was pushed; the turn's end then commits only what changed after it (pushWanted is not set by it).
       for (const m of meta.readOnly ? [] : Array.isArray(res.midPushes) ? res.midPushes.slice(0, 20) : []) {
-        if (m && m.changed === true && typeof m.sha === "string" && /^[0-9a-f]{7,64}$/.test(m.sha)) commits = [...commits, { sha: m.sha, turn: meta.turn, title: turnTitle(s.result), at: Date.now(), ...(m.pushed === false ? { local: true } : {}), ...commitTracking(commits, { edited: m.edited }, m) }].slice(-50);
+        if (m && m.changed === true && typeof m.sha === "string" && /^[0-9a-f]{7,64}$/.test(m.sha)) commits = [...commits, { sha: m.sha, turn: meta.turn, title: turnTitle(s.result), at: Date.now(), ...(m.pushed === false ? { local: true } : {}), ...commitTracking(commits, { edited: m.edited, checkpointsOff: m.checkpointsOff === true }, m) }].slice(-50);
         // A mid-turn push that failed after committing: its commit is kept (above) and counted as not yet on GitHub.
         if (m && m.pushed === false && m.changed === true) { unpushed = Math.max(unpushed, 1); if (!unpushedSince) unpushedSince = Date.now(); continue; }
         // (A mid-turn push that found nothing new still means GitHub has the branch: a pull request queued for the turn's end

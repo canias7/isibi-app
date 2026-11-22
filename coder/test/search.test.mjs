@@ -293,7 +293,7 @@ async function loop(d, steps, { rules = {}, hooks = null, hookRun = () => ({}), 
     ask: async () => ({ choice: "yes" }),
     saveText: (text) => { const f = join(d, ".out-" + saved.length + ".txt"); writeFileSync(f, text); saved.push(f); return f; },
     ...(settings ? { searchSettings: settings } : {}),
-  }, { text: "go", mode: "auto", messages: [], rules, hooks: hooks ? H.hooksFrom({ hooks }, "settings").list : [] });
+  }, { text: "go", mode: "auto", messages: [], rules, hooks: hooks ? H.hooksFrom({ hooks }, "settings").list : [], searchTools: true });
   return { r, events, hookCalls, requests, answer: (id) => r.messages.find((m) => m.role === "tool" && m.tool_call_id === id).content };
 }
 const call = (name, args, id) => ({ id, type: "function", function: { name, arguments: JSON.stringify(args) } });
@@ -439,7 +439,7 @@ test("SR12 (Claude Code 2.1.325; the owner, 2026-11-14: \"Fix base on Claude Cod
     send: async () => steps[Math.min(n++, 1)],
     exec: async (x) => { const tm = /coder-tools\.mjs (\S+)$/.exec(String(x.command)); if (!tm) return { code: 0, output: "" }; const out = spawnSync("node", ["--no-warnings", TOOLS, tm[1]], { cwd: d, encoding: "utf8" }); return { code: out.status, output: out.stdout }; },
     emit: (e) => events.push(e), here: () => d, root: d, home: "/home/someone", where: (p) => (p.startsWith("/") ? p : d + "/" + p), ask: async () => ({ choice: "yes" }),
-  }, { text: "go", mode: "auto", messages: [], rules: { deny: ["Read(~/**)"] } });
+  }, { text: "go", mode: "auto", messages: [], rules: { deny: ["Read(~/**)"] }, searchTools: true });
   assert.equal(r.messages.find((m) => m.tool_call_id === "f3").content, "No files found", "not refused as the home folder's");
   // Results cut short by a kill from outside the search (the system, out of memory): marked, as at the time limit.
   const dir = mkdtempSync(join(tmpdir(), "sr-kill-"));

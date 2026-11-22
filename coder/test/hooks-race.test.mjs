@@ -56,7 +56,7 @@ async function loop(steps, { hooks = {}, hookRun = () => ({}), ask = null, mcpHo
     emit: (e) => events.push(e),
     here: () => "/work/shop", root: "/work/shop", home: "/home/dev", chatId: "shop-f4", where: (p) => (p.startsWith("/") ? p : "/work/shop/" + p),
     ...(ask ? { ask } : {}), ...(mcpHook ? { mcpHook } : {}), ...deps,
-  }, { text: "go", mode, messages: [], hooks: H.hooksFrom({ hooks }, "settings").list, ...extra });
+  }, { searchTools: true, text: "go", mode, messages: [], hooks: H.hooksFrom({ hooks }, "settings").list, ...extra });
   const told = (id) => { for (const req of seen) for (const m of req.messages) if (m.role === "tool" && m.tool_call_id === id) return m.content; const m = r.messages.find((x) => x.role === "tool" && x.tool_call_id === id); return m ? m.content : ""; };
   return { r, events, seen, ran, hookCalls, requests, told };
 }
