@@ -86,6 +86,7 @@
           <li>PNG, JPEG, GIF and WebP, up to 128 MB. Coder sees the picture, and a small copy shows under the step in your chat. BMP and TIFF files are not opened as pictures (as in Claude Code): Coder converts them with a command first.</li>
           <li>A big picture is shown at up to <b>2,000 pixels</b>. Coder is told its real size, how to map a spot back onto it, and how to crop a part for fine detail.</li>
           <li>Pictures you paste or attach are saved in your project's <code>.coder-pictures</code> folder (never saved to your branch), so Coder can open them again later in the chat.</li>
+          <li>Other files you attach (any kind, up to 25 MB each, 20 with one message) are saved in your project's <code>.coder-files</code> folder, also never saved to your branch, and Coder is told where they are.</li>
         </ul>
 
         <h3 id="read-pdfs">PDFs</h3>
@@ -136,7 +137,7 @@
         <ul>
           <li>A file it has seen only part of, or a notebook it hasn't read.</li>
           <li>A file that changed since Coder read it, whether one of its own commands or something running in the background changed it. Coder looks at the change before writing over it.</li>
-          <li>A big instruction file (<code>CODER.md</code>, <code>AGENTS.md</code> or a rules file) it was shown only the start of: Coder reads all of it, or changes part of it with edit.</li>
+          <li>A big instruction file (<code>CODER.md</code>, <code>CLAUDE.md</code>, <code>AGENTS.md</code> or a rules file) it was shown only the start of: Coder reads all of it, or changes part of it with edit.</li>
         </ul>
 
         <h3 id="write-asks">Files Coder asks you about</h3>
@@ -166,7 +167,7 @@
         <ul>
           <li>Under each edit, what changed: lines taken out in red, lines added in green, with the counts on the step, such as <code>+3 &minus;2</code>. The first lines show; tap for the rest.</li>
           <li>For JavaScript, TypeScript and Python files, a language server checks the file after the edit, as after a write. New mistakes show as <code>Found 1 new diagnostic issue in 1 file</code>, and Coder is told about them at its next step, so it can fix them.</li>
-          <li>After an edit in a folder with its own <code>CODER.md</code> (or <code>AGENTS.md</code>), Coder is shown that file, so it follows that folder's instructions.</li>
+          <li>After an edit in a folder with its own <code>CODER.md</code> (or <code>CLAUDE.md</code>, or <code>AGENTS.md</code>), Coder is shown that file, so it follows that folder's instructions. It is looked up at that moment, so one made during the job counts too.</li>
         </ul>
 
         <h3 id="edit-finds">How edit finds the text</h3>

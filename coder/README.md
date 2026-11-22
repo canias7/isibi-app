@@ -543,7 +543,7 @@ code in **each user's own GitHub**.
    waits on, inside the job (`deps.ask` on the machine, the owner's answer through
    `/answer`): Yes, "Yes, and don't ask again for …", "Yes, and switch to auto mode",
    No (a note can go with it; No alone ends the job, with Claude Code's words). A
-   plan is approved with "Yes, and use auto mode" or "Yes, and accept edits", and
+   plan is approved with "Yes, and use auto mode" or "Yes, auto-accept edits", and
    Coder goes on in the same job. Protected files, very long commands and, outside
    Auto, dangerous removals use the same card. Tests: `test/permissions.test.mjs`.
 
@@ -2384,18 +2384,27 @@ when they are plain files with one name, through real folders, never a link.
 The deploy runs the root-only tests (`test/root-safety.test.mjs`) under sudo.
 
 **The repo's instruction files** (owner, 2026-11-07, item 10; like Claude Code's
-memory docs, with Coder's own names; CLAUDE.md is never Coder's:
-`repoInstructions` in `container/server.mjs`). At the start of every job:
-`CODER.md` and `.coder/CODER.md`; when the repo has neither, `AGENTS.md` and
-`.coder/AGENTS.md` (other coding agents' file); and the rules in
-`.coder/rules/` (any `.md`, in folders too). A rule whose YAML front matter has
+memory docs, with Coder's own names first: `repoInstructions` in
+`container/server.mjs`). At the start of every job: `CODER.md` and
+`.coder/CODER.md`; when the repo has neither, Claude Code's `CLAUDE.md`,
+`.claude/CLAUDE.md` and `CLAUDE.local.md` ("Go Claude Code way", 2026-11-22, audit
+M-f-06: a repository set up for Claude Code, or one `/init` wrote a CLAUDE.md for,
+gives Coder its instructions); when it has none of those, `AGENTS.md`,
+`.coder/AGENTS.md` and `.claude/AGENTS.md` (other coding agents' file); and the
+rules in `.coder/rules/` (else Claude Code's `.claude/rules/`): every `.md` at
+any depth, with only a guard of 1,000 files and folders against a hostile
+repository (`RULES_GUARD`; the chat says so when it is hit). A rule whose YAML front matter has
 `paths:` (Claude Code's patterns: `*.md` anywhere, `/*.md` only at the top,
 `src/**/*.{ts,tsx}`) loads instead once Coder reads, edits or writes a matching
-file, and a subfolder's own `CODER.md` (else its `AGENTS.md`) once Coder works
-on a file under it: with that tool's answer, once a job (`laterNotes`). Coder is
-told at the start which ones wait for which files. All are read by root before
-any of the AI's commands run; `node_modules`, `.git` and build folders are not
-searched. At the start they come to at most 100,000 characters in all
+file, and a subfolder's own `CODER.md` (else its `CLAUDE.md` files, else its
+`AGENTS.md`) and rules once Coder works on a file under it: with that tool's
+answer, once (`laterNotes`). Coder is told at the start which ones wait for
+which files. All the start's files are read by root before any of the AI's
+commands run, by a short search (30 subfolder files, 3,000 folders, 8 deep, past
+`node_modules`, `.git` and build folders); anything it does not reach, or that
+appears during the job, is looked up when a file there is touched, as Claude Code
+does (`folderNotes`, audit M-f-12), through folders held open so a swapped link
+leads nowhere (`heldText`). At the start they come to at most 100,000 characters in all
 (`NOTES_MAX`; Claude Code loads each CLAUDE.md whole), and one that loads later
 to 40,000 (`NOTE_ONE_MAX`, Claude Code's limit for such a file); past either, the
 file is named with a note to read the rest with the read tool, never cut without
@@ -2613,6 +2622,24 @@ Always allow, not one its server asks about every time nor one the owner just sa
 no to, as a helper can't ask on a card (`helperConn` in the agent; Claude Code's
 background subagents deny what isn't allowed beforehand). Tests:
 `test/gloopy-connectors.test.mjs` (GC8 for the helpers).
+
+**Queue for later, Send now, and files of any kind** ("Go Claude Code way",
+2026-11-22, audits M-d-12 and M-d-14, as Claude Code's cloud sessions on the web).
+While Coder works, Enter still hands a message to the running job (read once its
+running steps finish), and **Ctrl+Enter** (or ⌘+Enter) queues it for later: it is
+kept from the running job (`later` on its queue entry, never posted to the
+machine's `/queue`) and goes out with the rest when the job ends. Each waiting
+message has **Send now** (`POST /projects/:id/queue { now }`, `sendNow`): what
+waits is handed over at once and Coder's running command moves to the background
+(`/bgmove`); with nothing that can move, or a `!` command first, the job stops as
+Stop does and what waits goes out next. **Attach** takes any file in Coder's chat
+(not only pictures; uncommon pictures as regular files): the page sends it to
+`PUT /projects/:id/files`, kept with the chat (`src/coder-attach.mjs`, 25 MB a
+file, 20 a message, nothing ever dropped), the message names it, the machine
+fetches it with the job's own pass (`coder-file-get`) and saves it in the
+project's `.coder-files/` (`save_upload`; never committed), and Coder is told
+where, why one could not be saved (the disk is full) and how many past 20 were
+left out. Tests: `test/cc-way-batch4.test.mjs`.
 
 **A message can't get stuck** (owner, 2026-11-13: "fix 1", from the note Gloopy's
 session left): Coder's chats start a message as Gloopy's do since its fix. The

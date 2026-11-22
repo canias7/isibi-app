@@ -576,12 +576,13 @@ test("CD18 a command past its time limit keeps running in the background, its ou
   assert.equal(k.background, undefined, "kill mode stops it");
 });
 
-test("CD19 the repo's own rules (CODER.md; AGENTS.md only without one, like Claude Code; CLAUDE.md never) and the repo's memory are told to the AI; the memory comes back at the end", async () => {
+test("CD19 the repo's own rules (CODER.md; else Claude Code's CLAUDE.md; AGENTS.md only without either, like Claude Code) and the repo's memory are told to the AI; the memory comes back at the end", async () => {
   const { repoNotes, contextText, NOTES_MAX } = await import("../container/server.mjs");
   const dir = await mkdtemp(join(tmpdir(), "coder-notes-"));
-  writeFileSync(join(dir, "CLAUDE.md"), "Claude's rules, not Coder's.");
   writeFileSync(join(dir, "AGENTS.md"), "Other tools' rules.");
-  assert.deepEqual(await repoNotes(dir), [{ name: "AGENTS.md", text: "Other tools' rules." }], "AGENTS.md without a CODER.md (owner, 2026-11-07, item 10); CLAUDE.md never");
+  assert.deepEqual(await repoNotes(dir), [{ name: "AGENTS.md", text: "Other tools' rules." }], "AGENTS.md without a CODER.md (owner, 2026-11-07, item 10)");
+  writeFileSync(join(dir, "CLAUDE.md"), "Claude Code's rules.");
+  assert.deepEqual(await repoNotes(dir), [{ name: "CLAUDE.md", text: "Claude Code's rules." }], "Claude Code's CLAUDE.md without a CODER.md, and then no AGENTS.md (audit M-f-06, 2026-11-22)");
   writeFileSync(join(dir, "CODER.md"), "Run tests with npm test." + "x".repeat(NOTES_MAX));
   const notes = await repoNotes(dir);
   assert.deepEqual(notes.map((n) => n.name), ["CODER.md"]);

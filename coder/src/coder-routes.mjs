@@ -160,6 +160,7 @@ import { FROM_COPY, FROM_COPY_GB, CACHE_PENDING_MS, STREAM_HEADER, flyOn, flyAwa
 import { makeRouteTicket, readRouteTicket, ROUTE_TICKET_MS } from "./coder-auth.mjs";
 import { readSchedules, writeSchedules, schedulesForTurn, addSchedule, addFromTurn, runsLeft, queueEvent, setPaused, pauseAll, editSchedule, logRun, endRun, testText, LATE_MS } from "./gloopy-schedules.mjs";
 import { FILE_IN_MAX, FILE_OUT_MAX, ATTACH_MAX, readFiles, keepFile, removeFile, fileOf, filesForTurn, fileDownload, fileViewAddress, serveFileView, PREVIEW_TYPES, extOf, canPreview } from "./gloopy-files.mjs";
+import { ATTACH_FILE_MAX, keepAttach, attachOf, attachedFor } from "./coder-attach.mjs";
 import { HOOK_PREFIX, HOOK_BODY_MAX, readWebhooks, addWebhook, removeWebhook, writeWebhooks, hookAddress, hookKey, callHasKey, webhooksForTurn, callData, eventText } from "./gloopy-webhooks.mjs";
 // (Gloopy's own modes for what it may do, Ask, Always allow or Deny, named apart from Coder's permission modes: merged 2026-11-13.)
 import { PERMISSIONS, PERMISSION_KEYS, MODES as GLOOPY_MODES, DEFAULT_MODE, DEFAULTS, TESTING, cleanPermissions } from "../container/gloopy-permissions.mjs";
@@ -190,6 +191,14 @@ const CONNECTOR_NOTE_MAX = 20_000;
 export const QUEUE_MAX = 20;
 /** The owner's /compact, which waits in line as a command does (audit M-b-24). */
 export const isCompactCmd = (t) => /^\/compact(?:\s|$)/i.test(String(t || "").trim());
+/**
+ * QUEUE FOR LATER (audit M-d-12, "Go Claude Code way", 2026-11-22; Claude Code on the web sends a message with "Queue for
+ * later", and its 2.1.321 "Fixed a Remote Control message sent with "Queue for later" reaching Claude in the middle of the
+ * running turn"): the page's Ctrl+Enter while Coder works. Such a message waits until the job is over and is never handed to
+ * the running job; a plain Enter is read in the same turn, as before. Only a message: a `!` command and a /compact wait for
+ * the job's end anyway.
+ */
+export const laterOf = (body, shell, said) => !!body && body.later === true && shell === null && !isCompactCmd(said);
 const newQid = () => "q" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 /** The first of what waits to go out when a turn ends: a `!` command alone, or the messages up to the next one (Claude Code: queued commands "run one at a time", messages go out "in the order you typed them"). */
 export function nextQueued(queue) {
@@ -1258,6 +1267,9 @@ export async function handleCoder(request, env, ctx, deps) {
   // ── GLOOPY'S FILES, FOR ITS MACHINE (2026-11-09; src/gloopy-files.mjs): with the running job's own pass, as the vault's;
   // an attachment of the owner's to put in its folder, or a file Gloopy hands over. ──
   if ((parts[0] === "gloopy-file-get" || parts[0] === "gloopy-file-put") && parts.length === 1 && request.method === "POST") return gloopyJobFile(request, env, bucket, parts[0] === "gloopy-file-put");
+  // ── A CODER CHAT'S ATTACHED FILE, FOR ITS MACHINE (audit M-d-14; src/coder-attach.mjs): with that chat's running job's own
+  // pass, as Gloopy's; nothing else is given out. ──
+  if (parts[0] === "coder-file-get" && parts.length === 1 && request.method === "POST") return coderJobFile(request, env, bucket);
   // GLOOPY'S COMPUTER'S COPY (the audit, 2026-11-10; src/gloopy-backup.mjs): its work folder and its browser's sign-ins,
   // kept and given back with its running job's own pass.
   if ((parts[0] === "gloopy-backup-get" || parts[0] === "gloopy-backup-put") && parts.length === 1 && request.method === "POST") return gloopyJobBackup(request, env, bucket, parts[0] === "gloopy-backup-put", url.searchParams.get("part") || "");
@@ -1658,6 +1670,42 @@ export async function handleCoder(request, env, ctx, deps) {
   };
   // (A job that ended on the machine and is not saved yet is saved now, as the page's next look saves it: the chat as it is then.)
   const saveNow = async () => { await self("/state?since=1000000000").catch(() => null); return getJson(bucket, metaKey, null); };
+  /**
+   * SEND NOW ON A WAITING MESSAGE (audit M-d-12, "Go Claude Code way", 2026-11-22; Claude Code's cloud sessions have "Send now
+   * on a waiting message", its 2.1.319; its docs: "Your queued messages go out right away"; "Running shell commands … or other
+   * work that can move to the background: that work moves to the background and keeps running, and Claude reads your messages
+   * in the same turn"; "Only writing a response, or running something that can't move to the background: Claude Code
+   * interrupts the turn and sends your messages next"; "If you queued a `!` shell command ahead of your messages, the key
+   * interrupts the turn"): every message waiting goes to the running job now, those queued for later too, and Coder's running
+   * command moves to the background so it reads them at once; with nothing that can move, the job is stopped, as Stop does,
+   * and what waits goes out next. `qid`: the message whose Send now was pressed (it must still wait).
+   */
+  const sendNow = async (qid, queue) => {
+    if (!queue.some((x) => x && x.qid === qid)) return json({ ok: false, error: "That message is no longer waiting: Coder has it.", queue }, 409);
+    if (meta.status !== "running") return json({ ok: false, error: parkedOf(meta) ? "Coder is waiting for your answer on its card." : "Coder is not working now: it goes out by itself.", queue }, 409);
+    const interrupt = async (why) => {
+      const r = await self("/stop", {}).catch(() => null);
+      if (!r || r.status !== 200) return json({ ok: false, error: "Coder's machine could not be reached. Try again in a moment.", queue }, 502);
+      const got = await r.json().catch(() => ({}));
+      return json({ ...got, ok: true, stopped: true, why, queue: await getJson(bucket, keyOf(uid, id, "queue.json"), []) });
+    };
+    if (queue[0] && (queue[0].shell || queue[0].cmd)) return interrupt("command");
+    // The ones queued for later go to the running job now, as a plain message does when it is sent.
+    const handed = queue.filter((x) => x && x.later && !x.shell && !x.cmd);
+    for (const x of handed) await post("/queue", { project: id, qid: x.qid, text: x.text }).catch(() => null);
+    if (handed.length) {
+      const ids = new Set(handed.map((x) => x.qid));
+      await putJson(bucket, keyOf(uid, id, "queue.json"), (await getJson(bucket, keyOf(uid, id, "queue.json"), [])).map((x) => (x && ids.has(x.qid) ? (({ later: _l, ...rest }) => rest)(x) : x)));
+    }
+    const m = await post("/bgmove", { project: id }).then((r) => r.json()).catch(() => null);
+    if (m && m.ok === true) return json({ ok: true, moved: true, queue: await getJson(bucket, keyOf(uid, id, "queue.json"), []) });
+    // Nothing could move to the background: the ones just handed over are taken back unless Coder read them already (then
+    // they reached it in this turn, as Send now wants), and the job stops; what waits goes out next.
+    let reached = false;
+    for (const x of handed) { const u = await post("/unqueue", { project: id, qid: x.qid }).then((r) => r.json()).catch(() => null); if (u && u.read === true) reached = true; }
+    if (reached) return json({ ok: true, read: true, queue: await getJson(bucket, keyOf(uid, id, "queue.json"), []) });
+    return interrupt("busy");
+  };
   const action = parts[2] || "";
 
   if (!action && request.method === "GET") return json({ ok: true, project: (await compactOffFor(env, bucket, uid, meta)) ? { ...meta, compactOff: true } : meta, events: await getJson(bucket, keyOf(uid, id, "events.json"), []), queue: await getJson(bucket, keyOf(uid, id, "queue.json"), []), shellHistory: await shellHistoryOf(bucket, uid, meta.repo) });
@@ -1791,7 +1839,14 @@ export async function handleCoder(request, env, ctx, deps) {
       const text = notes ? notes + (asked ? "\n\n" + asked : "") : asked;
       const pics = checkImages(body.images);
       if (pics.error) return json({ error: pics.error }, 400);
-      if (!text && !pics.images.length && !wake && !takeUp) return json({ error: "write something first" }, 400);
+      // FILES ATTACHED (audit M-d-14, "Go Claude Code way"): ones the page sent here first, kept with the chat; the first 20
+      // go, as Claude Code's cloud sessions take them, and Coder is told of the rest (src/coder-attach.mjs).
+      const att = !wake && body.fromGithub !== true && Array.isArray(body.files) && body.files.length ? await attachedFor(bucket, uid, id, body.files) : { files: [], left: 0 };
+      if (att.error) return json({ error: att.error }, 400);
+      // (What the job is sent of them, and a message with only files says "(see the attached files)", as Gloopy's.)
+      const attachedOn = att.files.length ? { attached: att.files.map((f) => ({ id: f.id, name: f.name, size: f.size })), ...(att.left ? { attachedLeft: att.left } : {}) } : {};
+      const blankText = att.files.length ? "(see the attached file" + (att.files.length > 1 ? "s" : "") + ")" : "(see the picture)";
+      if (!text && !pics.images.length && !att.files.length && !wake && !takeUp) return json({ error: "write something first" }, 400);
       if (text.length > MAX_TEXT) return json({ error: "the message is over " + MAX_TEXT + " characters" }, 413);
       if (shell && body.fromQueue !== true) await rememberShell(bucket, uid, meta.repo, shell).catch(() => {});
       // (The chat as it is now: another message may have started while this one was read.)
@@ -1802,17 +1857,18 @@ export async function handleCoder(request, env, ctx, deps) {
         // reads it when its running tool calls finish, in this turn); a command waits for the job's end. What is left when
         // the job ends goes out next, by itself (the state route below).
         // (A /compact waits too, as a command, for the job's end, and goes out alone then: audit M-b-24.)
-        const queueable = !review && !wake && body.fromGithub !== true && body.autofix !== true && !notes && !pics.images.length && !!said;
-        if (!queueable) return json({ error: pics.images.length || notes ? "Coder is still working: send pictures or line comments once it is done" : "Coder is still working on the last message" }, 409);
+        const queueable = !review && !wake && body.fromGithub !== true && body.autofix !== true && !notes && !pics.images.length && !att.files.length && !!said;
+        if (!queueable) return json({ error: att.files.length ? "Coder is still working: send files once it is done" : pics.images.length || notes ? "Coder is still working: send pictures or line comments once it is done" : "Coder is still working on the last message" }, 409);
         const queue = await getJson(bucket, keyOf(uid, id, "queue.json"), []);
         // (The same message again, already waiting: answered as its first copy was.)
         const twin = mid ? queue.find((q) => q && q.mid === mid) : null;
         if (twin) return json({ ok: true, queued: true, qid: twin.qid, queue, project: meta });
         if (queue.length >= QUEUE_MAX) return json({ error: QUEUE_MAX + " messages are already waiting for Coder. Wait for it to read them." }, 429);
-        const entry = { qid: newQid(), text: said, at: Date.now(), ...(shell !== null ? { shell: true } : {}), ...(isCompactCmd(said) ? { cmd: "compact" } : {}), ...(mid ? { mid } : {}) };
+        const entry = { qid: newQid(), text: said, at: Date.now(), ...(shell !== null ? { shell: true } : {}), ...(isCompactCmd(said) ? { cmd: "compact" } : {}), ...(laterOf(body, shell, said) ? { later: true } : {}), ...(mid ? { mid } : {}) };
         const waiting = [...queue, entry];
         await putJson(bucket, keyOf(uid, id, "queue.json"), waiting);
-        if (!entry.shell && !entry.cmd) await post("/queue", { project: id, qid: entry.qid, text: entry.text }).catch(() => null);
+        // (Queued for later: kept from the running job, as a command is, and sent when it ends.)
+        if (!entry.shell && !entry.cmd && !entry.later) await post("/queue", { project: id, qid: entry.qid, text: entry.text }).catch(() => null);
         // SENT WHILE THE TURN WAS BEING SAVED (2026-11-15: the page frees the box as soon as the answer is shown): if the save
         // ended meanwhile and its look at what waits came before this message was put in line, it would wait for ever. So:
         // the turn saved and the message still in line, it goes out now, as the save would have sent it (its own id, `mid`,
@@ -1849,7 +1905,7 @@ export async function handleCoder(request, env, ctx, deps) {
         meta = closing.meta;
         closedShown = closing.shown;
         const queue = await getJson(bucket, keyOf(uid, id, "queue.json"), []);
-        const inLine = !review && !notes && !pics.images.length && !!said && !/^\/compact\b/i.test(said);
+        const inLine = !review && !notes && !pics.images.length && !att.files.length && !!said && !/^\/compact\b/i.test(said);
         if (Array.isArray(queue) && queue.length && inLine) {
           const entry = { qid: newQid(), text: said, at: Date.now(), ...(shell !== null ? { shell: true } : {}), ...(mid ? { mid } : {}) };
           const first = nextQueued([...queue, entry]);
@@ -1863,8 +1919,8 @@ export async function handleCoder(request, env, ctx, deps) {
           return r2 && r2.status === 200 ? json({ ...got, queue: left, reload: true }) : json({ ...got, closed: closedShown }, r2 ? r2.status : 502);
         }
       } else if (waitingOn) {
-        const queueable = !review && !wake && body.fromGithub !== true && body.autofix !== true && !notes && !pics.images.length && !!said && !/^\/compact\b/i.test(said);
-        if (!queueable) return json({ error: pics.images.length || notes ? "Coder is waiting for your answer on its card: send pictures or line comments once it is done" : "Coder is waiting for your answer on its card" }, 409);
+        const queueable = !review && !wake && body.fromGithub !== true && body.autofix !== true && !notes && !pics.images.length && !att.files.length && !!said && !/^\/compact\b/i.test(said);
+        if (!queueable) return json({ error: att.files.length ? "Coder is waiting for your answer on its card: send files once it is done" : pics.images.length || notes ? "Coder is waiting for your answer on its card: send pictures or line comments once it is done" : "Coder is waiting for your answer on its card" }, 409);
         if (waitingOn.kind === "question" && shell === null && !ref) {
           const got = await parkedTake(waitingOn.pid, { choice: "chat", text: said, qid: newQid() });
           if (got.error) return got.error;
@@ -1874,7 +1930,7 @@ export async function handleCoder(request, env, ctx, deps) {
           const twin = mid ? queue.find((q) => q && q.mid === mid) : null;
           if (twin) return json({ ok: true, queued: true, qid: twin.qid, queue, project: meta });
           if (queue.length >= QUEUE_MAX) return json({ error: QUEUE_MAX + " messages are already waiting for Coder. Wait for it to read them." }, 429);
-          const entry = { qid: newQid(), text: said, at: Date.now(), ...(shell !== null ? { shell: true } : {}), ...(mid ? { mid } : {}) };
+          const entry = { qid: newQid(), text: said, at: Date.now(), ...(shell !== null ? { shell: true } : {}), ...(laterOf(body, shell, said) ? { later: true } : {}), ...(mid ? { mid } : {}) };
           const waiting = [...queue, entry];
           await putJson(bucket, keyOf(uid, id, "queue.json"), waiting);
           return json({ ok: true, queued: true, qid: entry.qid, queue: waiting, project: meta });
@@ -1903,13 +1959,13 @@ export async function handleCoder(request, env, ctx, deps) {
         const now = (await getJson(bucket, metaKey, null)) || meta;
         const same = await sameMessage(bucket, metaKey, now, mid);
         if (same.done) return same.done;
-        const queueable = now.status === "running" && !review && !wake && !takeUp && body.fromGithub !== true && body.autofix !== true && !notes && !pics.images.length && !!said;
+        const queueable = now.status === "running" && !review && !wake && !takeUp && body.fromGithub !== true && body.autofix !== true && !notes && !pics.images.length && !att.files.length && !!said;
         if (!queueable) return json({ error: "Coder is still working on the last message" }, 409);
         const queue = await getJson(bucket, keyOf(uid, id, "queue.json"), []);
         const twin = mid ? queue.find((q) => q && q.mid === mid) : null;
         if (twin) return json({ ok: true, queued: true, qid: twin.qid, queue, project: now });
         if (queue.length >= QUEUE_MAX) return json({ error: QUEUE_MAX + " messages are already waiting for Coder. Wait for it to read them." }, 429);
-        const entry = { qid: newQid(), text: said, at: Date.now(), ...(shell !== null ? { shell: true } : {}), ...(isCompactCmd(said) ? { cmd: "compact" } : {}), ...(mid ? { mid } : {}) };
+        const entry = { qid: newQid(), text: said, at: Date.now(), ...(shell !== null ? { shell: true } : {}), ...(isCompactCmd(said) ? { cmd: "compact" } : {}), ...(laterOf(body, shell, said) ? { later: true } : {}), ...(mid ? { mid } : {}) };
         const waiting = [...queue, entry];
         await putJson(bucket, keyOf(uid, id, "queue.json"), waiting);
         return json({ ok: true, queued: true, qid: entry.qid, queue: waiting, project: now });
@@ -2025,7 +2081,8 @@ export async function handleCoder(request, env, ctx, deps) {
       const next = { ...meta, envId, title: meta.title || chatTitle(text), turn: meta.turn + 1, status: "running", at: Date.now(), starting: null, start: claim.id, ...(mid ? { mid } : {}), waiting: null, parked: null, autofixTries: body.autofix === true ? (meta.autofixTries || 0) + 1 : 0, marks, jobFromGithub: body.fromGithub === true, jobReplyTo: replyTo && replyTo.ids.length ? replyTo : null, envMoved: undefined, timing: { got: gotAt }, copyWant: copyOn && !copyWait ? { envId, key: setupKey } : null, asked: takeUp || wake || compactJob || !String(said || "").trim() ? null : { turn: meta.turn + 1, at: gotAt, text: String(shell ? "! " + shell : said).slice(0, 4000) } };
       const wakeOn = wake ? { wake: true } : {}, shellOn = shell ? { shell } : {}, compactOn = compactJob ? { compact: compactJob } : {};
       // (A turn taken up again: the paused job's record and the owner's answer, and the messages that waited for its card.)
-      const takeUpOn = takeUp ? { resume: { ...takeUp.rec, answer: takeUp.ans }, queued: (await queuedP).filter((q) => q && !q.shell && typeof q.text === "string").map((q) => ({ qid: q.qid, text: q.text, at: q.at })) } : {};
+      // (Not one queued for later: it waits for the turn's end, M-d-12.)
+      const takeUpOn = takeUp ? { resume: { ...takeUp.rec, answer: takeUp.ans }, queued: (await queuedP).filter((q) => q && !q.shell && !q.later && typeof q.text === "string").map((q) => ({ qid: q.qid, text: q.text, at: q.at })) } : {};
       // ITS BACKGROUND COMMANDS AS THE CHAT LAST SAW THEM: one its machine no longer knows (it was restarted, or slept) is said lost.
       const bgOn = bgListOf(meta.background).length ? { background: bgListOf(meta.background) } : {};
       // WHEN THE CHAT LAST HAD AN ANSWER (its last activity), for a resumed chat's SessionStart hooks (Bash docs pass 8).
@@ -2066,7 +2123,7 @@ export async function handleCoder(request, env, ctx, deps) {
       next.timing.asked = Date.now();
       next.timing.w = wt;
       try {
-      r = await post("/turn", { start: claim.id, secrets, egress, live, model: modelNow, extra: extraFor(meta), autoCompactWindow: Number.isInteger(meta.autoCompactWindow) ? meta.autoCompactWindow : 0, ...connOn, project: id, chatUrl: chatLinkOf(env, id), coAuthor: await coAuthorFor(env, bucket, uid, fetchFn), emailMark: emailNow, cwd: typeof meta.cwd === "string" ? meta.cwd : "", mode: noAuto(normMode(meta.mode), saved), prePlanMode: noAuto(saved.mode === "acceptEdits" ? "acceptEdits" : "auto", saved), rules: await rulesOf(bucket, uid, meta.repo), ...sessionRulesOn(meta), ...customTitleOn(meta), ...wakeOn, ...shellOn, ...compactOn, ...takeUpOn, ...bgOn, ...lastAtOn, text: takeUp || wake || shell || compactJob ? "" : review ? review.text.split("BASE_BRANCH").join(meta.base) : (text || "(see the picture)") + fileMentions(text), shown: takeUp || wake || shell || compactJob ? "" : body.fromGithub === true && body.autofix !== true && typeof body.shown === "string" && body.shown.trim() ? body.shown.slice(0, 300) : body.autofix === true ? "Auto-fix: " + String((text.split("<<<GITHUB\n")[1] || text.split("\n").filter(Boolean)[1] || "").split("\n")[0]).slice(0, 160) : text || "(see the picture)", images: pics.images, messages, repo: meta.repo, base: meta.base, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn + 1), fetch: fetchWanted(meta, { fromGithub: body.fromGithub === true, autofix: body.autofix === true, review }), ...(meta.readOnly ? { readOnly: true } : {}), effort: pick.effort, prefs: machinePrefs(saved), hooks: machineHooks(saved), autoMode: machineAutoMode(saved), memory, memoryFiles, setup, github: body.fromGithub === true, away: body.fromGithub !== true && messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0, lastJob: lastJobFor(meta), environment, envMoved: meta.envMoved === true, cache: { make: copyOn && !copyWait, ...(copyWait ? { note: copyWait } : {}) }, ...(next.jobReplyTo ? { replyTo: next.jobReplyTo } : {}) }, useCopy ? { [FROM_COPY]: useCopy.snapshot, [FROM_COPY_GB]: String(Number(useCopy.size) || 0) } : {});
+      r = await post("/turn", { start: claim.id, secrets, egress, live, model: modelNow, extra: extraFor(meta), autoCompactWindow: Number.isInteger(meta.autoCompactWindow) ? meta.autoCompactWindow : 0, ...connOn, project: id, chatUrl: chatLinkOf(env, id), coAuthor: await coAuthorFor(env, bucket, uid, fetchFn), emailMark: emailNow, cwd: typeof meta.cwd === "string" ? meta.cwd : "", mode: noAuto(normMode(meta.mode), saved), prePlanMode: noAuto(saved.mode === "acceptEdits" ? "acceptEdits" : "auto", saved), rules: await rulesOf(bucket, uid, meta.repo), ...sessionRulesOn(meta), ...customTitleOn(meta), ...wakeOn, ...shellOn, ...compactOn, ...takeUpOn, ...bgOn, ...lastAtOn, text: takeUp || wake || shell || compactJob ? "" : review ? review.text.split("BASE_BRANCH").join(meta.base) : (text || blankText) + fileMentions(text), shown: takeUp || wake || shell || compactJob ? "" : body.fromGithub === true && body.autofix !== true && typeof body.shown === "string" && body.shown.trim() ? body.shown.slice(0, 300) : body.autofix === true ? "Auto-fix: " + String((text.split("<<<GITHUB\n")[1] || text.split("\n").filter(Boolean)[1] || "").split("\n")[0]).slice(0, 160) : text || blankText, images: pics.images, ...attachedOn, messages, repo: meta.repo, base: meta.base, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn + 1), fetch: fetchWanted(meta, { fromGithub: body.fromGithub === true, autofix: body.autofix === true, review }), ...(meta.readOnly ? { readOnly: true } : {}), effort: pick.effort, prefs: machinePrefs(saved), hooks: machineHooks(saved), autoMode: machineAutoMode(saved), memory, memoryFiles, setup, github: body.fromGithub === true, away: body.fromGithub !== true && messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0, lastJob: lastJobFor(meta), environment, envMoved: meta.envMoved === true, cache: { make: copyOn && !copyWait, ...(copyWait ? { note: copyWait } : {}) }, ...(next.jobReplyTo ? { replyTo: next.jobReplyTo } : {}) }, useCopy ? { [FROM_COPY]: useCopy.snapshot, [FROM_COPY_GB]: String(Number(useCopy.size) || 0) } : {});
       } catch (e) {
         await notStarted();
         return json({ error: "Coder's machine could not be started (" + String((e && e.message) || e).replace(/\s+/g, " ").slice(0, 200) + "). Try again in a minute." }, 502);
@@ -2644,9 +2701,11 @@ export async function handleCoder(request, env, ctx, deps) {
   if (action === "queue" && request.method === "POST") {
     let body = {}; try { body = await request.json(); } catch { body = {}; }
     const queue = await getJson(bucket, keyOf(uid, id, "queue.json"), []);
+    if (body.now !== undefined) return sendNow(String(body.now || ""), queue);
     const q = queue.find((x) => x && x.qid === String(body.remove || ""));
     if (!q) return json({ ok: false, error: "That message is no longer waiting: Coder has it.", queue }, 409);
-    if (!q.shell && meta.status === "running") {
+    // (One queued for later never reached the running job: nothing to take back there.)
+    if (!q.shell && !q.later && meta.status === "running") {
       const m = await post("/unqueue", { project: id, qid: q.qid }).then((x) => x.json()).catch(() => null);
       if (!m) return json({ ok: false, error: "Coder's machine could not be reached. Try again in a moment.", queue }, 502);
       if (m.read === true) return json({ ok: false, read: true, error: "Coder has already read it, so it stays in the conversation.", queue }, 409);
@@ -3225,6 +3284,22 @@ export async function handleCoder(request, env, ctx, deps) {
   }
 
   // THE REPO'S FILE NAMES, for @ in the chat box (owner, 2026-11-05, "16").
+  // A FILE ATTACHED TO THE NEXT MESSAGE (audit M-d-14, "Go Claude Code way", 2026-11-22; Claude Code's cloud sessions take
+  // files of any kind, not only pictures): the page sends it here first; it is kept with the chat (src/coder-attach.mjs).
+  // (One of them again, for the owner's Download on its chip in the chat.)
+  if (action === "files" && request.method === "GET" && parts[3]) {
+    const f = await attachOf(bucket, uid, id, String(parts[3]));
+    if (!f) return json({ error: "That file is no longer kept." }, 404);
+    return new Response(f.body, { status: 200, headers: { "content-type": "application/octet-stream", "content-disposition": "attachment; filename=\"" + f.item.name.replace(/["\\]/g, "_") + "\"", "x-file-name": encodeURIComponent(f.item.name), "cache-control": "no-store" } });
+  }
+  if (action === "files" && request.method === "PUT") {
+    const len = Number(request.headers.get("content-length") || 0);
+    if (len > ATTACH_FILE_MAX) return json({ error: "That file is over " + ATTACH_FILE_MAX / 1048576 + " MB." }, 413);
+    let name = "";
+    try { name = decodeURIComponent(String(request.headers.get("x-file-name") || "")); } catch { name = ""; }
+    const r = await keepAttach(bucket, uid, id, { name, bytes: new Uint8Array(await request.arrayBuffer()) });
+    return r.error ? json({ error: r.error }, 400) : json({ ok: true, file: { id: r.id, name: r.name, size: r.size } });
+  }
   if (action === "files" && request.method === "GET") {
     const t = await userToken(env, bucket, uid, { fetchFn });
     if (!t) return json({ error: "connect GitHub first", connect: true }, 409);
@@ -4320,6 +4395,27 @@ async function gloopyJobFile(request, env, bucket, put) {
   }
   let body = {}; try { body = await request.json(); } catch { body = {}; }
   const f = await fileOf(bucket, uid, String(body.id || ""));
+  if (!f) return json({ error: "no such file" }, 404);
+  return new Response(f.body, { status: 200, headers: { "content-type": "application/octet-stream", "x-file-name": encodeURIComponent(f.item.name), "cache-control": "no-store" } });
+}
+
+/**
+ * A CODER CHAT'S ATTACHED FILE, FOR ITS MACHINE (audit M-d-14): the running job's own pass for that chat and turn (never
+ * Gloopy's), and { id } one of the files that chat keeps: its bytes, its name in x-file-name. Anything else: refused.
+ */
+export async function coderJobFile(request, env, bucket) {
+  const h = request.headers;
+  const chat = String(h.get("x-coder-chat") || ""), turn = String(h.get("x-coder-turn") || "");
+  const m = /^([\w-]{1,100})\/([\w-]{1,100})$/.exec(chat);
+  if (!m || m[2] === GLOOPY_ID || !/^\d{1,9}$/.test(turn)) return json({ error: "not allowed" }, 403);
+  const want = await egressPass(env, chat, turn), got = String(h.get("x-coder-egress") || "");
+  let diff = want && want.length === got.length ? 0 : 1;
+  for (let i = 0; !diff && i < want.length; i++) diff |= want.charCodeAt(i) ^ got.charCodeAt(i);
+  if (diff) return json({ error: "not allowed" }, 403);
+  const meta = await getJson(bucket, keyOf(m[1], m[2], "meta.json"), null);
+  if (!meta || isGloopy(meta) || meta.status !== "running" || String(meta.turn) !== turn) return json({ error: "not allowed" }, 403);
+  let body = {}; try { body = await request.json(); } catch { body = {}; }
+  const f = await attachOf(bucket, m[1], m[2], String(body.id || ""));
   if (!f) return json({ error: "no such file" }, 404);
   return new Response(f.body, { status: 200, headers: { "content-type": "application/octet-stream", "x-file-name": encodeURIComponent(f.item.name), "cache-control": "no-store" } });
 }

@@ -544,7 +544,7 @@ test("PM17 the plan's card as the page draws it (its own functions): the plan wi
   let h = permHTML(card);
   assert.match(h, /<div class="cd-plan-body">.*Fix the cart\./s);
   assert.match(h, /<button type="button" class="cd-plan-edit" data-plan-edit="p1abc">Edit plan<\/button>/);
-  assert.deepEqual(permOptions(card).map(([c, l]) => [c, l]), [["auto", "Yes, and use auto mode"], ["acceptEdits", "Yes, and accept edits"], ["no", "No, keep planning"]], "Coder's options as before");
+  assert.deepEqual(permOptions(card).map(([c, l]) => [c, l]), [["auto", "Yes, and use auto mode"], ["acceptEdits", "Yes, auto-accept edits"], ["no", "No, keep planning"]], "Coder's options, the Accept edits one in Claude Code's words (audit M-b-38)");
   S.planEdits = { p1abc: "## Context\nFix the cart <now>.\n" };
   h = permHTML(card);
   assert.match(h, /<textarea class="cd-perm-note cd-plan-text" data-plan-text="p1abc" rows="14" spellcheck="false" aria-label="Edit the plan">## Context\nFix the cart &lt;now&gt;\.\n<\/textarea>/);

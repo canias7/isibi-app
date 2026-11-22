@@ -4,6 +4,30 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-22: Claude Code way, batch 4
+
+I checked this batch's 12 items against Claude Code's cloud docs, its changelog (up to version 2.1.330) and its own program. Five of them are built (six changes, below), one was already the same, and six need your answer.
+
+**Built, the way Claude Code does it:**
+- **Ctrl+Enter really queues for later.** While Coder works, the box said "Ctrl+Enter to queue for later", but Ctrl+Enter did the same as Enter. Now that message waits until the job is over (it shows "Queued for later"). Enter still hands your message to Coder in the same job, as before.
+- **Send now** on each waiting message, as Claude Code's cloud sessions have. What waits goes to Coder at once, and its running command moves to the background. If nothing can move (Coder is still writing), the job stops and your messages go out next, as in Claude Code.
+- **Any file can be attached**, not only pictures, as in Claude Code's cloud sessions. Up to 25 MB each and 20 with one message. They are saved in the project's `.coder-files` folder (never saved to your branch), and Coder is told where. Coder is also told if one could not be saved (for example a full disk) or if more than 20 were attached. The files are kept with the chat; nothing is deleted on its own.
+- **A repository set up for Claude Code now gives Coder its instructions.** When there is no CODER.md, Coder reads CLAUDE.md, .claude/CLAUDE.md, CLAUDE.local.md and .claude/rules, as Claude Code does. CODER.md still comes first. Before, CLAUDE.md was never read, even the one /init writes. (Your preferences note says Coder reads CLAUDE.md; that is now true.)
+- **No more fixed caps on instruction files.** Rule files load at any depth (before: at most 50 files, 5 folders deep). A folder's own instructions are now looked up when Coder works on a file in it, as Claude Code does, so ones in build folders, past the first 30, or made during the job now load too.
+- **The plan card's second button now says "Yes, auto-accept edits"**, Claude Code's words, instead of "Yes, and accept edits". It does the same as before.
+
+**Already the same:** when one of your hooks blocks something, Coder calls it "[command hook]". Claude Code's docs show the hook's command there, but its program (checked in version 2.1.330) names hooks this way in cloud sessions, just as Coder does.
+
+**Waiting for your answer:**
+- Claude Code on the web runs no code-checking servers (lsp) at all, but you asked for them in Coder twice. Remove them to match, or keep them?
+- If you keep them: do you want a setting to switch them off for one project? Claude Code has no such setting in the cloud.
+- Claude Code can have a second AI check each job's changes, and each commit, for security problems. It costs extra Grok calls on every job. Add it?
+- Claude Code's cloud sessions can't be copied ("forked"); only its terminal and computer sessions can. Do you still want a Fork button in Coder?
+- Claude Code names a new chat with one tiny extra AI call (like "Fix login button color"). Do the same in Coder, for one tiny Grok call per new chat?
+- Verified (signed) commits need a signing key that you make and type in as a secret, and its public half added to a GitHub account. Shall I set it up, and on which account? (The co-author line on commits is already done.)
+
+- Tests: `coder/test/cc-way-batch4.test.mjs`; five older tests that checked the old wording or the old rule (CLAUDE.md never read, the old button name, the old way of finding a folder's file) now check the new. Full test suite: 1675 of 1675 pass. Not tried live in the browser yet; not deployed.
+
 ## 2026-11-22: Claude Code way, batch 3
 
 I checked this batch's 12 items against Claude Code's cloud docs. None of them could be built without one of your answers, so no code changed this time. The full test suite still passes (1662 tests, 0 failures).

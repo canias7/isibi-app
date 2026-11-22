@@ -1757,13 +1757,14 @@
     const parkedWait = !S.running && !GLOOPY && S.project && S.project.parked && !['question', 'permission'].includes(S.project.parked.kind);
     if (S.running || parkedWait) {
       if (GLOOPY) return; // (Gloopy's chat sends once Gloopy is done, as on its branch.)
-      if (pics.length || comments.length || att.length || !text) { S.error = parkedWait ? 'Coder is waiting for your answer on its card: send pictures or line comments once it is done.' : S.ending ? 'Coder is saving to the branch: send pictures or line comments in a second, once it is saved.' : 'Coder is still working: send pictures or line comments once it is done.'; return draw(); }
+      if (pics.length || comments.length || att.length || !text) { S.error = parkedWait ? 'Coder is waiting for your answer on its card: send pictures or line comments once it is done.' : S.ending ? 'Coder is saving to the branch: send pictures or line comments in a second, once it is saved.' : att.length ? 'Coder is still working: send files once it is done.' : 'Coder is still working: send pictures or line comments once it is done.'; return draw(); }
       S.sending = true; S.sendingFor = S.project.id; S.error = '';
       const id = S.project.id;
       // (Its own id, so the same message is never started twice: 2026-11-15.)
       const qkey = sendKey(id, text);
       const qmid = midFor(qkey);
-      const q = await call('/projects/' + encodeURIComponent(id) + '/message', { method: 'POST', body: JSON.stringify({ text, mid: qmid }) });
+      // (Ctrl+Enter: QUEUED FOR LATER, as Claude Code's web page: it waits until Coder's job is over. Audit M-d-12.)
+      const q = await call('/projects/' + encodeURIComponent(id) + '/message', { method: 'POST', body: opts && opts.later ? JSON.stringify({ text, mid: qmid, later: true }) : JSON.stringify({ text, mid: qmid }) });
       if (S.sendingFor === id) { S.sending = false; S.sendingFor = null; }
       if (!S.project || S.project.id !== id) return draw();
       if (q.status !== 200) keepMid(qkey, qmid, q); else S.unsentMid = null;
@@ -3276,7 +3277,9 @@
     // (While a card Coder's paused job left open waits, as while Coder works: they go to Coder in the turn its answer takes up.)
     // (REWIND WORKING, OR WAITING FOR CODER'S END: a short grey line, audit I65 and M-b-24.)
     const busy = S.rewinding ? '<div class="cd-rewind-line" role="status">' + (S.rewinding === 'summarize' ? 'Summarizing…' : 'Rewinding…') + '</div>' : S.rewindAfter && S.running ? '<div class="cd-rewind-line" role="status">Rewind opens when Coder finishes</div>' : '';
-    return busy + list.map((q) => '<div class="cd-user cd-queued"><div class="cd-queued-label">' + (S.running || (S.project && S.project.parked) ? (q.shell || q.cmd ? 'Runs when Coder is done' : 'Waiting for Coder') : 'Not sent yet') + ' <button type="button" class="cd-queued-x" data-unqueue="' + esc(q.qid) + '" aria-label="Take this message back" title="Take it back to the message box">✕</button></div><div class="cd-bubble' + (q.shell ? ' cd-bubble-shell' : '') + '">' + esc(q.text) + '</div></div>').join('');
+    // (QUEUED FOR LATER, Ctrl+Enter, waits for Coder's job to end; SEND NOW, as Claude Code's cloud sessions have on a waiting
+    // message, sends what waits right away: audit M-d-12.)
+    return busy + list.map((q) => '<div class="cd-user cd-queued"><div class="cd-queued-label">' + (S.running || (S.project && S.project.parked) ? (q.shell || q.cmd ? 'Runs when Coder is done' : q.later ? 'Queued for later' : 'Waiting for Coder') : 'Not sent yet') + (S.running && !GLOOPY ? ' <button type="button" class="cd-queued-now" data-sendnow="' + esc(q.qid) + '" title="Send what waits right away">Send now</button>' : '') + ' <button type="button" class="cd-queued-x" data-unqueue="' + esc(q.qid) + '" aria-label="Take this message back" title="Take it back to the message box">✕</button></div><div class="cd-bubble' + (q.shell ? ' cd-bubble-shell' : '') + '">' + esc(q.text) + '</div></div>').join('');
   }
 
   // THE CHAT'S OWN BAR: its title, repository and branch, the pull request,
@@ -3875,8 +3878,10 @@
   }
   async function addPics(files) {
     S.pics = S.pics || [];
-    if (GLOOPY && S.project) { const docs = [...files].filter((f) => !/^image\/(png|jpeg|webp|gif)$/.test(f.type)); if (docs.length) addFiles(docs); }
-    for (const f of [...files].filter((f) => /^image\//.test(f.type))) {
+    // (ANY FILE IN CODER'S CHAT TOO, as Claude Code's cloud sessions take them, its less common pictures "as regular files":
+    // audit M-d-14. Only PNG, JPEG, WebP and GIF are shown to Coder as pictures.)
+    if (S.project) { const docs = [...files].filter((f) => !/^image\/(png|jpeg|webp|gif)$/.test(f.type)); if (docs.length) addFiles(docs); }
+    for (const f of [...files].filter((f) => (GLOOPY ? /^image\//.test(f.type) : /^image\/(png|jpeg|webp|gif)$/.test(f.type)))) {
       if (S.pics.length >= 4) { note('At most 4 pictures a message.'); break; }
       const p = await shrink(f);
       if (p && !p.error) S.pics.push(p); else note(picFailText(p));
@@ -4250,7 +4255,9 @@
   function permOptions(e) {
     // (A plan too long to show withholds approval: only "No, keep planning", as Claude Code's prompt. The owner, 2026-11-14.)
     if (e.tool === 'plan' && e.withheld) return [['no', 'No, keep planning']];
-    if (e.tool === 'plan') return [['auto', 'Yes, and use auto mode'], ['acceptEdits', 'Yes, and accept edits'], ['no', 'No, keep planning']].filter(([c]) => !(S.autoOff && c === 'auto'));
+    // (The Accept edits choice in Claude Code's own words, "Yes, auto-accept edits": its program's label for that mode on the plan
+    // card, and its docs' when auto mode isn't available. Audit M-b-38, "Go Claude Code way", 2026-11-22.)
+    if (e.tool === 'plan') return [['auto', 'Yes, and use auto mode'], ['acceptEdits', 'Yes, auto-accept edits'], ['no', 'No, keep planning']].filter(([c]) => !(S.autoOff && c === 'auto'));
     const o = [['yes', 'Yes']];
     // (Not everything could be shown: only a one-time Yes, as Claude Code withholds "don't ask again" then.)
     // (A command holding a secret-looking value: only a one-time Yes, as Claude Code, and never the secret in an option's
@@ -4677,7 +4684,7 @@
     return '<div class="cd-composewrap">' + btwHTML() + bgHTML() + slashHTML() + bangHTML() + mentionHTML() + commentsHTML() + picsHTML() + attachHTML() +
       '<form class="cd-compose' + (/^!/.test(S.draft || '') ? ' is-shell' : '') + '" id="cdForm">' +
         '<textarea id="cdIn" rows="1"' + (suggestNow() ? ' class="has-suggest" data-suggest="' + esc(suggestNow()) + '"' : '') + ' placeholder="' + (suggestNow() ? esc(suggestNow()) : S.ending && !S.sending && !GLOOPY ? 'Saving to the branch… a message now goes out right after' : busy ? (GLOOPY ? 'Gloopy is working… you can close this tab' : 'Enter to send, Ctrl+Enter to queue for later') : GLOOPY ? 'Ask Gloopy anything' : 'Ask Coder to build, fix or explain something · @ for a file') + '">' + esc(S.draft) + '</textarea>' +
-        '<button type="button" class="cd-attach" id="cdAttach" aria-label="' + (GLOOPY ? 'Attach a file' : 'Attach a picture') + '" title="' + (GLOOPY ? 'Attach a file or a picture' : 'Attach a picture (or paste one)') + '">' + ICON.clip + '</button><input type="file" id="cdFile" accept="' + (GLOOPY ? 'image/png,image/jpeg,image/webp,image/gif,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.odt,.ods,.odp,.rtf,.txt,.md,.csv,.tsv,.json,.xml,.yaml,.yml,.html,.htm,.ics,.vcf,.eml,.ipynb,.log,.zip,.mp3,.m4a,.wav,.mp4,.mov,.webm,.heic,.svg' : 'image/png,image/jpeg,image/webp,image/gif') + '" multiple hidden>' +
+        '<button type="button" class="cd-attach" id="cdAttach" aria-label="' + (GLOOPY ? 'Attach a file' : 'Attach files') + '" title="' + (GLOOPY ? 'Attach a file or a picture' : 'Attach files or pictures (or paste them)') + '">' + ICON.clip + '</button><input type="file" id="cdFile" accept="' + (GLOOPY ? 'image/png,image/jpeg,image/webp,image/gif,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.odt,.ods,.odp,.rtf,.txt,.md,.csv,.tsv,.json,.xml,.yaml,.yml,.html,.htm,.ics,.vcf,.eml,.ipynb,.log,.zip,.mp3,.m4a,.wav,.mp4,.mov,.webm,.heic,.svg' : '') + '" multiple hidden>' +
         // (And while a card Coder's paused job left open waits, as while its job ran: Stop closes the card. coder-park.mjs.)
         ((S.running && !S.ending) || (!GLOOPY && S.project && S.project.parked)
           ? '<button type="submit" class="cd-send cd-queue-send" aria-label="Send (it waits for Coder)" title="Send: Coder reads it once its running steps finish"' + (S.sending ? ' disabled' : '') + '>' + ICON.send + '</button><button type="button" class="cd-send cd-stop" id="cdStop" aria-label="Stop">' + ICON.stop + '</button>'
@@ -5017,6 +5024,18 @@
       else { S.error = (r.data && r.data.error) || 'It could not be taken back.'; if (r.data && Array.isArray(r.data.queue)) S.queue = r.data.queue; }
       draw();
       const i = S.root.querySelector('#cdIn'); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); }
+    });
+    // SEND NOW ON A WAITING MESSAGE (Claude Code's cloud sessions; audit M-d-12): everything waiting goes to Coder at once; its
+    // running command moves to the background, or, with nothing that can move, the job stops and what waits goes out next.
+    on('[data-sendnow]', 'click', async (e) => {
+      const qid = e.currentTarget.dataset.sendnow, id = S.project && S.project.id;
+      if (!id) return;
+      e.currentTarget.disabled = true;
+      const r = await call('/projects/' + encodeURIComponent(id) + '/queue', { method: 'POST', body: JSON.stringify({ now: qid }) });
+      if (!S.project || S.project.id !== id) return;
+      if (r.status === 200 && r.data && r.data.ok) { S.queue = r.data.queue || []; S.error = ''; }
+      else { S.error = (r.data && r.data.error) || 'It could not be sent now.'; if (r.data && Array.isArray(r.data.queue)) S.queue = r.data.queue; }
+      draw();
     });
     on('[data-bg-move]', 'click', async (e) => {
       const b = e.currentTarget, id = S.project && S.project.id;
@@ -5614,7 +5633,7 @@
         if (S.mention) await loadFiles();
         if (had || mentionMatches().length || slashHTML() || bangHTML()) { const pos = input.selectionStart; draw(); const i = S.root.querySelector('#cdIn'); if (i) { i.focus(); i.setSelectionRange(pos, pos); } }
       });
-      input.addEventListener('paste', (e) => { const files = [...(e.clipboardData && e.clipboardData.files || [])]; if (files.some((f) => /^image\//.test(f.type)) || (GLOOPY && files.length)) { e.preventDefault(); addPics(files); } });
+      input.addEventListener('paste', (e) => { const files = [...(e.clipboardData && e.clipboardData.files || [])]; if (files.length) { e.preventDefault(); addPics(files); } });
       input.addEventListener('keydown', (e) => {
         // (A suggestion is taken with Tab, or → in the empty box; Enter then sends it, as in Claude Code.)
         if (input.dataset.suggest && !input.value && !e.isComposing && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey && (e.key === 'Tab' || e.key === 'ArrowRight')) {
@@ -5632,7 +5651,9 @@
         if (list.length && (e.key === 'Enter' || e.key === 'Tab') && !e.shiftKey) { e.preventDefault(); const pick = list[Math.min(S.mentionSel || 0, list.length - 1)]; return S.mention && S.mention.shell ? pickShellPath(pick) : pickMention(pick); }
         if (!list.length && e.key === 'Tab' && !e.shiftKey && /^!/.test(input.value) && input.selectionStart === input.value.length && shellTab(input)) { e.preventDefault(); if (form) form.classList.add('is-shell'); return; }
         if (list.length && e.key === 'Escape') { S.mention = null; return draw(); }
-        if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(input.value); }
+        // (Ctrl+Enter, or ⌘+Enter, while Coder works: "Ctrl+Enter to queue for later", as Claude Code's web page; with nothing
+        // running it sends, as Enter does. Audit M-d-12.)
+        if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(input.value, (e.ctrlKey || e.metaKey) && !GLOOPY ? { later: true } : undefined); }
       });
     }
     if (form) form.addEventListener('submit', (e) => { e.preventDefault(); send(input && input.value); });

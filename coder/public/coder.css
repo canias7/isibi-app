@@ -1441,3 +1441,7 @@ button.cd-vault-tab:hover:not(.is-on){background:#f6f6f6}
 #gfApp .cd-btw-err{color:#b3261e}
 #gfApp .cd-btw-wait{color:#6b665e}
 #gfApp .cd-btw-copy{margin-top:6px;border:1px solid #e0dbd2;background:#faf8f4;border-radius:8px;padding:3px 10px;font-size:12px;cursor:pointer}
+/* SEND NOW ON A WAITING MESSAGE, LIKE CLAUDE CODE ON THE WEB (audit M-d-12, 2026-11-22), Coder only. */
+#gfApp .cd-queued-now { border: 0; background: transparent; color: #6b7280; font: 12px Inter, system-ui, sans-serif; line-height: 1; padding: 2px 6px; border-radius: 6px; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+#gfApp .cd-queued-now:hover { background: #ece8e1; color: #0d1b2a; }
+#gfApp .cd-queued-now:disabled { opacity: .5; cursor: default; }

@@ -1494,8 +1494,10 @@ test("CD248 Coder's docs page (the owner, 2026-11-08: \"start making a section f
   assert.match(agentSrc, /if \(x\.length > 2000\) \{ cut = true; return x\.slice\(0, 2000\) \+ "\\u2026"; \}/);
   assert.ok(page.includes("A very long line is cut short, with <code>&hellip;</code> at its end"));
   const server = readFileSync(HERE("container/server.mjs"), "utf8");
-  assert.match(server, /has\("CODER\.md"\) \? "CODER\.md" : !found && has\("AGENTS\.md"\) \? "AGENTS\.md"/);
-  assert.ok(page.includes("a folder with its own <code>CODER.md</code> (or <code>AGENTS.md</code>)"));
+  // (Since "Go Claude Code way", 2026-11-22, audit M-f-06: a folder's CODER.md, else Claude Code's CLAUDE.md files, else its AGENTS.md.)
+  assert.match(server, /const mine = has\("CODER\.md"\) \? \["CODER\.md"\] : CLAUDE_FILES\.filter\(/);
+  assert.match(server, /if \(!mine\.length && !found && has\("AGENTS\.md"\)\) await one\(rel, "AGENTS\.md", true\);/);
+  assert.ok(page.includes("a folder with its own <code>CODER.md</code> (or <code>CLAUDE.md</code>, or <code>AGENTS.md</code>)"));
   // Bash's, from the code too (2026-11-13): its time limits, output limits, background limits, the sleep refusal, a monitor's.
   const CK = await import("../container/coder-checks.mjs");
   const BC = await import("../container/coder-bashcheck.mjs");

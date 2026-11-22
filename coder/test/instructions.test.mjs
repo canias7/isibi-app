@@ -11,13 +11,15 @@ import { join, dirname } from "node:path";
 const S = await import("../container/server.mjs");
 const put = async (dir, rel, text) => { await mkdir(dirname(join(dir, rel)), { recursive: true }); await writeFile(join(dir, rel), text); };
 
-test("CD157 which instruction files load at the start and which later: CODER.md and .coder/CODER.md; AGENTS.md only without them; .coder/rules/ (with paths: later); a subfolder's CODER.md (else AGENTS.md) later; never CLAUDE.md, never through a link or a hard link, never in node_modules", async () => {
+test("CD157 which instruction files load at the start and which later: CODER.md and .coder/CODER.md; else Claude Code's CLAUDE.md (audit M-f-06, 2026-11-22); AGENTS.md only without them; .coder/rules/ (with paths: later); a subfolder's CODER.md (else AGENTS.md) later; never through a link or a hard link, never in node_modules", async () => {
   const dir = await mkdtemp(join(tmpdir(), "coder-ins-"));
   await put(dir, "CLAUDE.md", "Claude's.");
   await put(dir, "AGENTS.md", "Agents' file.");
   await put(dir, ".coder/AGENTS.md", "Agents' second file.");
   let r = await S.repoInstructions(dir);
-  assert.deepEqual(r.notes, [{ name: "AGENTS.md", text: "Agents' file." }, { name: ".coder/AGENTS.md", text: "Agents' second file." }], "no CODER.md: AGENTS.md");
+  // (Since "Go Claude Code way", 2026-11-22: a CLAUDE.md is read when there is no CODER.md, and then AGENTS.md is not, as in
+  // Claude Code. Before, CLAUDE.md was never read.)
+  assert.deepEqual(r.notes, [{ name: "CLAUDE.md", text: "Claude's." }], "no CODER.md: Claude Code's CLAUDE.md, not AGENTS.md");
   await put(dir, ".coder/CODER.md", "Coder's second file.");
   await put(dir, "CODER.md", "Coder's file.");
   await put(dir, ".coder/rules/testing.md", "Run npm test.");

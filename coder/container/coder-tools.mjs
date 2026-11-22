@@ -2251,6 +2251,26 @@ export async function toolSaveFile({ name, data }) {
   }
   fail("too many files named " + name);
 }
+/**
+ * A FILE THE OWNER ATTACHED IN A CODER CHAT (audit M-d-14, "Go Claude Code way", 2026-11-22; Claude Code's cloud sessions
+ * save a message's attached files in the session's uploads folder): in the project's .coder-files folder, never saved to
+ * the branch (NEVER_COMMIT), never over another file (a second of the same name gets " (2)"). Answers its path.
+ */
+export const UPLOADS_DIR = ".coder-files";
+export async function toolSaveUpload({ name, data }) {
+  if (!fileName(name) || typeof data !== "string" || !/^[A-Za-z0-9+/]*=*$/.test(data)) fail("give a file: its name and data");
+  const dot = name.lastIndexOf("."), stem = dot > 0 ? name.slice(0, dot) : name, ext = dot > 0 ? name.slice(dot) : "";
+  for (let n = 1; n < 100; n++) {
+    const { abs, rel } = await inside(join(ROOT, UPLOADS_DIR, n === 1 ? name : stem + " (" + n + ")" + ext));
+    await mkdir(dirname(abs), { recursive: true });
+    let fh;
+    try { fh = await openFile(abs, "wx"); } catch (e) { if (e && e.code === "EEXIST") continue; throw e; }
+    try { await fh.writeFile(Buffer.from(data, "base64")); } catch (e) { await fh.close().catch(() => {}); await unlink(abs).catch(() => {}); throw e; }
+    await fh.close();
+    return relative(ROOT, abs) || rel;
+  }
+  fail("too many files named " + name);
+}
 export async function toolSendFile({ path }) {
   const { abs, rel } = await inside(path, { mustExist: true });
   const st = await lstat(abs);
@@ -2267,7 +2287,7 @@ export async function toolSendFile({ path }) {
  */
 export const errorLine = (e) => { const m = String((e && e.message) || e); return "error: " + (e && e.whole === true ? m : m.slice(0, e && e.long === true ? 4000 : 600)); };
 
-export const TOOLS = { page_file: toolPageFile, save_file: toolSaveFile, send_file: toolSendFile, ps_parse: toolPsParse, save_picture: toolSavePicture, fit_picture: toolFitPicture, lsp: toolLsp, lsp_file: toolLspFile, lsp_take: toolLspTake, read: toolRead, write: toolWrite, edit: toolEdit, file_check: toolFileCheck, grep: toolGrep, glob: toolGlob, web_fetch: toolWebFetch, mtimes: toolMtimes, listing: toolListing, changed: toolChanged, seen: toolSeen, snap: toolSnap, snapdiff: toolSnapDiff, http_hook: toolHttpHook, stamps: toolStamps, ws_watch: toolWsWatch };
+export const TOOLS = { page_file: toolPageFile, save_file: toolSaveFile, save_upload: toolSaveUpload, send_file: toolSendFile, ps_parse: toolPsParse, save_picture: toolSavePicture, fit_picture: toolFitPicture, lsp: toolLsp, lsp_file: toolLspFile, lsp_take: toolLspTake, read: toolRead, write: toolWrite, edit: toolEdit, file_check: toolFileCheck, grep: toolGrep, glob: toolGlob, web_fetch: toolWebFetch, mtimes: toolMtimes, listing: toolListing, changed: toolChanged, seen: toolSeen, snap: toolSnap, snapdiff: toolSnapDiff, http_hook: toolHttpHook, stamps: toolStamps, ws_watch: toolWsWatch };
 
 // Run as a command: node coder-tools.mjs <base64 of {"tool": ..., "args": {...}}>
 if (process.argv[1] && import.meta.url === "file://" + process.argv[1]) {

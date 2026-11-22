@@ -994,6 +994,18 @@ async function appTool(deps, tool, args, { ctx = null, timeoutS = 60 } = {}) {
 /** A file's size in words: "1.2 MB", "40 KB". */
 const sizeWords = (n) => (n >= 1048576 ? (n / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(n / 1024)) + " KB");
 /**
+ * WHAT CODER IS TOLD OF THE OWNER'S ATTACHED FILES (audit M-d-14): where each was saved (`put`, with its size), the ones
+ * that could not be (`missed`, with why), and how many past the first 20 were left out (`left`), in the words of the
+ * pictures' note. "" when there is nothing to say.
+ */
+export function coderAttachNote(put, missed, left = 0) {
+  const one = put.length === 1, parts = [];
+  if (put.length) parts.push("the owner attached " + (one ? "a file" : put.length + " files") + ", saved in the project, where " + (one ? "it is" : "they are") + " never saved to the branch: " + put.join(", ") + ". Read " + (one ? "it" : "them") + " with the read tool when you need to, or copy " + (one ? "it" : "them") + " where the work needs " + (one ? "it" : "them") + ".");
+  if (missed.length) parts.push((missed.length === 1 ? "This file" : "These files") + " the owner attached could not be saved: " + missed.join(", ") + "; tell the owner.");
+  if (left > 0) parts.push(left + " more file" + (left === 1 ? " was" : "s were") + " attached to this message and left out: a message takes the first 20.");
+  return parts.length ? "\n\n(Note from Coder's app: " + parts.join(" ") + ")" : "";
+}
+/**
  * A FILE IN GLOOPY'S WORK FOLDER, read as `dev` from inside it (coder-tools.mjs send_file: never through a link out of
  * it; at most 5 MB): { name, size, data } (base64), or { error }. For a file Gloopy sends the owner or uploads to a site.
  */
@@ -2104,7 +2116,7 @@ export function ruleHoldsSecret(rule) {
   }
   return false;
 }
-export async function runCoder(deps, { notices = [], lost = [], stalls = [], promptNotify = true, timeouts = null, outLimits = null, noBg = false, respondToBash = true, shell = "", cmdShell = "", compactVars = null, messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, mode = "auto", rules = null, editDiff = false, readBlock = false, writeBlock = false, checker = false, checkerInPlan = true, checkWhere = null, emailMark = "", diskWarnGib = 0, memWarnGib = 0, hooks = null, autoMode = null, denyInstead = false, autoOff = false, planExit = "auto", hostLists = null, powershell = null, connectors = [], connectorNotes = [], connectorsWaiting = [], connectorsFailed = [], connectorsGone = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS , rmChecksOff = null, fileEdits = true, startMode = "", resumed = false, lastAt = 0, sessionRules = null, language = "", customTitle = "", compact = null, system = CODER_SYSTEM, tools = null, nudges = true, who = "Coder", browserRules: rulesIn = [], granted: grantedIn = [], schedules = [], opening = "user", permissions: permsIn = null, sites: sitesIn = [], monitor = false, ownerSaid: ownerSaidList = null, asHelper = false, helper = null, pages = [], savedLogins = [], savedCards = [], contacts = [], webhooks = [], hookBase = "/api/coder/gloopy-hook/", attached = [], workNote = "", marked = null, taught = null, files: keptFiles = [], background = false, checkWrites = false, denied: deniedIn = [], zone = "", searchLimits = null, takeUp = null, tasksOff = false, mentionsOff = false, holdBack = null, suggest = false, stopCap = STOP_BLOCK_CAP, box = false, skills = [] } = {}) {
+export async function runCoder(deps, { notices = [], lost = [], stalls = [], promptNotify = true, timeouts = null, outLimits = null, noBg = false, respondToBash = true, shell = "", cmdShell = "", compactVars = null, messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, mode = "auto", rules = null, editDiff = false, readBlock = false, writeBlock = false, checker = false, checkerInPlan = true, checkWhere = null, emailMark = "", diskWarnGib = 0, memWarnGib = 0, hooks = null, autoMode = null, denyInstead = false, autoOff = false, planExit = "auto", hostLists = null, powershell = null, connectors = [], connectorNotes = [], connectorsWaiting = [], connectorsFailed = [], connectorsGone = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS , rmChecksOff = null, fileEdits = true, startMode = "", resumed = false, lastAt = 0, sessionRules = null, language = "", customTitle = "", compact = null, system = CODER_SYSTEM, tools = null, nudges = true, who = "Coder", browserRules: rulesIn = [], granted: grantedIn = [], schedules = [], opening = "user", permissions: permsIn = null, sites: sitesIn = [], monitor = false, ownerSaid: ownerSaidList = null, asHelper = false, helper = null, pages = [], savedLogins = [], savedCards = [], contacts = [], webhooks = [], hookBase = "/api/coder/gloopy-hook/", attached = [], attachedLeft = 0, workNote = "", marked = null, taught = null, files: keptFiles = [], background = false, checkWrites = false, denied: deniedIn = [], zone = "", searchLimits = null, takeUp = null, tasksOff = false, mentionsOff = false, holdBack = null, suggest = false, stopCap = STOP_BLOCK_CAP, box = false, skills = [] } = {}) {
   // ANOTHER AGENT ON THE SAME ENGINE (owner, 2026-11-09: Gloopy, container/gloopy-agent.mjs): its own instructions
   // (`system`), the tools it is offered (`tools`; a call to any other is refused), no reminders about Coder's setup script
   // (`nudges`), and its name in the chat's own lines (`who`). Coder's defaults are unchanged.
@@ -3686,7 +3698,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     const typed = (typeof shown === "string" && shown.trim() ? shown : text).trim();
     const up = hookList.length ? await runHooks("UserPromptSubmit", "", { prompt: typed, ...titleOn() }) : null;
     if (up && (up.stop || up.decision === "block")) {
-      emit({ type: opening === "note" ? "note" : "user", text: typed, ...(pics.length ? { images: pics.length } : {}), ...(Array.isArray(attached) && attached.length ? { files: attached.slice(0, 10).map((f) => ({ id: String(f.id || ""), name: plain(String(f.name || "")).slice(0, 120), size: Number(f.size) || 0 })) } : {}) });
+      emit({ type: opening === "note" ? "note" : "user", text: typed, ...(pics.length ? { images: pics.length } : {}), ...(Array.isArray(attached) && attached.length ? { files: attached.slice(0, who === "Gloopy" ? 10 : 20).map((f) => ({ id: String(f.id || ""), name: plain(String(f.name || "")).slice(0, 120), size: Number(f.size) || 0 })) } : {}) });
       const why = up.stop ? up.stop.reason : up.reason;
       emit({ type: "note", text: "UserPromptSubmit operation blocked by hook:\n" + scrub(String(why || "")).slice(0, 2000) + (up.suppressPrompt ? "" : "\n\nOriginal prompt: " + typed.slice(0, 2000)), hook: "UserPromptSubmit" });
       promptBlocked = why || "";
@@ -3701,7 +3713,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       convo.push({ role: "user", content: text.trim() + picNote, ...(fitted.send.length ? { images: fitted.send.map((x) => "data:" + x.type + ";base64," + x.data) } : {}) });
       // The chat shows what the owner typed (`shown`); Coder also gets the notes added to it. (A scheduled run of Gloopy's,
       // 2026-11-09, opens with a note in the chat, not as the owner's own message.)
-      emit({ type: opening === "note" ? "note" : "user", text: typed, ...(pics.length ? { images: pics.length } : {}), ...(Array.isArray(attached) && attached.length ? { files: attached.slice(0, 10).map((f) => ({ id: String(f.id || ""), name: plain(String(f.name || "")).slice(0, 120), size: Number(f.size) || 0 })) } : {}) });
+      emit({ type: opening === "note" ? "note" : "user", text: typed, ...(pics.length ? { images: pics.length } : {}), ...(Array.isArray(attached) && attached.length ? { files: attached.slice(0, who === "Gloopy" ? 10 : 20).map((f) => ({ id: String(f.id || ""), name: plain(String(f.name || "")).slice(0, 120), size: Number(f.size) || 0 })) } : {}) });
       if (up && up.context.length) convo.push({ role: "user", appNote: true, content: hookNote("UserPromptSubmit", up.context) });
       // THE OWNER'S /skill-name (Claude Code: "invoke it directly with /skill-name"): the skill's whole text goes to Coder with
       // the message, as Claude Code loads it, unless a rule denies that skill.
@@ -3732,16 +3744,21 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   }
   // THE OWNER'S ATTACHED FILES (2026-11-09: "4"; src/gloopy-files.mjs): fetched by Coder's service with this job's pass and
   // put in files/ in Gloopy's folder by a step run as `dev`; Gloopy is told where, in the owner's message.
-  const toAttach = Array.isArray(attached) ? attached.slice(0, 10) : [];
+  // (IN A CODER CHAT, audit M-d-14, "Go Claude Code way", 2026-11-22: up to 20, as Claude Code's cloud sessions take them,
+  // saved in the project's .coder-files folder, never saved to the branch, like the pictures; Coder is told where, why one
+  // could not be saved (Claude Code tells Claude "the disk was full"), and how many past the first 20 were left out.)
+  const forCoder = who !== "Gloopy";
+  const toAttach = Array.isArray(attached) ? attached.slice(0, forCoder ? 20 : 10) : [];
   if (toAttach.length && deps.files && typeof deps.files.get === "function" && convo[jobStart] && convo[jobStart].role === "user") {
     const put = [], missed = [];
     for (const f of toAttach) {
       const got = await deps.files.get(String(f.id || "")).catch(() => null);
-      const r = got && got.data ? await appTool(deps, "save_file", { name: String(f.name || got.name || "file").slice(0, 120), data: got.data }) : null;
+      const r = got && got.data ? await appTool(deps, forCoder ? "save_upload" : "save_file", { name: String(f.name || got.name || "file").slice(0, 120), data: got.data }) : null;
       const path = r && r.code === 0 ? r.output.trim() : "";
-      if (path && !path.includes("\n")) put.push(path + " (" + sizeWords(Number(f.size) || 0) + ")"); else missed.push(plain(String(f.name || "a file")));
+      if (path && !path.includes("\n")) put.push((forCoder ? sayPath(deps, path) : path) + " (" + sizeWords(Number(f.size) || 0) + ")");
+      else missed.push(plain(String(f.name || "a file")) + (!forCoder ? "" : !got ? " (it could not be fetched)" : r && /ENOSPC|no space left/i.test(r.output) ? " (the disk is full)" : ""));
     }
-    convo[jobStart] = { ...convo[jobStart], content: convo[jobStart].content + "\n\n(Note from Gloopy's app: " + (put.length ? "the owner attached " + (put.length === 1 ? "a file" : put.length + " files") + ", now in your work folder: " + put.join(", ") + ". markitdown turns a PDF, Word, Excel or PowerPoint file into text." : "") + (missed.length ? (put.length ? " " : "") + "These could not be put in your folder: " + missed.join(", ") + "; tell the owner." : "") + ")" };
+    convo[jobStart] = { ...convo[jobStart], content: convo[jobStart].content + (forCoder ? coderAttachNote(put, missed, attachedLeft) : "\n\n(Note from Gloopy's app: " + (put.length ? "the owner attached " + (put.length === 1 ? "a file" : put.length + " files") + ", now in your work folder: " + put.join(", ") + ". markitdown turns a PDF, Word, Excel or PowerPoint file into text." : "") + (missed.length ? (put.length ? " " : "") + "These could not be put in your folder: " + missed.join(", ") + "; tell the owner." : "") + ")") };
   }
   // DOWNLOADS YOUR BROWSER FINISHED SINCE ITS LAST STEP (fix 2, 2026-11-10): one a step the owner allowed on a card
   // started, or one the owner started while they had the browser; put in files/ the same way, and said here.
