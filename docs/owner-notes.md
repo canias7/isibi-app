@@ -4,6 +4,10 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-22: round 10 live checks
+
+- After the deploy, all four round 9 fixes passed live on gofarther.dev: unknown /command, `/autocompact` alone, memory folder `ls -la` with no card, `git config --get-regexp` with no card.
+
 ## 2026-11-21: fixes for the round 9 live failures
 
 - **Unknown / command:** the page only reported it after the machine had named the repo's skills, and it names them only when the repo has some, so in a chat with no skills `/nosuchthing` went to Grok. Now, once the chat has had an answer, no skills step means no skills: Enter empties the box and says "Unknown command: /nosuchthing". (In a brand-new chat with no answer yet, a /name still goes as typed, because it could be one of the repo's skills.)

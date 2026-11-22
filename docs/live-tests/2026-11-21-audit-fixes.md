@@ -139,3 +139,27 @@ at the end. Screenshots `r9-*.png` in the live-audit scratch folder.
    `branch.coder/testingforclaude-c51d.remote origin` and `.merge
    refs/heads/coder/testingforclaude-c51d`. Note: this read-only command still
    asked for approval. (`r9-4-branch.png`)
+
+## Round 10 live checks
+
+2026-11-22, gofarther.dev after deploy run 275 (`eab3ea0d`, success).
+Repo canias7/testingforclaude, Grok 4.7 on Low, Accept edits, one throwaway
+chat (`testingforclaude-qfwkfmro`, deleted afterwards). Warm-up `Say hi.`
+answered "Hi. What do you want to work on?" (`r10-0-first.png`)
+
+1. **PASS** `/nosuchthing` + Enter: box empty, "Unknown command: /nosuchthing"
+   shown, no new answer after 10 seconds. (`r10-1-unknown.png`)
+2. **PASS** `/autocompact` + Enter: box empty, "Auto-compact window: auto, the
+   window tuned for the model. Use /autocompact <tokens> (such as 500k) or
+   /autocompact auto." (`r10-2-autocompact.png`)
+3. **PASS** "Remember my favourite colour is green." updated
+   `favourite_colour.md` and `MEMORY.md` (blue to green), no card
+   (`r10-3a-remember.png`). "Run ls -la on your memory folder." ran with no
+   card and listed MEMORY.md, favourite_colour.md, favourite_fruit.md.
+   (`r10-3b-ls.png`)
+4. **PASS** `git config --get-regexp '^branch\.'` ran with no card and printed
+   `branch.coder/testingforclaude-c51d.remote origin` and
+   `branch.coder/testingforclaude-c51d.merge refs/heads/coder/testingforclaude-c51d`.
+   (`r10-4-gitconfig.png`)
+
+Cleanup: chat deleted (`r10-99-cleanup.png`).
