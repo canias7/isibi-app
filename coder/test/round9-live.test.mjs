@@ -116,9 +116,10 @@ test("R9c the chat's memory folder reaches the real command check (decideIn), an
   assert.match(agent, /isMemoryPath\(targetOf\(\), deps\.memFile\) \|\| pathPosix\.normalize\(String\(targetOf\(\) \|\| ""\)\)\.replace\(\/\\\/\+\$\/, ""\) === pathPosix\.dirname\(deps\.memFile\)/);
 });
 
-test("R9d git config's reads (--get, --get-regexp, --get-all, --list, -l) run without asking; its writes still ask", async () => {
+test("R9d only git config --get runs without asking, as in Claude Code; other config reads and writes ask", async () => {
   const P = await import("../container/coder-perms.mjs");
   const d = (c) => P.bashDecision(c, { mode: "acceptEdits", cwd: "/w", workdirs: ["/w"] }).verdict;
-  for (const c of ["git config --get-regexp '^branch\\.'", "git config --get user.name", "git config --get-all remote.origin.fetch", "git config --list", "git config -l", "git config --list --show-origin"]) assert.equal(d(c), "allow", c);
+  assert.equal(d("git config --get user.name"), "allow");
+  for (const c of ["git config --get-regexp '^branch\\.'", "git config --get-all remote.origin.fetch", "git config --list", "git config -l"]) assert.equal(d(c), "ask", c);
   for (const c of ["git config user.name x", "git config --unset user.name", "git config --add a.b c", "git config --list --add a.b c", "git config --get-regexp x --file /etc/x", "git config --replace-all a.b c", "git config -e"]) assert.equal(d(c), "ask", c);
 });

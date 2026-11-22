@@ -4,6 +4,10 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-22: git config reads match Claude Code
+
+- Only `git config --get` runs without asking, as in Claude Code. `--list`, `--get-regexp` and `--get-all` ask again (the extra ones added in round 9 were taken out, your words: "do it how claude code does it"). Writes still ask. Full suite: 1655 of 1655.
+
 ## 2026-11-22: round 10 live checks
 
 - After the deploy, all four round 9 fixes passed live on gofarther.dev: unknown /command, `/autocompact` alone, memory folder `ls -la` with no card, `git config --get-regexp` with no card.
