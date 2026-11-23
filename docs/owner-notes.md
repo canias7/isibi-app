@@ -22,6 +22,20 @@ Small gaps from the comparison sheet, closed so Coder's tools take the same inpu
 - **Connectors:** two new tools. One lists what is inside a connector's folder. The other re-reads a connector's tools after they change; the new tools work from your next message. Files such as pictures read from a connector are now saved in the chat's files.
 - Gloopy's pages work exactly as before. Not yet tried live on gofarther.dev.
 
+## 2026-11-23: Coder's helper agents now work like Claude Code's
+
+Coder's helper agents (agent, list_agents, send_message, workflow) were brought in line with Claude Code's:
+- **Background agents:** Coder can start a helper and keep working; it is told the helper's answer when it finishes.
+- **Several at once:** helpers asked for in one go now run side by side (still at most 3 at once and 10 a job, so the cost stays capped).
+- **Model and effort:** Coder can pick a helper's effort level (and model, from Coder's own list: only Grok 4.7 today).
+- **Its own copy of the code:** a helper can work in a separate git worktree; it's cleaned up if it changed nothing, kept (with its branch) if it did.
+- **Your own helpers:** files in a repository's `.claude/agents/` folder (name, description, tools, model, effort) are helpers Coder can use, as in Claude Code. The old name "Task" also works.
+- **Hooks:** SubagentStart and SubagentStop hooks run for helpers.
+- **Details:** each helper's answer now says its model, tokens, tool uses and time; workflows report their phases; messages to helpers show a short preview.
+- Still not in Coder: agent teams and messaging other sessions.
+
+Not yet tried live on gofarther.dev. No paid calls were made in the tests.
+
 ## 2026-11-23: The Claude Code vs Coder sheet now knows Coder's 28 new tools
 
 The sheet ([`docs/claude-code-vs-coder.xlsx`](claude-code-vs-coder.xlsx)) still said Coder had no helper agents, workflows, scheduling, worktrees, artifacts, connector resources or plugins. Each of those rows was checked against Coder's code and corrected.
