@@ -2681,6 +2681,15 @@ it with its whole history. A workflow's script runs in the sandbox as `dev`
 subagents in between; `resumeFromRunId` reuses the calls already done. Cost caps: at
 most 3 subagents at once and 10 per job, workflows included
 (`CODER_MAX_SUBAGENTS_AT_ONCE`, `CODER_MAX_SUBAGENTS_TOTAL`). Not offered from GitHub.
+Second pass (2026-11-23): Claude Code's full descriptions and every AgentInput field;
+`run_in_background` (a `<task-notification>` reaches Grok when it ends, before the turn
+ends at the latest), a message's agent calls side by side within the caps, `model`
+(Coder's models only) and `effort`, `isolation: "worktree"` (made in a subshell with
+`coder-worktree.mjs`'s script, removed when unchanged), custom agents from
+`.claude/agents/*.md`, `Task` as an alias, AgentOutput's fields (usage, toolStats,
+resolvedModel, worktreePath/Branch), SubagentStart/SubagentStop hooks, `agent()`'s
+model/effort/phase in workflows and `send_message`'s summary. No teams, remote agents
+or other sessions. Tests: `test/coder-agents-cc.test.mjs`.
 
 ARTIFACTS AND MCP RESOURCES (2026-11-23, `container/coder-resources.mjs`): `artifact`
 is Claude Code's Artifact (upfront): an .html or .md file from the chat (Markdown made

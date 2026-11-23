@@ -20,18 +20,18 @@ import { CRON_TOOL_CC } from "./coder-schedule.mjs";
 // owner: "Do all the talk to you tools execpt for the notify one"; coder-tasks.mjs.)
 // (Elicitation and ElicitationResult: Claude Code's, around a connector's question for the owner, MCP elicitation; their
 // matcher is the connector's name as in its tools' names, mcp__<server>__<tool>; coder-elicit.mjs, X1 of 2026-11-14.)
-export const HOOK_EVENTS = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PermissionRequest", "PostToolUse", "PostToolUseFailure", "PostToolBatch", "PermissionDenied", "TaskCreated", "TaskCompleted", "Notification", "Stop", "StopFailure", "PreCompact", "PostCompact", "CwdChanged", "FileChanged", "Elicitation", "ElicitationResult", "SessionEnd"];
+export const HOOK_EVENTS = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PermissionRequest", "PostToolUse", "PostToolUseFailure", "PostToolBatch", "PermissionDenied", "TaskCreated", "TaskCompleted", "Notification", "SubagentStart", "SubagentStop", "Stop", "StopFailure", "PreCompact", "PostCompact", "CwdChanged", "FileChanged", "Elicitation", "ElicitationResult", "SessionEnd"];
 export const TOOL_EVENTS = new Set(["PreToolUse", "PermissionRequest", "PostToolUse", "PostToolUseFailure", "PermissionDenied"]);
 /** The events whose matcher Claude Code ignores ("If you add a matcher field to an event without matcher support, it is silently ignored"). */
 const NO_MATCHER = new Set(["UserPromptSubmit", "Stop", "PostToolBatch", "CwdChanged", "TaskCreated", "TaskCompleted"]);
 /** The task list's events (Claude Code: "TaskCreated hooks don't support matchers and fire on every occurrence"; TaskCompleted's the same). */
 export const TASK_EVENTS = new Set(["TaskCreated", "TaskCompleted"]);
 /** The events whose examples on Claude Code's hooks page carry no permission_mode ("Not all events receive this field"). */
-export const NO_MODE_EVENTS = new Set(["SessionStart", "Notification", "StopFailure", "CwdChanged", "FileChanged", "PreCompact", "PostCompact", "SessionEnd", "Elicitation", "ElicitationResult", "TaskCreated"]);
+export const NO_MODE_EVENTS = new Set(["SessionStart", "SubagentStart", "Notification", "StopFailure", "CwdChanged", "FileChanged", "PreCompact", "PostCompact", "SessionEnd", "Elicitation", "ElicitationResult", "TaskCreated"]);
 /** "FileChanged and StopFailure use a narrower exact-match set of letters, digits, _, and | only." */
 const NARROW = new Set(["FileChanged", "StopFailure"]);
 /** The events whose hooks can block or change an action (never under the memory cap: Claude Code's "Permission-gating hooks"). */
-export const GATING_EVENTS = new Set(["PreToolUse", "PermissionRequest", "UserPromptSubmit", "Stop", "PreCompact", "PostToolBatch", "PostToolUse", "PostToolUseFailure", "TaskCreated", "TaskCompleted"]);
+export const GATING_EVENTS = new Set(["PreToolUse", "PermissionRequest", "UserPromptSubmit", "Stop", "SubagentStop", "PreCompact", "PostToolBatch", "PostToolUse", "PostToolUseFailure", "TaskCreated", "TaskCompleted"]);
 /** The events whose hooks get the chat's hook env file (Claude Code: "CLAUDE_ENV_FILE is available for SessionStart, Setup, CwdChanged, and FileChanged hooks"). */
 export const ENV_FILE_EVENTS = new Set(["SessionStart", "CwdChanged", "FileChanged"]);
 
@@ -45,7 +45,7 @@ const ALL_TYPES = ["command", "http", "mcp_tool", "prompt", "agent"];
 export function typesFor(event) {
   if (event === "SessionStart") return ["command", "mcp_tool"];
   // (TaskCreated and TaskCompleted too: Claude Code's "Events that support all five hook types".)
-  if (["PermissionDenied", "PostToolBatch", "PostToolUse", "PostToolUseFailure", "PreToolUse", "Stop", "UserPromptSubmit", "TaskCreated", "TaskCompleted"].includes(event)) return ALL_TYPES;
+  if (["PermissionDenied", "PostToolBatch", "PostToolUse", "PostToolUseFailure", "PreToolUse", "Stop", "SubagentStop", "UserPromptSubmit", "TaskCreated", "TaskCompleted"].includes(event)) return ALL_TYPES;
   if (event === "PermissionRequest") return ["command", "http", "mcp_tool", "prompt"];
   return ["command", "http", "mcp_tool"];
 }
@@ -634,7 +634,7 @@ export function hookResultSafe(event, run, hook = {}) {
   }
 }
 export function hookResult(event, run, hook = {}) {
-  const blocks = hook.onFailure === "block" && event !== "Stop" && event !== "TaskCompleted" && !hook.async && !hook.asyncRewake;
+  const blocks = hook.onFailure === "block" && event !== "Stop" && event !== "SubagentStop" && event !== "TaskCompleted" && !hook.async && !hook.asyncRewake;
   const fail = (what, more = "") => blocks ? { kind: "block", json: null, text: "", reason: cap(what + "; " + BLOCK_FAIL + (more ? "\n" + more : "")), notice: "", failBlock: true } : null;
   // A hook that was not run (an HTTP hook to an address allowedHttpHookUrls leaves out).
   if (run && typeof run.notRun === "string") return { kind: "error", json: null, text: "", reason: "", notice: run.notRun };
@@ -686,7 +686,7 @@ export function hookResult(event, run, hook = {}) {
   const text = json || bad ? "" : stdout;
   const firstErr = crashLine(stderr) + (event === "PreToolUse" && code === 127 ? " (the hook's command was not found, so its check may not have run)" : "");
   // (Stop and TaskCompleted: exit 2, nothing on stdout and a missing file in stderr is a hook that never ran: non-blocking.)
-  if (code === 2 && (event === "Stop" || event === "TaskCompleted") && !stdout.trim() && /No such file or directory/i.test(stderr)) return { kind: "error", json: null, text: "", reason: "", notice: "Failed with non-blocking status code: " + firstErr };
+  if (code === 2 && (event === "Stop" || event === "SubagentStop" || event === "TaskCompleted") && !stdout.trim() && /No such file or directory/i.test(stderr)) return { kind: "error", json: null, text: "", reason: "", notice: "Failed with non-blocking status code: " + firstErr };
   if (code === 2) return { kind: "block", json: badShape(event, json) ? null : json, text: "", reason: cap(stderr.trim()), notice: "" };
   if (bad) return fail("failed", notJson(bad)) || { kind: "error", json: null, text: "", reason: "", notice: notJson(bad) };
   // (An answer naming another event is no answer: Claude Code's hookEventName check.)
@@ -760,8 +760,8 @@ export function hooksOutcome(event, runs, { tool = "", rewrite = null } = {}) {
       const prompt = String(hook.prompt ?? "");
       const err = hook.type === "agent" ? "Agent hook condition was not met: " + why : "[" + prompt + "]: " + why;
       const fromCommand = label + " hook blocking error from command: \"" + prompt + "\": " + err;
-      const line = event === "PreToolUse" ? label + " hook error: " + err : event === "Stop" ? "Stop hook feedback:\n" + err : fromCommand;
-      if (event === "Stop") { if (!v.impossible || hook.type === "agent") { out.decision = "block"; out.blocks.push(line); out.reason = out.reason || why; } }
+      const line = event === "PreToolUse" ? label + " hook error: " + err : event === "Stop" || event === "SubagentStop" ? event + " hook feedback:\n" + err : fromCommand;
+      if (event === "Stop" || event === "SubagentStop") { if (!v.impossible || hook.type === "agent") { out.decision = "block"; out.blocks.push(line); out.reason = out.reason || why; } }
       else if (event === "PreToolUse") { out.decision = "deny"; out.reason = line; out.blocks.push(line); if (!goOn) out.endTurn = out.endTurn || why; }
       else if (event === "PostToolUse") { if (goOn) { out.decision = "block"; out.blocks.push(line); out.reason = out.reason || why; } else out.endTurn = out.endTurn || why; }
       else if (event === "PostToolUseFailure") { out.decision = "block"; out.blocks.push(line); out.reason = out.reason || why; }
@@ -796,7 +796,7 @@ export function hooksOutcome(event, runs, { tool = "", rewrite = null } = {}) {
       const text = byExit ? hookName(hook) + ": " + (why || "No stderr output") : why || "Blocked by hook";
       const fromCommand = label + " hook blocking error from command: \"" + hookKind(hook) + "\": " + text;
       // (TaskCreated and TaskCompleted: "TaskCreated hook feedback:" and a new line, then the same words. 2026-11-14.)
-      out.blocks.push(event === "PreToolUse" ? label + " hook error: " + text : event === "Stop" ? "Stop hook feedback:\n" + text + (byExit ? "" : "\n\n" + fromCommand) : TASK_EVENTS.has(event) ? event + " hook feedback:\n" + text : fromCommand);
+      out.blocks.push(event === "PreToolUse" ? label + " hook error: " + text : event === "Stop" || event === "SubagentStop" ? event + " hook feedback:\n" + text + (byExit ? "" : "\n\n" + fromCommand) : TASK_EVENTS.has(event) ? event + " hook feedback:\n" + text : fromCommand);
     };
     if (event === "PermissionDenied") { if (spec.retry === true) out.retry = true; continue; }
     if (event === "PreToolUse") {
@@ -845,7 +845,7 @@ export function hooksOutcome(event, runs, { tool = "", rewrite = null } = {}) {
       // blocking decision, Claude Code uses that decision's reason instead".)
       const jsonWhy = j.decision === "block" && typeof j.reason === "string" && j.reason.trim() ? cap(j.reason) : "";
       const why = jsonWhy ? jsonWhy : result.kind === "block" ? result.reason : typeof j.reason === "string" && j.reason.trim() ? cap(j.reason) : result.reason;
-      if (event === "SessionStart" || event === "PostCompact") { if (result.kind === "block") out.notices.push(label + " hook error: " + hookName(hook) + ": " + (result.reason || "No stderr output")); continue; }
+      if (event === "SessionStart" || event === "SubagentStart" || event === "PostCompact") { if (result.kind === "block") out.notices.push(label + " hook error: " + hookName(hook) + ": " + (result.reason || "No stderr output")); continue; }
       if (event === "Notification") continue;
       out.decision = "block";
       blockBy(why, !!jsonWhy);

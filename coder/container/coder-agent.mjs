@@ -75,7 +75,7 @@ import { fileNameOf } from "./gloopy-browser.mjs";
 import { needsCheck, stepWords, stepSends, gloopyCheck, gloopyMonitor, MONITOR_EVERY, MONITOR_MAX, ownerWords, cleanRules, cleanSites, siteFor, plain, decide, formWords, markedNote, taughtNote, requestWords, bodyPreview, CARD_TTL_MS, signinCheck, signinWarning, WARNINGS, readsInFull } from "./gloopy-check.mjs";
 import { cleanPermissions, permissionLabel } from "./gloopy-permissions.mjs";
 import { asText, asNumber } from "./coder-text.mjs";
-import { AGENT_TOOL, LIST_AGENTS_TOOL, SEND_MESSAGE_TOOL, WORKFLOW_TOOL, SUBAGENT_HANDBACK_TOOL, AGENT_TOOL_NAMES, AGENT_TYPES, SUBAGENT_SYSTEM, SUBAGENT_ROUNDS, SUBAGENT_MS, WORKFLOW_PASS_S, subagentCaps, subagentBudget, subagentTools, agentToolCall } from "./coder-agents.mjs";
+import { AGENT_TOOL, LIST_AGENTS_TOOL, SEND_MESSAGE_TOOL, WORKFLOW_TOOL, SUBAGENT_HANDBACK_TOOL, AGENT_TOOL_NAMES, AGENT_TYPES, SUBAGENT_SYSTEM, SUBAGENT_ROUNDS, SUBAGENT_MS, WORKFLOW_PASS_S, subagentCaps, subagentBudget, subagentTools, agentToolCall, startAgent, takeBgAgents, customAgentsFrom, agentFilesScript, agentFilesOf, agentWorktreeScript, agentWorktreeFinishScript, AGENT_ALIASES } from "./coder-agents.mjs";
 /** A contact entry from the owner's Vault in one line (as gloopy-agent.mjs's contactWords, kept here to import nothing of it). */
 const contactWords = (x) => { const place = [x.line1, x.line2, x.city, [x.region, x.postal].filter(Boolean).join(" "), x.country].filter(Boolean).join(", "); return [x.nickname ? "“" + x.nickname + "”" : "", [x.name, place].filter(Boolean).join(", "), x.phone, x.email].filter(Boolean).join(" · "); };
 // (Claude Code's Artifact, ListMcpResourcesTool, ReadMcpResourceTool and WaitForMcpServers, 2026-11-23: coder-resources.mjs.)
@@ -1949,6 +1949,19 @@ export const todoSystem = (system) => String(system).replace("task_create, task_
 
 
 /** The model's tool calls, read safely: `[{ id, name, args }]`; args `null` when they are not JSON. */
+/**
+ * A SUBAGENT'S MACHINE CALLS IN ITS WORKTREE (Claude Code's isolation: "worktree"; 2026-11-23): its commands run there in a
+ * subshell, so the chat's own shell stays where it is, and its relative paths are found there.
+ */
+export function inFolder(deps, cwd) {
+  const q = "'" + String(cwd).replace(/'/g, "'\\''") + "'";
+  return {
+    here: () => cwd,
+    where: (p) => (String(p).startsWith("/") ? p : cwd + "/" + p),
+    exec: (o) => deps.exec(o && typeof o.command === "string" && !o.tool && !o.inBg && !o.monitor ? { ...o, command: "( cd -- " + q + " || exit 1\n" + o.command + "\n)" } : o),
+  };
+}
+
 export function readCalls(msg) {
   const calls = Array.isArray(msg && msg.tool_calls) ? msg.tool_calls : [];
   return calls.map((c, i) => {
@@ -1956,7 +1969,9 @@ export function readCalls(msg) {
     let args = null;
     try { args = typeof f.arguments === "string" ? JSON.parse(f.arguments || "{}") : (f.arguments && typeof f.arguments === "object" ? f.arguments : {}); } catch { args = null; }
     // (A bash or powershell call's `timeout_ms` read as its `timeout`, as Claude Code repairs it, its swo: Bash docs pass 9.)
-    const name = String(f.name || "");
+    // (Claude Code's old name for its Agent tool, Task, still starts an agent: AGENT_ALIASES. 2026-11-23.)
+    const name0 = String(f.name || "");
+    const name = AGENT_ALIASES.includes(name0) ? "agent" : name0;
     if ((name === "bash" || name === "powershell") && args && typeof args === "object" && !Array.isArray(args) && "timeout_ms" in args && !("timeout" in args)) {
       const v = args.timeout_ms;
       if (typeof v === "number" || (typeof v === "string" && /^\d+$/.test(v))) { args = { ...args, timeout: v }; delete args.timeout_ms; }
@@ -2180,7 +2195,7 @@ export function ruleHoldsSecret(rule) {
   }
   return false;
 }
-export async function runCoder(deps, { notices = [], lost = [], stalls = [], promptNotify = true, timeouts = null, outLimits = null, noBg = false, respondToBash = true, shell = "", cmdShell = "", compactVars = null, messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, mode = "auto", rules = null, editDiff = false, readBlock = false, writeBlock = false, checker = false, checkerInPlan = true, checkWhere = null, emailMark = "", diskWarnGib = 0, memWarnGib = 0, hooks = null, autoMode = null, denyInstead = false, autoOff = false, planExit = "auto", hostLists = null, powershell = null, connectors = [], connectorNotes = [], connectorsWaiting = [], connectorsFailed = [], connectorsGone = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS , rmChecksOff = null, fileEdits = true, startMode = "", resumed = false, lastAt = 0, sessionRules = null, language = "", customTitle = "", compact = null, system = CODER_SYSTEM, tools = null, nudges = true, who = "Coder", browserRules: rulesIn = [], granted: grantedIn = [], schedules = [], opening = "user", permissions: permsIn = null, sites: sitesIn = [], monitor = false, ownerSaid: ownerSaidList = null, asHelper = false, helper = null, pages = [], savedLogins = [], savedCards = [], contacts = [], webhooks = [], hookBase = "/api/coder/gloopy-hook/", attached = [], attachedLeft = 0, workNote = "", marked = null, taught = null, files: keptFiles = [], background = false, checkWrites = false, denied: deniedIn = [], zone = "", searchLimits = null, takeUp = null, tasksOff = false, mentionsOff = false, holdBack = null, suggest = false, stopCap = STOP_BLOCK_CAP, box = false, skills = [], checkpoints = true, searchTools = false, cleared = false, schedule = null } = {}) {
+export async function runCoder(deps, { notices = [], lost = [], stalls = [], promptNotify = true, timeouts = null, outLimits = null, noBg = false, respondToBash = true, shell = "", cmdShell = "", compactVars = null, messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, mode = "auto", rules = null, editDiff = false, readBlock = false, writeBlock = false, checker = false, checkerInPlan = true, checkWhere = null, emailMark = "", diskWarnGib = 0, memWarnGib = 0, hooks = null, autoMode = null, denyInstead = false, autoOff = false, planExit = "auto", hostLists = null, powershell = null, connectors = [], connectorNotes = [], connectorsWaiting = [], connectorsFailed = [], connectorsGone = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS , rmChecksOff = null, fileEdits = true, startMode = "", resumed = false, lastAt = 0, sessionRules = null, language = "", customTitle = "", compact = null, system = CODER_SYSTEM, tools = null, nudges = true, who = "Coder", browserRules: rulesIn = [], granted: grantedIn = [], schedules = [], opening = "user", permissions: permsIn = null, sites: sitesIn = [], monitor = false, ownerSaid: ownerSaidList = null, asHelper = false, helper = null, pages = [], savedLogins = [], savedCards = [], contacts = [], webhooks = [], hookBase = "/api/coder/gloopy-hook/", attached = [], attachedLeft = 0, workNote = "", marked = null, taught = null, files: keptFiles = [], background = false, checkWrites = false, denied: deniedIn = [], zone = "", searchLimits = null, takeUp = null, tasksOff = false, mentionsOff = false, holdBack = null, suggest = false, stopCap = STOP_BLOCK_CAP, box = false, skills = [], checkpoints = true, searchTools = false, cleared = false, schedule = null, subagent = null } = {}) {
   // ANOTHER AGENT ON THE SAME ENGINE (owner, 2026-11-09: Gloopy, container/gloopy-agent.mjs): its own instructions
   // (`system`), the tools it is offered (`tools`; a call to any other is refused), no reminders about Coder's setup script
   // (`nudges`), and its name in the chat's own lines (`who`). Coder's defaults are unchanged.
@@ -4146,6 +4161,42 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   // agents it started and its workflow runs.
   const agentBudget = deps.subagentBudget && typeof deps.subagentBudget.take === "function" ? deps.subagentBudget : subagentBudget(subagentCaps(deps.subagentEnv || process.env));
   const agentsStarted = new Map(), workflowRuns = new Map();
+  // (Agents in the background, their notifications to come; a message's agent calls started together; the repository's
+  // custom agents (.claude/agents/*.md), read once a job. 2026-11-23, Claude Code's way.)
+  const agentBg = new Map();
+  let agentEarly = new Map();
+  let customAgentsP = null;
+  const isSubHere = () => !!(offered && offered.has("subagent_handback"));
+  const shRun = async (command, timeoutS = 60) => { try { return await deps.exec({ command, timeoutS, tool: true }); } catch (e) { return { code: -1, output: String((e && e.message) || e) }; } };
+  /** What coder-agents.mjs needs of this loop for one call (`reply`: that call's answer). */
+  const agentKit = (reply) => {
+    const left = Math.max(30_000, maxMs - (now() - started) - 30_000);
+    const subTools = [...chatTools, ...STOCK_TOOLS.values()];
+    return {
+      emit, reply, budget: agentBudget, agents: agentsStarted, runs: workflowRuns, isSub: isSubHere(), stopped, now,
+      chat: { model, effort }, bg: agentBg, early: agentEarly,
+      customAgents: () => (customAgentsP = customAgentsP || (typeof deps.customAgents === "function" ? Promise.resolve(deps.customAgents()) : shRun(agentFilesScript(), 20).then((r) => customAgentsFrom(agentFilesOf(r && r.output)).defs)).catch(() => [])),
+      worktree: {
+        create: async (name) => { const r = await shRun(agentWorktreeScript(name), 120); const m = markOf(r && r.output); if (!m || m.kind !== "OK") return { error: m && m.kind === "ERR" ? m.rest : "git could not create the worktree" }; const [path, branch] = m.rest.split("|"); return { path, branch }; },
+        finish: async (wt) => { const m = markOf((await shRun(agentWorktreeFinishScript(wt), 120)).output); return { kept: !(m && (m.kind === "REMOVED" || m.kind === "GONE")) }; },
+      },
+      // (SubagentStart: matched on the agent's type; its additionalContext goes to the agent. SubagentStop: a block or
+      // additionalContext keeps the agent going with that as its next instruction.)
+      hookStart: async (id, type) => { const o = hookList.length ? await runHooks("SubagentStart", type, { agent_id: id, agent_type: type }) : null; return o ? o.context : []; },
+      hookStop: async ({ agentId, type, active, last }) => {
+        if (!hookList.length) return "";
+        const o = await runHooks("SubagentStop", type, { stop_hook_active: active, agent_id: agentId, agent_type: type, agent_transcript_path: "", last_assistant_message: scrub(last).slice(0, 20000), background_tasks: [], session_crons: [] });
+        if (!o || o.stop) return "";
+        if (o.decision === "block") return o.blocks.join("\n") || o.reason || "";
+        return o.context.length ? "SubagentStop hook feedback:\n" + o.context.join("\n") : "";
+      },
+      startSub: ({ type, prompt, messages: past, label, emit: subEmit, model: m, effort: ef, toolNames, system: sys, maxRounds: mr, cwd, agentId }) => runCoder({ ...deps, emit: subEmit, subagentBudget: agentBudget, ...(cwd ? inFolder(deps, cwd) : {}) }, { text: prompt, messages: past || [], system: sys || SUBAGENT_SYSTEM + (AGENT_TYPES[type] && AGENT_TYPES[type].note ? "\n\n" + AGENT_TYPES[type].note : ""), tools: subagentTools(subTools, type, toolNames), context, base, model: m || model, effort: ef || effort, mode: modeNow(), rules, hooks, denyInstead: true, nudges: false, who: "Coder's agent “" + label + "”", asHelper: true, github: false, tasksOff: true, maxRounds: mr || SUBAGENT_ROUNDS, maxMs: Math.min(SUBAGENT_MS, left), subagent: { id: agentId || "", type } }),
+      step: typeof deps.workflowStep === "function" ? deps.workflowStep : async (a) => { const r = await appTool(deps, "workflow_step", a, { timeoutS: WORKFLOW_PASS_S }); try { return JSON.parse(r.output); } catch { return { status: "error", error: r.output.trim().slice(0, 400) || "the script's pass failed" }; } },
+      readText: async (p) => { try { const r = await deps.exec({ command: "cat -- '" + String(p).replace(/'/g, "'\\''") + "'", timeoutS: 15, tool: true }); return r && r.code === 0 ? { text: String(r.output || "") } : { error: "could not read " + p }; } catch { return { error: "could not read " + p }; } },
+    };
+  };
+  /** The background agents that have finished: their notifications for Grok (Claude Code's task notifications), counted. */
+  const takeAgentNotes = () => { const out = takeBgAgents(agentBg); for (const n of out) { for (const u of n.usage) usage.push(u); emit({ type: "note", text: "Background agent " + n.id + (n.ok ? " finished." : " failed.") }); } return out.map((n) => n.text); };
   // GLOOPY'S PAGES published in this turn (the Worker keeps them when the turn ends).
   const pageRequests = [];
   // Gloopy's schedules it stopped in this turn, and the wake-ups it set (the Worker keeps the schedules; it applies these
@@ -4841,6 +4892,16 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       const notes = takeBgConnectors();
       if (notes.length) { if (said) { emit({ type: "text", text: scrub(said) }); lastSaid = scrub(said).slice(0, 4000); } convo.push({ role: "user", appNote: true, content: "(Note from Coder's app, not the owner, about your connector calls in the background:\n" + notes.join("\n\n") + ")" }); continue; }
     }
+    // AN AGENT STILL RUNNING IN THE BACKGROUND (Claude Code: "you will be automatically notified when it completes"): its
+    // notification is waited for and given to Coder before the turn ends.
+    if (!calls.length && agentBg.size) {
+      const left = Math.max(1000, maxMs - (now() - started));
+      let waitT;
+      await Promise.race([Promise.race([...agentBg.values()].map((b) => b.promise)), new Promise((r) => { waitT = setTimeout(r, left); })]);
+      clearTimeout(waitT);
+      const notes = takeAgentNotes();
+      if (notes.length) { if (said) { emit({ type: "text", text: scrub(said) }); lastSaid = scrub(said).slice(0, 4000); } convo.push({ role: "user", appNote: true, content: "(Note from Coder's app, not the owner: a background agent finished.\n" + notes.join("\n\n") + ")" }); continue; }
+    }
     // A STEP ANNOUNCED, NOT TAKEN (live test, 2026-11-13; aboutToAct): once a turn, Gloopy is told, and goes on.
     const announced = !calls.length && who === "Gloopy" && !actNudged ? aboutToAct(said) : "";
     if (announced) {
@@ -4857,7 +4918,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     // (The hooks run every time; once they have kept the turn going stopCap times in a row, the next block is overridden and the
     // turn ends with a note, as Claude Code does. stopCap 0: no cap. CODER_STOP_HOOK_BLOCK_CAP, Claude Code's
     // CLAUDE_CODE_STOP_HOOK_BLOCK_CAP.)
-    if (!calls.length && hookList.length) {
+    // (Not in one of Coder's subagents: its end runs the chat's SubagentStop hooks instead, from its agent call; coder-agents.mjs.)
+    if (!calls.length && hookList.length && !subagent) {
       const o = await runHooks("Stop", "", { stop_hook_active: stopHookActive, last_assistant_message: scrub(said).slice(0, 20000), background_tasks: [...jobs.entries()].filter(([, j]) => !j.done).map(([id, j]) => ({ id, type: j.monitor ? "monitor" : "shell", status: "running", description: String(j.desc || "").slice(0, 1000), command: String(j.command || "").slice(0, 1000) })), session_crons: [] });
       if (o && o.stop) { if (said) { emit({ type: "text", text: scrub(said) }); lastSaid = scrub(said).slice(0, 4000); } return stopByHook(o); }
       if (o && (o.decision === "block" || o.context.length) && stopCap > 0 && stopRun >= stopCap) {
@@ -5088,6 +5150,14 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     // others of its group run; one with a PreToolUse hook of the owner's runs its hooks at the group's start too (round 5,
     // startEarly). (Gloopy keeps its own run-ahead, above.)
     const early = earlyRuns({ now, onUsage: (u) => usage.push(u), onTaken: (id, at, done) => { if (at) ranAt.set(id, at); if (done) earlyDone.set(id, done); } });
+    // A MESSAGE'S AGENT CALLS SIDE BY SIDE (Claude Code: "Launch multiple agents concurrently ... use a single message with
+    // multiple Agent tool uses"; 2026-11-23): each starts now, within the caps (3 at once, 10 a job), and its turn below takes
+    // its result. Not when a PreToolUse hook or a deny rule could stop an agent call first: then they run in turn.
+    agentEarly = new Map();
+    {
+      const ac = calls.filter((x) => x.name === "agent" && x.args && typeof x.args === "object" && !Array.isArray(x.args));
+      if (!offered && !isSubHere() && ac.length > 1 && !toolDenied("agent") && !(hookList.length && hooksFor(hookList, "PreToolUse", "Agent").length)) for (const x of ac) agentEarly.set(x.id, startAgent(x, agentKit(() => {})));
+    }
     // A CALL AFTER THE ONE THAT ENDED THE ROUND (round 5, closing mode; coder-parallel.mjs's closedAs): its turn, when its early
     // start had its result by then (it keeps it, told and shown as on any turn); after a Stop, Claude Code's rejection with its
     // "stopped while running" correction when it was running (the chat shows its step stopped), and its rejection otherwise;
@@ -7860,15 +7930,9 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       } else if (AGENT_TOOL_NAMES.includes(c.name)) {
         // CLAUDE CODE'S AGENT, SUBAGENTHANDBACK, LISTAGENTS, SENDMESSAGE AND WORKFLOW (2026-11-23; coder-agents.mjs): each
         // subagent runs on this same loop with the chat's model and effort, refused what would need the owner's card.
-        const left = Math.max(30_000, maxMs - (now() - started) - 30_000);
-        const subTools = [...chatTools, ...STOCK_TOOLS.values()];
-        const got = await agentToolCall(c, {
-          emit, reply, budget: agentBudget, agents: agentsStarted, runs: workflowRuns, isSub: !!(offered && offered.has("subagent_handback")),
-          stopped,
-          startSub: ({ type, prompt, messages: past, label, emit: subEmit }) => runCoder({ ...deps, emit: subEmit, subagentBudget: agentBudget }, { text: prompt, messages: past || [], system: SUBAGENT_SYSTEM + (AGENT_TYPES[type].note ? "\n\n" + AGENT_TYPES[type].note : ""), tools: subagentTools(subTools, type), context, base, model, effort, mode: modeNow(), rules, hooks, denyInstead: true, nudges: false, who: "Coder's agent “" + label + "”", asHelper: true, github: false, tasksOff: true, maxRounds: SUBAGENT_ROUNDS, maxMs: Math.min(SUBAGENT_MS, left) }),
-          step: typeof deps.workflowStep === "function" ? deps.workflowStep : async (a) => { const r = await appTool(deps, "workflow_step", a, { timeoutS: WORKFLOW_PASS_S }); try { return JSON.parse(r.output); } catch { return { status: "error", error: r.output.trim().slice(0, 400) || "the script's pass failed" }; } },
-          readText: async (p) => { try { const r = await deps.exec({ command: "cat -- '" + String(p).replace(/'/g, "'\\''") + "'", timeoutS: 15, tool: true }); return r && r.code === 0 ? { text: String(r.output || "") } : { error: "could not read " + p }; } catch { return { error: "could not read " + p }; } },
-        });
+        // (Background agents, a message's agent calls side by side, custom agents, model and effort, worktrees, SubagentStart and
+        // SubagentStop: agentKit, above.)
+        const got = await agentToolCall(c, agentKit(reply));
         for (const u of got.usage || []) usage.push(u);
         if (got.handback !== undefined) return end("done", { handback: got.handback });
         if (got.stop) { emit({ type: "stopped" }); return end("stopped"); }
@@ -7897,6 +7961,9 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     await runPost();
     settleStopAfter();
     roundDoneAt = now();
+    // BACKGROUND AGENTS THAT FINISHED during this round: their notifications, before Grok's next answer (Claude Code's task
+    // notification arrives as a message of its own).
+    { const an = takeAgentNotes(); if (an.length) convo.push({ role: "user", appNote: true, content: "(Note from Coder's app, not the owner: a background agent finished.\n" + an.join("\n\n") + ")" }); }
     // (A round that ended early: the job ends as its No, Stop or pause ends it, every call of the round answered or, for a
     // pause, left for the job that takes it up again. Round 5.)
     if (closing) return closedEnd();
