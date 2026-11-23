@@ -45,7 +45,13 @@ code in **each user's own GitHub**.
    search_skills, propose_skills and share_onboarding_guide held back for tool_search.
    Installed plugins' skills (`plugin:skill`) and saved skills join the repository's
    for the skill tool. The cards and the sidebar's Plugins ▸ Plugins and Skills panels
-   are `public/coder-plugins.js`.
+   are `public/coder-plugins.js`. Since the second pass (2026-11-23): an installed
+   plugin's hooks join the owner's hooks (`hooksForTurn`), its agents (agents/<name>.md
+   text) are subagents named `plugin:agent` (`coder-agents.mjs` `pluginAgentsFrom`),
+   `/plugin:skill` runs its skill from the box, the list/search tools take Claude Code's
+   `keywords`, enter_worktree copies `.worktreeinclude` files, send_feedback drafts
+   join a 10-draft, 30-day queue (`coder/<uid>/feedback-drafts.json`) and
+   end_conversation can't be blocked by hooks or deny rules (tests: `cc-tools-parity`).
 
    **read opens pictures, PDFs and notebooks too** (owner item 1, 2026-11-08), like
    Claude Code's Read ("reads images (PNG, JPG, …) and presents them visually",

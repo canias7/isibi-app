@@ -4,6 +4,17 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-23: Worktree, feedback and plugin tools now work like Claude Code's
+
+Fourteen of Coder's tools now use Claude Code's own descriptions and inputs, and the parts that were missing now work:
+- **Plugins do everything they say:** an installed plugin's hooks now run with your own hooks, and its helper agents can be started by Coder (the code-review plugin brings a "code-reviewer" agent, the testing plugin a hook that reminds Coder to add tests). Typing `/code-review:review-changes` in the message box runs that plugin's skill.
+- **Search takes keywords:** search_plugins, search_skills, list_plugins and list_skills take up to 8 keyword phrases, as in Claude Code.
+- **Worktrees:** a new worktree gets copies of the ignored files your repository's `.worktreeinclude` names (such as `.env`). Entering and leaving answer with Claude Code's fields.
+- **Feedback drafts:** each draft joins your queue (10 at most, the oldest dropped; each kept 30 days). A chat shows three draft cards, then just a count. Nothing is ever sent.
+- **Ending a chat:** your hooks and "deny" rules can't block end_conversation, unless you deny every tool, as in Claude Code.
+- **Dark mode:** the Plugins and Skills panels are now dark when your device is.
+Not tried live on gofarther.dev yet.
+
 ## 2026-11-23: The Claude Code vs Coder sheet now knows Coder's 28 new tools
 
 The sheet ([`docs/claude-code-vs-coder.xlsx`](claude-code-vs-coder.xlsx)) still said Coder had no helper agents, workflows, scheduling, worktrees, artifacts, connector resources or plugins. Each of those rows was checked against Coder's code and corrected.

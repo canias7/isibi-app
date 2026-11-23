@@ -21,8 +21,10 @@ export const CC_NAMES = Object.freeze({ enter_worktree: "EnterWorktree", exit_wo
 export const WORKTREE_DIR = ".claude/worktrees";
 /** What a chat that ended answers to a new message (Claude Code's words, with "chat" for its session commands). */
 export const ENDED_TEXT = "Coder ended this conversation. Start a new chat to continue.";
-/** At most this many feedback drafts a job (Claude Code shows at most three cards a session). */
+/** At most this many draft cards a chat; after that only a count of queued drafts (Claude Code: "at most three cards in a session"). */
 export const FEEDBACK_MAX = 3;
+/** The owner's queue (src/coder-plugins.mjs): 10 drafts across all chats, the oldest dropped; each expires after 30 days. */
+export const FEEDBACK_QUEUE_MAX = 10, FEEDBACK_TTL_DAYS = 30;
 /** At most this many findings a call (Claude Code's). */
 export const FINDINGS_MAX = 32;
 export const LEVELS = Object.freeze(["low", "medium", "high", "xhigh", "max"]);
@@ -30,16 +32,80 @@ export const VERDICTS = Object.freeze(["CONFIRMED", "PLAUSIBLE"]);
 export const OUTCOMES = Object.freeze(["fixed", "skipped", "no_change_needed"]);
 
 // ── WHAT CODER IS TOLD ─────────────────────────────────────────────────────────────────────────────────────────────────
-export const ENTER_WORKTREE_DESCRIPTION = "Creates and enters a temporary git worktree for isolated work, so you can change files without touching the chat's main checkout. Use it ONLY when the owner asks to work in a worktree (\"start a worktree\", \"do this in a worktree\"). The new worktree is made under " + WORKTREE_DIR + "/<name> of the repository, on a new branch worktree-<name> from the current HEAD, and your commands then start there. Pass `path` instead to switch into an existing worktree of this repository (one `git worktree list` shows); a path outside " + WORKTREE_DIR + "/ asks the owner first. `name` and `path` are mutually exclusive. From inside a worktree, only `path` works, and it must be under " + WORKTREE_DIR + "/. Leave with exit_worktree.";
-export const ENTER_WORKTREE_PARAMS = Object.freeze({ type: "object", properties: {
-  name: { type: "string", description: "Optional name for the new worktree: letters, digits, dots, underscores and dashes, with / between parts, at most 64 characters. A random name when left out." },
-  path: { type: "string", description: "Path of an existing worktree of this repository to switch into, instead of creating one." },
-}, required: [], additionalProperties: false });
+// (Claude Code's own descriptions, word for word where they fit; "the user" is the owner, "session" the chat, and Coder's
+// names for its tools. Coder has no worktree.baseRef setting and no WorktreeCreate/WorktreeRemove hooks: a new worktree
+// branches from the current HEAD.)
+export const ENTER_WORKTREE_DESCRIPTION = `Use this tool ONLY when explicitly instructed to work in a worktree — either by the owner directly, or by project instructions (CLAUDE.md / memory). This tool creates an isolated git worktree and switches the current chat into it.
 
-export const EXIT_WORKTREE_DESCRIPTION = "Exits the worktree session that enter_worktree started and returns your commands to the original working directory (the repository's main checkout). action \"keep\" leaves the worktree and its branch on disk; \"remove\" deletes both. Removing a worktree that has uncommitted files or commits that are not pushed or not on the original branch is refused unless discard_changes is true; confirm with the owner first, then call again with discard_changes: true (the owner is also asked on a card), or use action \"keep\" to preserve the work. Only for a worktree under " + WORKTREE_DIR + "/; with none active it does nothing.";
+## When to Use
+
+- The owner explicitly says "worktree" (e.g., "start a worktree", "work in a worktree", "create a worktree", "use a worktree")
+- CLAUDE.md or memory instructions direct you to work in a worktree for the current task
+
+## When NOT to Use
+
+- The owner asks to create a branch, switch branches, or work on a different branch — use git commands instead
+- The owner asks to fix a bug or work on a feature — use normal git workflow unless worktrees are explicitly requested by the owner or project instructions
+- Never use this tool unless "worktree" is explicitly mentioned by the owner or in CLAUDE.md / memory instructions
+
+## Requirements
+
+- Must be in a git repository
+- Must not already be in a worktree session when creating a new worktree (\`name\`); switching into another existing worktree via \`path\` is allowed
+
+## Behavior
+
+- In a git repository: creates a new git worktree inside \`${WORKTREE_DIR}/\` on a new branch worktree-<name>, from your current local HEAD
+- Copies the gitignored files that the repository's \`.worktreeinclude\` names (in .gitignore syntax: such as .env) into the new worktree
+- Switches the chat's working directory to the new worktree
+- Use exit_worktree to leave the worktree mid-chat (keep or remove)
+
+## Entering an existing worktree
+
+Pass \`path\` instead of \`name\` to switch the chat into a worktree that already exists (e.g., one you just created with \`git worktree add\`). On first entry from the launch directory, the path must appear in \`git worktree list\` for this repository; other paths are rejected. A path outside \`${WORKTREE_DIR}/\` asks the owner first. exit_worktree will not remove a worktree entered this way outside \`${WORKTREE_DIR}/\`; use \`action: "keep"\` to return to the original directory.
+
+Switching with \`path\` also works when the chat is already in a worktree (the previous worktree is left on disk, untouched, and only the new one is tracked for exit). In that case the target must be a worktree under \`${WORKTREE_DIR}/\` of the same repository.
+
+## Parameters
+
+- \`name\` (optional): A name for a new worktree. If neither \`name\` nor \`path\` is provided, a random name is generated.
+- \`path\` (optional): Path to an existing worktree to enter instead of creating one, of the current repository. Mutually exclusive with \`name\`.
+`;
+export const ENTER_WORKTREE_PARAMS = Object.freeze({ type: "object", properties: {
+  name: { type: "string", description: "Optional name for a new worktree. Each \"/\"-separated segment may contain only letters, digits, dots, underscores, and dashes; max 64 chars total. A random name is generated if not provided. Mutually exclusive with `path`." },
+  path: { type: "string", description: "Path to an existing worktree to switch into instead of creating a new one. Must appear in `git worktree list` for the current repo. Mutually exclusive with `name`." },
+}, additionalProperties: false });
+
+export const EXIT_WORKTREE_DESCRIPTION = `Exit a worktree session created by enter_worktree and return the chat to the original working directory.
+
+## Scope
+
+This tool ONLY operates on worktrees under \`${WORKTREE_DIR}/\` that the chat is in. It will NOT touch:
+- Worktrees outside \`${WORKTREE_DIR}/\` (such as ones you created manually with \`git worktree add\` elsewhere)
+- The directory you're in if enter_worktree was never called
+
+If called outside a worktree session, the tool is a **no-op**: it reports that no worktree session is active and takes no action. Filesystem state is unchanged.
+
+## When to Use
+
+- The owner explicitly asks to "exit the worktree", "leave the worktree", "go back", or otherwise end the worktree session
+- Do NOT call this proactively — only when the owner asks
+
+## Parameters
+
+- \`action\` (required): \`"keep"\` or \`"remove"\`
+  - \`"keep"\` — leave the worktree directory and branch intact on disk. Use this if the owner wants to come back to the work later, or if there are changes to preserve.
+  - \`"remove"\` — delete the worktree directory, and its branch too unless git refuses the delete. Use this for a clean exit when the work is done or abandoned.
+- \`discard_changes\` (optional, default false): only meaningful with \`action: "remove"\`. If the worktree has uncommitted files or commits not on the original branch, the tool will REFUSE to remove it unless this is set to \`true\`. If the tool returns an error listing changes, confirm with the owner before re-invoking with \`discard_changes: true\` (the owner is also asked on a card).
+
+## Behavior
+
+- Restores the chat's working directory to where it was before enter_worktree
+- Once exited, enter_worktree can be called again to create a fresh worktree
+`;
 export const EXIT_WORKTREE_PARAMS = Object.freeze({ type: "object", properties: {
-  action: { type: "string", enum: ["keep", "remove"], description: "\"keep\" leaves the worktree and branch on disk; \"remove\" deletes both." },
-  discard_changes: { type: "boolean", description: "Must be true to remove a worktree with uncommitted files or unmerged commits." },
+  action: { type: "string", enum: ["keep", "remove"], description: "\"keep\" leaves the worktree and branch on disk; \"remove\" deletes the worktree and, unless git refuses, its branch." },
+  discard_changes: { type: "boolean", description: "Required true when action is \"remove\" and the worktree has uncommitted files or unmerged commits. The tool will refuse and list them otherwise. Set it only after the owner has confirmed." },
 }, required: ["action"], additionalProperties: false });
 
 export const END_CONVERSATION_DESCRIPTION = "Ends this conversation: the chat's job stops and the chat takes no new messages (the owner starts a new chat to continue; its history is kept). Use it ONLY in two situations: (1) the owner keeps sending abusive messages after you gave a clear warning and failed to redirect the conversation; (2) the owner explicitly asks you to end the conversation, and then confirms when you ask whether they still want to proceed. General frustration, profanity, or a task going badly don't qualify, and neither do requests for harmful content, which you decline instead of ending the conversation.";
@@ -47,19 +113,19 @@ export const END_CONVERSATION_PARAMS = Object.freeze({ type: "object", propertie
   reason: { type: "string", enum: ["abuse", "owner_request"], description: "Why: sustained abuse after a warning, or the owner asked and confirmed." },
 }, required: ["reason"], additionalProperties: false });
 
-export const SEND_FEEDBACK_DESCRIPTION = "Drafts a feedback report about Coder for the owner to review. Nothing is sent anywhere: the draft shows as a card in the chat, kept with it, and the owner can copy it and send it on if they want. Draft one when a tool or command keeps failing, when you can't help with something the owner asked for, when the owner points out a mistake you made or you notice one, or when the owner asks you to file feedback. title: one short line. area: what it is about (a tool's name, \"commands\", \"the page\"…). details: what happened, what was expected, and the steps, plainly; no secrets or keys. At most " + FEEDBACK_MAX + " drafts a job.";
+export const SEND_FEEDBACK_DESCRIPTION = "Drafts a feedback report about Coder for the owner to review. Nothing is sent anywhere: the draft shows as a card in the chat, kept with it, and the owner can copy it and send it on if they want. Draft one when a tool or command keeps failing, when you can't help with something the owner asked for, when the owner points out a mistake you made or you notice one, or when the owner asks you to file feedback. title: one short line. area: what it is about (a tool's name, \"commands\", \"the page\"…). details: what happened, what was expected, and the steps, plainly; no secrets or keys. Each draft joins the owner's queue (at most " + FEEDBACK_QUEUE_MAX + " across all chats, the oldest dropped; a draft expires after " + FEEDBACK_TTL_DAYS + " days); the owner sees at most " + FEEDBACK_MAX + " draft cards a chat, then only a count of queued drafts.";
 export const SEND_FEEDBACK_PARAMS = Object.freeze({ type: "object", properties: {
   title: { type: "string", description: "One short line naming the problem." },
   area: { type: "string", description: "What it is about, e.g. a tool's name." },
   details: { type: "string", description: "What happened, what was expected, and how to make it happen again." },
 }, required: ["title", "details"], additionalProperties: false });
 
-export const REPORT_FINDINGS_DESCRIPTION = "Reports code-review findings as a structured list, so the owner sees them as a list card instead of text. Call it when code-review instructions tell you to (the owner's /code-review or /review), once, after you have checked each finding. Order findings most severe first, at most " + FINDINGS_MAX + "; pass an empty array when none survived. Each finding: file (repo-relative path), line (optional, 1-indexed), summary (one sentence stating the defect), failure_scenario (the concrete inputs and state that lead to the wrong output or crash), and optionally short_summary (at most 60 characters), category (a short kebab-case slug such as correctness or test-coverage), severity (high, medium or low), verdict (CONFIRMED or PLAUSIBLE, when a verify pass ran) and outcome (fixed, skipped or no_change_needed, only when re-reporting after applying fixes). level: optional, the effort level of the review. After it, answer in a sentence or two; don't repeat the list.";
+export const REPORT_FINDINGS_DESCRIPTION = "Reports code-review findings as a structured list, so the owner sees them as a list card instead of text. Call it when code-review instructions tell you to (the owner's /code-review or /review), once, after you have checked each finding. Order findings most severe first, at most " + FINDINGS_MAX + "; pass an empty array when none survived. Each finding: file (repo-relative path), line (optional, 1-indexed), summary (one sentence stating the defect), failure_scenario (the concrete inputs and state that lead to the wrong output or crash), and optionally short_summary (at most 60 characters), category (a short kebab-case slug such as correctness or test-coverage), verdict (CONFIRMED or PLAUSIBLE, when a verify pass ran) and outcome (fixed, skipped or no_change_needed, only when re-reporting after applying fixes). level: optional, the effort level of the review. After it, answer in a sentence or two; don't repeat the list.";
 export const REPORT_FINDINGS_PARAMS = Object.freeze({ type: "object", properties: {
   level: { type: "string", enum: LEVELS.slice() },
   findings: { type: "array", maxItems: FINDINGS_MAX, items: { type: "object", properties: {
     file: { type: "string" }, line: { type: "integer", minimum: 1 }, summary: { type: "string" }, failure_scenario: { type: "string" },
-    short_summary: { type: "string", maxLength: 60 }, category: { type: "string" }, severity: { type: "string", enum: ["high", "medium", "low"] },
+    short_summary: { type: "string", maxLength: 60 }, category: { type: "string" },
     verdict: { type: "string", enum: VERDICTS.slice() }, outcome: { type: "string", enum: OUTCOMES.slice() },
   }, required: ["file", "summary", "failure_scenario"], additionalProperties: false } },
 }, required: ["findings"], additionalProperties: false });
@@ -104,6 +170,17 @@ export function checkExitWorktree(args) {
   if (a.discard_changes !== undefined && typeof a.discard_changes !== "boolean") return { error: "error: discard_changes must be true or false" };
   return { args: { action: a.action, ...(a.discard_changes === true ? { discard_changes: true } : {}) } };
 }
+/**
+ * Whether EndConversation is removed by the owner's deny rules (tools-reference: "When your deny rules remove every other tool
+ * and also match EndConversation, as "*" does, Claude Code removes it too rather than leaving it as the only tool, unless an
+ * allow rule names EndConversation explicitly. A deny list that removes every other tool without matching EndConversation leaves
+ * it in place."). `denies(name)`: whether a deny rule removes that Claude Code tool; `allowNamed`: an allow rule names it.
+ */
+export const CORE_TOOLS = Object.freeze(["Bash", "Read", "Edit", "Write", "Grep", "Glob", "WebFetch", "WebSearch"]);
+export function endConversationDenied(_rules, denies, allowNamed) {
+  if (allowNamed) return false;
+  return CORE_TOOLS.every((t) => denies(t)) && denies("EndConversation");
+}
 export function checkEndConversation(args) {
   const a = args && typeof args === "object" ? args : {};
   if (a.reason !== "abuse" && a.reason !== "owner_request") return { error: "error: reason must be \"abuse\" or \"owner_request\"" };
@@ -128,7 +205,6 @@ export function cleanFinding(f, i = 0) {
   if (f.line !== undefined && f.line !== null) { if (!Number.isInteger(line) || line < 1) return "finding " + (i + 1) + ": line must be a whole number from 1"; out.line = line; }
   const short = oneLine(f.short_summary, 200); if (short) out.short_summary = short.slice(0, 60);
   const cat = oneLine(f.category, 60).toLowerCase(); if (cat) { if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(cat)) return "finding " + (i + 1) + ": category must be a short kebab-case slug"; out.category = cat; }
-  if (f.severity !== undefined) { if (!["high", "medium", "low"].includes(f.severity)) return "finding " + (i + 1) + ": severity must be high, medium or low"; out.severity = f.severity; }
   if (f.verdict !== undefined) { if (!VERDICTS.includes(f.verdict)) return "finding " + (i + 1) + ": verdict must be CONFIRMED or PLAUSIBLE"; out.verdict = f.verdict; }
   if (f.outcome !== undefined) { if (!OUTCOMES.includes(f.outcome)) return "finding " + (i + 1) + ": outcome must be fixed, skipped or no_change_needed"; out.outcome = f.outcome; }
   return out;
@@ -148,12 +224,15 @@ export const CC_INPUT_CHECKS = Object.freeze({ enter_worktree: checkEnterWorktre
 /** report_findings' answer to Coder (Claude Code's output carries the count and the findings back). */
 export function findingsResult(args) {
   const n = args.findings.length;
-  return n ? "Reported " + n + " finding" + (n === 1 ? "" : "s") + " to the owner as a list card. Don't repeat the list in your answer." : "Reported no findings to the owner. Say so in a sentence.";
+  // (Claude Code's ReportFindingsOutput: { count, level?, findings }, then Coder's line.)
+  return JSON.stringify({ count: n, ...(args.level ? { level: args.level } : {}), findings: args.findings }) + "\n" + (n ? "Reported " + n + " finding" + (n === 1 ? "" : "s") + " to the owner as a list card. Don't repeat the list in your answer." : "Reported no findings to the owner. Say so in a sentence.");
 }
 /** The findings as plain text (the card's Copy, and the hooks' tool_response). */
 export function findingsText(findings) {
   return findings.map((f, i) => (i + 1) + ". " + f.file + (f.line ? ":" + f.line : "") + (f.category ? " [" + f.category + "]" : "") + (f.severity ? " (" + f.severity + ")" : "") + " — " + f.summary + "\n   " + f.failure_scenario).join("\n");
 }
+/** send_feedback's answer when the chat already showed its three cards (the draft is queued, shown only as a count). */
+export const feedbackQuietText = (queued) => "Draft queued for the owner's review (" + queued + " in the queue). This chat already showed " + FEEDBACK_MAX + " draft cards, so the owner sees only the count. Nothing has been sent.";
 /** send_feedback's answer to Coder. */
 export const FEEDBACK_QUEUED = "Draft saved for the owner's review as a card in the chat. Nothing has been sent; the owner decides whether to send it.";
 /** end_conversation's answer (Coder answers nothing after it). */
@@ -181,9 +260,29 @@ export function enterNewScript(name) {
     "if [ -e \"$__wt\" ]; then echo \"" + MARK + " ERR A worktree named " + name.replace(/["$`\\]/g, "") + " already exists at $__wt; pass it as path to enter it\"; exit 3; fi",
     "if git -C \"$__main\" show-ref --verify --quiet \"refs/heads/$__br\"; then echo \"" + MARK + " ERR the branch $__br already exists\"; exit 3; fi",
     "mkdir -p \"$(dirname \"$__wt\")\" && git -C \"$__main\" worktree add -q -b \"$__br\" \"$__wt\" HEAD >/dev/null 2>&1 || { echo \"" + MARK + " ERR git could not create the worktree\"; exit 3; }",
-    "cd -- \"$__wt\" && echo \"" + MARK + " OK $__wt|$__br|$__main\"",
+    INCLUDE_COPY,
+    "cd -- \"$__wt\" && echo \"" + MARK + " OK $__wt|$__br|$__main|$__n\"",
   ].join("\n");
 }
+/**
+ * CLAUDE CODE'S .worktreeinclude (worktrees.md, "Copy gitignored files into worktrees"): .gitignore syntax at the repository's
+ * root; "Only files that match a pattern and are also gitignored are copied, so tracked files are never duplicated". git lists
+ * each file inside a wholly ignored folder, so a pattern naming the folder (vendor/**\/config.json) reaches its files. Other
+ * worktrees under .claude/worktrees/ are never copied; at most WORKTREE_INCLUDE_MAX files. Sets $__n to the count.
+ */
+export const WORKTREE_INCLUDE_MAX = 1000;
+const INCLUDE_COPY = [
+  "__n=0",
+  "if [ -f \"$__main/.worktreeinclude\" ]; then",
+  "  __a=$(mktemp); __b=$(mktemp)",
+  "  git -C \"$__main\" ls-files -o -i --exclude-from=\"$__main/.worktreeinclude\" 2>/dev/null | grep -v '^\\.claude/worktrees/' | sort > \"$__a\"",
+  "  git -C \"$__main\" ls-files -o -i --exclude-standard 2>/dev/null | sort > \"$__b\"",
+  "  while IFS= read -r __f; do [ -n \"$__f\" ] && [ -f \"$__main/$__f\" ] && [ ! -e \"$__wt/$__f\" ] && mkdir -p \"$(dirname \"$__wt/$__f\")\" && cp -p \"$__main/$__f\" \"$__wt/$__f\" && __n=$((__n+1)); done <<EOF2",
+  "$(comm -12 \"$__a\" \"$__b\" | head -n " + WORKTREE_INCLUDE_MAX + ")",
+  "EOF2",
+  "  rm -f \"$__a\" \"$__b\"",
+  "fi",
+].join("\n");
 /** The script that moves into an existing worktree (`approved`: the owner allowed one outside .claude/worktrees/). */
 export function enterPathScript(path, approved = false) {
   return FACTS + [
@@ -238,4 +337,8 @@ export function atRiskWords({ files, commits }) {
   return parts.join(" and ");
 }
 export const exitRefusedText = (state) => "Worktree has " + atRiskWords(state) + ". Removing it would discard this work. Confirm with the owner, then call exit_worktree again with discard_changes: true — or use action: \"keep\" to preserve the worktree.";
+/** enter_worktree's answer: Claude Code's EnterWorktreeOutput, { worktreePath, worktreeBranch?, message }. */
+export const enterResult = (worktreePath, worktreeBranch, message) => JSON.stringify({ worktreePath, ...(worktreeBranch ? { worktreeBranch } : {}), message });
+/** exit_worktree's answer: Claude Code's ExitWorktreeOutput (no tmux in Coder). */
+export const exitResult = ({ action, originalCwd, worktreePath, worktreeBranch, discardedFiles, discardedCommits, message }) => JSON.stringify({ action, originalCwd, worktreePath, ...(worktreeBranch ? { worktreeBranch } : {}), ...(discardedFiles ? { discardedFiles } : {}), ...(discardedCommits ? { discardedCommits } : {}), message });
 export const NO_WORKTREE = "No-op: there is no active worktree session to exit. Your commands are not in a worktree under " + WORKTREE_DIR + "/, so nothing was changed.";

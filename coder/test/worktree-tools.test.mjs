@@ -46,8 +46,8 @@ test("WT2 input checks", () => {
   assert.match(W.checkReportFindings({ findings: [{ file: "a.js", summary: "s" }] }).error, /failure_scenario/);
   assert.match(W.checkReportFindings({ findings: [{ file: "a.js", summary: "s", failure_scenario: "f", line: 0 }] }).error, /line/);
   assert.match(W.checkReportFindings({ findings: [{ file: "a.js", summary: "s", failure_scenario: "f", category: "Not A Slug" }] }).error, /kebab/);
-  const ok = W.checkReportFindings({ level: "high", findings: [{ file: "./a.js", line: 3, summary: "s", failure_scenario: "f", severity: "high", category: "correctness" }] });
-  assert.deepEqual(ok.args, { level: "high", findings: [{ file: "a.js", line: 3, summary: "s", failure_scenario: "f", severity: "high", category: "correctness" }] });
+  const ok = W.checkReportFindings({ level: "high", findings: [{ file: "./a.js", line: 3, summary: "s", failure_scenario: "f", category: "correctness" }] });
+  assert.deepEqual(ok.args, { level: "high", findings: [{ file: "a.js", line: 3, summary: "s", failure_scenario: "f", category: "correctness" }] });
 });
 
 test("WT3 the worktree scripts in real git: create under .claude/worktrees, refuse to remove work at risk, remove when clean", async () => {
@@ -80,12 +80,12 @@ test("WT3 the worktree scripts in real git: create under .claude/worktrees, refu
 
 test("WT4 report_findings: a findings card with the list as text; Coder is told not to repeat it", async () => {
   const ev = [];
-  const s = scripted([say("", [call("report_findings", { findings: [{ file: "src/a.js", line: 12, summary: "Off by one.", failure_scenario: "With 0 items the loop reads items[-1].", severity: "high", category: "correctness" }] }, "r1")]), say("One finding.")]);
+  const s = scripted([say("", [call("report_findings", { findings: [{ file: "src/a.js", line: 12, summary: "Off by one.", failure_scenario: "With 0 items the loop reads items[-1].", category: "correctness" }] }, "r1")]), say("One finding.")]);
   const r = await runCoder({ send: s.send, exec: async () => ({ code: 0, output: "" }), emit: (e) => ev.push(e) }, { text: "/code-review" });
   assert.equal(r.status, "done");
   const card = ev.find((e) => e.type === "findings");
   assert.equal(card.findings[0].file, "src/a.js");
-  assert.match(card.text, /src\/a\.js:12 \[correctness\] \(high\)/);
+  assert.match(card.text, /src\/a\.js:12 \[correctness\]/);
   assert.ok(toolMsgs(s).some((t) => /Reported 1 finding .*Don't repeat/.test(t)));
   // A bad finding is refused, with no card.
   const ev2 = [];
@@ -104,7 +104,8 @@ test("WT5 send_feedback: a draft card only, nothing sent (no command, no request
   assert.equal(cards.length, 3);
   assert.equal(cards[0].text, "grep keeps timing out (grep)\n\nSearching the whole repo times out after 20s.");
   assert.ok(toolMsgs(s).some((t) => /Nothing has been sent/.test(t)));
-  assert.ok(toolMsgs(s).some((t) => /at most 3 feedback drafts/.test(t)));
+  assert.ok(toolMsgs(s).some((t) => /already showed 3 draft cards/.test(t)));
+  assert.equal(ev.filter((e) => e.type === "feedback_count").length, 1);
 });
 
 test("WT6 end_conversation ends the job with no further answer; a bad reason is refused", async () => {

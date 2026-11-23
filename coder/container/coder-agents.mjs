@@ -122,10 +122,54 @@ export const SUBAGENT_SYSTEM = `You are an agent for Coder, the owner's AI codin
 - When you are done, call subagent_handback with your full report for Coder (what you did, what you found, the relevant file paths). It ends your run. Coder relays what matters to the owner, so give the essentials, with no emojis.`;
 
 /** The tools a subagent of `type` gets from `coderTools` (Coder's own definitions), and subagent_handback. */
-export function subagentTools(coderTools, type) {
-  const want = (AGENT_TYPES[type] || AGENT_TYPES["general-purpose"]).tools;
+export function subagentTools(coderTools, type, custom = null) {
+  const types = agentTypesWith(custom);
+  const want = (types[type] || AGENT_TYPES["general-purpose"]).tools;
   const list = Array.isArray(coderTools) ? coderTools : [...(coderTools || [])];
   return [...want.map((n) => list.find((t) => t && t.function && t.function.name === n)).filter(Boolean), SUBAGENT_HANDBACK_TOOL];
+}
+
+// PLUGIN AGENTS AS CUSTOM SUBAGENTS (2026-11-23; Claude Code's plugins reference: a plugin's agents/<name>.md, frontmatter
+// then the system prompt, named plugin:agent). Fields that work: name, description, tools, disallowedTools, model (ignored:
+// Coder uses the chat's model). Ignored for plugin agents, as Claude Code ignores them: hooks, mcpServers, permissionMode.
+// Never given to a subagent whatever `tools` says (Claude Code's always-removed list): agent, ask_user, end_conversation,
+// enter_plan_mode, exit_plan_mode, propose_skills, and the rest outside the general-purpose set.
+const CC_TO_CODER = { Read: "read", Edit: "edit", Write: "write", NotebookEdit: "notebook_edit", Grep: "grep", Glob: "glob", Bash: "bash", WebFetch: "web_fetch", WebSearch: "web_search" };
+const listOf = (v) => (Array.isArray(v) ? v : String(v || "").split(",")).map((x) => String(x).trim()).filter(Boolean);
+/** One agent file's text → { name, description, tools, prompt } or { error }. */
+export function parseAgentFile(text, fallbackName = "") {
+  const m = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/.exec(String(text || ""));
+  if (!m) return { error: "no frontmatter" };
+  const fm = {};
+  for (const line of m[1].split(/\r?\n/)) { const kv = /^([A-Za-z][\w-]*):\s*(.*)$/.exec(line); if (kv) fm[kv[1]] = kv[2].trim().replace(/^["']|["']$/g, ""); }
+  const name = String(fm.name || fallbackName).trim();
+  if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(name)) return { error: "bad name: lowercase letters, digits and hyphens" };
+  if (!fm.description) return { error: "no description" };
+  const base = AGENT_TYPES["general-purpose"].tools;
+  const named = fm.tools ? listOf(fm.tools).map((t) => CC_TO_CODER[t] || t) : base;
+  const deny = listOf(fm.disallowedTools).map((t) => CC_TO_CODER[t] || t);
+  return { name, description: fm.description.slice(0, 300), tools: named.filter((t) => base.includes(t) && !deny.includes(t)), prompt: m[2].trim().slice(0, 20_000) };
+}
+/** The Worker's pluginAgents ([{ plugin, file, text }]) → { "plugin:agent": { tools, note, description, prompt } }. A bad file is skipped. */
+export function pluginAgentsFrom(list) {
+  const out = {};
+  for (const a of Array.isArray(list) ? list.slice(0, 30) : []) {
+    if (!a || typeof a.plugin !== "string" || !/^[a-z0-9][a-z0-9_-]{0,63}$/i.test(a.plugin)) continue;
+    const p = parseAgentFile(a.text, String(a.file || "").replace(/^.*\//, "").replace(/\.md$/, ""));
+    if (p.error) continue;
+    // (The prefix isn't doubled: a plugin "x" with agent "x-y" is x:x-y, as Claude Code names it.)
+    out[a.plugin + ":" + p.name] = { tools: p.tools, note: p.prompt, description: p.description, plugin: a.plugin };
+  }
+  return out;
+}
+/** The kinds of subagent with the plugin agents added. */
+export const agentTypesWith = (custom) => ({ ...AGENT_TYPES, ...(custom && typeof custom === "object" ? custom : {}) });
+/** The agent tool, its subagent_type list naming the plugin agents too. */
+export function agentToolFor(custom) {
+  const names = Object.keys(custom && typeof custom === "object" ? custom : {});
+  if (!names.length) return AGENT_TOOL;
+  const f = AGENT_TOOL.function;
+  return { type: "function", function: { ...f, description: f.description + " Plugin agents: " + names.map((n) => n + " (" + custom[n].description + ")").join("; ") + ".", parameters: { ...f.parameters, properties: { ...f.parameters.properties, subagent_type: { ...f.parameters.properties.subagent_type, enum: [...Object.keys(AGENT_TYPES), ...names] } } } } };
 }
 
 /** A finished subagent's report: what it handed back, else its last words. */
@@ -307,7 +351,7 @@ export async function agentToolCall(c, k) {
     emit({ type: "bash", id: c.id, tool: "agent", verb: "Started an agent", command: description || oneLine(prompt, 80) });
     if (k.isSub) return no("error: a subagent can't start agents of its own");
     if (!prompt) return no("error: give prompt: the task for the agent");
-    if (!AGENT_TYPES[type]) return no("error: subagent_type is one of " + Object.keys(AGENT_TYPES).join(", "));
+    if (!agentTypesWith(k.custom)[type]) return no("error: subagent_type is one of " + Object.keys(agentTypesWith(k.custom)).join(", "));
     const name = oneLine(args.name, 40);
     if (name && [...k.agents.values()].some((a) => a.name === name)) return no("error: an agent named “" + name + "” already exists: send_message continues it");
     if (!k.budget.take()) return no(capNote());
@@ -376,7 +420,7 @@ export async function agentToolCall(c, k) {
       await Promise.all(fresh.map(async (p, j) => {
         if (!k.budget.take()) { capped++; done.set(p.key, { ok: null }); return; }
         agentsRun++;
-        const type = AGENT_TYPES[p.subagent_type] ? p.subagent_type : "general-purpose";
+        const type = agentTypesWith(k.custom)[p.subagent_type] ? p.subagent_type : "general-purpose";
         const prompt = p.prompt + (p.schema ? "\n\nYour report (subagent_handback's message) must be only JSON matching this JSON Schema, with no other words:\n" + JSON.stringify(p.schema) : "");
         const label = p.label || "step " + (base + j + 1);
         const r = await run({ type, prompt, messages: [], label, tag: runId + "-" + (base + j + 1) + "-" });

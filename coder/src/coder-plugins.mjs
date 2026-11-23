@@ -37,49 +37,53 @@ export const PLUGIN_CATALOG = Object.freeze([
     skills: [sk("review-changes", "Review this chat's changes for bugs, edge cases and missing tests before pushing.",
       "Review the changes on this chat's branch.\n\n1. Run `git diff` against the base branch and read every changed file in full, not only the diff.\n2. For each change, look for: wrong logic, off-by-one errors, unhandled errors and empty inputs, races, secrets in code, and anything that breaks an existing caller.\n3. Check that each behaviour change has a test; name the tests that are missing.\n4. Report findings as a short list, most serious first, each with file:line and a one-line fix. Say plainly when you found nothing.")],
     commands: [sk("pre-push", "Run the checks a change needs before it is pushed.", "Before pushing: run the repository's tests and linter (read package.json, Makefile or CI config to find them), fix what fails, then summarise what ran and what passed.")],
-    agents: [], hooks: [], connectors: [],
+    // (Its agent, written as Claude Code's agents/<name>.md: frontmatter, then the system prompt. The agent tool runs it as
+    // subagent_type "code-review:code-reviewer".)
+    agents: [{ file: "code-reviewer.md", text: "---\nname: code-reviewer\ndescription: Reviews changed code for bugs, edge cases and missing tests. Use after a change is written, before it is pushed.\ntools: Read, Grep, Glob, Bash\n---\nYou are a careful code reviewer. Read the diff against the base branch (git diff) and every changed file in full. Report each real problem with its file:line, what goes wrong and the input that triggers it, most severe first. Change nothing: you only read and report." }],
+    hooks: {}, connectors: [],
   },
   {
     name: "testing", category: "Quality", roles: [],
     description: "Write tests in the repository's own style, run them, and keep them fast.",
     skills: [sk("write-tests", "Add tests for a change, in the style the repository already uses.",
       "Find how this repository tests things (its test folder, framework and naming). Write tests for the change: the normal case, the edge cases, and one for each bug fixed. Run them, and make sure a test fails without the change. Keep each test small and independent.")],
-    commands: [], agents: [], hooks: [], connectors: [],
+    // (Its hooks, as a plugin's hooks/hooks.json: they join the owner's hooks while the plugin is installed.)
+    commands: [], agents: [], hooks: { PostToolUse: [{ matcher: "Edit|Write", hooks: [{ type: "command", command: "echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"(testing plugin) A file changed: add or update a test for it before you finish.\"}}'" }] }] }, connectors: [],
   },
   {
     name: "frontend", category: "Web", roles: ["frontend"],
     description: "Polished, accessible web pages: layout on phones, keyboard use, contrast and loading states.",
     skills: [sk("ui-polish", "Check and improve a page's layout, accessibility and states.",
       "For the page or component in question: check it at phone width (375px) and desktop; every control reachable and usable by keyboard with a visible focus; labels on inputs and buttons; text contrast at least 4.5:1; loading, empty and error states drawn. Fix what is missing, then show a screenshot.")],
-    commands: [], agents: [], hooks: [], connectors: [],
+    commands: [], agents: [], hooks: {}, connectors: [],
   },
   {
     name: "database", category: "Data", roles: ["backend"],
     description: "Safe schema changes and queries, with the Neon and Supabase connectors.",
     skills: [sk("safe-migrations", "Plan and write a database migration that can't lose data.",
       "Write migrations that are safe to run on live data: add before you remove, backfill in batches, never drop a column in the same release that stops writing it, and give every migration a way back. Show the SQL and say how long it locks each table.")],
-    commands: [], agents: [], hooks: [], connectors: ["Neon", "Supabase"],
+    commands: [], agents: [], hooks: {}, connectors: ["Neon", "Supabase"],
   },
   {
     name: "project-tracking", category: "Planning", roles: [],
     description: "Turn Linear issues into branches and pull requests, and keep the issue up to date.",
     skills: [sk("issue-to-pr", "Take an issue from Linear to a finished change.",
       "Read the issue with the Linear connector, restate what done looks like, make the change with tests, and leave a comment on the issue saying what changed and where.")],
-    commands: [], agents: [], hooks: [], connectors: ["Linear"],
+    commands: [], agents: [], hooks: {}, connectors: ["Linear"],
   },
   {
     name: "monitoring", category: "Operations", roles: ["devops"],
     description: "Find and fix production errors from Sentry, and read Cloudflare logs.",
     skills: [sk("debug-from-sentry", "Fix an error reported in Sentry.",
       "Read the Sentry issue (stack trace, release, how often), find the code it points at, reproduce it with a test, fix it, and say which release the fix will reach.")],
-    commands: [], agents: [], hooks: [], connectors: ["Sentry", "Cloudflare Logs"],
+    commands: [], agents: [], hooks: {}, connectors: ["Sentry", "Cloudflare Logs"],
   },
   {
     name: "docs-writer", category: "Writing", roles: [],
     description: "Clear READMEs, changelogs and onboarding guides for the repository.",
     skills: [sk("write-docs", "Write or update documentation for the repository.", "Write for a newcomer: what it is, how to run it, how to test it, where things live. Short sentences, real commands that work, no guesses: run each command before you write it down.")],
     commands: [sk("changelog", "Write a changelog entry from the branch's commits.", "Read the commits on this branch since the base, group them into Added, Changed and Fixed, and write a short changelog entry in plain words.")],
-    agents: [], hooks: [], connectors: [],
+    agents: [], hooks: {}, connectors: [],
   },
 ]);
 
@@ -120,13 +124,34 @@ export function cleanSkill(raw) {
   return { name, description: clip(raw.description, 250).replace(/\s+/g, " ").trim() || body.split("\n")[0].slice(0, 250), body };
 }
 
+/** Each hook handler as "Event (matcher)", for the page. */
+export function hookEvents(h) {
+  if (!h || typeof h !== "object" || Array.isArray(h)) return [];
+  const out = [];
+  for (const [ev, groups] of Object.entries(h.hooks && typeof h.hooks === "object" ? h.hooks : h)) for (const g of Array.isArray(groups) ? groups : []) for (const _h of g && Array.isArray(g.hooks) ? g.hooks : []) out.push(ev + (g.matcher ? " (" + g.matcher + ")" : ""));
+  return out;
+}
+/** How many hook handlers a plugin's hooks (Claude Code's hooks.json shape, { Event: [{ matcher, hooks: [...] }] }) hold. */
+export function hookCount(h) {
+  if (!h || typeof h !== "object" || Array.isArray(h)) return 0;
+  let n = 0;
+  for (const groups of Object.values(h.hooks && typeof h.hooks === "object" ? h.hooks : h)) for (const g of Array.isArray(groups) ? groups : []) n += g && Array.isArray(g.hooks) ? g.hooks.length : 0;
+  return n;
+}
+/** A plugin agent's name (its file's frontmatter name, else the file name). */
+export function agentName(a) {
+  if (!a) return "";
+  if (typeof a === "string") return a;
+  const m = /^---\r?\n[\s\S]*?^name:\s*(.+)$/m.exec(String(a.text || ""));
+  return (m ? m[1].trim().replace(/^["']|["']$/g, "") : String(a.file || a.name || "").replace(/\.md$/, "")).slice(0, 64);
+}
 /** What a plugin contains, in a few words ("2 skills, 1 command, Neon and Supabase connectors"). */
 export function contentsOf(p) {
   const n = (a, w) => (a && a.length ? a.length + " " + w + (a.length === 1 ? "" : "s") : "");
-  return [n(p.skills, "skill"), n(p.commands, "command"), n(p.agents, "agent"), n(p.hooks, "hook"), p.connectors && p.connectors.length ? p.connectors.join(" and ") + " connector" + (p.connectors.length === 1 ? "" : "s") : ""].filter(Boolean).join(", ") || "nothing yet";
+  return [n(p.skills, "skill"), n(p.commands, "command"), n(p.agents, "agent"), n(Array.from({ length: hookCount(p.hooks) }), "hook"), p.connectors && p.connectors.length ? p.connectors.join(" and ") + " connector" + (p.connectors.length === 1 ? "" : "s") : ""].filter(Boolean).join(", ") || "nothing yet";
 }
 /** A plugin as the page and the machine see it (no skill text). */
-export const pluginOut = (p, installed = false) => ({ name: p.name, description: p.description, category: p.category || "", contents: contentsOf(p), skills: (p.skills || []).map((s) => s.name), commands: (p.commands || []).map((s) => s.name), agents: (p.agents || []).map((a) => a.name || String(a)), hooks: (p.hooks || []).map((h) => (h && h.event) || String(h)), connectors: [...(p.connectors || [])], installed, ...(p.at ? { at: p.at } : {}) });
+export const pluginOut = (p, installed = false) => ({ name: p.name, description: p.description, category: p.category || "", contents: contentsOf(p), skills: (p.skills || []).map((s) => s.name), commands: (p.commands || []).map((s) => s.name), agents: (p.agents || []).map(agentName), hooks: hookEvents(p.hooks), connectors: [...(p.connectors || [])], installed, ...(p.at ? { at: p.at } : {}) });
 
 export async function readPlugins(bucket, uid) {
   const v = await getJson(bucket, pluginsKey(uid), []);
@@ -197,6 +222,62 @@ export async function ownerSkills(bucket, uid) {
   return out.slice(0, SAVED_SKILLS_MAX * 2);
 }
 
+/**
+ * WHAT INSTALLED PLUGINS ADD TO A TURN (Claude Code: "Plugin hooks run from the moment the plugin loads"; a plugin's agents
+ * are subagents the Agent tool can use): { hooks: [{ plugin, hooks }], agents: [{ plugin, file, text }] }. The machine merges
+ * the hooks with the owner's (server.mjs hooksForTurn) and reads each agent file as a custom subagent named plugin:agent
+ * (container/coder-agents.mjs parseAgentFile).
+ */
+export async function ownerPluginParts(bucket, uid) {
+  const out = { hooks: [], agents: [] };
+  for (const p of await readPlugins(bucket, uid)) {
+    if (hookCount(p.hooks)) out.hooks.push({ plugin: p.name, hooks: p.hooks.hooks && typeof p.hooks.hooks === "object" ? p.hooks.hooks : p.hooks });
+    for (const a of Array.isArray(p.agents) ? p.agents : []) if (a && typeof a.text === "string") out.agents.push({ plugin: p.name, file: clip(a.file, 120), text: clip(a.text, 20_000) });
+  }
+  out.agents = out.agents.slice(0, 30);
+  return out;
+}
+
+/**
+ * CLAUDE CODE'S SendFeedback QUEUE (tools-reference: "The queue holds 10 drafts across all your sessions, and when Claude
+ * queues an eleventh, Claude Code deletes the oldest"; "A draft you leave in the queue expires after 30 days"): the owner's
+ * drafts at coder/<uid>/feedback-drafts.json, [{ id, title, area, details, chat, at }]. Nothing is sent anywhere.
+ */
+export const FEEDBACK_QUEUE_MAX = 10;
+export const FEEDBACK_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const feedbackKey = (uid) => "coder/" + uid + "/feedback-drafts.json";
+export async function readFeedback(bucket, uid, now = Date.now()) {
+  const v = await getJson(bucket, feedbackKey(uid), []);
+  return (Array.isArray(v) ? v : []).filter((d) => d && typeof d.id === "string" && now - (Number(d.at) || 0) < FEEDBACK_TTL_MS).slice(-FEEDBACK_QUEUE_MAX);
+}
+/** Queues one draft: → { ok, id, queued, inChat, dropped }. */
+export async function queueFeedback(bucket, uid, draft, chat = "", now = Date.now()) {
+  const title = clip(draft && draft.title, 200).trim(), details = clip(draft && draft.details, 8000).trim(), area = clip(draft && draft.area, 80).trim();
+  if (!title || !details) return { error: "error: give a title and the details" };
+  const list = await readFeedback(bucket, uid, now);
+  const id = "fb" + Array.from(crypto.getRandomValues(new Uint8Array(5)), (b) => b.toString(16).padStart(2, "0")).join("");
+  const where = clip(chat, 200);
+  list.push({ id, title, details, ...(area ? { area } : {}), chat: where, at: now });
+  const dropped = Math.max(0, list.length - FEEDBACK_QUEUE_MAX);
+  const kept = list.slice(dropped);
+  await putJson(bucket, feedbackKey(uid), kept);
+  return { ok: true, id, queued: kept.length, inChat: kept.filter((d) => d.chat === where).length, dropped };
+}
+export async function removeFeedback(bucket, uid, id) {
+  const list = await readFeedback(bucket, uid);
+  const next = list.filter((d) => d.id !== id);
+  if (next.length === list.length) return { error: "No draft has that id." };
+  await putJson(bucket, feedbackKey(uid), next);
+  return { ok: true };
+}
+
+/** Claude Code's keyword phrases (1 to 8, each 1 to 64 characters) as one query; a plain query string still works. */
+export function keywordsQuery(body) {
+  const k = body && body.keywords;
+  if (Array.isArray(k)) return k.filter((x) => typeof x === "string").map((x) => x.slice(0, 64)).slice(0, 8).join(" ");
+  return String((body && body.query) || "");
+}
+
 /** Word search: each entry with the words of the query it holds, best first. */
 export function searchRows(rows, query, text) {
   const words = String(query || "").toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length > 1);
@@ -233,12 +314,13 @@ export async function pluginsApi(env, bucket, uid, meta, body) {
   const a = String((body && body.action) || "");
   if (a === "plugins_list") {
     const mine = await readPlugins(bucket, uid);
-    return { ok: true, plugins: mine.map((p) => pluginOut(p, true)) };
+    const q = keywordsQuery(body);
+    return { ok: true, plugins: (q.trim() ? searchRows(mine, q, pluginText) : mine).map((p) => pluginOut(p, true)) };
   }
   if (a === "plugins_search") {
     const mine = await readPlugins(bucket, uid), names = new Set(mine.map((p) => p.name));
     const all = [...mine, ...PLUGIN_CATALOG.filter((p) => !names.has(p.name))];
-    return { ok: true, plugins: searchRows(all, body.query, pluginText).slice(0, 10).map((p) => pluginOut(p, names.has(p.name))) };
+    return { ok: true, plugins: searchRows(all, keywordsQuery(body), pluginText).slice(0, 10).map((p) => pluginOut(p, names.has(p.name))) };
   }
   if (a === "plugins_install") return installPlugin(bucket, uid, body.name);
   if (a === "skills_owner") return { ok: true, skills: await ownerSkills(bucket, uid) };
@@ -246,6 +328,7 @@ export async function pluginsApi(env, bucket, uid, meta, body) {
     const have = new Set((await readSavedSkills(bucket, uid)).map((s) => s.name.toLowerCase()));
     return { ok: true, skills: SKILL_CATALOG.map((s) => ({ name: s.name, description: s.description, saved: have.has(s.name) })) };
   }
+  if (a === "feedback_queue") return queueFeedback(bucket, uid, body, String((meta && meta.branch) || ""));
   if (a === "guide_share") return shareGuide(env, bucket, uid, { ...body, repo: meta && meta.repo });
   return null;
 }
@@ -256,9 +339,15 @@ export async function pluginsApi(env, bucket, uid, meta, body) {
  * { name } (a catalog skill) saves; DELETE /owner-skills/<name> removes. null when the path is not one of these.
  */
 export async function handlePluginRoutes(request, bucket, uid, parts) {
-  if (parts[0] !== "plugins" && parts[0] !== "owner-skills") return null;
+  if (parts[0] !== "plugins" && parts[0] !== "owner-skills" && parts[0] !== "feedback") return null;
   if (!bucket) return json({ error: "storage is not available" }, 503);
   const m = request.method;
+  // (Claude Code's /feedback queue: GET lists the drafts, newest first; DELETE /feedback/<id> discards one.)
+  if (parts[0] === "feedback") {
+    if (parts.length === 1 && m === "GET") return json({ ok: true, drafts: (await readFeedback(bucket, uid)).reverse() });
+    if (parts.length === 2 && m === "DELETE") { const r = await removeFeedback(bucket, uid, decodeURIComponent(parts[1])); return json(r, r.ok ? 200 : 404); }
+    return json({ error: "method" }, 405);
+  }
   const body = async () => { try { return await request.json(); } catch { return {}; } };
   if (parts[0] === "plugins") {
     if (parts.length === 1 && m === "GET") {

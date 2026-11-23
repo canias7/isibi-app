@@ -49,6 +49,7 @@
 .cpx-modal .cpx-li { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .cpx-modal .cpx-empty { font-size: 13px; color: #8a857c; margin: 6px 0; padding: 0; }
 .cpx-modal .cpx-note { padding: 8px 0 0; }
+#gfApp .cpx-fbcount { font-size: 13px; color: #6b6760; margin: 6px 0; }
 @media (max-width: 520px) { #gfApp .cpx-show, #gfApp .cpx-url { padding-left: 16px; } #gfApp .cpx-body { margin-left: 16px; } }
 @media (prefers-color-scheme: dark) {
   #gfApp .cpx-card { background: #262624; border-color: #3a3936; }
@@ -58,4 +59,24 @@
   #gfApp .cpx-btn, #gfApp .cpx-chip, #gfApp .cpx-in { background: #2f2e2b; border-color: #45433f; color: #eeece6; }
   #gfApp .cpx-body { background: #1f1f1d; color: #d8d5ce; }
   #gfApp .cpx-foot, #gfApp .cpx-prop { border-color: #3a3936; }
+  #gfApp .cpx-fbcount { color: #a8a49c; }
+  /* The two sidebar panels, Plugins and Skills (2026-11-23, second pass), dark as the chat's cards are. */
+  .cpx-modal .cpx-panel { background: #262624; color: #eeece6; box-shadow: 0 12px 40px rgba(0, 0, 0, .5); }
+  .cpx-modal .cpx-panel .cd-sure-title { color: #eeece6; }
+  .cpx-modal .cpx-panel .cd-sure-text { color: #b9b5ad; }
+  .cpx-modal .cpx-name b, .cpx-modal .cpx-li b { color: #eeece6; }
+  .cpx-modal .cpx-name span, .cpx-modal .cpx-note { color: #c9c6bf; }
+  .cpx-modal .cpx-name small, .cpx-modal .cpx-li small, .cpx-modal .cpx-gh, .cpx-modal .cpx-empty, .cpx-modal .cpx-seg i { color: #9b978f; }
+  .cpx-modal .cpx-ic { background: #33322f; color: #d8d5ce; }
+  .cpx-modal .cpx-btn, .cpx-modal .cpx-in { background: #2f2e2b; border-color: #45433f; color: #eeece6; }
+  .cpx-modal .cpx-btn:hover { background: #3a3936; }
+  .cpx-modal .cpx-rm { color: #f2877e; }
+  .cpx-modal .cpx-on { color: #7fd1a0; }
+  .cpx-modal .cpx-err { color: #f2877e; }
+  .cpx-modal .cpx-seg { border-color: #3a3936; }
+  .cpx-modal .cpx-seg button { color: #c9c6bf; }
+  .cpx-modal .cpx-seg button.on { background: #3a3936; color: #eeece6; }
+  .cpx-modal .cpx-cat { color: #b9b5ad; border-color: #45433f; }
+  .cpx-modal .cpx-prow, .cpx-modal .cpx-sl li { border-top-color: #3a3936; }
+  .cpx-modal .cpx-panel .cd-notify-done { background: #eeece6; color: #1f1e1c; border-color: #eeece6; }
 }

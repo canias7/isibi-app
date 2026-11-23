@@ -74,7 +74,7 @@ export function skillLoaded(skill, args = "") {
 
 /** The owner's "/name args" when name is a skill they may run: { skill, args } or null. */
 export function slashSkill(text, skills) {
-  const m = /^\/([A-Za-z0-9][\w-]{0,63})(?:\s+([\s\S]*))?$/.exec(String(text || "").trim());
+  const m = /^\/([A-Za-z0-9][\w-]{0,63}(?::[A-Za-z0-9][\w-]{0,63})?)(?:\s+([\s\S]*))?$/.exec(String(text || "").trim());
   if (!m) return null;
   const skill = (Array.isArray(skills) ? skills : []).find((s) => s && s.user && s.name.toLowerCase() === m[1].toLowerCase());
   return skill ? { skill, args: String(m[2] || "").trim() } : null;
