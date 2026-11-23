@@ -4,6 +4,24 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-23: The Claude Code vs Coder sheet, from all of Claude Code's docs
+
+You asked for everything from Claude Code's docs, in the layout from your picture. The file is [`docs/claude-code-vs-coder.xlsx`](claude-code-vs-coder.xlsx), with a short guide in [`docs/claude-code-vs-coder.md`](claude-code-vs-coder.md).
+
+**What's in it:**
+- 15,866 rows, one per feature, setting or behaviour, each with what Claude Code does, the docs page, what Coder does, and whether it's the same, different, missing from Coder, or only in Coder.
+- A Summary tab with an icon per section, a tab per section, and an Everything tab.
+- A Changelog tab with every changelog line word for word (10,322 lines), each linked to its row.
+
+**How complete it is:**
+- Helpers went through all 209 pages three times.
+- An independent check of 19 pages and page parts afterwards found 98% of their items in the sheet. Every gap it found was added.
+- What was still missing was small, such as the exact wording of the announcement-email templates.
+
+**Coder things the checks noticed (not changed):**
+- When Coder summarizes a long chat in the middle of a job, it gives your summary hooks an empty text where Claude Code gives "nothing" (null). Coder's other automatic summary already gives null.
+- Coder runs a command even on a full disk; Claude Code doesn't start it. Coder's way lets a command that frees space still run.
+
 ## 2026-11-23: Live test of the 8 "Claude Code way" batches, and the notebook fix
 
 You said deploy, so all 8 batches went live (deploy 277) and I tried them on gofarther.dev with Grok on Low, in two throwaway chats (both deleted after).
