@@ -23,6 +23,7 @@ import https from "node:https";
 import tls from "node:tls";
 import net, { isIP, BlockList } from "node:net";
 import { asText } from "./coder-text.mjs";
+import { workflowStep } from "./coder-agents.mjs";
 
 // HOW MUCH ONE READ GIVES (tool-by-tool comparison with Claude Code, 2026-11-08: Coder's read gave 400 lines and
 // its answer was then cut to 12,000 characters, the middle dropped, so the middle of a long file could be missed;
@@ -2460,7 +2461,9 @@ export async function toolSendFile({ path }) {
  */
 export const errorLine = (e) => { const m = String((e && e.message) || e); return "error: " + (e && e.whole === true ? m : m.slice(0, e && e.long === true ? 4000 : 600)); };
 
-export const TOOLS = { page_file: toolPageFile, save_file: toolSaveFile, save_upload: toolSaveUpload, send_file: toolSendFile, ps_parse: toolPsParse, save_picture: toolSavePicture, fit_picture: toolFitPicture, lsp: toolLsp, lsp_file: toolLspFile, lsp_take: toolLspTake, read: toolRead, write: toolWrite, edit: toolEdit, notebook_edit: toolNotebookEdit, file_check: toolFileCheck, grep: toolGrep, glob: toolGlob, web_fetch: toolWebFetch, mtimes: toolMtimes, listing: toolListing, changed: toolChanged, seen: toolSeen, snap: toolSnap, snapdiff: toolSnapDiff, http_hook: toolHttpHook, stamps: toolStamps, ws_watch: toolWsWatch };
+// A WORKFLOW SCRIPT, ONE PASS (Claude Code's Workflow, 2026-11-23; coder-agents.mjs): run here, as `dev`, never in Coder's service.
+async function toolWorkflowStep(args) { return JSON.stringify(await workflowStep(args)); }
+export const TOOLS = { page_file: toolPageFile, save_file: toolSaveFile, save_upload: toolSaveUpload, send_file: toolSendFile, ps_parse: toolPsParse, save_picture: toolSavePicture, fit_picture: toolFitPicture, lsp: toolLsp, lsp_file: toolLspFile, lsp_take: toolLspTake, read: toolRead, write: toolWrite, edit: toolEdit, notebook_edit: toolNotebookEdit, file_check: toolFileCheck, grep: toolGrep, glob: toolGlob, web_fetch: toolWebFetch, mtimes: toolMtimes, listing: toolListing, changed: toolChanged, seen: toolSeen, snap: toolSnap, snapdiff: toolSnapDiff, http_hook: toolHttpHook, stamps: toolStamps, ws_watch: toolWsWatch, workflow_step: toolWorkflowStep };
 
 // Run as a command: node coder-tools.mjs <base64 of {"tool": ..., "args": {...}}>
 if (process.argv[1] && import.meta.url === "file://" + process.argv[1]) {

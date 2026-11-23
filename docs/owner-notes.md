@@ -4,6 +4,18 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-23: Coder can hand work to helper agents, and run workflows
+
+Coder now has Claude Code's agent tools:
+- **Agent**: Coder starts a helper agent for a big or separate task (a general helper, a read-only searcher, or a read-only planner). It works in its own conversation and comes back with one report. You see its steps in the chat under its name.
+- **SubagentHandback**: how a helper gives its final report back.
+- **ListAgents** and **SendMessage**: Coder can see the helpers it started and send one a follow-up; the helper carries on with everything it already knew.
+- **Workflow**: a small script that runs many helpers (side by side where it can) and gives one combined result, for jobs like checking many files.
+
+**Cost limits:** at most 3 helpers at the same time and 10 in one job, workflows included. Helpers use the chat's own model and effort (Low unless you set it). The limits can be changed on the machine (`CODER_MAX_SUBAGENTS_AT_ONCE`, `CODER_MAX_SUBAGENTS_TOTAL`). Helpers can't ask you anything: a step that would need your OK is refused. Not available from GitHub.
+
+Not yet tried live in the browser.
+
 ## 2026-11-23: The Claude Code vs Coder sheet, from all of Claude Code's docs
 
 You asked for everything from Claude Code's docs, in the layout from your picture. The file is [`docs/claude-code-vs-coder.xlsx`](claude-code-vs-coder.xlsx), with a short guide in [`docs/claude-code-vs-coder.md`](claude-code-vs-coder.md).

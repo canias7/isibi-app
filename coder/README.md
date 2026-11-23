@@ -2635,6 +2635,18 @@ never through a link, at most 5 MB) and handed with the job's pass to the Worker
 size and caption, Download, and Preview for a picture (the page's rules show pictures, not PDFs, from data: addresses) unless `display` is
 `attach`; `proactive` also sends a notification.
 
+SUBAGENTS AND WORKFLOWS (2026-11-23, `coder-agents.mjs`): Claude Code's Agent,
+SubagentHandback, ListAgents, SendMessage and Workflow as `agent`, `subagent_handback`,
+`list_agents`, `send_message` (held back until `tool_search` loads it) and `workflow`.
+A subagent (general-purpose, Explore or Plan) runs on Coder's own loop, as Gloopy's
+helpers do, with the chat's model and effort, its own tools, and asks refused instead
+of shown as cards; `subagent_handback` ends it with its report; `send_message` resumes
+it with its whole history. A workflow's script runs in the sandbox as `dev`
+(`coder-tools.mjs workflow_step`), pass after pass, its `agent()` calls run as
+subagents in between; `resumeFromRunId` reuses the calls already done. Cost caps: at
+most 3 subagents at once and 10 per job, workflows included
+(`CODER_MAX_SUBAGENTS_AT_ONCE`, `CODER_MAX_SUBAGENTS_TOTAL`). Not offered from GitHub.
+
 HOW MUCH ONE READ GIVES (batch 8, MISS-79): `CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS`
 (or `CODER_FILE_READ_MAX_OUTPUT_TOKENS`), in the environment or a repository's
 settings `env`, sets it, its tokens at 4 characters each (`readTokensChars`); unset,
