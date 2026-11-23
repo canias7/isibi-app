@@ -4,6 +4,13 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-23: Five tool helpers merged, and the comparison sheet brought up to date
+
+Five helpers' work is now together on one branch (their own entries follow, below). All of Coder's tests pass (1,782 of 1,783; the one left is the known CD12 check, which fails only because of a local .claude folder).
+- **Helper agents and plugin agents together:** a plugin's agents (such as code-review's "code-reviewer") and your repository's own `.claude/agents/` helpers are now read the same way, listed together, and can both be started by Coder.
+- **The sheet** ([`docs/claude-code-vs-coder.xlsx`](claude-code-vs-coder.xlsx)): 106 rows checked against the merged code. "Tool parameters & limits" is now 336 the same, 105 different, 54 Claude Code only (was 271, 122, 102). Whole sheet: 2,181 the same, 3,103 different, 12,555 Claude Code only, 92 Coder only.
+- Not yet tried live on gofarther.dev.
+
 ## 2026-11-23: A few more of Claude Code's tool settings in Coder
 
 Small gaps from the comparison sheet, closed so Coder's tools take the same inputs as Claude Code's:
