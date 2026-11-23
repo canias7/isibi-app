@@ -160,6 +160,7 @@ import { descriptionOk, DESCRIPTION_MAX } from "../container/coder-envtools.mjs"
 import { modelAccess } from "./coder-model-gate.mjs";
 import { PROJECT_ID, SETUP_SCRIPT_MAX, scrub, secretVar } from "../container/coder-checks.mjs";
 import { handlePluginRoutes, sharedGuide, ownerSkills, ownerPluginParts } from "./coder-plugins.mjs";
+import { handleOwnerProjectRoutes } from "./coder-owner-projects.mjs";
 // (The check for a secret-looking variable is shared with Coder's machine, which tells Grok of them: coder-checks.mjs.)
 export { secretVar };
 import { okHost, okPattern, HEADER_RE, KEY_RE, PREFIXES, PATH_RE, headerValue, normSecret, normNetwork, parseEnv, toEnv, normConfig, configSecrets, SECRET_KINDS, notSentWhy, varsDropped } from "../container/coder-secrets.mjs";
@@ -1682,6 +1683,8 @@ export async function handleCoder(request, env, ctx, deps) {
 
   // (Plugins and the owner's saved skills, and a shared onboarding guide: coder-plugins.mjs, 2026-11-23.)
   { const p = await handlePluginRoutes(request, bucket, uid, parts); if (p) return p; }
+  // (The owner's projects, Claude Code's Projects tool: coder-owner-projects.mjs, 2026-11-23.)
+  { const p = await handleOwnerProjectRoutes(request, bucket, uid, parts); if (p) return p; }
   if (parts[0] === "shared" && parts[1] && parts.length === 2 && request.method === "GET") { const g = await sharedGuide(bucket, parts[1], uid); if (g) return json(g); }
   if (parts[0] === "shared" && parts[1] && parts.length === 2 && request.method === "GET") return sharedChat(bucket, parts[1], uid);
   if (parts[0] !== "projects") return json({ error: "not found" }, 404);

@@ -3860,7 +3860,8 @@
           '<button type="button" class="gf-nav gf-subnav" id="cdSideConnectors">Connectors</button>' +
           '<button type="button" class="gf-nav gf-subnav" id="cdSideSkills">Skills</button>' +
           '<button type="button" class="gf-nav gf-subnav" id="cdSideHooks">Hooks</button>' +
-          '<button type="button" class="gf-nav gf-subnav" id="cdSideRules">Permission rules</button></div>' : '') +
+          '<button type="button" class="gf-nav gf-subnav" id="cdSideRules">Permission rules</button>' +
+          '<button type="button" class="gf-nav gf-subnav" id="cdSideProjects">Projects</button></div>' : '') +
         '<button type="button" class="gf-nav" id="cdSideMore" aria-expanded="' + !!S.sideMore + '"' + (ready ? '' : ' disabled') + '>' + SIDE_ICON.more + 'More<span class="gf-chev' + (S.sideMore ? ' open' : '') + '">' + SIDE_ICON.chev + '</span></button>' +
         (S.sideMore && ready ? '<div class="gf-sub" role="group" aria-label="More">' +
           '<button type="button" class="gf-nav gf-subnav" id="cdSideSettings">Settings</button>' +
@@ -3893,6 +3894,8 @@
     on(sd.tools, '#cdSideSettings', 'click', () => showSettings());
     on(sd.tools, '#cdSideNotify', 'click', () => showNotifications());
     on(sd.tools, '#cdSidePluginsList', 'click', () => { if (window.CoderPluginsUI) window.CoderPluginsUI.pluginsPanel(); });
+    // (The owner's projects, Claude Code's Projects tool: coder-projects.js, 2026-11-23.)
+    on(sd.tools, '#cdSideProjects', 'click', () => { if (window.CoderProjectsUI) window.CoderProjectsUI.projectsPanel(); });
     // (The repository's skills, and the owner's saved and plugins' skills: coder-plugins.js. Without it, the list as before.)
     on(sd.tools, '#cdSideSkills', 'click', () => window.CoderPluginsUI ? window.CoderPluginsUI.skillsPanel(S.project ? skillsSlash().map(([c, d]) => [c, d]) : null) : sideList('Skills', S.project ? skillsSlash().map(([c, d]) => [c, d]) : null,
       'Skills are saved instructions in the repository’s .claude/skills folder. Type / in the message box to use one.', 'Open a chat to see its repository’s skills.', 'This chat’s repository has no skills yet.'));
@@ -5980,6 +5983,7 @@
   };
   // (Plugins and skills on the page: coder-plugins.js, 2026-11-23.)
   if (!GLOOPY && window.CoderPluginsUI) window.CoderPluginsUI.init({ call, draw: () => draw(), project: () => S.project, events: () => S.events || [] });
+  if (!GLOOPY && window.CoderProjectsUI) window.CoderProjectsUI.init({ call });
   return view;
   }
   window.CoderView = makeView('coder');
