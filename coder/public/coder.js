@@ -389,7 +389,7 @@
       if (e.type === 'user' && typeof e.text === 'string') out.push('<div class="cd-user"><div class="cd-bubble">' + esc(e.text) + '</div></div>');
       else if ((e.type === 'text' || e.type === 'done') && typeof e.text === 'string' && e.text.trim() && e.quiet !== true) out.push('<div class="cd-ai">' + prose(e.text) + '</div>');
       else if (e.type === 'bash') out.push('<div class="cd-shared-step">' + esc(String((e.verb || 'Ran') + ' ' + String(e.command || e.tool || '').split('\n')[0]).slice(0, 200)) + '</div>');
-      else if (e.type === 'note' && typeof e.text === 'string' && !e.ctxUsage) out.push('<div class="cd-localnote">' + esc(noColor(e.text)) + '</div>');
+      else if (e.type === 'note' && typeof e.text === 'string' && !e.ctxUsage && !e.cronView) out.push('<div class="cd-localnote">' + esc(noColor(e.text)) + '</div>');
     }
     return '<div class="cd-shared"><div class="cd-shared-head"><b>' + esc(c.title || 'Shared chat') + '</b><span>' + (c.repo ? ICON.gh + ' ' + esc(c.repo) + (c.branch ? ' · ' + esc(c.branch) : '') : '') + '</span><span class="cd-shared-by">Shared by ' + esc(c.owner || 'a Coder user') + ' · Read only</span><a class="cd-btn-2" href="/">Your chats</a></div>' +
       '<div class="cd-shared-log">' + (out.length ? out.join('') : '<p class="cd-sub">This chat has no messages yet.</p>') + '</div></div>';
@@ -1799,6 +1799,9 @@
     // /context [all], CLAUDE CODE'S (batch 7 of "Go Claude Code way", MISS-62): what fills the conversation, as of Coder's last
     // answer (the machine counts it at each job's end; no AI call), shown in the chat as Claude Code's grid and list.
     if (!GLOOPY && /^\/context(?:\s+all)?$/i.test(text)) { boxEmpty(); contextCmd(); return; }
+    // /scheduled (2026-11-23): this chat's scheduled prompts (cron_create, schedule_wakeup) and the owner's cloud scheduled
+    // tasks (remote_trigger), to see and cancel; a task's web address token is made here. No AI call.
+    if (!GLOOPY && /^\/scheduled$/i.test(text)) { boxEmpty(); scheduledCmd(); return; }
     // /export [filename], CLAUDE CODE'S ("Export the current conversation as plain text. With a filename, writes directly to that
     // file"; batch 8 of "Go Claude Code way", MISS-63): the chat as plain text, saved as a file from this page. No AI call.
     if (!GLOOPY && /^\/export(?:\s|$)/i.test(text)) { boxEmpty(); exportCmd(text.replace(/^\/export\s*/i, '')); return; }
@@ -1865,7 +1868,7 @@
     const sent = { id: S.project.id, turn: Number(S.project.turn) || 0, gone: false };
     S.sendWatch = sent;
     setTimeout(() => watchSend(sent), SEND_WATCH_FIRST_MS);
-    const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/message', { method: 'POST', body: JSON.stringify({ mid, text, comments, images: pics.map((x) => ({ type: x.type, data: x.data })), ...(att.length ? { files: att.map((f) => f.id) } : {}), model: S.pick.model, effort: S.pick.effort, ...(GLOOPY ? {} : { mode: chatMode() }), ...(opts && opts.card ? { card: true } : {}), ...(opts && opts.marked ? { marked: opts.marked } : {}), ...(opts && opts.taught ? { taught: opts.taught } : {}), ...(GLOOPY ? { tz: deviceZone() } : {}) }) });
+    const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/message', { method: 'POST', body: JSON.stringify({ mid, text, comments, images: pics.map((x) => ({ type: x.type, data: x.data })), ...(att.length ? { files: att.map((f) => f.id) } : {}), model: S.pick.model, effort: S.pick.effort, ...(GLOOPY ? {} : { mode: chatMode() }), ...(opts && opts.card ? { card: true } : {}), ...(opts && opts.marked ? { marked: opts.marked } : {}), ...(opts && opts.taught ? { taught: opts.taught } : {}), tz: deviceZone() }) });
     if (S.sendWatch === sent) S.sendWatch = null;
     // (Already shown as ended by watchSend: this late answer changes nothing.)
     if (sent.gone) return;
@@ -3131,6 +3134,7 @@
       else if (e.type === 'stopped') out.push('<div class="cd-note">Stopped.' + (GLOOPY && !S.running && !S.sending && i === S.events.length - 1 ? ' <button type="button" class="cd-card-no cd-resume" data-resume="1">Resume</button>' : '') + '</div>');
       // (A hook's line: its warning when it ended the turn, `warn`; its statusMessage while it ran, `hookStatus`.)
       else if (e.type === 'note' && e.ctxUsage && typeof e.ctxUsage === 'object') out.push(contextHTML(e.ctxUsage));
+      else if (e.type === 'note' && e.cronView && typeof e.cronView === 'object') out.push(cronViewHTML(e.cronView, i));
       else if (e.type === 'note') out.push(e.monitor && typeof e.monitor === 'object' ? monitorHTML(e.monitor) : '<div class="cd-localnote' + (e.warn === true || e.denied === true ? ' cd-note-warn' : e.hookStatus === true ? ' cd-note-status' : '') + '">' + esc(noColor(e.text)) + '</div>');
       else if (e.type === 'expired') return;
       // CODER'S START-UP, DONE (2026-11-16): one quiet "Initialized session ›" line; › shows its steps and their times.
@@ -4099,7 +4103,7 @@
   // start of the box lists Coder's commands with a line each; ↑↓ to move, Enter or Tab or a click to pick, Esc to close.
   // (/btw, /init and /review: Claude Code's, round 6, 2026-11-21. /autocompact: Claude Code's, 2026-11-21, per chat here.
   // /clear with its other names /reset and /new: Claude Code's, batch 6, MISS-61; the Worker empties what Coder reads.)
-  const SLASH = [['/autocompact', 'Set the auto-compact window: auto, or a size such as 500k'], ['/btw', 'Ask a side question without adding to the conversation'], ['/clear', 'Start a new conversation with empty context', ['reset', 'new']], ['/compact', 'Shrink this chat into a short summary (add what to keep after it)'], ['/context', 'Visualize current context usage as a colored grid'], ['/effort', 'Set the effort level for the model'], ['/export', 'Export the current conversation as plain text'], ['/init', 'Create or update CLAUDE.md for this repository'], ['/model', 'Set the AI model for this chat'], ['/permissions', 'Choose the mode: Auto, Accept edits or Plan', ['allowed-tools']], ['/review', 'Review the changes on this branch', ['code-review']], ['/rewind', 'Go back to an earlier message', ['checkpoint', 'undo']]];
+  const SLASH = [['/autocompact', 'Set the auto-compact window: auto, or a size such as 500k'], ['/btw', 'Ask a side question without adding to the conversation'], ['/clear', 'Start a new conversation with empty context', ['reset', 'new']], ['/compact', 'Shrink this chat into a short summary (add what to keep after it)'], ['/context', 'Visualize current context usage as a colored grid'], ['/effort', 'Set the effort level for the model'], ['/export', 'Export the current conversation as plain text'], ['/init', 'Create or update CLAUDE.md for this repository'], ['/model', 'Set the AI model for this chat'], ['/permissions', 'Choose the mode: Auto, Accept edits or Plan', ['allowed-tools']], ['/review', 'Review the changes on this branch', ['code-review']], ['/rewind', 'Go back to an earlier message', ['checkpoint', 'undo']], ['/scheduled', 'See and cancel scheduled tasks', ['crons', 'loop', 'routines']]];
   // As Claude Code's / list: from the start of a name, of a word inside it, or of one of its other names; '-', '_' and ':' ignored.
   // THE REPOSITORY'S SKILLS (Claude Code's "/skill-name"; the machine names them at each message): after Coder's own commands.
   function skillsSlash() {
@@ -4194,6 +4198,23 @@
     const parts = (c.parts || []).filter((p) => p.tokens > 0).map((p) => row(CTX_KINDS[p.name] || 'msgs', p.name, p.tokens, true)).join('') + row('free', 'Free space', c.free, false) + (c.buffer > 0 ? row('buf', 'Autocompact buffer', c.buffer, true) : '');
     const list = (title, arr) => (arr && arr.length ? '<p class="cd-ctx-h">' + esc(title) + '</p><ul class="cd-ctx-items">' + arr.map((x) => '<li>└ ' + esc(x.name) + ': ' + esc(CTX_FMT(x.tokens)) + ' tokens</li>').join('') + '</ul>' : '');
     return '<div class="cd-ctx" role="group" aria-label="Context usage"><p class="cd-ctx-h">Context Usage</p><div class="cd-ctx-top">' + grid + '<div><p class="cd-ctx-sum">' + esc(model) + ' · ' + esc(CTX_FMT(c.used)) + '/' + esc(CTX_FMT(c.window)) + ' tokens (' + esc(CTX_PCT(c.used, c.window).replace(/\.\d+%$/, '%')) + ')</p><ul class="cd-ctx-parts">' + parts + '</ul></div></div>' + list('MCP tools', c.connectors) + list('Memory files', c.memory) + (c.warning ? '<p class="cd-ctx-warn">' + esc(c.warning) + '</p>' : '') + '</div>';
+  }
+  // THE SCHEDULES VIEW (/scheduled): the Worker's list (src/coder-schedules.mjs schedulesRoute), drawn in the chat.
+  const whenOf = (ms) => { try { return new Date(ms).toLocaleString(); } catch (x) { return ''; } };
+  function cronViewHTML(v, i) {
+    const crons = (v.crons || []).map((c) => '<li><b>' + esc(c.humanSchedule) + '</b>' + (c.recurring ? '' : ' (once)') + (c.durable ? ' · durable' : '') + ' · next ' + esc(c.next || whenOf(c.nextFireAt)) + '<br><span>' + esc(String(c.prompt).slice(0, 160)) + '</span> <button type="button" class="cd-sched-btn" data-cron-cancel="' + esc(c.id) + '" data-sched-ev="' + i + '">Cancel</button></li>').join('');
+    const wake = v.wake ? '<li><b>Loop wake-up</b> · ' + esc(whenOf(v.wake.at)) + '<br><span>' + esc(v.wake.reason || '') + '</span> <button type="button" class="cd-sched-btn" data-wake-stop="1" data-sched-ev="' + i + '">Stop</button></li>' : '';
+    const trig = (v.triggers || []).map((t) => '<li><b>' + esc(t.name) + '</b> · ' + esc(t.schedule) + ' · ' + esc(t.repo) + (t.enabled ? '' : ' · off') + '<br><span>' + esc(String(t.prompt).slice(0, 160)) + '</span> <button type="button" class="cd-sched-btn" data-trig-toggle="' + esc(t.id) + '" data-on="' + (t.enabled ? '1' : '') + '" data-sched-ev="' + i + '">' + (t.enabled ? 'Turn off' : 'Turn on') + '</button> <button type="button" class="cd-sched-btn" data-trig-del="' + esc(t.id) + '" data-sched-ev="' + i + '">Delete</button>' + (t.hooks || []).map((h) => '<div class="cd-sched-hook">Web address: <code>' + esc(h.url) + '</code> ' + (h.hasToken ? '(token made)' : '(no token yet)') + ' <button type="button" class="cd-sched-btn" data-hook-token="' + esc(t.id + ' ' + h.id) + '" data-sched-ev="' + i + '">' + (h.hasToken ? 'New token' : 'Make token') + '</button></div>').join('') + '</li>').join('');
+    const token = v.token ? '<p class="cd-sched-token">Token (shown once; send it as Authorization: Bearer): <code>' + esc(v.token) + '</code></p>' : '';
+    return '<div class="cd-sched" role="group" aria-label="Scheduled tasks"><p class="cd-sched-h">This chat\'s scheduled tasks</p>' + (crons || wake ? '<ul>' + crons + wake + '</ul>' : '<p class="cd-sched-none">None.</p>') + '<p class="cd-sched-h">Cloud scheduled tasks</p>' + (trig ? '<ul>' + trig + '</ul>' : '<p class="cd-sched-none">None.</p>') + token + '</div>';
+  }
+  async function scheduledCmd(body, at) {
+    if (!S.project) return;
+    const r = await call('/schedules?chat=' + encodeURIComponent(S.project.id), body ? { method: 'POST', body: JSON.stringify(body) } : undefined);
+    if (r.status !== 200 || !r.data) return note((r.data && r.data.error) || 'The scheduled tasks could not be read.');
+    const ev = Number.isInteger(at) && S.events[at] && S.events[at].cronView ? S.events[at] : null;
+    if (ev) ev.cronView = r.data; else S.events.push({ type: 'note', text: 'Scheduled tasks', cronView: r.data, at: Date.now(), local: true });
+    draw(!ev);
   }
   function contextCmd() {
     const c = S.project && S.project.context;
@@ -5165,6 +5186,12 @@
     on('.cd-ask-in', 'keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); askSend(); } });
     on('.cd-ask.is-live', 'keydown', (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); askSend(); } });
     on('[data-ask-go]', 'click', () => askSend());
+    const schedAt = (e) => Number(e.currentTarget.dataset.schedEv);
+    on('[data-cron-cancel]', 'click', (e) => scheduledCmd({ cancel: e.currentTarget.dataset.cronCancel }, schedAt(e)));
+    on('[data-wake-stop]', 'click', (e) => scheduledCmd({ stopWake: true }, schedAt(e)));
+    on('[data-trig-toggle]', 'click', (e) => scheduledCmd({ trigger: e.currentTarget.dataset.trigToggle, enabled: !e.currentTarget.dataset.on }, schedAt(e)));
+    on('[data-trig-del]', 'click', (e) => scheduledCmd({ trigger: e.currentTarget.dataset.trigDel, remove: true }, schedAt(e)));
+    on('[data-hook-token]', 'click', (e) => { const [trigger, hook] = e.currentTarget.dataset.hookToken.split(' '); scheduledCmd({ trigger, hook, token: true }, schedAt(e)); });
     on('[data-ask-skip]', 'click', () => { const w = askWaiting(); if (w) { askAnswer(w.pid, 'skip'); return; } const many = S.ask && S.ask.qs && S.ask.qs.length > 1; S.ask = null; send(many ? 'I skipped your questions. Decide for yourself and go on.' : 'I skipped your question. Decide for yourself and go on.'); });
     on('[data-envchange-no]', 'click', async (e) => {
       const x = S.events[Number(e.currentTarget.dataset.envchangeNo)];

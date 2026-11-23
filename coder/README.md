@@ -2667,6 +2667,14 @@ a new chat on its repository. Caps, each a Worker variable: `CODER_CRON_MAX` (10
 chat), `CODER_CRON_MIN_MINUTES` (1), `CODER_TRIGGER_MIN_HOURS` (1), `CODER_TRIGGER_MAX`
 (10), `CODER_CRON_RUNS_PER_DAY` (24 a chat, and 24 across cloud tasks, UTC),
 `CODER_CRON_EFFORT` (low). Recurring crons end after 7 days; wake-ups 60-3600 seconds.
+Second pass (2026-11-23): Claude Code's full tool descriptions and output objects
+(`nextFireAt`, `maxAgeMs`, `jobs`, `scheduledFor`, `{ status, json, summary }`); crons in the
+owner's time zone (the page sends `tz` with each message, kept as `meta.tz`); Claude Code's
+jitter; `durable` (session-only jobs end with `/clear`); remote_trigger's
+`create_webhook_trigger` (POST `/api/coder/trigger-hook/<hook>` with the Bearer token the owner
+makes on the page, hashed in `coder/trigger-hooks/`; one call a minute a task, counted in the
+24 a day), `get_run_log` (the latest 3 runs' chats, sent with each turn), `cursor` and
+`session_id`; `/scheduled` in the chat lists and cancels them (`GET/POST /api/coder/schedules`).
 
 WORKTREES, FEEDBACK, ENDING A CHAT AND REVIEW FINDINGS (2026-11-23, `container/coder-worktree.mjs`):
 Claude Code's EnterWorktree, ExitWorktree, SendFeedback and EndConversation as `enter_worktree`,
