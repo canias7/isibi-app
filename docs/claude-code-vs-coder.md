@@ -24,3 +24,5 @@
 - **Duplicates:** 78 rows that only repeated another row were removed.
 
 Each Coder entry was checked in Coder's code (container/, src/, public/, README.md) on 2026-11-23. When Coder changes, the Coder column needs updating.
+
+**Update, 23 November 2026 (Coder's 28 new tools):** the rows about the Agent, workflow, scheduling, worktree, feedback, findings, artifact, connector-resource, plugin, skill and onboarding tools were checked against Coder's code and updated in every tab. In "Tools" 41 rows changed status and in "Tool parameters & limits" 88 did; about 280 more Coder entries that said Coder had no plugins, subagents, worktrees, scheduled tasks or artifacts were reworded. None of the new tools has been tried live on gofarther.dev yet, and each updated row says so in its Note.

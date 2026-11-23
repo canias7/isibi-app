@@ -4,6 +4,15 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-23: The Claude Code vs Coder sheet now knows Coder's 28 new tools
+
+The sheet ([`docs/claude-code-vs-coder.xlsx`](claude-code-vs-coder.xlsx)) still said Coder had no helper agents, workflows, scheduling, worktrees, artifacts, connector resources or plugins. Each of those rows was checked against Coder's code and corrected.
+- **Tools tab:** 51 the same, 39 different, 3 Claude Code only (was 35, 15, 43).
+- **Tool parameters & limits tab:** 271 the same, 122 different, 102 Claude Code only (was 229, 76, 190).
+- **Elsewhere:** about 50 more status changes and about 280 reworded Coder entries (Plugins, Skills & subagents, Scheduled tasks, Artifacts, Mods and others).
+- Rows marked "Different" say how: helpers wait for each other instead of running in the background, an agent's model and effort are ignored, the caps, cron in UTC, nothing in GitHub jobs.
+- Every updated row's note says it hasn't been tried live on gofarther.dev yet.
+
 ## 2026-11-23: Coder can publish pages (artifacts) and read connectors' resources
 
 Four more Claude Code tools in Coder's chats:
