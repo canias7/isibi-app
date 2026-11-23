@@ -33,7 +33,7 @@ test("WT1 the five tools: ReportFindings upfront, the other four held back, Clau
   assert.ok(!DEFERRED_TOOLS.includes("report_findings"));
   assert.deepEqual([CC_TOOL.enter_worktree, CC_TOOL.exit_worktree, CC_TOOL.end_conversation, CC_TOOL.send_feedback, CC_TOOL.report_findings], ["EnterWorktree", "ExitWorktree", "EndConversation", "SendFeedback", "ReportFindings"]);
   assert.match(W.END_CONVERSATION_DESCRIPTION, /ONLY in two situations/);
-  assert.match(W.SEND_FEEDBACK_DESCRIPTION, /Nothing is sent anywhere/);
+  assert.match(W.SEND_FEEDBACK_DESCRIPTION, /Nothing is sent by you/);
 });
 
 test("WT2 input checks", () => {
@@ -142,6 +142,6 @@ test("WT8 /code-review asks for report_findings; the page draws the cards; the C
   const css = readFileSync(new URL("../public/coder.css", import.meta.url), "utf8");
   for (const line of css.split("\n").filter((l) => /\.cd-(findings|finding|fbcard|sev|cat)\b/.test(l))) assert.match(line, /^#gfApp /, line);
   const routes = readFileSync(new URL("../src/coder-routes.mjs", import.meta.url), "utf8");
-  assert.match(routes, /meta\.convoEnded === true && !wake\) return json\(\{ error: "Coder ended this conversation/);
+  assert.match(routes, /meta\.convoEnded === true && !wake && !isClearCmd\(text\)\) return json\(\{ error: "Coder ended this conversation/);
   assert.match(routes, /s\.result\.ended === true \? \{ convoEnded: true \}/);
 });

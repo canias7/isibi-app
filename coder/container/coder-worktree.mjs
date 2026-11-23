@@ -20,7 +20,7 @@ export const CC_NAMES = Object.freeze({ enter_worktree: "EnterWorktree", exit_wo
 /** Where the worktrees go, inside the repository (Claude Code's). */
 export const WORKTREE_DIR = ".claude/worktrees";
 /** What a chat that ended answers to a new message (Claude Code's words, with "chat" for its session commands). */
-export const ENDED_TEXT = "Coder ended this conversation. Start a new chat to continue.";
+export const ENDED_TEXT = "Coder ended this conversation. Start a new chat (or /clear) to continue.";
 /** At most this many draft cards a chat; after that only a count of queued drafts (Claude Code: "at most three cards in a session"). */
 export const FEEDBACK_MAX = 3;
 /** The owner's queue (src/coder-plugins.mjs): 10 drafts across all chats, the oldest dropped; each expires after 30 days. */
@@ -113,7 +113,7 @@ export const END_CONVERSATION_PARAMS = Object.freeze({ type: "object", propertie
   reason: { type: "string", enum: ["abuse", "owner_request"], description: "Why: sustained abuse after a warning, or the owner asked and confirmed." },
 }, required: ["reason"], additionalProperties: false });
 
-export const SEND_FEEDBACK_DESCRIPTION = "Drafts a feedback report about Coder for the owner to review. Nothing is sent anywhere: the draft shows as a card in the chat, kept with it, and the owner can copy it and send it on if they want. Draft one when a tool or command keeps failing, when you can't help with something the owner asked for, when the owner points out a mistake you made or you notice one, or when the owner asks you to file feedback. title: one short line. area: what it is about (a tool's name, \"commands\", \"the page\"…). details: what happened, what was expected, and the steps, plainly; no secrets or keys. Each draft joins the owner's queue (at most " + FEEDBACK_QUEUE_MAX + " across all chats, the oldest dropped; a draft expires after " + FEEDBACK_TTL_DAYS + " days); the owner sees at most " + FEEDBACK_MAX + " draft cards a chat, then only a count of queued drafts.";
+export const SEND_FEEDBACK_DESCRIPTION = "Drafts a feedback report about Coder, covering a product problem or your own behavior in the chat, and queues it for the owner to review. Nothing is sent by you: the draft shows as a card in the chat (1 to review, 2 twice to send it to Coder's makers, 0 to dismiss; it stays queued), and Send transcript decides whether this conversation goes with it. Draft one when a tool or command keeps failing, when you can't help with something the owner asked for, when the owner points out a mistake you made or you notice one, or when the owner asks you to file feedback. title: one short line. area: what it is about (a tool's name, \"commands\", \"the page\"…). details: what happened, what was expected, and the steps, plainly; no secrets or keys. Each draft joins the owner's queue (at most " + FEEDBACK_QUEUE_MAX + " across all chats, the oldest dropped; a draft expires after " + FEEDBACK_TTL_DAYS + " days); the owner sees at most " + FEEDBACK_MAX + " draft cards a chat, then only a count of queued drafts.";
 export const SEND_FEEDBACK_PARAMS = Object.freeze({ type: "object", properties: {
   title: { type: "string", description: "One short line naming the problem." },
   area: { type: "string", description: "What it is about, e.g. a tool's name." },

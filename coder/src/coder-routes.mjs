@@ -187,7 +187,7 @@ import { PERMISSIONS, PERMISSION_KEYS, MODES as GLOOPY_MODES, DEFAULT_MODE, DEFA
 import { cleanRules, RULES_MAX as GLOOPY_RULES_MAX, RULE_MAX, CARD_TTL_MS, RULE_MODES, RULE_WORDS, cleanMarked, cleanTaught, cleanSites, siteHost, SITE_MODES, SITE_WORDS, SITES_MAX } from "../container/gloopy-check.mjs";
 import { readPages, pagesForTurn, keepPages, removePage, pageAddress, servePageFile } from "./gloopy-pages.mjs";
 import { artifactPages } from "./coder-artifacts.mjs";
-import { servePublicArtifact } from "./gloopy-pages.mjs";
+import { servePublicArtifact, serveArtifactDb } from "./gloopy-pages.mjs";
 import { scanCard } from "./gloopy-cardscan.mjs";
 import { readLogins, saveLogin, editLogin, importLogins, removeLogin, loginList, loginFor, loginSite, LOGINS_MAX, readCards, saveCard, editCard, removeCard, cardList, cardLabel, cardBrand, checkCard, cardFor, cardsForTurn, CARDS_MAX, readContacts, saveContact, editContact, removeContact, contactList, CONTACTS_MAX } from "./gloopy-vault.mjs";
 import { cleanSchedule, checkSchedule, whenLocal, whenWords, cleanWebhook, HOOK_ID, okZone } from "../container/gloopy-schedule.mjs";
@@ -333,14 +333,23 @@ export const REVIEWS = {
 export const INIT_TEXT = "Please analyze this codebase and create a CLAUDE.md file in the repository's root, which will be given to future sessions working in this repository. Add: 1. the commands used most (how to build, lint, run the tests, and run a single test); 2. the high-level architecture and structure, the big picture that takes reading several files to understand. If there is already a CLAUDE.md, read it and improve it instead of starting over, keeping what is still right. If there are README.md, .cursorrules, .github/copilot-instructions.md or similar rule files, include their important parts. Do not repeat yourself, do not list every file, and do not add generic advice or made-up sections. Begin the file with:\n\n# CLAUDE.md\n\nThis file provides guidance to Coder and other coding agents when working with code in this repository.";
 /** /code-review's findings as Claude Code's ReportFindings gives them: a list card (report_findings, 2026-11-23). */
 export const REPORT_WITH_FINDINGS = " When you have checked each finding, call report_findings once with them (an empty list when none survived), then answer in a sentence or two instead of repeating the list.";
+/** /code-review --comment (Claude Code's: "Pass --comment to post findings as inline PR comments"). */
+export const REVIEW_COMMENT_TEXT = " Then post the findings that survived as inline comments on the pull request with pr_comments (one call, every finding with its path, line and body; the pull request the owner named, else this chat's). If there is no pull request, say so and post nothing.";
+/** /team-onboarding (Claude Code's: writes ONBOARDING.md for teammates, then shares it with ShareOnboardingGuide). */
+export const ONBOARDING_TEXT = "Write an onboarding guide for a teammate new to this repository, as ONBOARDING.md at its root: what the project is, how to set it up and run it, how to run the tests, the layout of the code and the big picture that takes reading several files to understand, the team's conventions (from CLAUDE.md, README and the rule files) and where to start. If there is already an ONBOARDING.md, improve it instead of starting over. When it is written and saved, call share_onboarding_guide to upload it and give the owner the share link.";
 export function slashTurn(text) {
   const t = String(text || "").trim();
-  const m = /^\/(init|review|code-review)(?:\s+([\s\S]*))?$/i.exec(t);
+  const m = /^\/(init|review|code-review|security-review|team-onboarding)(?:\s+([\s\S]*))?$/i.exec(t);
   if (!m) return null;
-  const more = String(m[2] || "").trim().slice(0, 2000);
+  let more = String(m[2] || "").trim().slice(0, 2000);
   const label = t.slice(0, 300);
-  if (m[1].toLowerCase() === "init") return { label, text: INIT_TEXT + (more ? "\n\nThe owner added: " + more : "") };
-  return { label, text: REVIEWS.code.text + REPORT_WITH_FINDINGS + (more ? "\n\nThe owner added (a level, a pull request number, a branch or a path to review instead): " + more : "") };
+  const cmd = m[1].toLowerCase();
+  if (cmd === "init") return { label, text: INIT_TEXT + (more ? "\n\nThe owner added: " + more : "") };
+  if (cmd === "team-onboarding") return { label, text: ONBOARDING_TEXT + (more ? "\n\nThe owner added: " + more : "") };
+  if (cmd === "security-review") return { label, text: REVIEWS.security.text + (more ? "\n\nThe owner added: " + more : "") };
+  const comment = /(?:^|\s)--comment(?=\s|$)/.test(more);
+  if (comment) more = more.replace(/(?:^|\s)--comment(?=\s|$)/g, " ").trim();
+  return { label, text: REVIEWS.code.text + REPORT_WITH_FINDINGS + (comment ? REVIEW_COMMENT_TEXT : "") + (more ? "\n\nThe owner added (a level, a pull request number, a branch or a path to review instead): " + more : ""), ...(comment ? { comment: true } : {}) };
 }
 // THE REPO'S ENVIRONMENT (owner, 2026-11-05, "14"): a setup script and the
 // owner's own variables, per repository, sealed like the GitHub token.
@@ -1334,6 +1343,7 @@ export async function handleCoder(request, env, ctx, deps) {
   // ── ONE OF CODER'S ARTIFACTS (2026-11-23; src/coder-artifacts.mjs): from its signed 10-minute address (the owner's Open),
   // or from its public link while it is marked public. ──
   if (parts[0] === "artifact-page" && parts.length === 3 && request.method === "GET") return servePageFile(env, bucket, decodeURIComponent(parts[1]), parts[2], url, Date.now(), "artifacts");
+  if (parts[0] === "artifact-db" && parts.length === 3) return serveArtifactDb(request, env, bucket, decodeURIComponent(parts[1]), parts[2], url);
   if (parts[0] === "artifact" && parts.length === 3 && request.method === "GET") return servePublicArtifact(env, bucket, decodeURIComponent(parts[1]), parts[2], url);
   // ── ONE OF GLOOPY'S FILES, SHOWN (the audit, 2026-11-10; src/gloopy-files.mjs): a PDF or a picture, the same way. ──
   if (parts[0] === "gloopy-view" && parts.length === 3 && request.method === "GET") return serveFileView(env, bucket, decodeURIComponent(parts[1]), parts[2], url);
@@ -1951,7 +1961,8 @@ export async function handleCoder(request, env, ctx, deps) {
       // (The chat as it is now: another message may have started while this one was read.)
       meta = (await getJson(bucket, metaKey, null)) || meta;
       // A CHAT CODER ENDED (end_conversation, Claude Code's EndConversation, 2026-11-23): no new messages; a new chat continues.
-      if (meta.convoEnded === true && !wake) return json({ error: "Coder ended this conversation. Start a new chat to continue.", ended: true }, 409);
+      // (Claude Code: "only /clear, /resume, /help, /exit and /feedback still run"; Coder's /clear starts the conversation again.)
+      if (meta.convoEnded === true && !wake && !isClearCmd(text)) return json({ error: "Coder ended this conversation. Start a new chat (or /clear) to continue.", ended: true }, 409);
       if (meta.status === "running") {
         // QUEUED WHILE CODER WORKS (Claude Code's queue): the owner's message, or `!` command, typed in the page; not a review,
         // a /compact, pictures or line comments, nor anything from GitHub. A message goes to the running job at once (Coder
@@ -2057,6 +2068,8 @@ export async function handleCoder(request, env, ctx, deps) {
           await putJson(bucket, keyOf(uid, id, "events.json"), events);
           // (What filled the old conversation no longer does: /context waits for the next answer.)
           const next = { ...fresh, marks: [], sessionClear: true, rewinding: null, context: null, at: Date.now() };
+          // (A conversation Coder ended is open again after /clear, as Claude Code's /clear starts a new one.)
+          delete next.convoEnded;
           await saveMeta(bucket, uid, next);
           return json({ ok: true, cleared: true, project: next, events, reload: true });
         } finally { await held.release().catch(() => {}); }

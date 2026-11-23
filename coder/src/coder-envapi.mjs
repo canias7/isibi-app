@@ -67,8 +67,8 @@ export async function handleEnvApi(request, env, { now = Date.now() } = {}) {
   const meta = await getJson(bucket, metaKey(uid, id), null);
   if (!meta || String(meta.turn) !== turn) return answer({ error: "that chat has moved on" }, 403);
   let body = null;
-  // (Up to 2 MB: an artifact's page, up to 512 KB, comes this way.)
-  try { body = JSON.parse((await request.text()).slice(0, 2_000_000)); } catch { body = null; }
+  // (Up to 40 MB: an artifact's page, up to 16 MiB as Claude Code's, comes this way as JSON.)
+  try { body = JSON.parse((await request.text()).slice(0, 40_000_000)); } catch { body = null; }
   if (!body || typeof body !== "object") return answer({ error: "error: Coder's server could not read that" }, 400);
   // CODER'S pr_read (2026-11-16): a pull request's comments, read here with the owner's GitHub token (never sent to the machine).
   if (body.action === "pr_read") return answer(await prRead(env, bucket, uid, meta, body));

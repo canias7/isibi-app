@@ -40,7 +40,7 @@ test("LK4 /rewind (Claude Code's): no Rewind link above each message; /rewind op
 
 test("LK5 typing / lists Coder's commands (Claude Code's list): /compact, /permissions, /rewind with a line each; ↑↓, Enter or Tab, a click, Esc", () => {
   const ui = read("coder.js");
-  assert.match(ui, /const SLASH = \[\['\/autocompact', [^\]]+\], \['\/btw', [^\]]+\], \['\/clear', [^\]]+\]\], \['\/compact', [^\]]+\], \['\/context', [^\]]+\], \['\/effort', [^\]]+\], \['\/export', [^\]]+\], \['\/init', [^\]]+\], \['\/model', [^\]]+\], \['\/permissions', [^\]]+\]\], \['\/review', [^\]]+\]\], \['\/rewind', [^\]]+\]\], \['\/scheduled', [^\]]+\]\]\];/);
+  assert.match(ui, /const SLASH = \[\['\/autocompact', [^\]]+\], \['\/autofix-pr', [^\]]+\], \['\/btw', [^\]]+\], \['\/clear', [^\]]+\]\], \['\/compact', [^\]]+\], \['\/context', [^\]]+\], \['\/effort', [^\]]+\], \['\/export', [^\]]+\], \['\/init', [^\]]+\], \['\/model', [^\]]+\], \['\/permissions', [^\]]+\]\], \['\/rename', [^\]]+\], \['\/review', [^\]]+\]\], \['\/rewind', [^\]]+\]\], \['\/scheduled', [^\]]+\]\], \['\/security-review', [^\]]+\], \['\/team-onboarding', [^\]]+\]\];/);
   assert.match(ui, /bgHTML\(\) \+ slashHTML\(\) \+ bangHTML\(\) \+ mentionHTML\(\) \+/);
   assert.match(ui, /if \(sl\.length && !whole && \(e\.key === 'Enter' \|\| e\.key === 'Tab'\)[^\n]*pickSlash\(/);
   assert.match(ui, /if \(sl\.length && e\.key === 'Escape'\) \{ S\.slashOff = true;/);

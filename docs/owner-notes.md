@@ -47,6 +47,18 @@ From the comparison sheet's web and connector rows:
 - **Not possible in Coder:** making web search US-only (Grok's search has no such setting), and the `/status` organization lines (Coder has no organizations or HIPAA setup).
 - Gloopy is unchanged. Not yet tried live on gofarther.dev.
 
+
+## 2026-11-23: Plugin marketplaces, bigger artifacts, feedback you can send, and five commands
+
+More of Coder now works the way Claude Code does:
+- **Plugin marketplaces:** under Plugins there is a new Marketplaces tab. Paste a GitHub address (or a link to a marketplace.json file) and Coder lists that marketplace's plugins, each with Install. Downloads have the same size and time limits as Claude Code, and the same checks on what an archive can unpack to.
+- **Artifacts:** a page can now be up to 16 MB (it was 512 KB). A page can also ask for a small shared database, so a sign-up sheet or checklist remembers what people add.
+- **Feedback drafts:** the draft card now has Review (key 1), Send (key 2, pressed twice) and Dismiss (key 0), with a "Send transcript" box. Sent reports go to Coder's own feedback inbox. After you dismiss one, Coder asks whether to stop drafting them.
+- **New commands:** /rename, /security-review, /team-onboarding (writes ONBOARDING.md and shares it), /autofix-pr, and /code-review --comment (puts the findings on the pull request's lines).
+- **Small ones:** /clear now reopens a chat Coder ended; the role picker answers "{}" when you approve without picking.
+- Not done here: auto replies to artifact comments (Coder has no comments on artifacts yet), a Manual permission mode, and the rows that need claude.ai accounts.
+- Not yet tried live on gofarther.dev.
+
 ## 2026-11-23: Five tool helpers merged, and the comparison sheet brought up to date
 
 Five helpers' work is now together on one branch (their own entries follow, below). All of Coder's tests pass (1,782 of 1,783; the one left is the known CD12 check, which fails only because of a local .claude folder).

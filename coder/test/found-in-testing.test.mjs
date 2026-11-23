@@ -189,7 +189,7 @@ test("CD206 every PDF page reaches Grok as a picture: Coder's machine passes a f
   const { mkdtemp, readFile } = await import("node:fs/promises");
   const { tmpdir } = await import("node:os");
   const { join } = await import("node:path");
-  assert.equal(TOOL_OUTPUT_MAX, 8 * 1024 * 1024);
+  assert.equal(TOOL_OUTPUT_MAX, 24 * 1024 * 1024); // (24 MiB since 2026-11-23: an artifact's 16 MiB page as base64)
   const dir = await mkdtemp(join(tmpdir(), "coder-out-"));
   const cmd = "head -c 3000000 /dev/zero | tr '\\0' a";
   const plain = await execIn(dir, cmd, 60, { kill: true });

@@ -2509,11 +2509,14 @@ export async function toolSaveUpload({ name, data }) {
   }
   fail("too many files named " + name);
 }
-export async function toolSendFile({ path }) {
+/** The most a file read this way can be (an artifact's page, as Claude Code's: 16 MiB). */
+export const FILE_READ_MAX = 16 * 1024 * 1024;
+export async function toolSendFile({ path, max }) {
   const { abs, rel } = await inside(path, { mustExist: true });
   const st = await lstat(abs);
   if (!st.isFile()) fail(rel + " is not a file");
-  if (st.size > FILE_SEND_MAX) fail(rel + " is " + (st.size / 1048576).toFixed(1) + " MB; a file you send is at most " + FILE_SEND_MAX / 1048576 + " MB (make it smaller, or split it)");
+  const most = Number.isInteger(max) && max > 0 ? Math.min(max, FILE_READ_MAX) : FILE_SEND_MAX;
+  if (st.size > most) fail(rel + " is " + (st.size / 1048576).toFixed(1) + " MB; a file you " + (most > FILE_SEND_MAX ? "publish" : "send") + " is at most " + most / 1048576 + " MB (make it smaller, or split it)");
   if (!st.size) fail(rel + " is empty");
   return JSON.stringify({ path: rel, name: abs.split(sep).pop(), size: st.size, data: (await readFile(abs)).toString("base64") });
 }

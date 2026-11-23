@@ -20,6 +20,7 @@
  * PAGE'S through /api/coder/plugins and /api/coder/owner-skills (handlePluginRoutes).
  */
 import { readConnectors, writeConnectors, cleanUrl, sameServer, CATALOG as CONNECTOR_CATALOG, CONNECTORS_MAX, removeConnector } from "./coder-mcp.mjs";
+import { fetchMarketplace, downloadPlugin, MARKETPLACES_MAX } from "./coder-marketplace.mjs";
 
 export const SAVED_SKILLS_MAX = 50;
 export const PLUGINS_MAX = 30;
@@ -185,6 +186,40 @@ export async function installPlugin(bucket, uid, name, { now = Date.now(), catal
   return { ok: true, plugin: pluginOut(p, true), added };
 }
 
+// ── MARKETPLACES (src/coder-marketplace.mjs: Claude Code's, added by Git URL; its download and archive limits) ──
+const marketsKey = (uid) => "coder/" + uid + "/marketplaces.json";
+export async function readMarketplaces(bucket, uid) { const v = await getJson(bucket, marketsKey(uid), []); return (Array.isArray(v) ? v : []).filter((m) => m && typeof m.name === "string" && Array.isArray(m.plugins)).slice(0, MARKETPLACES_MAX); }
+/** Adds a marketplace (or refreshes one of the same name). → { ok, marketplace } or { error }. */
+export async function addMarketplace(bucket, uid, source, { fetchFn = fetch, now = Date.now() } = {}) {
+  const r = await fetchMarketplace(source, { fetchFn });
+  if (r.error) return { error: r.error };
+  const list = (await readMarketplaces(bucket, uid)).filter((m) => m.name !== r.marketplace.name);
+  if (list.length >= MARKETPLACES_MAX) return { error: "You have " + MARKETPLACES_MAX + " marketplaces, the most there can be. Remove one first." };
+  const mk = { ...r.marketplace, at: now };
+  await putJson(bucket, marketsKey(uid), [...list, mk]);
+  return { ok: true, marketplace: mk };
+}
+export async function removeMarketplace(bucket, uid, name) {
+  const list = await readMarketplaces(bucket, uid);
+  if (!list.some((m) => m.name === name)) return { error: "No marketplace has that name." };
+  await putJson(bucket, marketsKey(uid), list.filter((m) => m.name !== name));
+  return { ok: true };
+}
+/** Installs plugin `name` from marketplace `market`: downloaded within Claude Code's limits, kept as a catalog plugin is. */
+export async function installFromMarketplace(bucket, uid, name, market, { fetchFn = fetch, now = Date.now() } = {}) {
+  const mk = (await readMarketplaces(bucket, uid)).find((m) => m.name === String(market || "").toLowerCase());
+  if (!mk) return { error: "No marketplace called \"" + clip(market, 64) + "\" has been added." };
+  const entry = mk.plugins.find((p) => p.name === String(name || "").trim().toLowerCase());
+  if (!entry) return { error: "The marketplace " + mk.name + " has no plugin called \"" + clip(name, 64) + "\"." };
+  const list = await readPlugins(bucket, uid);
+  if (list.some((x) => x.name === entry.name && x.marketplace !== mk.name)) return { error: "A plugin called " + entry.name + " is already installed from elsewhere. Remove it first." };
+  if (!list.some((x) => x.name === entry.name) && list.length >= PLUGINS_MAX) return { error: "You have " + PLUGINS_MAX + " plugins, the most there can be. Remove one first." };
+  const got = await downloadPlugin(mk, entry, { fetchFn });
+  if (got.error) return { error: got.error };
+  await putJson(bucket, pluginsKey(uid), [...list.filter((x) => x.name !== entry.name), { ...got.plugin, at: now }]);
+  return { ok: true, plugin: pluginOut(got.plugin, true), added: [] };
+}
+
 /** Removes an installed plugin, and the connectors it added that are still as it left them (never signed in). */
 export async function removePlugin(bucket, uid, name) {
   const list = await readPlugins(bucket, uid);
@@ -250,8 +285,11 @@ export async function readFeedback(bucket, uid, now = Date.now()) {
   const v = await getJson(bucket, feedbackKey(uid), []);
   return (Array.isArray(v) ? v : []).filter((d) => d && typeof d.id === "string" && now - (Number(d.at) || 0) < FEEDBACK_TTL_MS).slice(-FEEDBACK_QUEUE_MAX);
 }
+const feedbackSettingsKey = (uid) => "coder/" + uid + "/feedback-settings.json";
+export async function feedbackOff(bucket, uid) { const v = await getJson(bucket, feedbackSettingsKey(uid), {}); return !!(v && v.off === true); }
 /** Queues one draft: → { ok, id, queued, inChat, dropped }. */
 export async function queueFeedback(bucket, uid, draft, chat = "", now = Date.now()) {
+  if (await feedbackOff(bucket, uid)) return { error: "error: the owner turned Claude-drafted feedback off; nothing was drafted. Don't draft feedback in this chat.", off: true };
   const title = clip(draft && draft.title, 200).trim(), details = clip(draft && draft.details, 8000).trim(), area = clip(draft && draft.area, 80).trim();
   if (!title || !details) return { error: "error: give a title and the details" };
   const list = await readFeedback(bucket, uid, now);
@@ -269,6 +307,28 @@ export async function removeFeedback(bucket, uid, id) {
   if (next.length === list.length) return { error: "No draft has that id." };
   await putJson(bucket, feedbackKey(uid), next);
   return { ok: true };
+}
+
+/**
+ * SENDING A DRAFT (Claude Code: "Sending submits it like /feedback, deletes the local draft and shows '✓ Sent' (card) or a
+ * receipt ID (queue). It carries your title, area and details, environment info (version, OS, model) ... and the conversation
+ * only when Send transcript was yes"; "the working folder kept in the draft isn't sent"). Coder's feedback goes to Coder's own
+ * inbox, coder-feedback/<receipt>.json, which Coder's makers read (Coder has no Anthropic feedback service).
+ * opts: { transcript: boolean, events: the chat's events (read only when transcript is yes), model, version, ua }.
+ */
+export const CODER_VERSION = "2026.11.23";
+/** The version Claude-drafted feedback needs (Claude Code: "needs Claude Code v2.1.238 or later"); Coder's first with it. */
+export const FEEDBACK_SINCE = "2026.11.23";
+export async function sendFeedback(bucket, uid, id, opts = {}, now = Date.now()) {
+  const list = await readFeedback(bucket, uid, now);
+  const d = list.find((x) => x.id === id);
+  if (!d) return { error: "No draft has that id." };
+  const receipt = "fbr_" + Array.from(crypto.getRandomValues(new Uint8Array(8)), (b) => b.toString(16).padStart(2, "0")).join("");
+  const transcript = opts.transcript === true && Array.isArray(opts.events) ? opts.events.filter((e) => e && (e.type === "user" || e.type === "done" || e.type === "text")).slice(-200).map((e) => ({ type: e.type, text: clip(e.text, 4000) })) : null;
+  // (The chat the draft came from, its "working folder", is never sent.)
+  await putJson(bucket, "coder-feedback/" + receipt + ".json", { receipt, uid, title: d.title, ...(d.area ? { area: d.area } : {}), details: d.details, env: { version: CODER_VERSION, os: clip(opts.ua, 200), model: clip(opts.model, 80) }, ...(transcript ? { transcript } : {}), at: now });
+  await putJson(bucket, feedbackKey(uid), list.filter((x) => x.id !== id));
+  return { ok: true, receipt, sent: true, transcript: !!transcript };
 }
 
 /** Claude Code's keyword phrases (1 to 8, each 1 to 64 characters) as one query; a plain query string still works. */
@@ -320,9 +380,14 @@ export async function pluginsApi(env, bucket, uid, meta, body) {
   if (a === "plugins_search") {
     const mine = await readPlugins(bucket, uid), names = new Set(mine.map((p) => p.name));
     const all = [...mine, ...PLUGIN_CATALOG.filter((p) => !names.has(p.name))];
-    return { ok: true, plugins: searchRows(all, keywordsQuery(body), pluginText).slice(0, 10).map((p) => pluginOut(p, names.has(p.name))) };
+    // (The owner's marketplaces' plugins too, named plugin@marketplace, as Claude Code names them.)
+    const fromMarkets = [];
+    for (const mk of await readMarketplaces(bucket, uid)) for (const p of mk.plugins) if (!mine.some((x) => x.name === p.name && x.marketplace === mk.name)) fromMarkets.push({ name: p.name + "@" + mk.name, description: p.description || "Plugin " + p.name, category: p.category || "", contents: "from the " + mk.name + " marketplace", skills: [], commands: [], agents: [], hooks: [], connectors: [], installed: false });
+    const q = keywordsQuery(body);
+    const hits = [...searchRows(all, q, pluginText).map((p) => pluginOut(p, names.has(p.name))), ...searchRows(fromMarkets, q, (p) => p.description + " " + p.category + " " + p.contents)];
+    return { ok: true, plugins: hits.slice(0, q.trim() ? 10 : 200) };
   }
-  if (a === "plugins_install") return installPlugin(bucket, uid, body.name);
+  if (a === "plugins_install") { const m = /^([^@]+)@(.+)$/.exec(String(body.name || "")); return m ? installFromMarketplace(bucket, uid, m[1], m[2]) : installPlugin(bucket, uid, body.name); }
   if (a === "skills_owner") return { ok: true, skills: await ownerSkills(bucket, uid) };
   if (a === "skills_catalog") {
     const have = new Set((await readSavedSkills(bucket, uid)).map((s) => s.name.toLowerCase()));
@@ -338,23 +403,40 @@ export async function pluginsApi(env, bucket, uid, meta, body) {
  * /plugins/<name> removes. GET /owner-skills → { saved, plugin, catalog }; POST /owner-skills { name, description, body } or
  * { name } (a catalog skill) saves; DELETE /owner-skills/<name> removes. null when the path is not one of these.
  */
-export async function handlePluginRoutes(request, bucket, uid, parts) {
+export async function handlePluginRoutes(request, bucket, uid, parts, { fetchFn = fetch } = {}) {
   if (parts[0] !== "plugins" && parts[0] !== "owner-skills" && parts[0] !== "feedback") return null;
   if (!bucket) return json({ error: "storage is not available" }, 503);
   const m = request.method;
   // (Claude Code's /feedback queue: GET lists the drafts, newest first; DELETE /feedback/<id> discards one.)
   if (parts[0] === "feedback") {
-    if (parts.length === 1 && m === "GET") return json({ ok: true, drafts: (await readFeedback(bucket, uid)).reverse() });
+    if (parts.length === 1 && m === "GET") return json({ ok: true, drafts: (await readFeedback(bucket, uid)).reverse(), off: await feedbackOff(bucket, uid) });
+    // (Turning Claude-drafted feedback off, or back on: Claude Code asks after a dismissal.)
+    if (parts.length === 2 && parts[1] === "settings" && m === "POST") { let b = {}; try { b = await request.json(); } catch { b = {}; } await putJson(bucket, feedbackSettingsKey(uid), { off: b.off === true }); return json({ ok: true, off: b.off === true }); }
     if (parts.length === 2 && m === "DELETE") { const r = await removeFeedback(bucket, uid, decodeURIComponent(parts[1])); return json(r, r.ok ? 200 : 404); }
+    // (Send: POST /feedback/<id>/send { transcript, project, model }: the chat's events are read here only when transcript is yes.)
+    if (parts.length === 3 && parts[2] === "send" && m === "POST") {
+      let b = {}; try { b = await request.json(); } catch { b = {}; }
+      const pid = typeof b.project === "string" && /^[a-z0-9][a-z0-9-]{2,40}$/.test(b.project) ? b.project : "";
+      const events = b.transcript === true && pid ? await getJson(bucket, "coder/" + uid + "/" + pid + "/events.json", []) : null;
+      const r = await sendFeedback(bucket, uid, decodeURIComponent(parts[1]), { transcript: b.transcript === true, events, model: b.model, ua: request.headers.get("user-agent") || "" });
+      return json(r, r.ok ? 200 : 404);
+    }
     return json({ error: "method" }, 405);
   }
   const body = async () => { try { return await request.json(); } catch { return {}; } };
   if (parts[0] === "plugins") {
     if (parts.length === 1 && m === "GET") {
       const mine = await readPlugins(bucket, uid), names = new Set(mine.map((p) => p.name));
-      return json({ ok: true, installed: mine.map((p) => pluginOut(p, true)), catalog: PLUGIN_CATALOG.map((p) => pluginOut(p, names.has(p.name))) });
+      const markets = (await readMarketplaces(bucket, uid)).map((mk) => ({ name: mk.name, owner: mk.owner, source: mk.source, plugins: mk.plugins.map((p) => ({ name: p.name, description: p.description, category: p.category, installed: mine.some((x) => x.name === p.name && x.marketplace === mk.name) })) }));
+      return json({ ok: true, installed: mine.map((p) => ({ ...pluginOut(p, true), ...(p.marketplace ? { marketplace: p.marketplace } : {}) })), catalog: PLUGIN_CATALOG.map((p) => pluginOut(p, names.has(p.name))), marketplaces: markets });
     }
-    if (parts.length === 1 && m === "POST") { const r = await installPlugin(bucket, uid, (await body()).name); return json(r, r.ok ? 200 : 400); }
+    // (Marketplaces: POST /plugins/marketplaces { source } adds one by its Git URL; DELETE /plugins/marketplaces/<name>.)
+    if (parts[1] === "marketplaces") {
+      if (parts.length === 2 && m === "POST") { const r = await addMarketplace(bucket, uid, (await body()).source, { fetchFn }); return json(r, r.ok ? 200 : 400); }
+      if (parts.length === 3 && m === "DELETE") { const r = await removeMarketplace(bucket, uid, decodeURIComponent(parts[2])); return json(r, r.ok ? 200 : 404); }
+      return json({ error: "method" }, 405);
+    }
+    if (parts.length === 1 && m === "POST") { const b = await body(); { const at = /^([^@]+)@(.+)$/.exec(String(b.name || "")); if (at && !b.marketplace) { b.name = at[1]; b.marketplace = at[2]; } } const r = b.marketplace ? await installFromMarketplace(bucket, uid, b.name, b.marketplace, { fetchFn }) : await installPlugin(bucket, uid, b.name); return json(r, r.ok ? 200 : 400); }
     if (parts.length === 2 && m === "DELETE") { const r = await removePlugin(bucket, uid, decodeURIComponent(parts[1])); return json(r, r.ok ? 200 : 404); }
     return json({ error: "method" }, 405);
   }

@@ -147,29 +147,54 @@
   /** THE PLUGINS PANEL (the sidebar's Plugins ▸ Plugins): installed ones with Remove, the catalog with Install, a search. */
   async function pluginsPanel() {
     const { box, close } = modal('Plugins');
-    const v = { tab: 'installed', q: '', note: '', installed: [], catalog: [], err: '', busy: '' };
+    const v = { tab: 'installed', q: '', note: '', installed: [], catalog: [], markets: [], src: '', err: '', busy: '' };
     const load = async () => {
       const r = await X.call('/plugins');
-      if (r && r.status === 200 && r.data) { v.installed = r.data.installed || []; v.catalog = r.data.catalog || []; v.err = ''; st.installed = new Set(v.installed.map((p) => p.name)); }
+      if (r && r.status === 200 && r.data) { v.installed = r.data.installed || []; v.catalog = r.data.catalog || []; v.markets = r.data.marketplaces || []; v.err = ''; st.installed = new Set(v.installed.map((p) => p.name)); }
       else v.err = (r && r.data && r.data.error) || 'Plugins could not be loaded.';
     };
     const match = (p) => !v.q || (p.name + ' ' + p.description + ' ' + p.contents + ' ' + (p.category || '')).toLowerCase().includes(v.q.toLowerCase());
     const row = (p) => '<li class="cpx-prow"><span class="cpx-ic">' + ICON.plug + '</span><div class="cpx-name"><b>' + esc(p.name) + '</b>' + (p.category ? '<i class="cpx-cat">' + esc(p.category) + '</i>' : '') + '<span>' + esc(p.description) + '</span><small>Contains: ' + esc(p.contents) + '</small>' +
       (p.skills.length || p.commands.length ? '<small>Skills: ' + esc([...p.skills, ...p.commands].map((s) => p.name + ':' + s).join(', ')) + '</small>' : '') + '</div>' +
       (v.busy === p.name ? '<span class="cpx-on">…</span>' : p.installed ? (v.tab === 'installed' ? '<button type="button" class="cpx-btn cpx-rm" data-pp="remove" data-pp-name="' + esc(p.name) + '">Remove</button>' : '<span class="cpx-on">Installed</span>') : '<button type="button" class="cpx-btn" data-pp="install" data-pp-name="' + esc(p.name) + '">Install</button>') + '</li>';
+    // MARKETPLACES (Claude Code's, 2026-11-23): added by Git URL (owner/repo or a GitHub address, #ref for a branch) or a
+    // marketplace.json URL; each lists its plugins with Install. Downloads keep Claude Code's limits (src/coder-marketplace.mjs).
+    const marketsHTML = () => '<form class="cpx-mkadd" data-pp-mkform><input class="cpx-in" name="src" placeholder="Git URL: owner/repo, https://github.com/owner/repo or a marketplace.json URL" aria-label="Marketplace Git URL" value="' + esc(v.src) + '"><button type="submit" class="cpx-btn"' + (v.busy === ':add' ? ' disabled' : '') + '>' + (v.busy === ':add' ? 'Adding…' : 'Add marketplace') + '</button></form>' +
+      (v.markets.length ? v.markets.map((mk) => '<div class="cpx-mk"><div class="cpx-mk-h"><b>' + esc(mk.name) + '</b><span>' + esc(mk.source && mk.source.repo ? mk.source.repo + (mk.source.ref ? '#' + mk.source.ref : '') : mk.source && mk.source.url || '') + (mk.owner ? ' · ' + esc(mk.owner) : '') + '</span><button type="button" class="cpx-btn cpx-rm" data-pp="mk-remove" data-pp-name="' + esc(mk.name) + '">Remove</button></div><ul class="cpx-list">' +
+        mk.plugins.filter(match).map((p) => '<li class="cpx-prow"><span class="cpx-ic">' + ICON.plug + '</span><div class="cpx-name"><b>' + esc(p.name) + '@' + esc(mk.name) + '</b>' + (p.category ? '<i class="cpx-cat">' + esc(p.category) + '</i>' : '') + '<span>' + esc(p.description) + '</span></div>' + (v.busy === p.name + '@' + mk.name ? '<span class="cpx-on">…</span>' : p.installed ? '<span class="cpx-on">Installed</span>' : '<button type="button" class="cpx-btn" data-pp="mk-install" data-pp-name="' + esc(p.name) + '" data-pp-mk="' + esc(mk.name) + '">Install</button>') + '</li>').join('') + '</ul></div>').join('') : '<p class="gf-none cpx-empty">No marketplaces yet. Add one by its Git URL: Coder reads its .claude-plugin/marketplace.json.</p>');
     const paint = () => {
       const list = (v.tab === 'installed' ? v.installed : v.catalog).filter(match);
       box.innerHTML = '<div class="cd-sure-title">Plugins</div><div class="cd-sure-text">A plugin bundles skills, commands, agents, hooks and connectors, and is installed or removed as one. Installed plugins work in all your chats; their skills are named plugin:skill.</div>' +
-        '<div class="cpx-bar"><div class="cpx-seg" role="tablist"><button type="button" role="tab" data-pp-tab="installed" aria-selected="' + (v.tab === 'installed') + '"' + (v.tab === 'installed' ? ' class="on"' : '') + '>Installed <i>' + v.installed.length + '</i></button><button type="button" role="tab" data-pp-tab="catalog" aria-selected="' + (v.tab === 'catalog') + '"' + (v.tab === 'catalog' ? ' class="on"' : '') + '>Discover</button></div>' +
+        '<div class="cpx-bar"><div class="cpx-seg" role="tablist"><button type="button" role="tab" data-pp-tab="installed" aria-selected="' + (v.tab === 'installed') + '"' + (v.tab === 'installed' ? ' class="on"' : '') + '>Installed <i>' + v.installed.length + '</i></button><button type="button" role="tab" data-pp-tab="catalog" aria-selected="' + (v.tab === 'catalog') + '"' + (v.tab === 'catalog' ? ' class="on"' : '') + '>Discover</button><button type="button" role="tab" data-pp-tab="markets" aria-selected="' + (v.tab === 'markets') + '"' + (v.tab === 'markets' ? ' class="on"' : '') + '>Marketplaces <i>' + v.markets.length + '</i></button></div>' +
         '<input type="search" class="cpx-in cpx-q" placeholder="Search plugins" aria-label="Search plugins" value="' + esc(v.q) + '"></div>' +
         (v.note ? '<div class="cpx-note" role="status">' + esc(v.note) + '</div>' : '') + (v.err ? '<div class="cpx-note cpx-err">' + esc(v.err) + '</div>' : '') +
-        (list.length ? '<ul class="cpx-list">' + list.map(row).join('') + '</ul>' : '<p class="gf-none cpx-empty">' + (v.tab === 'installed' ? (v.installed.length ? 'No installed plugin matches.' : 'No plugins installed yet. Find some in Discover.') : 'No plugin matches.') + '</p>') +
+        (v.tab === 'markets' ? marketsHTML() : list.length ? '<ul class="cpx-list">' + list.map(row).join('') + '</ul>' : '<p class="gf-none cpx-empty">' + (v.tab === 'installed' ? (v.installed.length ? 'No installed plugin matches.' : 'No plugins installed yet. Find some in Discover.') : 'No plugin matches.') + '</p>') +
         '<div class="cd-sure-row"><button type="button" class="cd-notify-done" data-pp="done">Done</button></div>';
       box.querySelectorAll('[data-pp-tab]').forEach((b) => { b.onclick = () => { v.tab = b.dataset.ppTab; v.note = ''; paint(); }; });
       const q = box.querySelector('.cpx-q'); q.oninput = () => { v.q = q.value; const at = q.selectionStart; paint(); const n = box.querySelector('.cpx-q'); n.focus(); try { n.setSelectionRange(at, at); } catch (e) {} };
+      const form = box.querySelector('[data-pp-mkform]');
+      if (form) form.onsubmit = async (ev) => {
+        ev.preventDefault();
+        v.src = form.elements.src.value.trim(); if (!v.src) return;
+        v.busy = ':add'; v.note = ''; paint();
+        const r = await X.call('/plugins/marketplaces', { method: 'POST', body: JSON.stringify({ source: v.src }) });
+        v.busy = '';
+        if (r && r.status === 200 && r.data && r.data.marketplace) { v.note = 'Added the marketplace ' + r.data.marketplace.name + ' (' + r.data.marketplace.plugins.length + ' plugins).'; v.src = ''; }
+        else v.note = (r && r.data && r.data.error) || 'The marketplace could not be added.';
+        await load(); paint();
+      };
       box.querySelectorAll('[data-pp]').forEach((b) => { b.onclick = async () => {
         const name = b.dataset.ppName;
         if (b.dataset.pp === 'done') return close();
+        if (b.dataset.pp === 'mk-install' || b.dataset.pp === 'mk-remove') {
+          const mk = b.dataset.ppMk || name;
+          v.busy = b.dataset.pp === 'mk-install' ? name + '@' + mk : mk; paint();
+          const r = b.dataset.pp === 'mk-install' ? await X.call('/plugins', { method: 'POST', body: JSON.stringify({ name, marketplace: mk }) }) : await X.call('/plugins/marketplaces/' + encodeURIComponent(mk), { method: 'DELETE' });
+          v.busy = '';
+          v.note = r && r.status === 200 ? (b.dataset.pp === 'mk-install' ? name + '@' + mk + ' is installed for all your chats.' : 'Removed the marketplace ' + mk + '.') : (r && r.data && r.data.error) || 'That did not work. Try again.';
+          await load(); paint(); redraw();
+          return;
+        }
         v.busy = name; paint();
         const r = b.dataset.pp === 'install' ? await X.call('/plugins', { method: 'POST', body: JSON.stringify({ name }) }) : await X.call('/plugins/' + encodeURIComponent(name), { method: 'DELETE' });
         v.busy = '';

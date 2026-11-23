@@ -1500,6 +1500,11 @@ button.cd-vault-tab:hover:not(.is-on){background:#f6f6f6}
 #gfApp .cd-fbcard-t { margin-top: 6px; font-weight: 600; font-size: 13px; }
 #gfApp .cd-fbcard-t small { font-weight: 400; color: #8a847b; margin-left: 4px; }
 #gfApp .cd-fbcard-d { margin: 6px 0 0; white-space: pre-wrap; font: inherit; font-size: 13px; color: #3b3833; }
+/* SendFeedback's draft card keys (2026-11-23): Review (1), Send twice (2), Dismiss (0), the Send transcript box. */
+#gfApp .cd-fbcard-keys, #gfApp .cd-fbcard-ask { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; font-size: 13px; }
+#gfApp .cd-fbcard-keys kbd { font: 11px ui-monospace, monospace; border: 1px solid #d9d4cc; border-radius: 4px; padding: 0 4px; margin-right: 2px; background: #faf9f7; }
+#gfApp .cd-fbcard-keys .cd-fbcard-arm { border-color: #c2410c; color: #c2410c; }
+#gfApp .cd-fbcard-tr { display: flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 12px; color: #5c574f; }
 
 /* /scheduled (2026-11-23): this chat's scheduled tasks and the cloud scheduled tasks, to see and cancel. Coder only (#gfApp). */
 #gfApp .cd-sched { border: 1px solid var(--cd-line, #ddd); border-radius: 8px; padding: 8px 12px; margin: 8px 0; font-size: 13px; }

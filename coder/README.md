@@ -38,6 +38,14 @@ code in **each user's own GitHub**.
 
    **Projects and a browser, as in Claude Code** (2026-11-23): the `projects` tool (Claude Code's Projects: project_info, project_read, project_search, project_write, project_delete) reads and writes the owner's project marked "Use in chats" (`container/coder-projects.mjs`; stored per owner in `coder/<uid>/owner-projects.json` by `src/coder-owner-projects.mjs`; the sidebar's Plugins ▸ Projects panel is `public/coder-projects.js`). Claude in Chrome's tools (tabs_context_mcp, tabs_create_mcp, navigate, read_page, computer, form_input, javascript_tool, file_upload, browser_batch; `container/coder-chrome.mjs`) drive a second copy of Gloopy's browser server in its own folder (server.mjs `coderBrowserHub`), with 10 MB uploads and javascript; Gloopy's browser is unchanged. All held back for tool_search.
 
+   **Marketplaces, artifacts, feedback and commands, "z4"** (2026-11-23): plugin marketplaces added
+   by Git URL (`src/coder-marketplace.mjs`: marketplace.json 5 MiB/10 s, archive zips 256 MiB/120 s/5
+   redirects, 100,000 entries, 512 MiB a file, 1 GiB, 50x ratio; Plugins ▸ Marketplaces tab); artifacts up
+   to 16 MiB with the `db` capability (`window.claude.db`, `src/gloopy-pages.mjs`) and `contract` 1.0.0;
+   the feedback draft card's 1 / 2 twice / 0 keys with Send transcript (sent to `coder-feedback/`); the
+   commands /code-review --comment, /security-review, /team-onboarding, /rename and /autofix-pr; /clear
+   reopens a chat Coder ended. Tests: `test/cc-z4-parity.test.mjs`.
+
    **Plugins and skills, as in Claude Code** (2026-11-23): a plugin bundles skills,
    commands, agents, hooks and connectors and is installed or removed as one, per
    owner (`src/coder-plugins.mjs`: a small built-in catalog, `coder/<uid>/plugins.json`,
