@@ -5,6 +5,11 @@ The owner's running log, newest first, in plain English. Started fresh on
 log (81,000 lines) is in git history.
 
 
+
+## 2026-11-23: Tools-only comparison file
+
+You asked for a file with only the tools. [`docs/claude-code-vs-coder-tools.xlsx`](claude-code-vs-coder-tools.xlsx) has just two tabs copied from the full sheet: Tools (99 rows) and Tool parameters & limits (514 rows), same columns and layout.
+
 ## 2026-11-23: Deploy fix (run 279)
 
 The deploy stopped at its last step: one new line read a value that only exists on Coder's machine, and the website's server (Cloudflare) refused it. The live site was not changed. Fixed, with a test that loads the website's code the way Cloudflare does, so this can't slip through again.
