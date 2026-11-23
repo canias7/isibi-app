@@ -17,6 +17,7 @@ import { chatLinkFor, madeWith, prStillOpen, noPrNote } from "./coder-routes.mjs
 import { listEnvs, saveEnvList, readEnvData, writeEnvData, envIdFor, envIdOf, markUsed, envListOut } from "./coder-environments.mjs";
 import { egressPass, machineKeyRules, EGRESS_PATH } from "./coder-egress.mjs";
 import { pluginsApi } from "./coder-plugins.mjs";
+import { projectsApi } from "./coder-owner-projects.mjs";
 import { artifactNow } from "./coder-artifacts.mjs";
 import { resourceCall, connectorWait } from "./coder-mcp.mjs";
 import { envAnswer, envCard, sameCard, ENV_INPUT_CHECKS, ENV_CARD_TOOLS, planUpdate, planCreate, planSwitch, approvedText, envResultText } from "../container/coder-envtools.mjs";
@@ -87,6 +88,8 @@ export async function handleEnvApi(request, env, { now = Date.now() } = {}) {
   if (meta.jobFromGithub === true || meta.kind === "gloopy") return answer({ error: "error: the environment cannot be looked up or changed in a job started from GitHub" }, 403);
   // (Plugins, saved skills and onboarding guides: coder-plugins.mjs, 2026-11-23.)
   { const p = await pluginsApi(env, bucket, uid, meta, body); if (p) return answer(p); }
+  // (The owner's attached project, Claude Code's Projects tool: coder-owner-projects.mjs, 2026-11-23.)
+  { const p = await projectsApi(bucket, uid, body); if (p) return answer(p); }
   const also = [body.action === "get" ? body.environment_id : body.args && typeof body.args === "object" ? body.args.environment_id : null];
   return answer(envAnswer(await envState(env, bucket, uid, meta, also), body));
 }

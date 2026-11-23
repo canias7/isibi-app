@@ -1,0 +1,42 @@
+/* The owner's projects on Coder's page (2026-11-23; coder-projects.js): the Projects panel, inside #gfApp. */
+#gfApp .cpj-panel { width: min(560px, 100%); max-height: min(86vh, 760px); overflow: auto; }
+#gfApp .cpj-note { margin: 8px 0; font-size: 13px; color: #4a4741; }
+#gfApp .cpj-err { color: #b3261e; }
+#gfApp .cpj-empty { margin: 14px 0; font-size: 13.5px; color: #6b6760; }
+#gfApp .cpj-list, #gfApp .cpj-docs { list-style: none; margin: 10px 0; padding: 0; border: 1px solid #ebe8e2; border-radius: 12px; }
+#gfApp .cpj-item, #gfApp .cpj-docs li { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-top: 1px solid #f0ede7; }
+#gfApp .cpj-item:first-child, #gfApp .cpj-docs li:first-child { border-top: 0; }
+#gfApp .cpj-open { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; border: 0; background: none; padding: 4px 0; font: inherit; text-align: left; cursor: pointer; color: inherit; }
+#gfApp .cpj-ic { flex: none; width: 32px; height: 32px; border-radius: 8px; background: #f3f1ec; color: #4a4741; display: inline-flex; align-items: center; justify-content: center; }
+#gfApp .cpj-name { min-width: 0; display: flex; flex-direction: column; gap: 2px; font-size: 14px; }
+#gfApp .cpj-name b { font-weight: 500; color: #1f1e1c; overflow-wrap: anywhere; }
+#gfApp .cpj-name span { color: #4a4741; font-size: 13px; overflow-wrap: anywhere; }
+#gfApp .cpj-name small, #gfApp .cpj-docs small, #gfApp .cpj-gh small { color: #8a857c; font-size: 12px; }
+#gfApp .cpj-btn { flex: none; border: 1px solid #dcd8d0; background: #fff; border-radius: 8px; padding: 5px 12px; font: inherit; font-size: 13px; cursor: pointer; color: #1f1e1c; }
+#gfApp .cpj-btn:hover { background: #f5f3ef; }
+#gfApp .cpj-main { background: #1f1e1c; border-color: #1f1e1c; color: #fff; }
+#gfApp .cpj-main:hover { background: #3a3835; }
+#gfApp .cpj-quiet { border-color: transparent; color: #6b6760; }
+#gfApp .cpj-rm { color: #b3261e; }
+#gfApp .cpj-on { flex: none; font-size: 13px; color: #2e7d4f; padding: 5px 4px; }
+#gfApp .cpj-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+#gfApp .cpj-back { border: 0; background: none; font: inherit; font-size: 14px; color: #4a4741; cursor: pointer; padding: 4px 0; }
+#gfApp .cpj-back:hover { color: #1f1e1c; text-decoration: underline; }
+#gfApp .cpj-form { display: flex; flex-direction: column; gap: 10px; margin: 10px 0; padding: 12px; border: 1px solid #ebe8e2; border-radius: 12px; background: #fbfaf8; }
+#gfApp .cpj-form label { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; color: #4a4741; font-weight: 500; }
+#gfApp .cpj-in { font: inherit; font-size: 14px; font-weight: 400; color: #1f1e1c; border: 1px solid #dcd8d0; border-radius: 8px; padding: 7px 10px; background: #fff; width: 100%; box-sizing: border-box; }
+#gfApp .cpj-in:focus { outline: 2px solid #1f1e1c; outline-offset: 0; }
+#gfApp .cpj-ta { resize: vertical; min-height: 72px; }
+#gfApp .cpj-file input { font-size: 13px; font-weight: 400; }
+#gfApp .cpj-row-end { display: flex; justify-content: flex-end; gap: 8px; }
+#gfApp .cpj-gh { display: flex; align-items: baseline; justify-content: space-between; margin-top: 14px; font-size: 13px; font-weight: 600; color: #1f1e1c; }
+#gfApp .cpj-bar { height: 6px; border-radius: 3px; background: #efece6; margin: 6px 0 2px; overflow: hidden; }
+#gfApp .cpj-bar i { display: block; height: 100%; min-width: 2px; background: #2e7d4f; }
+#gfApp .cpj-dic { flex: none; color: #8a857c; display: inline-flex; }
+#gfApp .cpj-dname { flex: 1; min-width: 0; border: 0; background: none; padding: 0; font: inherit; font-size: 13.5px; text-align: left; color: #1f1e1c; cursor: pointer; overflow-wrap: anywhere; }
+#gfApp .cpj-dname:hover { text-decoration: underline; }
+#gfApp .cpj-view { margin: 10px 0; border: 1px solid #ebe8e2; border-radius: 12px; overflow: hidden; }
+#gfApp .cpj-vh { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 6px 6px 12px; background: #f7f6f2; font-size: 13px; }
+#gfApp .cpj-view pre { margin: 0; padding: 10px 12px; max-height: 240px; overflow: auto; font-size: 12.5px; white-space: pre-wrap; overflow-wrap: anywhere; }
+#gfApp .cpj-modal .cd-sure-row { flex-wrap: wrap; gap: 8px; }
+@media (max-width: 520px) { #gfApp .cpj-item { flex-wrap: wrap; } #gfApp .cpj-item .cpj-btn, #gfApp .cpj-item .cpj-on { margin-left: 44px; } }

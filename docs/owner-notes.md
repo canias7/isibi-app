@@ -4,6 +4,13 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-23: Projects and a browser for Coder's chats
+
+- **Projects:** a new Projects panel (sidebar: Plugins, then Projects) where you make projects that hold documents and instructions. The one marked "Use in chats" is the one Coder can read, search, write and delete documents in, with Claude Code's Projects tool.
+- **A browser for Coder:** Coder's chats now have Claude in Chrome's browser tools (open pages, read them, click, type, run JavaScript, upload files of up to 10 MB). It is a separate browser from Gloopy's, so it shares none of Gloopy's sign-ins, and Gloopy works exactly as before.
+- **Not possible in Coder:** the SSH, Desktop-disconnection, mods and Cowork rows, because Coder runs in the cloud with no desktop app, SSH hosts, mods or Cowork.
+- Tested with automated tests and in a local browser; not yet tried live on gofarther.dev.
+
 ## 2026-11-23: Five tool helpers merged, and the comparison sheet brought up to date
 
 Five helpers' work is now together on one branch (their own entries follow, below). All of Coder's tests pass (1,782 of 1,783; the one left is the known CD12 check, which fails only because of a local .claude folder).

@@ -36,6 +36,8 @@ code in **each user's own GitHub**.
    bash, web_search and the rest: `CODER_TOOLS` in `container/coder-agent.mjs`)
    and finishes by answering in words.
 
+   **Projects and a browser, as in Claude Code** (2026-11-23): the `projects` tool (Claude Code's Projects: project_info, project_read, project_search, project_write, project_delete) reads and writes the owner's project marked "Use in chats" (`container/coder-projects.mjs`; stored per owner in `coder/<uid>/owner-projects.json` by `src/coder-owner-projects.mjs`; the sidebar's Plugins ▸ Projects panel is `public/coder-projects.js`). Claude in Chrome's tools (tabs_context_mcp, tabs_create_mcp, navigate, read_page, computer, form_input, javascript_tool, file_upload, browser_batch; `container/coder-chrome.mjs`) drive a second copy of Gloopy's browser server in its own folder (server.mjs `coderBrowserHub`), with 10 MB uploads and javascript; Gloopy's browser is unchanged. All held back for tool_search.
+
    **Plugins and skills, as in Claude Code** (2026-11-23): a plugin bundles skills,
    commands, agents, hooks and connectors and is installed or removed as one, per
    owner (`src/coder-plugins.mjs`: a small built-in catalog, `coder/<uid>/plugins.json`,

@@ -64,6 +64,8 @@ import { psParseResult, psParseFail, psExitOf, PS_PARSE_RETRYABLE, psCommands, p
 import { posix as pathPosix } from "node:path";
 import { readSkills as _readSkills, skillsListing, skillLoaded, slashSkill, skillRule, SKILL_TOOL } from "./coder-skills.mjs";
 import { PLUGIN_TOOLS, PLUGIN_TOOL_NAMES, pluginTool } from "./coder-plugins.mjs";
+import { PROJECTS_TOOL, PROJECTS_TOOL_NAME, projectsTool } from "./coder-projects.mjs";
+import { CHROME_TOOLS, CHROME_TOOL_NAMES, chromeTool } from "./coder-chrome.mjs";
 import { checkAction, actionShown, autoDenied, checkUnavailable, blockedShown, limitWhy, checkerState, countBlock, countAllowed, resume, droppedInAuto, NO_VERDICT, NO_VERDICT_STOP, NOT_RUN_ROW, STOPPED_NO_VERDICT, noVerdictTold, noVerdictStopTold, NO_VERDICT_STOP_SHOWN, noVerdictWait, noPromptDenied } from "./coder-checker.mjs";
 import { psDecision, psPlanFile, toolGlob, MODES, MODE_NAMES, normMode, bashDecision, MONITOR_SETTINGS, namedForMonitor, fetchDecision, fileToolDecision, fileRuleHit, readCommand, fileCommandTargets, parseRule, allowRuleCovers, readBlockWhy, sensitiveWhy, linkOutWhy, ruleAskWhy, askedWhy, hookAskWhy, hookAskTold, planWriteWhy, planCallWhy, ccPath, RULE_MAX, REJECTED, REJECTED_SAID, NOT_NOW, PLAN_NOTE, PLAN_EXITED, AUTO_NOTE, AUTO_EXITED, planApproved, wholeReadOnly, movesWorkTree, monitorRules, partsAllowedByRules, discardsWork, wsDecision, wsProblem, wsAskText, wholeRule, MONITOR_BASH_DENIED, toolSearchParamRule, toolSearchParamDenied } from "./coder-perms.mjs";
 // (Claude Code's plan mode and ExitPlanMode, with its plan file: the owner, 2026-11-14, "Do all the talk to you tools execpt
@@ -1539,6 +1541,9 @@ export const CODER_TOOLS = Object.freeze([
   WORKFLOW_TOOL,
   // CLAUDE CODE'S PLUGIN, SKILL AND ONBOARDING TOOLS (2026-11-23; coder-plugins.mjs).
   ...PLUGIN_TOOLS,
+  // CLAUDE CODE'S Projects AND CLAUDE IN CHROME'S BROWSER TOOLS (2026-11-23; coder-projects.mjs, coder-chrome.mjs), held back.
+  PROJECTS_TOOL,
+  ...CHROME_TOOLS,
 ]);
 /** A chat's title from an approved plan (Claude Code titles the session after the plan): its first Markdown heading, else its
  * first non-empty line, as plain text on one line, at most 80 characters; "" when there is none. */
@@ -1772,7 +1777,7 @@ export function modeChangeNote(from, to, { planExited = PLAN_EXITED, autoExit = 
 // mode, which offers only the tools it allows. Each of these still refuses in such a job if called anyway.
 // (Nor enter_plan_mode: Claude Code offers EnterPlanMode only where someone can be asked, never in a non-interactive run, and
 // a job from GitHub is always Auto. 2026-11-14.)
-export const NOT_FROM_GITHUB = Object.freeze(["request_secret", ...ENV_TOOL_NAMES, "pr_comments", "pr_read", "pr_update", "suggest_connectors", "undo_last_job", "auto_fix", "enter_plan_mode", "rename_chat", "enter_worktree", "exit_worktree", "end_conversation", "send_feedback", "agent", "subagent_handback", "list_agents", "send_message", "workflow", "artifact", ...CRON_TOOL_NAMES, ...PLUGIN_TOOL_NAMES]);
+export const NOT_FROM_GITHUB = Object.freeze(["request_secret", ...ENV_TOOL_NAMES, "pr_comments", "pr_read", "pr_update", "suggest_connectors", "undo_last_job", "auto_fix", "enter_plan_mode", "rename_chat", "enter_worktree", "exit_worktree", "end_conversation", "send_feedback", "agent", "subagent_handback", "list_agents", "send_message", "workflow", "artifact", ...CRON_TOOL_NAMES, ...PLUGIN_TOOL_NAMES, PROJECTS_TOOL_NAME, ...CHROME_TOOL_NAMES]);
 export const GITHUB_TOOLS = Object.freeze(CODER_TOOLS.filter((t) => !NOT_FROM_GITHUB.includes(t.function.name)));
 /**
  * THIS CHAT'S TOOL LIST, bash as its environment sets it: with background commands off (CODER_DISABLE_BACKGROUND_TASKS,
@@ -7813,6 +7818,16 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       } else if (PLUGIN_TOOL_NAMES.includes(c.name) && !github && !offered) {
         // (Claude Code's plugin, skill and onboarding tools: coder-plugins.mjs, 2026-11-23.)
         const o = await pluginTool(c.name, { args: c.args || {}, id: c.id, deps, emit, reply, scrub, skills: skillList, root: deps.root, canAsk, askOwner, answerOutcome, askQuestions: (ev) => askQuestions(ev, c.args || {}, c.id) });
+        if (o === "stop") return stopNow(reply);
+        if (o === "no") return noEnd(i, "stopped: the owner said no");
+      } else if (c.name === PROJECTS_TOOL_NAME && !github && !offered) {
+        // (Claude Code's Projects: the owner's project attached to their chats, coder-projects.mjs, 2026-11-23.)
+        await projectsTool({ args: c.args || {}, id: c.id, deps, emit, reply, scrub, root: deps.root });
+      } else if (CHROME_TOOL_NAMES.includes(c.name) && !github && !offered) {
+        // (Claude in Chrome's browser tools, on Coder's own browser, not Gloopy's: coder-chrome.mjs, 2026-11-23.)
+        const o = await chromeTool(c.name, { args: c.args || {}, id: c.id, deps, emit, reply, scrub, root: deps.root, plan: modeNow() === "plan", canAsk, askOwner, answerOutcome,
+          readDenied: (full) => !!fileRuleHit(ownRules.deny, "Read", full, "deny", { sources: ownRules.sources, root: deps.root || "/", cwd: ruleCwd(), home: deps.home || "", real: (y) => realPath(y), roots: workdirs.slice(1) }),
+          pic: (shot) => roundPics.push({ path: "the browser", urls: ["data:image/jpeg;base64," + shot] }) });
         if (o === "stop") return stopNow(reply);
         if (o === "no") return noEnd(i, "stopped: the owner said no");
       } else if (c.name === "suggest_connectors" && !github && !offered) {

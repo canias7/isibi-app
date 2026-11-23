@@ -4803,6 +4803,11 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
   const webGid = env.GLOOPY_WEB_GID && Number.isInteger(Number(env.GLOOPY_WEB_GID)) ? Number(env.GLOOPY_WEB_GID) : webUid;
   let hub = null;
   // (`routed`: its connections go through the owner's computer now: a certificate refused is said to be likelier theirs.)
+  // CODER'S OWN BROWSER (2026-11-23; Claude in Chrome's tools in Coder's chats, coder-chrome.mjs): the same browser server in
+  // a folder of its own, so it shares no sign-in, tab or setting with Gloopy's; Claude in Chrome's 10 MB uploads and its
+  // javascript_tool are this hub's only (Gloopy's hub is made as before).
+  let coderHub = null;
+  const coderBrowserHub = () => (coderHub ||= makeBrowserHub({ dir: (browserRoot ? browserRoot + "-coder" : data ? join(data, "coder-browser") : "/srv/coder-browser"), uid: webUid, gid: webGid, env, uploadMax: 10 * 1024 * 1024, allowEval: true }));
   const browserHub = () => (hub ||= makeBrowserHub({ dir: browserRoot || (data ? join(data, "browser") : "/srv/gloopy-browser"), uid: webUid, gid: webGid, env, routed: () => routeWanted && !!routeProxy && tunnel.connected }));
   // WHAT A GLOOPY TURN LEFT WAITING FOR THE OWNER (a browser step's OK, or a sign-in), until they answer or a turn starts.
   const pending = new Map();
@@ -6139,6 +6144,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
           // GLOOPY'S HELPERS' OWN TABS (2026-11-10): each helper's steps in a tab of its own; closed when they are done.
           lane: (k) => ({ act: (a) => browserHub().act(a, k), describe: (ref) => browserHub().describe(ref, k) }),
           closeLanes: async () => ((await browserHub().running().catch(() => false)) ? browserHub().closeLanes() : null) } } : {}),
+        // CODER'S OWN BROWSER (2026-11-23; Claude in Chrome's tools, coder-chrome.mjs): a second hub, never Gloopy's.
+        ...(!gloopy && hasBrowser ? { chrome: coderBrowserHub() } : {}),
       };
       // (Kept for the chat's SessionEnd hooks, run when this machine stops: sessionEnd.)
       t.turnDeps = turnDeps; t.hooksLast = turnHooks; t.home0 = home0; t.fileEdits = repoSet.defaultMode === "acceptEdits";

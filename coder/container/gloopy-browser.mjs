@@ -54,6 +54,8 @@ export const UPLOAD_MAX = 5 * 1024 * 1024;
 export const STAGED_MS = 24 * 60 * 60 * 1000;
 /** The most one request to the browser carries (a file to upload, as base64, in JSON). */
 const BODY_MAX = 8 * 1024 * 1024;
+/** The upload size a browser server takes (GLOOPY_UPLOAD_MAX from its hub; UPLOAD_MAX when unset or wrong, at most 16 MB). */
+export const uploadMaxOf = (raw) => { const n = Number(raw); return Number.isInteger(n) && n > 0 && n <= 16 * 1024 * 1024 ? n : UPLOAD_MAX; };
 /** SCREENSHOTS AS FILES (fix 1): PNG, or JPEG when a whole page's PNG would be bigger than this. */
 export const SHOT_FILE_MAX = 8 * 1024 * 1024;
 const STAGED_RE = /^u[0-9a-f]{12}$/;
@@ -297,6 +299,10 @@ export async function serve(dir) {
   // computer"): while it is on, Coder's service starts the browser with its own proxy (GLOOPY_PROXY: { server }, on
   // 127.0.0.1), which sends each new connection through the owner's desktop app while it is linked (gloopy-route.mjs).
   const proxy = routeProxyOf(process.env.GLOOPY_PROXY);
+  // CODER'S OWN BROWSER (2026-11-23, Claude in Chrome's tools in Coder's chats; coder-chrome.mjs): the same server, run in a
+  // folder of its own by a second hub, with Claude in Chrome's upload size (GLOOPY_UPLOAD_MAX) and its javascript_tool
+  // (GLOOPY_EVAL). Gloopy's hub sets neither, so Gloopy's browser is as it was.
+  const upMax = uploadMaxOf(process.env.GLOOPY_UPLOAD_MAX), bodyMax = Math.max(BODY_MAX, Math.ceil((upMax * 4) / 3) + 65536), evalOn = process.env.GLOOPY_EVAL === "1";
   const ctx = await chromium.launchPersistentContext(join(dir, "profile"), { headless: true, viewport: VIEW, acceptDownloads: true, downloadsPath: dlDir, ...(zone ? { timezoneId: zone } : {}), ...(proxy ? { proxy } : {}), ...(name ? { userAgent: name.userAgent, extraHTTPHeaders: { "sec-ch-ua": name.secChUa } } : {}) });
   // A new tab's first page runs before its brands can be set (see watch): there, and only while they still say
   // "HeadlessChrome", the page reads Chrome's own list too.
@@ -575,7 +581,7 @@ export async function serve(dir) {
     if (typeof x.data !== "string" || !/^[A-Za-z0-9+/]*=*$/.test(x.data)) throw new Error("give the file's data");
     const buf = Buffer.from(x.data, "base64");
     if (!buf.length) throw new Error("the file is empty");
-    if (buf.length > UPLOAD_MAX) throw new Error("the file is over " + UPLOAD_MAX / 1048576 + " MB");
+    if (buf.length > upMax) throw new Error("the file is over " + upMax / 1048576 + " MB");
     await mkdir(upDir, { recursive: true, mode: 0o700 });
     await tidyUploads();
     const id = "u" + randomBytes(6).toString("hex");
@@ -860,6 +866,17 @@ export async function serve(dir) {
     if (L.dl.going.size) await Promise.race([Promise.allSettled([...L.dl.going.keys()]), new Promise((ok) => setTimeout(ok, Math.max(0, Math.min(DOWNLOAD_WAIT_MS, 28_000 - (Date.now() - t0)))))]);
     const out = await report(did, { picture: ask.action === "screenshot" ? { full: ask.full } : null }, L);
     return { ...out, ...(await handOver(ask.keep === true, L)) };
+  };
+  // CODER'S javascript_tool (only with GLOOPY_EVAL, Coder's own browser): the code run in the page, its value as text.
+  const evaluate = async (x, L = L0) => {
+    if (!evalOn) throw new Error("javascript is not available in this browser");
+    const code = String(x.code || "");
+    if (!code.trim()) throw new Error("give the code to run");
+    const result = await Promise.race([
+      L.page.evaluate(async (c) => { const v = await (0, eval)(c); if (v === undefined) return "undefined"; if (typeof v === "string") return v; try { const j = JSON.stringify(v); return j === undefined ? String(v) : j; } catch { return String(v); } }, code.slice(0, 100_000)),
+      new Promise((_, no) => setTimeout(() => no(new Error("the code ran for over 30 seconds")), 30_000)),
+    ]);
+    return { result: String(result), url: L.page.url(), title: await L.page.title().catch(() => "") };
   };
   // THE SERVICE'S OWN: what an element is (none: the one with the focus), and where the page is.
   const describe = async (x, L = L0) => {
@@ -1162,10 +1179,10 @@ export async function serve(dir) {
     // The request, whole (a file to upload is several MB), or refused when bigger than BODY_MAX.
     const parts = [];
     let size = 0;
-    req.on("data", (c) => { size += c.length; if (size <= BODY_MAX) parts.push(c); });
+    req.on("data", (c) => { size += c.length; if (size <= bodyMax) parts.push(c); });
     req.on("end", () => {
-      const body = size > BODY_MAX ? "" : Buffer.concat(parts).toString("utf8");
-      if (size > BODY_MAX) { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ error: "that was too big for the browser" })); return; }
+      const body = size > bodyMax ? "" : Buffer.concat(parts).toString("utf8");
+      if (size > bodyMax) { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ error: "that was too big for the browser" })); return; }
       // THE OWNER'S TIME ZONE CHANGED (fix 7): the browser stops (after what it is doing), for Coder's service to start it
       // again with the new one. Its sign-ins stay (they are on disk).
       if (req.url === "/quit") {
@@ -1197,6 +1214,7 @@ export async function serve(dir) {
             await L.ready;
             const x = JSON.parse(body || "{}");
             if (x.action === "describe") out = await describe(x, L);
+            else if (x.action === "evaluate") out = await evaluate(x, L);
             else { ask = checkAsk(x); if (ask.action === "upload") throw new Error("a helper's tab can't upload files: say in your answer what should go where, and Gloopy will do it"); out = await run(ask, L); }
           } catch (e) { out = { error: e && [PASSWORD_REFUSED, CARD_REFUSED].includes(e.message) ? e.message : plainError(e, ask || {}) }; }
           L.last = last = Date.now();
@@ -1212,6 +1230,7 @@ export async function serve(dir) {
           const x = req.url === "/ping" ? null : JSON.parse(body || "{}");
           if (!x) out = { ok: true, zone, route: proxy ? proxy.server : "", url: page.url() };
           else if (x.action === "describe") out = await describe(x);
+          else if (x.action === "evaluate") out = await evaluate(x);
           else if (x.action === "fill") out = await fill(x);
           else if (x.action === "fillCard") out = await fillCard(x);
           else if (x.action === "fillCode") out = await fillCode(x);
@@ -1443,7 +1462,7 @@ export function browserEnv(dir, env = process.env) {
  * `gloopyweb`), in `dir` (made here, only that user's). `act`: one of the AI's actions; `describe` and `fill`: the
  * service's own. Each answers what the browser said, or throws with what went wrong.
  */
-export function makeBrowserHub({ dir, uid = null, gid = null, timeoutMs = ACT_MS, startMs = START_MS, env = process.env, zone = "", routed = () => false } = {}) {
+export function makeBrowserHub({ dir, uid = null, gid = null, timeoutMs = ACT_MS, startMs = START_MS, env = process.env, zone = "", routed = () => false, uploadMax = 0, allowEval = false } = {}) {
   const sock = join(dir, "ctl.sock");
   // The owner's time zone the browser is started with (fix 7).
   let want = okZone(zone) ? zone : "";
@@ -1458,7 +1477,7 @@ export function makeBrowserHub({ dir, uid = null, gid = null, timeoutMs = ACT_MS
     if (uid !== null) chownSync(dir, uid, gid ?? uid);
     chmodSync(dir, 0o700);
     const log = openSync(join(dir, "browser.log"), "a", 0o600);
-    const child = spawn(process.execPath, [fileURLToPath(import.meta.url), "serve", dir], { detached: true, stdio: ["ignore", log, log], env: { ...browserEnv(dir, env), ...(want ? { GLOOPY_TZ: want } : {}), ...(wantRoute ? { GLOOPY_PROXY: JSON.stringify(wantRoute) } : {}) }, ...(uid !== null ? { uid, gid: gid ?? uid } : {}) });
+    const child = spawn(process.execPath, [fileURLToPath(import.meta.url), "serve", dir], { detached: true, stdio: ["ignore", log, log], env: { ...browserEnv(dir, env), ...(want ? { GLOOPY_TZ: want } : {}), ...(wantRoute ? { GLOOPY_PROXY: JSON.stringify(wantRoute) } : {}), ...(uploadMax > 0 ? { GLOOPY_UPLOAD_MAX: String(uploadMax) } : {}), ...(allowEval === true ? { GLOOPY_EVAL: "1" } : {}) }, ...(uid !== null ? { uid, gid: gid ?? uid } : {}) });
     child.unref();
     closeSync(log);
     const until = Date.now() + startMs;
@@ -1514,6 +1533,8 @@ export function makeBrowserHub({ dir, uid = null, gid = null, timeoutMs = ACT_MS
       for (let i = 0; i < 50 && (await ask(sock, "/ping", {}, 1000)).ok; i++) await new Promise((ok) => setTimeout(ok, 200));
       return { route: !!wantRoute, restarted: true };
     },
+    // CODER'S javascript_tool (a hub made with allowEval): { result, url, title }.
+    evaluate: (code, lane = 0) => call({ action: "evaluate", code: String(code || ""), ...(Number.isInteger(lane) && lane > 0 ? { lane } : {}) }),
     describe: (ref, lane = 0) => call({ action: "describe", ...(ref ? { ref } : {}), ...(Number.isInteger(lane) && lane > 0 ? { lane } : {}) }),
     fill: ({ site = "", userRef = "", passRef, submitRef = "", username = "", password, secureOnly = false }) => call({ action: "fill", site, userRef, passRef, submitRef, username, password, secureOnly: secureOnly === true }),
     // THE OWNER'S CARD (2026-11-09): { site, numberRef, expRef?, monthRef?, yearRef?, cvcRef?, nameRef?, postalRef?, card }.

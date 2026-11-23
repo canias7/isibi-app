@@ -283,7 +283,7 @@ test("MC10 (2026-11-11, from Claude Code's MCP docs) tool search: many connector
   let i = 0;
   const seen = [], ran = [];
   const replies = [
-    { message: { role: "assistant", content: "", tool_calls: [{ id: "s1", type: "function", function: { name: "tool_search", arguments: JSON.stringify({ query: "create issue", max_results: 5 }) } }] }, usage: { in: 1, out: 1 } },
+    { message: { role: "assistant", content: "", tool_calls: [{ id: "s1", type: "function", function: { name: "tool_search", arguments: JSON.stringify({ query: "create issue", max_results: 10 }) } }] }, usage: { in: 1, out: 1 } },
     { message: { role: "assistant", content: "", tool_calls: [{ id: "k1", type: "function", function: { name: "mcp__linear__tool_7", arguments: "{}" } }] }, usage: { in: 1, out: 1 } },
     { message: { role: "assistant", content: "done" }, usage: { in: 1, out: 1 } },
   ];
