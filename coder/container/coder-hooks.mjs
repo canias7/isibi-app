@@ -13,6 +13,7 @@ import { ifRuleMatches } from "./coder-perms.mjs";
 import { bashResultText } from "./coder-checks.mjs";
 import { checkRewrite, bashOutputText } from "./coder-zod.mjs";
 import { REMOTE_TOOL_NAMES, REMOTE_SERVER, REMOTE_SOURCE, remoteAliases } from "./coder-envtools.mjs";
+import { CRON_TOOL_CC } from "./coder-schedule.mjs";
 
 /** The events Coder has (Claude Code's names), and the ones about a tool call. */
 // (TaskCreated and TaskCompleted: Claude Code's, fired by its TaskCreate and TaskUpdate, which Coder has since 2026-11-14, the
@@ -129,6 +130,8 @@ export const ccTool = (name, monitor = false) => (monitor ? "Monitor" : CC_TOOL[
 // mcp__claude-code-remote__get_environment … mcp__claude-code-remote__request_credential: a hook's tool_name, its matcher and
 // its `if` see those, and a PostToolUse hook's updatedMCPToolOutput applies to them. E1 of recheck 2, 2026-11-14.)
 Object.assign(CC_TOOL, REMOTE_TOOL_NAMES);
+// (Claude Code's scheduling tools by its names, 2026-11-23.)
+Object.assign(CC_TOOL, CRON_TOOL_CC);
 
 const strList = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === "string" && x.trim()).map((x) => x.trim()).slice(0, 100) : null);
 
