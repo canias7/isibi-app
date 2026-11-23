@@ -4,6 +4,13 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-23: Five more Claude Code tools in Coder: worktrees, feedback, ending a chat, review findings
+
+- **Worktrees:** Coder can now make a separate working copy of the repository (a "worktree") when you ask it to, work there, and leave it, keeping it or deleting it. Before deleting one that has work not saved to GitHub, it stops and asks you on a card.
+- **Feedback drafts:** when something in Coder keeps going wrong, or you ask, Coder writes a feedback draft as a card in the chat with a Copy button. Nothing is sent anywhere by itself.
+- **Ending a chat:** Coder can end a chat only if someone keeps being abusive after a warning, or if you ask it to and confirm. After that the chat takes no new messages; start a new chat to go on.
+- **Review findings:** `/code-review` now shows its findings as a tidy list card (file, line, what is wrong, how it goes wrong, how serious).
+- Not yet tried live in the browser on gofarther.dev; that needs a deploy.
 ## 2026-11-23: Coder can schedule work (Claude Code's scheduling tools)
 
 Coder now has Claude Code's five scheduling tools:

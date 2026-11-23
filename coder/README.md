@@ -2646,6 +2646,17 @@ a new chat on its repository. Caps, each a Worker variable: `CODER_CRON_MAX` (10
 chat), `CODER_CRON_MIN_MINUTES` (1), `CODER_TRIGGER_MIN_HOURS` (1), `CODER_TRIGGER_MAX`
 (10), `CODER_CRON_RUNS_PER_DAY` (24 a chat, and 24 across cloud tasks, UTC),
 `CODER_CRON_EFFORT` (low). Recurring crons end after 7 days; wake-ups 60-3600 seconds.
+WORKTREES, FEEDBACK, ENDING A CHAT AND REVIEW FINDINGS (2026-11-23, `container/coder-worktree.mjs`):
+Claude Code's EnterWorktree, ExitWorktree, SendFeedback and EndConversation as `enter_worktree`,
+`exit_worktree`, `send_feedback` and `end_conversation` (held back until `tool_search` loads them;
+none from GitHub), and ReportFindings as `report_findings` (upfront; `/code-review` asks for it).
+Worktrees are made on the chat's machine under the repository's `.claude/worktrees/<name>`, on a
+branch `worktree-<name>`, through the chat's own shell, so its next commands start there; removing one
+with uncommitted files or unpushed commits is refused unless `discard_changes`, and then asks the
+owner on a card. `send_feedback` only shows a draft card (with Copy) kept with the chat: nothing is
+sent. `end_conversation` (sustained abuse, or the owner asked and confirmed) ends the job, and the
+Worker then refuses new messages in that chat (`convoEnded`). `report_findings` shows the findings
+(file, line, summary, failure scenario, category, severity) as a list card.
 
 HOW MUCH ONE READ GIVES (batch 8, MISS-79): `CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS`
 (or `CODER_FILE_READ_MAX_OUTPUT_TOKENS`), in the environment or a repository's

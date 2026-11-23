@@ -35,6 +35,7 @@ import { PICS_MARK, WRITE_MARK, FACTS_MARK, WRITE_SHOW_LINES, PDF_PAGES_MAX, PDF
 import { okHost, HEADER_RE, PREFIXES, listProblem } from "./coder-secrets.mjs";
 import { credentialHost, credentialHeader, credentialPrefix, neverKeyWhy } from "./coder-secrets.mjs";
 import { inputCheckFor } from "./coder-inputs.mjs";
+import { CC_TOOLS as CC_EXTRA_TOOLS, checkEnterWorktree, checkExitWorktree, checkEndConversation, checkSendFeedback, checkReportFindings, randomWorktreeName, enterNewScript, enterPathScript, exitFactsScript, exitScript, markOf, exitState, atRiskWords, exitRefusedText, NO_WORKTREE, findingsResult, findingsText, FEEDBACK_QUEUED, FEEDBACK_MAX, ENDED_RESULT } from "./coder-worktree.mjs";
 // (A reply's calls side by side, in Claude Code's groups: coder-parallel.mjs. 2026-11-14.)
 import { safeCall, groupEnd, earlyRuns, RoundClosing, closedAs, interruptedNote, SKIPPED_BY_CHECK, INTERRUPTED_TOOL_USE } from "./coder-parallel.mjs";
 import { searchToolDef, GREP_INLINE_MAX, GLOB_INLINE_MAX, SEARCH_TIMEOUT_MS, splitPattern, checkedAt } from "./coder-search.mjs";
@@ -1514,6 +1515,9 @@ export const CODER_TOOLS = Object.freeze([
   // CLAUDE CODE'S SCHEDULING TOOLS (2026-11-23; coder-schedule.mjs): schedule_wakeup upfront; cron_create, cron_delete,
   // cron_list and remote_trigger held back until tool_search loads them. Every run is a paid model call, so all are capped.
   ...CRON_TOOLS,
+  // CLAUDE CODE'S ReportFindings (upfront, as in Claude Code), EnterWorktree, ExitWorktree, SendFeedback and EndConversation
+  // (held back until tool_search loads them, as Claude Code defers them): coder-worktree.mjs, 2026-11-23.
+  ...CC_EXTRA_TOOLS,
 ]);
 /** A chat's title from an approved plan (Claude Code titles the session after the plan): its first Markdown heading, else its
  * first non-empty line, as plain text on one line, at most 80 characters; "" when there is none. */
@@ -1747,7 +1751,7 @@ export function modeChangeNote(from, to, { planExited = PLAN_EXITED, autoExit = 
 // mode, which offers only the tools it allows. Each of these still refuses in such a job if called anyway.
 // (Nor enter_plan_mode: Claude Code offers EnterPlanMode only where someone can be asked, never in a non-interactive run, and
 // a job from GitHub is always Auto. 2026-11-14.)
-export const NOT_FROM_GITHUB = Object.freeze(["request_secret", ...ENV_TOOL_NAMES, "pr_comments", "pr_read", "pr_update", "suggest_connectors", "undo_last_job", "auto_fix", "enter_plan_mode", "rename_chat", ...CRON_TOOL_NAMES]);
+export const NOT_FROM_GITHUB = Object.freeze(["request_secret", ...ENV_TOOL_NAMES, "pr_comments", "pr_read", "pr_update", "suggest_connectors", "undo_last_job", "auto_fix", "enter_plan_mode", "rename_chat", "enter_worktree", "exit_worktree", "end_conversation", "send_feedback", ...CRON_TOOL_NAMES]);
 export const GITHUB_TOOLS = Object.freeze(CODER_TOOLS.filter((t) => !NOT_FROM_GITHUB.includes(t.function.name)));
 /**
  * THIS CHAT'S TOOL LIST, bash as its environment sets it: with background commands off (CODER_DISABLE_BACKGROUND_TASKS,
@@ -4129,6 +4133,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   let filesSent = 0;
   // (The chat's scheduled prompts and cloud scheduled tasks as the turn began, and what this turn changed: coder-schedule.mjs.)
   const cronSt = cronState(schedule && typeof schedule === "object" ? schedule : {});
+  // (send_feedback's drafts this job, and whether end_conversation ended it: coder-worktree.mjs.)
+  let feedbackDrafts = 0, convoEnded = false;
   // REQUESTS SENT WITH THE OWNER'S SAVED KEYS, CHECKED (the audit, owner 2026-11-10: "do all of that"; Grok Bot checks
   // commands). A command's request to a site with a saved key comes through Coder's service, which asks this (`deps.writes`)
   // before the request goes on to Coder's Worker, which adds the key: any request but a read (GET, HEAD, OPTIONS) is
@@ -4529,6 +4535,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     // model answered, "[Request interrupted by the owner]".)
     // (Not a second one after the owner's own command that the Stop cut short: it has its mark, shellCut.)
     if (await stopped()) { if (!offered && !shellCut) convo.push(interruptedNote(stopTime() <= roundDoneAt)); emit({ type: "stopped" }); return end("stopped"); }
+    // (end_conversation, Claude Code's EndConversation: the job ends here, with no further answer.)
+    if (convoEnded) return end("done", { ended: true });
     if (rounds >= maxRounds) { emit({ type: "error", text: who + " reached its limit of " + maxRounds + " steps." }); return end("rounds"); }
     if (now() - started > maxMs) { emit({ type: "error", text: who + " ran out of time." }); return end("time"); }
     rounds++;
@@ -7494,6 +7502,83 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           emit({ type: "result", id: c.id, code: said.startsWith("Error") ? 1 : 0, output: said.slice(0, 2000) });
         }
         reply(said);
+      } else if (c.name === "report_findings") {
+        // CLAUDE CODE'S ReportFindings (2026-11-23): the findings as a list card in the chat, kept with it.
+        const v = checkReportFindings(c.args);
+        if (v.error) { reply(v.error); continue; }
+        const shown = v.args.findings.map((f) => ({ ...f, summary: scrub(f.summary), failure_scenario: scrub(f.failure_scenario) }));
+        emit({ type: "findings", findings: shown, text: findingsText(shown), ...(v.args.level ? { level: v.args.level } : {}) });
+        reply(findingsResult(v.args));
+      } else if (c.name === "send_feedback") {
+        // CLAUDE CODE'S SendFeedback (2026-11-23): Coder has no feedback service, so the draft is a card for the owner (kept with
+        // the chat, with Copy); nothing is sent by itself.
+        if (github) { reply("error: feedback is drafted from the chat on gofarther.dev, not from GitHub"); continue; }
+        const v = checkSendFeedback(c.args);
+        if (v.error) { reply(v.error); continue; }
+        if (feedbackDrafts >= FEEDBACK_MAX) { reply("error: at most " + FEEDBACK_MAX + " feedback drafts a job"); continue; }
+        feedbackDrafts++;
+        const fb = { title: scrub(v.args.title), details: scrub(v.args.details), ...(v.args.area ? { area: scrub(v.args.area) } : {}) };
+        emit({ type: "feedback", ...fb, text: fb.title + (fb.area ? " (" + fb.area + ")" : "") + "\n\n" + fb.details });
+        reply(FEEDBACK_QUEUED);
+      } else if (c.name === "end_conversation") {
+        // CLAUDE CODE'S EndConversation (2026-11-23): only on sustained abuse, or when the owner asked and confirmed (its
+        // description says so). The job ends after this round; the chat then takes no new messages (the Worker's `ended`).
+        if (github) { reply("error: a conversation is ended from the chat on gofarther.dev, not from GitHub"); continue; }
+        const v = checkEndConversation(c.args);
+        if (v.error) { reply(v.error); continue; }
+        convoEnded = true;
+        emit({ type: "ended", reason: v.args.reason });
+        reply(ENDED_RESULT);
+      } else if (c.name === "enter_worktree" || c.name === "exit_worktree") {
+        // CLAUDE CODE'S EnterWorktree AND ExitWorktree (2026-11-23): on the chat's machine, under the repository's
+        // .claude/worktrees/, through the chat's own shell, so the move carries over to its next commands as a cd does.
+        if (github) { reply("error: worktrees are used from the chat on gofarther.dev, not from GitHub"); continue; }
+        const enter = c.name === "enter_worktree";
+        const v = enter ? checkEnterWorktree(c.args) : checkExitWorktree(c.args);
+        if (v.error) { reply(v.error); continue; }
+        const run = async (command, desc) => { try { return await deps.exec({ command, timeoutS: 120, here: true, follow: true, desc }); } catch (e) { return { code: -1, output: String((e && e.message) || e) }; } };
+        const no = (m) => { emit({ type: "result", id: c.id, code: 1, output: m }); reply(m); };
+        const refusedBy = (a, what) => (a.choice === "stop" ? "stopped by the owner" : "The owner did not allow " + what + (a.comment ? ": " + a.comment : "."));
+        if (enter) {
+          const name = v.args.path ? "" : v.args.name || randomWorktreeName();
+          emit({ type: "bash", id: c.id, tool: "worktree", verb: "Entered a worktree", command: plain(v.args.path || name).slice(0, 200) });
+          let r = await run(v.args.path ? enterPathScript(v.args.path) : enterNewScript(name), "Enter worktree");
+          let m = markOf(r && r.output);
+          if (m && m.kind === "ASK") {
+            // (Claude Code asks before entering a path outside .claude/worktrees/: it moves where the work happens.)
+            const where = m.rest.trim();
+            const a = await askOwner({ tool: "enter_worktree", hookTool: "EnterWorktree", id: c.id, what: "Move Coder's commands into the worktree at " + where, why: "It is outside .claude/worktrees/, so Coder's commands and file changes would happen there.", path: where });
+            if (a.choice === "stop") return stopNow(reply);
+            if (a.choice !== "yes" && a.choice !== "always") { no(refusedBy(a, "entering " + where)); continue; }
+            r = await run(enterPathScript(v.args.path, true), "Enter worktree");
+            m = markOf(r && r.output);
+          }
+          if (!m || m.kind !== "OK") { no("error: " + (m && m.kind === "ERR" ? m.rest : "could not enter the worktree")); continue; }
+          const [wt, br] = m.rest.split("|");
+          const said = (v.args.path ? "Switched to worktree at " + wt : "Created worktree at " + wt + (br ? " on branch " + br : "")) + ". Your commands now start in the worktree. Use exit_worktree to leave it.";
+          emit({ type: "result", id: c.id, code: 0, output: said, label: v.args.path ? "Entered the worktree at " + plain(wt).slice(0, 160) : "Created worktree " + plain(name).slice(0, 80) });
+          reply(said);
+        } else {
+          const remove = v.args.action === "remove";
+          emit({ type: "bash", id: c.id, tool: "worktree", verb: remove ? "Removed the worktree" : "Left the worktree", command: v.args.action });
+          const f = markOf((await run(exitFactsScript(), "Check the worktree")).output);
+          if (f && f.kind === "NONE") { emit({ type: "result", id: c.id, code: 0, output: NO_WORKTREE }); reply(NO_WORKTREE); continue; }
+          if (!f || f.kind !== "STATE") { no("error: " + (f && f.kind === "ERR" ? f.rest : "could not check the worktree")); continue; }
+          const st = exitState(f.rest);
+          const risk = remove ? atRiskWords(st) : "";
+          if (risk && !v.args.discard_changes) { no(exitRefusedText(st)); continue; }
+          if (risk) {
+            // (Claude Code 2.1.327 asks before removing a worktree with work at risk: so does Coder, on a card.)
+            const a = await askOwner({ tool: "exit_worktree", hookTool: "ExitWorktree", id: c.id, what: "Remove the worktree at " + st.top + (st.branch ? " and its branch " + st.branch : ""), why: "It has " + risk + ", which would be lost.", path: st.top });
+            if (a.choice === "stop") return stopNow(reply);
+            if (a.choice !== "yes" && a.choice !== "always") { no(refusedBy(a, "removing the worktree") + " Use action \"keep\" to leave it on disk."); continue; }
+          }
+          const m = markOf((await run(exitScript({ top: st.top, main: st.main, branch: st.branch, remove }), "Leave the worktree")).output);
+          if (!m || m.kind !== "OK") { no("error: " + (m && m.kind === "ERR" ? m.rest : "could not leave the worktree")); continue; }
+          const said = remove ? "Exited and removed the worktree at " + st.top + (st.branch ? " and its branch " + st.branch : "") + (risk ? " (discarded " + risk + ")" : "") + ". Your commands now start in " + st.main + "." : "Exited the worktree. Your work is preserved at " + st.top + (st.branch ? " on branch " + st.branch : "") + ". Your commands now start in " + st.main + ".";
+          emit({ type: "result", id: c.id, code: 0, output: said, label: remove ? "Removed the worktree" : "Left the worktree (kept)" });
+          reply(said);
+        }
       } else if (c.name === "send_user_file") {
         // CLAUDE CODE'S SENDUSERFILE (batch 8, MISS-55): each file read as `dev` from inside the chat's folders (coder-tools.mjs
         // send_file, never through a link out of them; at most 5 MB), handed to Coder's Worker by Coder's service with this job's
@@ -7733,7 +7818,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // as Claude Code's get an MCP tool's: c.keepHead.)
         c.keepHead = CONNECTOR_DATA;
         reply(CONNECTOR_DATA + told);
-      } else reply("Error: No such tool available: " + c.name.slice(0, 40) + " (the tools are bash, read, edit, write, notebook_edit, lsp, web_fetch, web_search, monitor, stop_job, ask_user, enter_plan_mode, request_secret, get_environment, update_environment, create_environment, switch_environment, list_environments, review, pr_comments, pr_read, pr_update, suggest_connectors, undo_last_job, task_create, task_get, task_list, task_update, notify, rename_chat, push_branch and pull_request; to finish, answer in words)");
+      } else reply("Error: No such tool available: " + c.name.slice(0, 40) + " (the tools are bash, read, edit, write, notebook_edit, lsp, web_fetch, web_search, monitor, stop_job, ask_user, enter_plan_mode, request_secret, get_environment, update_environment, create_environment, switch_environment, list_environments, review, pr_comments, pr_read, pr_update, suggest_connectors, undo_last_job, task_create, task_get, task_list, task_update, notify, rename_chat, report_findings, enter_worktree, exit_worktree, send_feedback, end_conversation, push_branch and pull_request; to finish, answer in words)");
       } catch (e) {
         // (ROUND 5: a round that ends early in Coder's own runs. The call whose turn ended it has its answer (one its turn could
         // not give, a card it may no longer show, gets Claude Code's rejection), no PostToolUse hook of its own, and the loop
