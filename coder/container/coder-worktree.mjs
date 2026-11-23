@@ -62,14 +62,14 @@ export const ENTER_WORKTREE_DESCRIPTION = `Use this tool ONLY when explicitly in
 
 ## Entering an existing worktree
 
-Pass \`path\` instead of \`name\` to switch the chat into a worktree that already exists (e.g., one you just created with \`git worktree add\`). On first entry from the launch directory, the path must appear in \`git worktree list\` for this repository; other paths are rejected. A path outside \`${WORKTREE_DIR}/\` asks the owner first. exit_worktree will not remove a worktree entered this way outside \`${WORKTREE_DIR}/\`; use \`action: "keep"\` to return to the original directory.
+Pass \`path\` instead of \`name\` to switch the chat into a worktree that already exists (e.g., one you just created with \`git worktree add\`). On first entry from the launch directory, the path must appear in \`git worktree list\` for this repository, or for a repository nested inside it; other paths are rejected. A path outside \`${WORKTREE_DIR}/\` asks the owner first. exit_worktree will not remove a worktree entered this way outside \`${WORKTREE_DIR}/\`; use \`action: "keep"\` to return to the original directory.
 
 Switching with \`path\` also works when the chat is already in a worktree (the previous worktree is left on disk, untouched, and only the new one is tracked for exit). In that case the target must be a worktree under \`${WORKTREE_DIR}/\` of the same repository.
 
 ## Parameters
 
 - \`name\` (optional): A name for a new worktree. If neither \`name\` nor \`path\` is provided, a random name is generated.
-- \`path\` (optional): Path to an existing worktree to enter instead of creating one, of the current repository. Mutually exclusive with \`name\`.
+- \`path\` (optional): Path to an existing worktree to enter instead of creating one, of the current repository or of a repository nested inside it. Mutually exclusive with \`name\`.
 `;
 export const ENTER_WORKTREE_PARAMS = Object.freeze({ type: "object", properties: {
   name: { type: "string", description: "Optional name for a new worktree. Each \"/\"-separated segment may contain only letters, digits, dots, underscores, and dashes; max 64 chars total. A random name is generated if not provided. Mutually exclusive with `path`." },
@@ -289,7 +289,11 @@ export function enterPathScript(path, approved = false) {
     "__p=$(cd -- " + shq(path) + " 2>/dev/null && pwd -P) || { echo \"" + MARK + " ERR no such folder: \"" + shq(path) + "; exit 3; }",
     "__ok=0; __br=''; __cur=''",
     "while IFS= read -r __l; do case \"$__l\" in \"worktree \"*) __cur=${__l#worktree }; [ \"$(cd -- \"$__cur\" 2>/dev/null && pwd -P)\" = \"$__p\" ] && __ok=1;; \"branch \"*) [ \"$__ok\" = 1 ] && [ -z \"$__br\" ] && __br=${__l#branch refs/heads/};; esac; done <<EOF\n$(git -C \"$__main\" worktree list --porcelain 2>/dev/null)\nEOF",
-    "if [ \"$__ok\" != 1 ] || [ \"$__p\" = \"$(cd -- \"$__main\" && pwd -P)\" ]; then echo \"" + MARK + " ERR $__p is not a worktree of this repository (see git worktree list)\"; exit 3; fi",
+    // (Claude Code: "On first entry path may name a worktree of the current repository, or of a repository nested inside it":
+    // from outside a worktree, a worktree of a repository whose main checkout is inside this one counts too, with that
+    // repository's own .claude/worktrees/ as its place. 2026-11-23.)
+    "if [ \"$__ok\" != 1 ] && [ \"$__inwt\" != 1 ]; then __pc=$(git -C \"$__p\" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true); __pt=$(git -C \"$__p\" rev-parse --show-toplevel 2>/dev/null || true); __pm=''; [ -n \"$__pc\" ] && __pm=$(cd -- \"$(dirname \"$__pc\")\" 2>/dev/null && pwd -P); __tp=$(cd -- \"$__top\" && pwd -P); if [ -n \"$__pm\" ] && [ \"$(cd -- \"$__pt\" 2>/dev/null && pwd -P)\" = \"$__p\" ] && [ \"$__pm\" != \"$__tp\" ]; then case \"$__pm/\" in \"$__tp/\"*) while IFS= read -r __l; do case \"$__l\" in \"worktree \"*) __cur=${__l#worktree }; [ \"$(cd -- \"$__cur\" 2>/dev/null && pwd -P)\" = \"$__p\" ] && __ok=1;; \"branch \"*) [ \"$__ok\" = 1 ] && [ -z \"$__br\" ] && __br=${__l#branch refs/heads/};; esac; done <<EOF\n$(git -C \"$__pm\" worktree list --porcelain 2>/dev/null)\nEOF\n [ \"$__ok\" = 1 ] && __main=$__pm;; esac; fi; fi",
+    "if [ \"$__ok\" != 1 ] || [ \"$__p\" = \"$(cd -- \"$__main\" && pwd -P)\" ]; then echo \"" + MARK + " ERR $__p is not a worktree of this repository or of a repository nested inside it (see git worktree list)\"; exit 3; fi",
     "__under=0; case \"$__p/\" in \"$(cd -- \"$__main\" && pwd -P)/" + WORKTREE_DIR + "/\"*) __under=1;; esac",
     "if [ \"$__inwt\" = 1 ] && [ \"$__under\" != 1 ]; then echo \"" + MARK + " ERR from inside a worktree, the path must be under " + WORKTREE_DIR + "/ of the repository\"; exit 3; fi",
     approved ? ":" : "if [ \"$__under\" != 1 ]; then echo \"" + MARK + " ASK $__p\"; exit 4; fi",
@@ -341,4 +345,6 @@ export const exitRefusedText = (state) => "Worktree has " + atRiskWords(state) +
 export const enterResult = (worktreePath, worktreeBranch, message) => JSON.stringify({ worktreePath, ...(worktreeBranch ? { worktreeBranch } : {}), message });
 /** exit_worktree's answer: Claude Code's ExitWorktreeOutput (no tmux in Coder). */
 export const exitResult = ({ action, originalCwd, worktreePath, worktreeBranch, discardedFiles, discardedCommits, message }) => JSON.stringify({ action, originalCwd, worktreePath, ...(worktreeBranch ? { worktreeBranch } : {}), ...(discardedFiles ? { discardedFiles } : {}), ...(discardedCommits ? { discardedCommits } : {}), message });
+/** exit_worktree "remove" while a background command or agent may still run in the worktree (Claude Code's refusal). */
+export const exitBusyText = (n) => "Worktree may still be in use: " + n + " background " + (n === 1 ? "task" : "tasks") + " (a command or an agent) may still be running in it. Removing it now could break " + (n === 1 ? "that task" : "those tasks") + ". Wait for " + (n === 1 ? "it" : "them") + " to finish or stop " + (n === 1 ? "it" : "them") + " with stop_job, call exit_worktree again with discard_changes: true, or use action: \"keep\".";
 export const NO_WORKTREE = "No-op: there is no active worktree session to exit. Your commands are not in a worktree under " + WORKTREE_DIR + "/, so nothing was changed.";

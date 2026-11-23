@@ -35,7 +35,7 @@ import { PICS_MARK, WRITE_MARK, FACTS_MARK, WRITE_SHOW_LINES, PDF_PAGES_MAX, PDF
 import { okHost, HEADER_RE, PREFIXES, listProblem } from "./coder-secrets.mjs";
 import { credentialHost, credentialHeader, credentialPrefix, neverKeyWhy } from "./coder-secrets.mjs";
 import { inputCheckFor } from "./coder-inputs.mjs";
-import { CC_TOOLS as CC_EXTRA_TOOLS, checkEnterWorktree, checkExitWorktree, checkEndConversation, checkSendFeedback, checkReportFindings, randomWorktreeName, enterNewScript, enterPathScript, exitFactsScript, exitScript, markOf, exitState, atRiskWords, exitRefusedText, NO_WORKTREE, findingsResult, findingsText, FEEDBACK_QUEUED, FEEDBACK_MAX, ENDED_RESULT, endConversationDenied, enterResult, exitResult, feedbackQuietText } from "./coder-worktree.mjs";
+import { CC_TOOLS as CC_EXTRA_TOOLS, checkEnterWorktree, checkExitWorktree, checkEndConversation, checkSendFeedback, checkReportFindings, randomWorktreeName, enterNewScript, enterPathScript, exitFactsScript, exitScript, markOf, exitState, atRiskWords, exitRefusedText, exitBusyText, NO_WORKTREE, findingsResult, findingsText, FEEDBACK_QUEUED, FEEDBACK_MAX, ENDED_RESULT, endConversationDenied, enterResult, exitResult, feedbackQuietText } from "./coder-worktree.mjs";
 // (A reply's calls side by side, in Claude Code's groups: coder-parallel.mjs. 2026-11-14.)
 import { safeCall, groupEnd, earlyRuns, RoundClosing, closedAs, interruptedNote, SKIPPED_BY_CHECK, INTERRUPTED_TOOL_USE } from "./coder-parallel.mjs";
 import { searchToolDef, GREP_INLINE_MAX, GLOB_INLINE_MAX, SEARCH_TIMEOUT_MS, splitPattern, checkedAt } from "./coder-search.mjs";
@@ -45,7 +45,8 @@ import { WEB_SEARCH_TOOL, WEB_SEARCH_MODE_TOOL, WEB_SEARCH_NAME, SEARCH_UNGRANTE
 // CLAUDE CODE'S SCHEDULING TOOLS (2026-11-23): CronCreate, CronDelete, CronList, ScheduleWakeup, RemoteTrigger (coder-schedule.mjs).
 import { CRON_TOOLS, CRON_TOOL_NAMES, cronState, cronResult, cronTool } from "./coder-schedule.mjs";
 import { TASK_TOOLS, isTaskTool, checkTaskInput, readTasks, emptyTasks, createTask, findTask, deleteTask, updateTask, listTasks, createdText, createdFacts, getText, getFacts, updateText, listText, taskReminderDue, taskReminderNote, pageItems, TODO_WRITE_TOOL, TODO_WRITE_RESULT, checkTodoInput, readTodos, todoItems, todoReminderDue, todoReminderNote } from "./coder-tasks.mjs";
-import { ASK_USER_DESCRIPTION, ASK_USER_PROPERTIES, shownInput, answerKeys, cardAnswers, allUnanswered, checkHookRewrite, previewOf, previewKind, PREVIEW_WITHHELD, hasPreviews } from "./coder-askuser.mjs";
+import { GOAL_JUDGE, GOAL_MAX, GOAL_IDLE_MAX, goalAsk, goalNotMetNote } from "./coder-goal.mjs";
+import { ASK_USER_DESCRIPTION, ASK_USER_PROPERTIES, shownInput, answerKeys, cardAnswers, allUnanswered, checkHookRewrite, previewOf, previewKind, PREVIEW_WITHHELD, hasPreviews, AFK_MS, afkNote } from "./coder-askuser.mjs";
 import { sharedChat, sharedChatText, NOT_FETCHED, webFetchDescription, WEBFETCH_PARAMS, WEBFETCH_DEADLINE_MS, WEBFETCH_CACHE_TTL_MS, WEBFETCH_READ_CHARS, WEBFETCH_RESULT_MAX, NO_ANSWER, pageCache, docSite, readerMessage, redirectText, httpErrorText, pastEndText, leadText, readOnNote, binaryNote, fromOffset, firstChars, statusText, persistedText } from "./coder-webfetch.mjs";
 import { ENV_TOOLS, ENV_TOOL_NAMES, ENV_INPUT_CHECKS, envTable } from "./coder-envtools.mjs";
 import { withMcpServer } from "./coder-hooks.mjs";
@@ -2199,7 +2200,7 @@ export function ruleHoldsSecret(rule) {
   }
   return false;
 }
-export async function runCoder(deps, { notices = [], lost = [], stalls = [], promptNotify = true, timeouts = null, outLimits = null, noBg = false, respondToBash = true, shell = "", cmdShell = "", compactVars = null, messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, mode = "auto", rules = null, editDiff = false, readBlock = false, writeBlock = false, checker = false, checkerInPlan = true, checkWhere = null, emailMark = "", diskWarnGib = 0, memWarnGib = 0, hooks = null, autoMode = null, denyInstead = false, autoOff = false, planExit = "auto", hostLists = null, powershell = null, connectors = [], connectorNotes = [], connectorsWaiting = [], connectorsFailed = [], connectorsGone = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS , rmChecksOff = null, fileEdits = true, startMode = "", resumed = false, lastAt = 0, sessionRules = null, language = "", customTitle = "", compact = null, system = CODER_SYSTEM, tools = null, nudges = true, who = "Coder", browserRules: rulesIn = [], granted: grantedIn = [], schedules = [], opening = "user", permissions: permsIn = null, sites: sitesIn = [], monitor = false, ownerSaid: ownerSaidList = null, asHelper = false, helper = null, pages = [], savedLogins = [], savedCards = [], contacts = [], webhooks = [], hookBase = "/api/coder/gloopy-hook/", attached = [], attachedLeft = 0, workNote = "", marked = null, taught = null, files: keptFiles = [], background = false, checkWrites = false, denied: deniedIn = [], zone = "", searchLimits = null, takeUp = null, tasksOff = false, mentionsOff = false, holdBack = null, suggest = false, stopCap = STOP_BLOCK_CAP, box = false, skills = [], pluginAgents = null, checkpoints = true, searchTools = false, cleared = false, schedule = null, subagent = null } = {}) {
+export async function runCoder(deps, { notices = [], lost = [], stalls = [], promptNotify = true, timeouts = null, outLimits = null, noBg = false, respondToBash = true, shell = "", cmdShell = "", compactVars = null, messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, mode = "auto", rules = null, editDiff = false, readBlock = false, writeBlock = false, checker = false, checkerInPlan = true, checkWhere = null, emailMark = "", diskWarnGib = 0, memWarnGib = 0, hooks = null, autoMode = null, denyInstead = false, autoOff = false, planExit = "auto", hostLists = null, powershell = null, connectors = [], connectorNotes = [], connectorsWaiting = [], connectorsFailed = [], connectorsGone = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS , rmChecksOff = null, fileEdits = true, startMode = "", resumed = false, lastAt = 0, sessionRules = null, language = "", customTitle = "", compact = null, system = CODER_SYSTEM, tools = null, nudges = true, who = "Coder", browserRules: rulesIn = [], granted: grantedIn = [], schedules = [], opening = "user", permissions: permsIn = null, sites: sitesIn = [], monitor = false, ownerSaid: ownerSaidList = null, asHelper = false, helper = null, pages = [], savedLogins = [], savedCards = [], contacts = [], webhooks = [], hookBase = "/api/coder/gloopy-hook/", attached = [], attachedLeft = 0, workNote = "", marked = null, taught = null, files: keptFiles = [], background = false, checkWrites = false, denied: deniedIn = [], zone = "", searchLimits = null, takeUp = null, tasksOff = false, mentionsOff = false, holdBack = null, suggest = false, stopCap = STOP_BLOCK_CAP, box = false, skills = [], pluginAgents = null, checkpoints = true, searchTools = false, cleared = false, schedule = null, subagent = null, goal = null } = {}) {
   // ANOTHER AGENT ON THE SAME ENGINE (owner, 2026-11-09: Gloopy, container/gloopy-agent.mjs): its own instructions
   // (`system`), the tools it is offered (`tools`; a call to any other is refused), no reminders about Coder's setup script
   // (`nudges`), and its name in the chat's own lines (`who`). Coder's defaults are unchanged.
@@ -2764,8 +2765,9 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     if (a && a.choice === "park") parkNow(pid, "question", "question", shownMode);
     const choice = a && ["answers", "skip", "chat", "stop"].includes(a.choice) ? a.choice : "none";
     const picks = choice === "answers" && Array.isArray(a.picks) ? a.picks : null;
-    emit({ type: "permanswer", pid, choice, ...(picks ? { picks } : {}) });
-    return { choice, ...(picks ? { picks } : {}), ...(choice === "chat" ? { text: String(a.text || ""), qid: String(a.qid || "") } : {}) };
+    const afk = (choice === "answers" || choice === "skip") && a && AFK_MS.includes(Number(a.afk)) ? { afk: Number(a.afk) } : {};
+    emit({ type: "permanswer", pid, choice, ...(picks ? { picks } : {}), ...afk });
+    return { choice, ...(picks ? { picks } : {}), ...afk, ...(choice === "chat" ? { text: String(a.text || ""), qid: String(a.qid || "") } : {}) };
   };
   // (Refused instead of asked: how many in a row; the last call was one. Gloopy's runs.)
   let deniedRow = 0, deniedLast = false;
@@ -4031,6 +4033,9 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   }
   const started = now();
   let rounds = 0;
+  // (/goal: the chat's goal while it is active this job, its checks, tokens, the last verdict, and tool use since the last check.)
+  let goalOn = goal && typeof goal.condition === "string" && goal.condition.trim() && !github && who === "Coder" ? { condition: goal.condition.slice(0, GOAL_MAX) } : null;
+  let goalTurns = 0, goalIdle = 0, goalToolUse = false, goalState = null;
   // (This job's first step still to come, for plan mode's reminder: planReminderDue, before each step.)
   let firstStep = true;
   // The mode Grok was last told of (a change while Coder works is said in the chat; the notes of the modes, in the conversation
@@ -4312,7 +4317,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   // end, as the whole conversation was.)
   // (What fills the conversation as the job ends, for the page's /context: usageNow, made once the job's limits are known.)
   const ctxUsage = () => { try { return usageNow(); } catch { return null; } };
-  const end = (status, extra = {}) => ((jobOver = true), { status, messages: convo.map(saved), rounds, usage, summary: "", ...(() => { const c = ctxUsage(); return c ? { context: c } : {}; })(), ...(autoCompacted ? { compact: { done: true, auto: true, from: 0, to: (Array.isArray(messages) ? messages.length : 0) + 1 } } : {}), ...(approvalRequest ? { approvalRequest } : {}), ...(signinRequest ? { signinRequest } : {}), ...(cardRequest ? { cardRequest } : {}), ...(handoffRequest ? { handoffRequest } : {}), ...(keyRequest ? { keyRequest } : {}), ...(scheduleRemovals.length ? { scheduleRemovals } : {}), ...(scheduleAdds.length ? { scheduleAdds } : {}), ...(scheduleEdits.length ? { scheduleEdits } : {}), ...(schedulePauses.length ? { schedulePauses } : {}), ...(signedIn.length ? { signedIn } : {}), ...(webhookAdds.length ? { webhookAdds } : {}), ...(webhookRemovals.length ? { webhookRemovals } : {}), ...(pageRequests.length ? { pageRequests } : {}), edited: [...edited], ...(editedCut ? { editedCut: true } : {}), ...(checkpoints ? {} : { checkpointsOff: true }), ...(prRequest ? { prRequest } : {}), ...(pushRequest ? { push: true } : {}), ...(midPushes.length ? { midPushes } : {}), ...(midNotes.length ? { midNotes } : {}), ...(undoRequest ? { undoRequest } : {}), ...(reviewPost ? { reviewPost } : {}), ...(prExtra.length ? { prExtra } : {}), ...(autofixRequest ? { autofixRequest } : {}), ...(reviewReplies.length ? { reviewReplies } : {}), ...(github ? {} : { mode: modeNow() }), ...(rulesAdded.length ? { rulesAdded } : {}), ...(hadSession || ["allow", "ask", "deny"].some((k) => hookSession[k].length) ? { sessionRules: { allow: hookSession.lost ? [] : hookSession.allow, ask: hookSession.ask, deny: hookSession.deny } } : {}), ...(Object.values(hookSaved).some((l) => l.length) ? { rulesSaved: hookSaved } : {}), ...(sessionTitle ? { sessionTitle } : {}), ...(planTitle && !sessionTitle ? { planTitle } : {}), ...cronResult(cronSt), ...extra });
+  const end = (status, extra = {}) => ((jobOver = true), { status, messages: convo.map(saved), rounds, usage, summary: "", ...(() => { const c = ctxUsage(); return c ? { context: c } : {}; })(), ...(autoCompacted ? { compact: { done: true, auto: true, from: 0, to: (Array.isArray(messages) ? messages.length : 0) + 1 } } : {}), ...(approvalRequest ? { approvalRequest } : {}), ...(signinRequest ? { signinRequest } : {}), ...(cardRequest ? { cardRequest } : {}), ...(handoffRequest ? { handoffRequest } : {}), ...(keyRequest ? { keyRequest } : {}), ...(scheduleRemovals.length ? { scheduleRemovals } : {}), ...(scheduleAdds.length ? { scheduleAdds } : {}), ...(scheduleEdits.length ? { scheduleEdits } : {}), ...(schedulePauses.length ? { schedulePauses } : {}), ...(signedIn.length ? { signedIn } : {}), ...(webhookAdds.length ? { webhookAdds } : {}), ...(webhookRemovals.length ? { webhookRemovals } : {}), ...(pageRequests.length ? { pageRequests } : {}), edited: [...edited], ...(editedCut ? { editedCut: true } : {}), ...(checkpoints ? {} : { checkpointsOff: true }), ...(prRequest ? { prRequest } : {}), ...(pushRequest ? { push: true } : {}), ...(midPushes.length ? { midPushes } : {}), ...(midNotes.length ? { midNotes } : {}), ...(undoRequest ? { undoRequest } : {}), ...(reviewPost ? { reviewPost } : {}), ...(prExtra.length ? { prExtra } : {}), ...(autofixRequest ? { autofixRequest } : {}), ...(reviewReplies.length ? { reviewReplies } : {}), ...(github ? {} : { mode: modeNow() }), ...(rulesAdded.length ? { rulesAdded } : {}), ...(hadSession || ["allow", "ask", "deny"].some((k) => hookSession[k].length) ? { sessionRules: { allow: hookSession.lost ? [] : hookSession.allow, ask: hookSession.ask, deny: hookSession.deny } } : {}), ...(Object.values(hookSaved).some((l) => l.length) ? { rulesSaved: hookSaved } : {}), ...(sessionTitle ? { sessionTitle } : {}), ...(planTitle && !sessionTitle ? { planTitle } : {}), ...cronResult(cronSt), ...(goalState ? { goal: { ...goalState, turns: goalTurns, tokens: usage.reduce((n, u) => n + (u && typeof u === "object" ? ["in", "out"].reduce((k, f) => k + (Number(u[f]) > 0 ? Math.round(Number(u[f])) : 0), 0) : 0), 0) } } : {}), ...extra });
   // A ROUND THAT ENDS EARLY (round 5; the owner, 2026-11-14: "Yes pls"; coder-parallel.mjs). Claude Code 2.1.325, in its cloud
   // sessions: the owner's No without words is its deny with "interrupt", which aborts the turn; their Stop aborts it as
   // "remote-cancel". Its executor keeps what each call of the reply had returned by then, gives a call still running its
@@ -4924,6 +4929,40 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     // have continued the turn eight times in a row, Claude Code overrides the next block and ends the turn").
     // (The repository's settings, looked at again before its Stop hooks too, as before each step: freshRules.)
     if (!calls.length) freshRules();
+    // /goal, CLAUDE CODE'S (2026-11-23; coder-goal.mjs): at the end of each turn, a model at Low effort checks the chat's goal
+    // against the conversation. Not yet met: Coder goes on with the reason. Met or impossible: the goal clears. Not checked
+    // while a background command or agent still runs. GOAL_IDLE_MAX not-met answers in a row with no tool use stop the loop.
+    if (calls.length) goalToolUse = true;
+    if (!calls.length && goalOn && !subagent && typeof deps.send === "function" && ![...jobs.values()].some((j) => !j.done) && !agentBg.size) {
+      let v = null, why = "";
+      try {
+        const r = await deps.send({ model, effort: "low", webSearch: false, tools: [], messages: [{ role: "system", content: GOAL_JUDGE }, { role: "user", content: goalAsk(goalOn.condition, convo) }] });
+        if (r && r.usage) usage.push(r.usage);
+        v = parseHookVerdict(r && r.message && r.message.content);
+        if (!v) why = "the evaluator's answer was not a verdict";
+      } catch (e) { why = "the evaluator could not be reached: " + String((e && e.message) || e).slice(0, 200); }
+      goalTurns++;
+      if (!v) {
+        goalState = { state: "paused", reason: "Goal paused: " + why };
+        emit({ type: "goal", state: "paused", condition: goalOn.condition, reason: scrub(goalState.reason).slice(0, 1000), turns: goalTurns });
+      } else if (v.ok || v.impossible) {
+        goalState = { state: v.ok ? "met" : "impossible", reason: v.reason };
+        emit({ type: "goal", state: goalState.state, condition: goalOn.condition, reason: scrub(v.reason || "").slice(0, 1000), turns: goalTurns });
+        goalOn = null;
+      } else {
+        goalState = { state: "working", reason: v.reason };
+        goalIdle = goalToolUse ? 0 : goalIdle + 1;
+        goalToolUse = false;
+        if (goalIdle >= GOAL_IDLE_MAX) {
+          emit({ type: "goal", state: "stalled", condition: goalOn.condition, reason: scrub("Coder answered the goal check " + goalIdle + " times in a row without using a tool, so the loop stopped. The goal is still set; it is checked again after your next message.").slice(0, 1000), turns: goalTurns });
+        } else {
+          emit({ type: "goal", state: "working", condition: goalOn.condition, reason: scrub(v.reason || "").slice(0, 1000), turns: goalTurns });
+          if (said) { emit({ type: "text", text: scrub(said) }); lastSaid = scrub(said).slice(0, 4000); }
+          convo.push({ role: "user", appNote: true, content: scrub(goalNotMetNote(goalOn.condition, v.reason || "")) });
+          continue;
+        }
+      }
+    }
     // (The hooks run every time; once they have kept the turn going stopCap times in a row, the next block is overridden and the
     // turn ends with a note, as Claude Code does. stopCap 0: no cap. CODER_STOP_HOOK_BLOCK_CAP, Claude Code's
     // CLAUDE_CODE_STOP_HOOK_BLOCK_CAP.)
@@ -6334,11 +6373,12 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // answers the model wrote itself. What its PostToolUse hooks get: the input the tool ran with, and its result object.)
         let keys = !gl ? answerKeys(c.args) : raw.slice(0, 4).map((q, n) => ({ key: String(q.question ?? ""), text: qs[n].text, labels: qs[n].options.map((o) => o.label), multi: qs[n].multi === true }));
         let shown = !gl ? shownInput(c.args) : null;
-        const answered = (answers, annotations, response = "") => {
+        const answered = (answers, annotations, response = "", afk = 0) => {
           if (!shown) return;
           const notes = annotations && Object.keys(annotations).length ? { annotations } : {};
           c.args = { ...shown, answers, ...notes };
-          toolFacts.set(c.id, { questions: shown.questions, answers, ...(String(response).trim() ? { response } : {}), ...notes });
+          // (afkTimeoutMs: set only when the card closed on its own after that much idle time, Claude Code's result field.)
+          toolFacts.set(c.id, { questions: shown.questions, answers, ...(String(response).trim() ? { response } : {}), ...notes, ...(afk ? { afkTimeoutMs: afk } : {}) });
         };
         // ANSWERED BY A HOOK (Claude Code: "Returning \"allow\" alone is not sufficient for these tools"; "For AskUserQuestion,
         // echo back the original questions array and add an answers object mapping each question's text to the chosen
@@ -6398,8 +6438,9 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
             emit({ type: "user", text: a.text.trim(), queued: true, ...(a.qid ? { qid: a.qid } : {}) });
           }
           const said = answeredText(keys, answers, annotations, { response });
-          answered(answers, annotations, response);
-          reply(scrub(said.text), { ownerAnswer: true });
+          const afk = a.afk && (a.choice === "answers" || a.choice === "skip") ? a.afk : 0;
+          answered(answers, annotations, response, afk);
+          reply(scrub(afk ? (a.choice === "answers" ? said.text + "\n\n" : "") + afkNote(afk) : said.text), { ownerAnswer: true });
           continue;
         }
         // THE CARD THAT ENDS THE TURN (as before, on GitHub, for Gloopy, or with no way to ask while working): the answers are
@@ -7438,7 +7479,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           if (!planBox) planExitDue = planExitedNote("", false);
           // (What Coder and the hooks get of it, with the owner's values hidden, as before.)
           const said = scrub(String(txt).replace(/\r\n?/g, "\n"));
-          toolFacts.set(c.id, { plan: file && !edited && fromFile === null ? null : said, isAgent: false, ...(file && !unsaved ? { filePath: savedAt } : {}), ...(file && edited ? { planWasEdited: true } : {}) });
+          toolFacts.set(c.id, { plan: file && !edited && fromFile === null ? null : said, isAgent: false, hasTaskTool: chatTools.some((t) => t && t.function && t.function.name === "agent") && !toolDenied("agent"), ...(file && !unsaved ? { filePath: savedAt } : {}), ...(file && edited ? { planWasEdited: true } : {}) });
           // THE CHAT NAMED AFTER ITS PLAN (Claude Code: "Accepting a plan also gives the session a generated title based on the
           // plan, unless you've already named the session"; 2026-11-20): its first heading, else its first line, no model call.
           if (!github && !sessionTitle && !String(customTitle || "").trim()) { const pt = planTitleOf(said); if (pt) { planTitle = pt; emit({ type: "renamed", text: pt, by: "plan" }); } }
@@ -7680,8 +7721,13 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           if (!f || f.kind !== "STATE") { no("error: " + (f && f.kind === "ERR" ? f.rest : "could not check the worktree")); continue; }
           const st = exitState(f.rest);
           const risk = remove ? atRiskWords(st) : "";
+          // (Claude Code refuses removing while a background subagent or shell command may still run in the worktree, unless
+          // discard_changes: a command started there, or any background agent.)
+          const busyHere = remove ? [...jobs.values()].filter((j) => !j.done && j.cwd && (j.cwd === st.top || j.cwd.startsWith(st.top + "/"))).length + agentBg.size : 0;
+          if (busyHere && !v.args.discard_changes) { no(exitBusyText(busyHere)); continue; }
           if (risk && !v.args.discard_changes) { no(exitRefusedText(st)); continue; }
-          if (risk) {
+          // (Claude Code: "unless an allow rule, auto or bypass permissions mode allows it": no card then.)
+          if (risk && !(modeNow() === "auto" || wholeRule(ownRules, "allow", "ExitWorktree"))) {
             // (Claude Code 2.1.327 asks before removing a worktree with work at risk: so does Coder, on a card.)
             const a = await askOwner({ tool: "exit_worktree", hookTool: "ExitWorktree", id: c.id, what: "Remove the worktree at " + st.top + (st.branch ? " and its branch " + st.branch : ""), why: "It has " + risk + ", which would be lost.", path: st.top });
             if (a.choice === "stop") return stopNow(reply);

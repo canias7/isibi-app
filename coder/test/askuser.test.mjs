@@ -399,11 +399,11 @@ test("AQ10 the page: a card Coder waits on (its pid) is live while the job runs 
   assert.deepEqual(helpers.askQuestions({ type: "question", text: "Pick?", options: [{ label: "" }, { label: "B" }] })[0].options.map((o) => o.label), ["B"]);
   // Live while the job runs and it is unanswered; an older card (no pid) as before.
   assert.match(ui, /const ans = e\.pid \? S\.events\.find\(\(x\) => x\.type === 'permanswer' && x\.pid === e\.pid\) : null;\n\s+const live = e\.pid \? \(S\.running \|\| !!\(S\.project && S\.project\.parked && S\.project\.parked\.pid === e\.pid\)\) && !ans : !S\.running && !S\.events\.slice\(i \+ 1\)\.some\(\(x\) => x\.type === 'user'\);/);
-  assert.match(ui, /\(live \? '<div class="cd-ask-wait">Needs your input<\/div>' : ans \? '<div class="cd-perm-done">' \+ askDone\(ans\) \+ '<\/div>' : ''\)/);
+  assert.match(ui, /\(live \? \(typeof askWaitHTML === 'function' \? askWaitHTML\(e\.pid\) : '<div class="cd-ask-wait">Needs your input<\/div>'\) : ans \? '<div class="cd-perm-done">' \+ askDone\(ans\) \+ '<\/div>' : ''\)/);
   // Submit and Skip on a waiting card go to its step.
   assert.match(ui, /const askSend = \(\) => \{ const w = askWaiting\(\); if \(w\) \{ askAnswer\(w\.pid, 'answers'\); return; \} const t = askReply\(S\.ask\); if \(!t\) return; S\.ask = null; send\(t\); \};/);
   assert.match(ui, /on\('\[data-ask-skip\]', 'click', \(\) => \{ const w = askWaiting\(\); if \(w\) \{ askAnswer\(w\.pid, 'skip'\); return; \}/);
-  assert.match(ui, /const r = await call\('\/projects\/' \+ encodeURIComponent\(S\.project\.id\) \+ '\/answer', \{ method: 'POST', body: JSON\.stringify\(\{ pid, choice, \.\.\.\(answers \? \{ answers \} : \{\}\) \}\) \}\);/);
+  assert.match(ui, /const r = await call\('\/projects\/' \+ encodeURIComponent\(S\.project\.id\) \+ '\/answer', \{ method: 'POST', body: JSON\.stringify\(\{ pid, choice, \.\.\.\(answers \? \{ answers \} : \{\}\), \.\.\.\(afk \? \{ afk \} : \{\}\) \}\) \}\);/);
   assert.match(ui, /if \(answers && !answers\.some\(\(p\) => p\.options\.length \|\| p\.other \|\| p\.notes\)\) return;/, "Submit with nothing chosen (no notes either) sends nothing");
   // The page redraws every 1.5 seconds while Coder works: the Other box and the notes field keep their focus and cursor.
   assert.match(ui, /const askAt = askEl && askEl\.closest\('\.cd-ask'\) && askEl\.closest\('\.cd-ask-one'\) \? \{ at: askEl\.closest\('\.cd-ask'\)\.dataset\.ask, q: askEl\.closest\('\.cd-ask-one'\)\.dataset\.q, cls: askEl\.classList\.contains\('cd-ask-note'\) \? 'cd-ask-note' : 'cd-ask-in', a: askEl\.selectionStart, b: askEl\.selectionEnd \} : null;/);

@@ -1053,6 +1053,7 @@ the account menu, keeps nine choices on the account (`prefsOf`, `prefsChange` in
 - `denyInstead`: refuse a step that would ask, instead of asking (off);
 - `autoOff`: Auto mode turned off (off);
 - `suggestOff`: prompt suggestions turned off (off, so suggestions are on).
+- `askTimeout`: question auto-continue, Claude Code's askUserQuestionTimeout (`never`, the default, `60s`, `5m` or `10m`): how long an unanswered question card waits, with the window not in front, before it goes on with the picks made.
 Each message takes them to the machine (`machinePrefs`, then `prefsIn` and
 `usePrefs` in `container/server.mjs`), and the Worker keeps a chat's machine awake
 as long as its background limit allows (`watchBackground`'s `maxMs`). Tests: `test/settings.test.mjs`.
@@ -2687,6 +2688,8 @@ owner on a card. `send_feedback` only shows a draft card (with Copy) kept with t
 sent. `end_conversation` (sustained abuse, or the owner asked and confirmed) ends the job, and the
 Worker then refuses new messages in that chat (`convoEnded`). `report_findings` shows the findings
 (file, line, summary, failure scenario, category, severity) as a list card.
+
+CLAUDE CODE PARITY, PASS Z5 (2026-11-23; `container/coder-goal.mjs`, `test/z5-*.test.mjs`): `/goal <condition>` (up to 4,000 characters; alone, its status; `clear`/stop/off/reset/none/cancel, and `/clear`, clear it) sets the chat's goal (`POST /projects/:id/goal`, `meta.goal`) and sends the condition as the message; at the end of each turn with no background work running, Grok at Low effort judges it from the conversation (met, not yet met with a reason Coder keeps working on, or impossible), and 3 not-met checks in a row without a tool call stop the loop with the goal kept. The question card has Claude Code's askUserQuestionTimeout (Settings → Question auto-continue: never, 60s, 5m, 10m): idle that long while the window is not focused, it sends the picks made (or skips) with `afk`, shows a countdown for the last 20 seconds, any key restarts it; Coder is told the owner may be away, and the hooks' result gets `afkTimeoutMs`. ExitPlanMode's result has `hasTaskTool`. `enter_worktree` with `path` also enters a worktree of a repository nested inside this one; `exit_worktree` "remove" refuses while a background command started in the worktree, or a background agent, may still run (unless `discard_changes`) and does not ask in Auto mode or under an `ExitWorktree` allow rule. `remote_trigger`'s `create_webhook_trigger` takes `{ source: "github", repo, events: ["pull_request.opened", "push", …] }`: Coder's GitHub App webhook (`src/coder-mentions.mjs` → `githubTriggerEvent`, index `coder/trigger-gh/<repo>.json`) starts one run per matching event, at most one a minute a task, within the 24 a day.
 
 SUBAGENTS AND WORKFLOWS (2026-11-23, `coder-agents.mjs`): Claude Code's Agent,
 SubagentHandback, ListAgents, SendMessage and Workflow as `agent`, `subagent_handback`,

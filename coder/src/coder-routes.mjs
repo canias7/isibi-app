@@ -33,6 +33,7 @@
 //   GET  /api/coder/projects/:id/state?since=n   new chat lines; when the turn ends,
 //                                                the branch is pushed and the pull request opened
 //   POST /api/coder/projects/:id/stop
+import { parseGoalCmd, goalAfter } from "../container/coder-goal.mjs";
 import { pickModel, CODER_MODELS } from "../container/coder-model.mjs";
 import { recordedSystem } from "../container/coder-compact.mjs";
 import { cleanMemoryFiles, sameMemoryFiles, memorySlug } from "../container/memory-files.mjs";
@@ -107,8 +108,12 @@ export function prefsOf(saved) {
     autoOff: s.autoOff === true,
     // (Prompt suggestions, Claude Code's promptSuggestionEnabled: on unless turned off.)
     suggestOff: s.suggestOff === true,
+    // (Claude Code's askUserQuestionTimeout: how long an unanswered question card waits before it goes on by itself.)
+    askTimeout: ASK_TIMEOUT_VALUES.includes(s.askTimeout) ? s.askTimeout : "never",
   };
 }
+/** Claude Code's askUserQuestionTimeout values ("never", the default, waits for an answer). */
+export const ASK_TIMEOUT_VALUES = Object.freeze(["never", "60s", "5m", "10m"]);
 /** A mode under the owner's Settings: Auto, with Auto mode turned off, is Accept edits. */
 export const noAuto = (m, saved) => (m === "auto" && prefsOf(saved).autoOff ? "acceptEdits" : m);
 /** A change to the settings, checked: `{ prefs }` (only what was sent, with the rest kept) or `{ error }`. */
@@ -124,7 +129,8 @@ export function prefsChange(saved, body) {
   if ("denyInstead" in b && typeof b.denyInstead !== "boolean") return { error: "Refusing instead of asking is on or off." };
   if ("autoOff" in b && typeof b.autoOff !== "boolean") return { error: "Turning Auto mode off is on or off." };
   if ("suggestOff" in b && typeof b.suggestOff !== "boolean") return { error: "Prompt suggestions are on or off." };
-  return { prefs: { bgHours: "bgHours" in b ? Number(b.bgHours) : now.bgHours, endDetached: "endDetached" in b ? b.endDetached : now.endDetached, diskWarnGib: "diskWarnGib" in b ? Number(b.diskWarnGib) : now.diskWarnGib, memWarnGib: "memWarnGib" in b ? Number(b.memWarnGib) : now.memWarnGib, hooks: "hooks" in b ? String(b.hooks).trim() : now.hooks, autoMode: "autoMode" in b ? String(b.autoMode).trim() : now.autoMode, denyInstead: "denyInstead" in b ? b.denyInstead : now.denyInstead, autoOff: "autoOff" in b ? b.autoOff : now.autoOff, suggestOff: "suggestOff" in b ? b.suggestOff : now.suggestOff }, ...(warnings.length ? { warnings } : {}) };
+  if ("askTimeout" in b && !ASK_TIMEOUT_VALUES.includes(b.askTimeout)) return { error: "Question auto-continue is one of " + ASK_TIMEOUT_VALUES.join(", ") + "." };
+  return { prefs: { bgHours: "bgHours" in b ? Number(b.bgHours) : now.bgHours, endDetached: "endDetached" in b ? b.endDetached : now.endDetached, diskWarnGib: "diskWarnGib" in b ? Number(b.diskWarnGib) : now.diskWarnGib, memWarnGib: "memWarnGib" in b ? Number(b.memWarnGib) : now.memWarnGib, hooks: "hooks" in b ? String(b.hooks).trim() : now.hooks, autoMode: "autoMode" in b ? String(b.autoMode).trim() : now.autoMode, denyInstead: "denyInstead" in b ? b.denyInstead : now.denyInstead, autoOff: "autoOff" in b ? b.autoOff : now.autoOff, suggestOff: "suggestOff" in b ? b.suggestOff : now.suggestOff, askTimeout: "askTimeout" in b ? b.askTimeout : now.askTimeout }, ...(warnings.length ? { warnings } : {}) };
 }
 /** What Coder's machine is given of them with each message. */
 export const machinePrefs = (saved) => { const p = prefsOf(saved); return { bgMaxMs: p.bgHours * 3_600_000, endDetached: p.endDetached, diskWarnGib: p.diskWarnGib, memWarnGib: p.memWarnGib, ...(p.denyInstead ? { denyInstead: true } : {}), ...(p.autoOff ? { autoOff: true } : {}), ...(p.suggestOff ? { suggestOff: true } : {}) }; };
@@ -2050,7 +2056,7 @@ export async function handleCoder(request, env, ctx, deps) {
           const events = [...(await getJson(bucket, keyOf(uid, id, "events.json"), [])), { at: Date.now(), type: "note", text: CLEARED_NOTE, cleared: true }].slice(-MAX_EVENTS);
           await putJson(bucket, keyOf(uid, id, "events.json"), events);
           // (What filled the old conversation no longer does: /context waits for the next answer.)
-          const next = { ...fresh, marks: [], sessionClear: true, rewinding: null, context: null, at: Date.now() };
+          const next = { ...fresh, marks: [], sessionClear: true, rewinding: null, context: null, goal: null, at: Date.now() };
           await saveMeta(bucket, uid, next);
           return json({ ok: true, cleared: true, project: next, events, reload: true });
         } finally { await held.release().catch(() => {}); }
@@ -2206,6 +2212,8 @@ export async function handleCoder(request, env, ctx, deps) {
       const wakeOn = wake ? { wake: true } : {}, shellOn = shell ? { shell } : {}, compactOn = compactJob ? { compact: compactJob } : {};
       // (The first job after a /clear: its clear hooks run on the machine. Batch 6, MISS-61.)
       const clearOn = meta.sessionClear ? { cleared: true } : {};
+      // (/goal: the chat's active goal, checked at the end of the job's turns: container/coder-goal.mjs.)
+      if (meta.goal && typeof meta.goal.condition === "string" && !review && body.fromGithub !== true) clearOn.goal = { condition: meta.goal.condition };
       // (A turn taken up again: the paused job's record and the owner's answer, and the messages that waited for its card.)
       // (Not one queued for later: it waits for the turn's end, M-d-12.)
       const takeUpOn = takeUp ? { resume: { ...takeUp.rec, answer: takeUp.ans }, queued: (await queuedP).filter((q) => q && !q.shell && !q.later && typeof q.text === "string").map((q) => ({ qid: q.qid, text: q.text, at: q.at })) } : {};
@@ -2368,7 +2376,7 @@ export async function handleCoder(request, env, ctx, deps) {
     // (With a plan's approval, the plan as the owner edited it on its card: Claude Code's "edit it directly before Claude
     // proceeds"; the owner, 2026-11-14. At most 200,000 characters, as the card shows.)
     // (And a connector's question, MCP elicitation: the form's values with Submit, which the machine checks; container/coder-elicit.mjs.)
-    const m = await post("/answer", { project: id, pid: String(body.pid || ""), choice: String(body.choice || ""), comment: typeof body.comment === "string" ? body.comment.slice(0, 2000) : "", ...(Array.isArray(body.answers) ? { answers: body.answers.slice(0, 4) } : {}), ...(body.content && typeof body.content === "object" && !Array.isArray(body.content) ? { content: body.content } : {}), ...(typeof body.plan === "string" ? { plan: body.plan.slice(0, 200_000) } : {}) }).then((r) => r.json()).catch(() => null);
+    const m = await post("/answer", { project: id, pid: String(body.pid || ""), choice: String(body.choice || ""), comment: typeof body.comment === "string" ? body.comment.slice(0, 2000) : "", ...(Array.isArray(body.answers) ? { answers: body.answers.slice(0, 4) } : {}), ...(body.content && typeof body.content === "object" && !Array.isArray(body.content) ? { content: body.content } : {}), ...(typeof body.plan === "string" ? { plan: body.plan.slice(0, 200_000) } : {}), ...([60_000, 300_000, 600_000].includes(Number(body.afk)) ? { afk: Number(body.afk) } : {}) }).then((r) => r.json()).catch(() => null);
     if (!m) return json({ ok: false, error: "Coder's machine could not be reached. Try again in a moment." }, 502);
     // (Its job paused just now, before it was saved: it is saved, then the answer takes the turn up again.)
     if (!m.ok && m.parked === true && (parkedOf(await saveNow()) || {}).pid === pid) return takeUp();
@@ -2763,7 +2771,7 @@ export async function handleCoder(request, env, ctx, deps) {
       const knownShas = new Set((Array.isArray(meta.commits) ? meta.commits : []).map((c) => c && c.sha));
       const firstNew = meta.restoredPrior && typeof meta.restoredPrior === "object" ? commits.find((c) => c && !knownShas.has(c.sha)) : null;
       if (firstNew) commits = commits.map((c) => (c === firstNew ? { ...c, prior: meta.restoredPrior } : c));
-      const ended = { ...meta, ...modeNow, ...hookTitle, ...planTitle, ...(sessionRules ? { sessionRules } : {}), background, saved: meta.turn, ...(cwd ? { cwd } : {}), attribution, pr, prs, pushed, commits, ...(firstNew ? { restoredPrior: undefined } : {}), unpushed, unpushedSince: unpushed ? unpushedSince : 0, refetch: false, ...(keptHere ? { kept: true } : {}), waiting: asked ? asked.type : null, ran: Math.max(0, Date.now() - Number(meta.at || Date.now())), usage: usageSummary(s.result.usage, meta.turn), ...(contextKept(s.result.context) ? { context: contextKept(s.result.context) } : {}), summary: String(s.result.summary || "").slice(0, 4000) || meta.summary || "", status: s.result.status === "done" ? "idle" : s.result.status, at: Date.now(), jobReplyTo: null, ...afMeta, ...(s.result.ended === true ? { convoEnded: true } : {}) };
+      const ended = { ...meta, ...modeNow, ...hookTitle, ...planTitle, ...(sessionRules ? { sessionRules } : {}), background, saved: meta.turn, ...(cwd ? { cwd } : {}), attribution, pr, prs, pushed, commits, ...(firstNew ? { restoredPrior: undefined } : {}), unpushed, unpushedSince: unpushed ? unpushedSince : 0, refetch: false, ...(keptHere ? { kept: true } : {}), waiting: asked ? asked.type : null, ran: Math.max(0, Date.now() - Number(meta.at || Date.now())), usage: usageSummary(s.result.usage, meta.turn), ...(contextKept(s.result.context) ? { context: contextKept(s.result.context) } : {}), summary: String(s.result.summary || "").slice(0, 4000) || meta.summary || "", status: s.result.status === "done" ? "idle" : s.result.status, at: Date.now(), jobReplyTo: null, ...afMeta, ...(s.result.ended === true ? { convoEnded: true } : {}), ...goalAfter(meta.goal, s.result.goal) };
       // A JOB PAUSED ON A CARD LEFT OPEN (coder-park.mjs; Claude Code: "Questions stay open until you answer them", and in its
       // cloud "you can still answer when you come back"): the chat is idle, waiting on that card (`parked`, `waiting` for the
       // notifications), its record kept beside the chat for the answer that takes the turn up again.
@@ -3217,6 +3225,23 @@ export async function handleCoder(request, env, ctx, deps) {
     const next = { ...now, visibility: body.visibility };
     await saveMeta(bucket, uid, next);
     return json({ ok: true, visibility: body.visibility, project: next });
+  }
+  // /goal (Claude Code's, 2026-11-23; container/coder-goal.mjs): sets the chat's goal (the page then sends the condition as
+  // its message, which starts the turn), or clears it. Each job is sent the active goal; its end updates it (goalAfter).
+  if (action === "goal" && request.method === "POST") {
+    let body = {}; try { body = await request.json(); } catch { body = {}; }
+    const now = await getJson(bucket, metaKey, meta);
+    if (body.clear === true) {
+      const was = now.goal && typeof now.goal.condition === "string" ? now.goal.condition : "";
+      const next = { ...now, goal: null };
+      await saveMeta(bucket, uid, next);
+      return json({ ok: true, cleared: was, project: next });
+    }
+    const g = parseGoalCmd("/goal " + String(body.condition || ""));
+    if (!g || g.kind !== "set") return json({ error: g && g.error ? g.error : "Usage: /goal <condition>" }, 400);
+    const next = { ...now, goal: { condition: g.condition, at: Date.now(), turns: 0, tokens: 0, reason: "" } };
+    await saveMeta(bucket, uid, next);
+    return json({ ok: true, project: next });
   }
   // /autocompact (Claude Code's; applied to this chat from its next message on).
   if (action === "autocompact" && request.method === "POST") {

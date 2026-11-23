@@ -139,7 +139,7 @@ test("MISS-62 /context as Claude Code's: the machine counts what fills the conve
   assert.equal(R.contextKept({ ...t.r.context, parts: [{ name: "Messages", tokens: -5 }], level: "nope" }).parts[0].tokens, 0);
   const routes = readFileSync(new URL("../src/coder-routes.mjs", import.meta.url), "utf8");
   assert.match(routes, /usage: usageSummary\(s\.result\.usage, meta\.turn\), \.\.\.\(contextKept\(s\.result\.context\) \? \{ context: contextKept\(s\.result\.context\) \} : \{\}\),/);
-  assert.match(routes, /const next = \{ \.\.\.fresh, marks: \[\], sessionClear: true, rewinding: null, context: null, at: Date\.now\(\) \};/);
+  assert.match(routes, /const next = \{ \.\.\.fresh, marks: \[\], sessionClear: true, rewinding: null, context: null, goal: null, at: Date\.now\(\) \};/);
 });
 
 // The page: /context in the / list; typed, it shows the chat's breakdown as Claude Code's grid and list, with nothing sent.

@@ -12,6 +12,7 @@
 //      next @coder in the same thread continues it.
 //   4. Every minute (the Worker's cron) unfinished jobs are checked; when one
 //      ends, the "On it" comment is replaced by what Coder did, with links.
+import { githubTriggerEvent } from "./coder-schedules.mjs";
 import { readReviewEvent, handleReviewEvent } from "./coder-review.mjs";
 
 const enc = new TextEncoder();
@@ -172,6 +173,12 @@ export async function handleWebhook(request, env, ctx, deps) {
   const event = request.headers.get("x-github-event") || "";
   if (event === "ping") return new Response("pong");
   let p; try { p = JSON.parse(body); } catch { return new Response("bad body", { status: 400 }); }
+  // CLOUD SCHEDULED TASKS WITH A GITHUB EVENT SOURCE (remote_trigger's create_webhook_trigger, source "github"; 2026-11-23):
+  // any matching task starts its run, besides what follows (reviews, auto-fix, @coder).
+  if (deps && typeof deps.coder === "function") {
+    const fire = githubTriggerEvent(env, deps, event, p).catch((e) => console.log("coder github trigger failed: " + String((e && e.message) || e).slice(0, 200)));
+    if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(fire); else await fire;
+  }
   // CODE REVIEW (owner item 11, like Claude Code's): a pull request opened or pushed to, or a comment that
   // starts "@coder review" (never a plain @coder job: Claude Code keeps the two apart too).
   const rv = readReviewEvent(event, p);

@@ -4,6 +4,15 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-23: /goal, questions that go on without you, and GitHub events for cloud tasks
+
+More of Claude Code's behaviour in Coder, from the comparison sheet:
+- **/goal:** type `/goal` and a finish line (up to 4,000 characters), like "npm test passes and lint is clean". Coder starts at once and, after each turn, a quick check (Grok at Low effort) decides whether it is met; if not, Coder keeps going with the reason. It stops when it is met, when the check says it can't be done, or after three checks in a row where Coder did nothing. `/goal` alone shows how it's going; `/goal clear` stops it. A small "◎ /goal active" chip sits above the message box.
+- **Questions that go on without you:** Settings → "Question auto-continue" (never, 60 seconds, 5 minutes, 10 minutes; never is the default). If you are away from the window that long, the question card sends what was already picked and Coder carries on by its own judgment. The last 20 seconds show a red countdown; any key or click resets it. It never counts while the window is in front.
+- **Worktrees:** Coder can now step into a worktree of a repository that sits inside your repository, and won't delete a worktree while something it started there is still running.
+- **Cloud scheduled tasks on GitHub events:** a cloud task can now run when something happens on GitHub (a pull request opened, a push, an issue labelled…), through Coder's own GitHub App. Same limits as before: 10 tasks, 24 runs a day, at most one run a minute per task, Low effort.
+- Your limits are unchanged (10 scheduled prompts a chat, 24 runs a day, hourly cloud tasks, Low effort). Tests and screenshots only; not yet tried live on gofarther.dev.
+
 ## 2026-11-23: Five tool helpers merged, and the comparison sheet brought up to date
 
 Five helpers' work is now together on one branch (their own entries follow, below). All of Coder's tests pass (1,782 of 1,783; the one left is the known CD12 check, which fails only because of a local .claude folder).

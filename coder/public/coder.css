@@ -378,6 +378,8 @@
 .cd-ask:not(.is-live) .cd-ask-row{cursor:default;opacity:.6}
 .cd-ask-wait{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;font-weight:600;color:#9a5b00;background:#fdf1d8;border-radius:999px;padding:3px 10px;margin:0 0 10px}
 .cd-ask-wait::before{content:"";width:8px;height:8px;border-radius:50%;background:#e8a10c}
+.cd-ask-wait.is-counting{color:#a3271c;background:#fde4e1}
+.cd-ask-wait.is-counting::before{background:#d93a2b}
 /* THE SECRET CARD (owner, 2026-11-06): Claude Code's network-secret card, in Coder's colours. */
 .cd-secret{border:1px solid #e5e3dd;border-radius:18px;padding:22px 20px 18px;margin:10px 0;background:#faf9f5;text-align:center}
 .cd-secret-icon{width:52px;height:52px;margin:0 auto 12px;border-radius:12px;background:#1f1e1d;color:#fff;display:flex;align-items:center;justify-content:center}
@@ -1512,3 +1514,10 @@ button.cd-vault-tab:hover:not(.is-on){background:#f6f6f6}
 #gfApp .cd-sched code { font-size: 12px; overflow-wrap: anywhere; }
 #gfApp .cd-sched-none { opacity: .7; margin: 0 0 4px; }
 #gfApp .cd-sched-token { margin-top: 8px; }
+
+/* /goal (2026-11-23): the active goal above the message box, and each verdict in the chat. */
+#gfApp .cd-goalbar{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;color:#3b4fa8;background:#e9edff;border-radius:999px;padding:3px 11px;margin:0 0 8px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#gfApp .cd-goalline{font-size:13px;color:#3b4fa8;margin:6px 0;padding:6px 10px;border-left:3px solid #8d9be0;background:#f4f6ff;border-radius:4px}
+#gfApp .cd-goalline small{display:block;color:#59607a;font-size:12px;margin-top:2px;white-space:pre-wrap}
+#gfApp .cd-goalline.is-met{color:#17663a;border-color:#3aa66a;background:#eefaf2}
+#gfApp .cd-goalline.is-impossible,#gfApp .cd-goalline.is-stalled,#gfApp .cd-goalline.is-paused{color:#9a5b00;border-color:#e8a10c;background:#fdf6e6}
