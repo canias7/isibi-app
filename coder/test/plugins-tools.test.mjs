@@ -217,10 +217,10 @@ test("show_onboarding_role_picker: waits for the pick, installs its plugin, retu
 test("in Coder's loop: search_plugins reaches Coder's server and its answer goes back to Grok", async () => {
   const call = (name, args) => ({ id: "s1", type: "function", function: { name, arguments: JSON.stringify(args) } });
   const say = (content, calls = []) => ({ message: { role: "assistant", content, ...(calls.length ? { tool_calls: calls } : {}) }, usage: { in: 1, out: 1 } });
-  const turns = [say("", [call("search_plugins", { query: "review" })]), say("The code-review plugin fits.")];
+  const turns = [say("", [call("search_plugins", { keywords: ["review"] })]), say("The code-review plugin fits.")];
   const seen = [], events = [], api = []; let n = 0;
   await runCoder({ send: async (q) => { seen.push(q); return turns[n++]; }, exec: async () => ({ code: 0, output: "" }), emit: (e) => events.push(e), envApi: async (b) => { api.push(b); return catalogApi(b); } }, { text: "Any plugins for reviews?" });
-  assert.deepEqual(api, [{ action: "plugins_search", query: "review" }]);
+  assert.deepEqual(api, [{ action: "plugins_search", keywords: ["review"] }]);
   assert.ok(seen[0].tools.some((t) => t.function.name === "search_plugins"));
   assert.ok(!seen[0].tools.some((t) => t.function.name === "list_plugins"), "list_plugins is held back");
   assert.match(String(seen[1].messages.filter((m) => m.role === "tool").pop().content), /- code-review: /);
@@ -354,6 +354,21 @@ test("page in Chromium: the sidebar's Plugins ▸ Plugins panel (install, remove
     await page.waitForFunction(() => /security-check is added/.test(document.querySelector(".cpx-panel").textContent));
     await page.click(".cpx-panel .cd-notify-done");
     assert.equal(await page.$(".cpx-panel"), null);
+    // DARK (2026-11-23, second pass): both panels take the chat cards' dark colours.
+    await page.emulateMedia({ colorScheme: "dark" });
+    if (!(await page.$("#cdSidePluginsList"))) await page.click("#cdSidePlugins");
+    await page.click("#cdSidePluginsList");
+    await page.click('.cpx-panel [data-pp-tab="catalog"]');
+    await page.waitForSelector('.cpx-panel [data-pp="install"][data-pp-name="frontend"]');
+    assert.equal(await page.$eval(".cpx-panel", (el) => getComputedStyle(el).backgroundColor), "rgb(38, 38, 36)");
+    assert.equal(await page.$eval(".cpx-panel .cpx-btn", (el) => getComputedStyle(el).backgroundColor), "rgb(47, 46, 43)");
+    if (SHOTS) await page.locator(".cpx-panel").screenshot({ path: path.join(SHOTS, "p2-panel-plugins-dark.png") });
+    await page.click('.cpx-panel [data-pp="done"]');
+    await page.click("#cdSideSkills");
+    await page.waitForSelector(".cpx-panel [data-sk='add']");
+    assert.equal(await page.$eval(".cpx-panel", (el) => getComputedStyle(el).backgroundColor), "rgb(38, 38, 36)");
+    if (SHOTS) await page.locator(".cpx-panel").screenshot({ path: path.join(SHOTS, "p2-panel-skills-dark.png") });
+    await page.click(".cpx-panel .cd-notify-done");
     assert.deepEqual(errors, []);
   } finally { await browser.close(); }
 });

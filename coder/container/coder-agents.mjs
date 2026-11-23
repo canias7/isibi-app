@@ -260,6 +260,36 @@ export function subagentTools(coderTools, type, names = null) {
   return [...want.map((n) => list.find((t) => t && t.function && t.function.name === n)).filter(Boolean), SUBAGENT_HANDBACK_TOOL];
 }
 
+// PLUGIN AGENTS AS CUSTOM SUBAGENTS (2026-11-23; Claude Code's plugins reference: a plugin's agents/<name>.md, frontmatter
+// then the system prompt, named plugin:agent). Read with the same parser as the repository's .claude/agents/*.md files
+// (parseAgentFile, above), so the same fields work (tools, disallowedTools, model, effort, maxTurns, isolation, background).
+// Ignored for plugin agents, as Claude Code ignores them: hooks, mcpServers, permissionMode. Never given to a subagent
+// whatever `tools` says (Claude Code's always-removed list): only SUBAGENT_AVAILABLE's tools reach one.
+/** The Worker's pluginAgents ([{ plugin, file, text }]) → custom agent definitions named "plugin:agent". A bad file is skipped. */
+export function pluginAgentsFrom(list) {
+  const out = [];
+  for (const a of Array.isArray(list) ? list.slice(0, 30) : []) {
+    if (!a || typeof a.plugin !== "string" || !/^[a-z0-9][a-z0-9_-]{0,63}$/i.test(a.plugin)) continue;
+    const file = String(a.file || "");
+    let p = parseAgentFile(a.text, file);
+    // (A plugin agent's file may leave out name: its file's name is used.)
+    if (p.skip === "no name") p = parseAgentFile(String(a.text || "").replace(/^\uFEFF?---\r?\n/, "---\nname: " + file.replace(/^.*\//, "").replace(/\.md$/, "") + "\n"), file);
+    if (!p.def) continue;
+    // (The prefix isn't doubled: a plugin "x" with agent "x-y" is x:x-y, as Claude Code names it.)
+    const name = a.plugin + ":" + p.def.name;
+    if (out.some((d) => d.name === name)) continue;
+    out.push({ ...p.def, name, plugin: a.plugin, file: "plugin " + a.plugin + (file ? " · " + file : "") });
+  }
+  return out;
+}
+/** The agent tool, its description naming the plugin agents too (`defs`: pluginAgentsFrom's). */
+export function agentToolFor(defs) {
+  const list = Array.isArray(defs) ? defs : [];
+  if (!list.length) return AGENT_TOOL;
+  const f = AGENT_TOOL.function;
+  return { type: "function", function: { ...f, description: f.description + "\n\nPlugin agents (subagent_type is the name): " + list.map((d) => d.name + " (" + oneLine(d.description, 200) + ")").join("; ") + "." } };
+}
+
 /** A finished subagent's report: what it handed back, else its last words. */
 export function reportOf(r) {
   if (r && typeof r.handback === "string" && r.handback.trim()) return r.handback.trim();
@@ -403,10 +433,13 @@ export function taggedEmit(emit, tag, label) {
 const capNote = (k) => "error: this job's cap of subagents is reached (" + k.budget.caps.total + " in all; " + TOTAL_VAR + " changes it). Do the rest yourself.";
 const nowOf = (k) => (typeof k.now === "function" ? k.now() : Date.now());
 
-/** The repository's custom agents, once a job (k.customAgents() → defs), or none. */
+/** The custom agents: the repository's (k.customAgents() → defs, once a job), then the plugins' (k.pluginAgents), or none. */
 async function customOf(k) {
-  if (typeof k.customAgents !== "function") return [];
-  try { const d = await k.customAgents(); return Array.isArray(d) ? d : []; } catch { return []; }
+  const plugins = Array.isArray(k.pluginAgents) ? k.pluginAgents : [];
+  if (typeof k.customAgents !== "function") return plugins;
+  let d = [];
+  try { d = await k.customAgents(); } catch { d = []; }
+  return [...(Array.isArray(d) ? d : []), ...plugins];
 }
 
 /** How many times in a row SubagentStop hooks can keep one agent going (Claude Code's Stop hook cap, 8). */
@@ -514,7 +547,7 @@ export async function startAgent(c, k) {
  *  emit, reply(text), budget (subagentBudget), agents (Map, the job's), runs (Map, the job's workflow runs),
  *  isSub (this loop is a subagent's), startSub({ type, prompt, messages, label, emit, model, effort, toolNames, system,
  *  maxRounds, cwd, agentId }) → a runCoder result, step(args) → a workflowStep pass, readText(path) → { text } | { error },
- *  stopped() → boolean; and optionally chat ({ model, effort }), customAgents() → defs, worktree ({ create(name), finish(wt) }),
+ *  stopped() → boolean; and optionally chat ({ model, effort }), customAgents() → defs, pluginAgents (defs, pluginAgentsFrom's), worktree ({ create(name), finish(wt) }),
  *  hookStart(agentId, type) → context strings, bg (Map: agents in the background), early (Map: calls started already), now().
  * → { usage: [...], stop?: true, handback?: string }.
  */

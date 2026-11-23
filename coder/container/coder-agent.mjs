@@ -35,7 +35,7 @@ import { PICS_MARK, WRITE_MARK, FACTS_MARK, WRITE_SHOW_LINES, PDF_PAGES_MAX, PDF
 import { okHost, HEADER_RE, PREFIXES, listProblem } from "./coder-secrets.mjs";
 import { credentialHost, credentialHeader, credentialPrefix, neverKeyWhy } from "./coder-secrets.mjs";
 import { inputCheckFor } from "./coder-inputs.mjs";
-import { CC_TOOLS as CC_EXTRA_TOOLS, checkEnterWorktree, checkExitWorktree, checkEndConversation, checkSendFeedback, checkReportFindings, randomWorktreeName, enterNewScript, enterPathScript, exitFactsScript, exitScript, markOf, exitState, atRiskWords, exitRefusedText, NO_WORKTREE, findingsResult, findingsText, FEEDBACK_QUEUED, FEEDBACK_MAX, ENDED_RESULT } from "./coder-worktree.mjs";
+import { CC_TOOLS as CC_EXTRA_TOOLS, checkEnterWorktree, checkExitWorktree, checkEndConversation, checkSendFeedback, checkReportFindings, randomWorktreeName, enterNewScript, enterPathScript, exitFactsScript, exitScript, markOf, exitState, atRiskWords, exitRefusedText, NO_WORKTREE, findingsResult, findingsText, FEEDBACK_QUEUED, FEEDBACK_MAX, ENDED_RESULT, endConversationDenied, enterResult, exitResult, feedbackQuietText } from "./coder-worktree.mjs";
 // (A reply's calls side by side, in Claude Code's groups: coder-parallel.mjs. 2026-11-14.)
 import { safeCall, groupEnd, earlyRuns, RoundClosing, closedAs, interruptedNote, SKIPPED_BY_CHECK, INTERRUPTED_TOOL_USE } from "./coder-parallel.mjs";
 import { searchToolDef, GREP_INLINE_MAX, GLOB_INLINE_MAX, SEARCH_TIMEOUT_MS, splitPattern, checkedAt } from "./coder-search.mjs";
@@ -75,7 +75,7 @@ import { fileNameOf } from "./gloopy-browser.mjs";
 import { needsCheck, stepWords, stepSends, gloopyCheck, gloopyMonitor, MONITOR_EVERY, MONITOR_MAX, ownerWords, cleanRules, cleanSites, siteFor, plain, decide, formWords, markedNote, taughtNote, requestWords, bodyPreview, CARD_TTL_MS, signinCheck, signinWarning, WARNINGS, readsInFull } from "./gloopy-check.mjs";
 import { cleanPermissions, permissionLabel } from "./gloopy-permissions.mjs";
 import { asText, asNumber } from "./coder-text.mjs";
-import { AGENT_TOOL, LIST_AGENTS_TOOL, SEND_MESSAGE_TOOL, WORKFLOW_TOOL, SUBAGENT_HANDBACK_TOOL, AGENT_TOOL_NAMES, AGENT_TYPES, SUBAGENT_SYSTEM, SUBAGENT_ROUNDS, SUBAGENT_MS, WORKFLOW_PASS_S, subagentCaps, subagentBudget, subagentTools, agentToolCall, startAgent, takeBgAgents, customAgentsFrom, agentFilesScript, agentFilesOf, agentWorktreeScript, agentWorktreeFinishScript, AGENT_ALIASES } from "./coder-agents.mjs";
+import { AGENT_TOOL, LIST_AGENTS_TOOL, SEND_MESSAGE_TOOL, WORKFLOW_TOOL, SUBAGENT_HANDBACK_TOOL, AGENT_TOOL_NAMES, AGENT_TYPES, SUBAGENT_SYSTEM, SUBAGENT_ROUNDS, SUBAGENT_MS, WORKFLOW_PASS_S, subagentCaps, subagentBudget, subagentTools, agentToolCall, startAgent, takeBgAgents, customAgentsFrom, agentFilesScript, agentFilesOf, agentWorktreeScript, agentWorktreeFinishScript, AGENT_ALIASES, agentToolFor } from "./coder-agents.mjs";
 /** A contact entry from the owner's Vault in one line (as gloopy-agent.mjs's contactWords, kept here to import nothing of it). */
 const contactWords = (x) => { const place = [x.line1, x.line2, x.city, [x.region, x.postal].filter(Boolean).join(" "), x.country].filter(Boolean).join(", "); return [x.nickname ? "“" + x.nickname + "”" : "", [x.name, place].filter(Boolean).join(", "), x.phone, x.email].filter(Boolean).join(" · "); };
 // (Claude Code's Artifact, ListMcpResourcesTool, ReadMcpResourceTool, ReadMcpResourceDirTool, RefreshMcpTools and WaitForMcpServers, 2026-11-23: coder-resources.mjs.)
@@ -2199,7 +2199,7 @@ export function ruleHoldsSecret(rule) {
   }
   return false;
 }
-export async function runCoder(deps, { notices = [], lost = [], stalls = [], promptNotify = true, timeouts = null, outLimits = null, noBg = false, respondToBash = true, shell = "", cmdShell = "", compactVars = null, messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, mode = "auto", rules = null, editDiff = false, readBlock = false, writeBlock = false, checker = false, checkerInPlan = true, checkWhere = null, emailMark = "", diskWarnGib = 0, memWarnGib = 0, hooks = null, autoMode = null, denyInstead = false, autoOff = false, planExit = "auto", hostLists = null, powershell = null, connectors = [], connectorNotes = [], connectorsWaiting = [], connectorsFailed = [], connectorsGone = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS , rmChecksOff = null, fileEdits = true, startMode = "", resumed = false, lastAt = 0, sessionRules = null, language = "", customTitle = "", compact = null, system = CODER_SYSTEM, tools = null, nudges = true, who = "Coder", browserRules: rulesIn = [], granted: grantedIn = [], schedules = [], opening = "user", permissions: permsIn = null, sites: sitesIn = [], monitor = false, ownerSaid: ownerSaidList = null, asHelper = false, helper = null, pages = [], savedLogins = [], savedCards = [], contacts = [], webhooks = [], hookBase = "/api/coder/gloopy-hook/", attached = [], attachedLeft = 0, workNote = "", marked = null, taught = null, files: keptFiles = [], background = false, checkWrites = false, denied: deniedIn = [], zone = "", searchLimits = null, takeUp = null, tasksOff = false, mentionsOff = false, holdBack = null, suggest = false, stopCap = STOP_BLOCK_CAP, box = false, skills = [], checkpoints = true, searchTools = false, cleared = false, schedule = null, subagent = null } = {}) {
+export async function runCoder(deps, { notices = [], lost = [], stalls = [], promptNotify = true, timeouts = null, outLimits = null, noBg = false, respondToBash = true, shell = "", cmdShell = "", compactVars = null, messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, mode = "auto", rules = null, editDiff = false, readBlock = false, writeBlock = false, checker = false, checkerInPlan = true, checkWhere = null, emailMark = "", diskWarnGib = 0, memWarnGib = 0, hooks = null, autoMode = null, denyInstead = false, autoOff = false, planExit = "auto", hostLists = null, powershell = null, connectors = [], connectorNotes = [], connectorsWaiting = [], connectorsFailed = [], connectorsGone = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS , rmChecksOff = null, fileEdits = true, startMode = "", resumed = false, lastAt = 0, sessionRules = null, language = "", customTitle = "", compact = null, system = CODER_SYSTEM, tools = null, nudges = true, who = "Coder", browserRules: rulesIn = [], granted: grantedIn = [], schedules = [], opening = "user", permissions: permsIn = null, sites: sitesIn = [], monitor = false, ownerSaid: ownerSaidList = null, asHelper = false, helper = null, pages = [], savedLogins = [], savedCards = [], contacts = [], webhooks = [], hookBase = "/api/coder/gloopy-hook/", attached = [], attachedLeft = 0, workNote = "", marked = null, taught = null, files: keptFiles = [], background = false, checkWrites = false, denied: deniedIn = [], zone = "", searchLimits = null, takeUp = null, tasksOff = false, mentionsOff = false, holdBack = null, suggest = false, stopCap = STOP_BLOCK_CAP, box = false, skills = [], pluginAgents = null, checkpoints = true, searchTools = false, cleared = false, schedule = null, subagent = null } = {}) {
   // ANOTHER AGENT ON THE SAME ENGINE (owner, 2026-11-09: Gloopy, container/gloopy-agent.mjs): its own instructions
   // (`system`), the tools it is offered (`tools`; a call to any other is refused), no reminders about Coder's setup script
   // (`nudges`), and its name in the chat's own lines (`who`). Coder's defaults are unchanged.
@@ -3497,7 +3497,10 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   // like Bash removes the tool from Claude's context entirely, so Claude never sees it"; "A tool matched by a bare-name glob
   // deny rule is removed from Claude's context, the same as a bare tool name"). A call to one anyway is refused below.
   // (web_search is Claude Code's WebSearch: CC_TOOL, since it became Coder's own tool, 2026-11-14.)
-  const toolDenied = (name) => !github && !!(name && (wholeRule(ownRules, "deny", ccTool(name)) || (name === "monitor" && wholeRule(ownRules, "deny", "Bash"))));
+  // (CLAUDE CODE'S EndConversation can't be blocked while any other tool remains: deny rules naming it have no effect. Only
+  // when the deny rules remove every other tool and also match it, as "*" does, is it removed too, unless an allow rule names
+  // EndConversation. "Every other tool": the core tools are all denied. coder-worktree.mjs endConversationDenied.)
+  const toolDenied = (name) => !github && !!(name && (name === "end_conversation" ? endConversationDenied(ownRules, (n) => !!wholeRule(ownRules, "deny", n), !!wholeRule(ownRules, "allow", "EndConversation")) : wholeRule(ownRules, "deny", ccTool(name)) || (name === "monitor" && wholeRule(ownRules, "deny", "Bash"))));
   // (Where Coder's gate can open hosts for one command, bash and monitor take allowed_domains: HOSTS_DESC.)
   const withHosts = (t) => {
     if (hostLists !== "on" || github || !t || !t.function || !["bash", "monitor", "powershell"].includes(t.function.name)) return t;
@@ -3563,7 +3566,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   // or the machine's zsh), as Claude Code's Bash description names the user's shell; `shell` is the owner's own `!` command,
   // which it had been given by mistake, so it never said zsh. The cache fix's follow-up, 2026-11-14.)
   const ownOffered = (t) => { if (t && t.function) tsCatalog.set(t.function.name, t); return !(t && t.function && (toolDenied(t.function.name) || (denyInstead === true && PROMPT_TOOLS.includes(t.function.name)))); };
-  const chatTools = [...withPs(toolsFor(github ? GITHUB_TOOLS : CODER_TOOLS, { noBg: noBg === true, inlineMax: Math.min(lim.inlineMax, lim.readBack), bgMaxMs: timeouts && timeouts.bgMaxMs, defaultMs: timeouts && timeouts.defaultMs, maxMs: timeouts && timeouts.maxMs, bgDefaultMs: timeouts && timeouts.bgDefaultMs, shell: cmdShell })).map(withHosts).filter((t) => searchTools === true || !(t && t.function && SEARCH_NAMES.has(t.function.name))).filter(ownOffered),...(mcpDeferred ? [searchTool(mcpTools)] : []), ...mcpUpfront.map((t) => asFn(t)), ...(skillList.length && !github && !offered && !toolDenied("skill") && skillsListing(skillList) ? [SKILL_TOOL] : [])];
+  const chatTools = [...withPs(toolsFor(github ? GITHUB_TOOLS : CODER_TOOLS, { noBg: noBg === true, inlineMax: Math.min(lim.inlineMax, lim.readBack), bgMaxMs: timeouts && timeouts.bgMaxMs, defaultMs: timeouts && timeouts.defaultMs, maxMs: timeouts && timeouts.maxMs, bgDefaultMs: timeouts && timeouts.bgDefaultMs, shell: cmdShell })).map((t) => (t && t.function && t.function.name === "agent" && pluginAgents ? agentToolFor(pluginAgents) : t)).map(withHosts).filter((t) => searchTools === true || !(t && t.function && SEARCH_NAMES.has(t.function.name))).filter(ownOffered),...(mcpDeferred ? [searchTool(mcpTools)] : []), ...mcpUpfront.map((t) => asFn(t)), ...(skillList.length && !github && !offered && !toolDenied("skill") && skillsListing(skillList) ? [SKILL_TOOL] : [])];
   // (WebFetch turned off, or its cache's own time: webFetchTools. 2026-11-14.)
   chatTools.splice(0, chatTools.length, ...webFetchTools(chatTools, webFetch));
   /** Whether the chat's tools include `name` (grep and glob are no longer among them: SEARCH_TOOLS). */
@@ -4180,7 +4183,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     const subTools = [...chatTools, ...STOCK_TOOLS.values()];
     return {
       emit, reply, budget: agentBudget, agents: agentsStarted, runs: workflowRuns, isSub: isSubHere(), stopped, now,
-      chat: { model, effort }, bg: agentBg, early: agentEarly,
+      chat: { model, effort }, bg: agentBg, early: agentEarly, pluginAgents: Array.isArray(pluginAgents) ? pluginAgents : [],
       customAgents: () => (customAgentsP = customAgentsP || (typeof deps.customAgents === "function" ? Promise.resolve(deps.customAgents()) : shRun(agentFilesScript(), 20).then((r) => customAgentsFrom(agentFilesOf(r && r.output)).defs)).catch(() => [])),
       worktree: {
         create: async (name) => { const r = await shRun(agentWorktreeScript(name), 120); const m = markOf(r && r.output); if (!m || m.kind !== "OK") return { error: m && m.kind === "ERR" ? m.rest : "git could not create the worktree" }; const [path, branch] = m.rest.split("|"); return { path, branch }; },
@@ -5211,7 +5214,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       inputOk: (name, args) => { if (SEARCH_NAMES.has(name) && !chatHas(name)) return false; const f = inputCheckFor(name); if (!f) return true; try { const v = f({ ...args }, { github: !!github, who, webFetchOff: webFetch.off }); return !(v && typeof v.error === "string"); } catch { return false; } },
     });
     /** Whether a PreToolUse hook of the owner's runs for this call, with this input (then the call runs in its turn). */
-    function preHooked(x, args) { return hookList.length > 0 && hooksFor(hookList, "PreToolUse", ccTool(x.name), { tool: ccTool(x.name), input: hookToolInput(x.name, args, pathAt()), ctx: { cwd: hookCtx().cwd, root: deps.root || "/", home: deps.home || "" } }).length > 0; }
+    function preHooked(x, args) { return hookList.length > 0 && x.name !== "end_conversation" && hooksFor(hookList, "PreToolUse", ccTool(x.name), { tool: ccTool(x.name), input: hookToolInput(x.name, args, pathAt()), ctx: { cwd: hookCtx().cwd, root: deps.root || "/", home: deps.home || "" } }).length > 0; }
     // (A verdict asked at the group's start for exactly this action, as its turn would ask; then its run, when the verdict lets
     // it and nothing changed meanwhile: the job still going (no No that ended the turn), the mode, its time, no Stop.)
     const startChecked = (x, declinedKey, mode0, action, key, run) => {
@@ -5502,7 +5505,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       // 2.1.325's Read, Write and Edit refuse it in their input check (denyFirst); and, since round 6, one their own checks
       // refuse, in their order (fileFirst): shown as the tool's failure was when its run made the check.
       if (!c.rerun) { const first0 = await fileFirst(c.name, c.args); if (first0) { const step0 = stepOf(c); if (step0) emit(step0); emit({ type: "result", id: c.id, code: 1, ...(first0.startsWith("error: ") ? {} : { ran: false }), output: first0 }); reply(first0); continue; } }
-      if (hookList.length && !c.rerun && c.args && typeof c.args === "object") {
+      // (EndConversation: no PreToolUse hooks run for it, as in Claude Code.)
+      if (hookList.length && !c.rerun && c.args && typeof c.args === "object" && c.name !== "end_conversation") {
         const tool = ccTool(c.name, c.name === "monitor");
         const input = hookToolInput(c.name, c.args, pathAt());
         // (Its hooks started at its group's start, beside the others', for this same input: their outcome, taken. Round 5.)
@@ -5560,7 +5564,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       // denied."); an ask rule asks on a card first (its own question or plan is already the question for ask_user and
       // exit_plan_mode). The tools with rules of their own (bash, monitor, the file tools, web_fetch) check them below.
       let askedByRule = false;
-      if (!github && !RULED_TOOLS.has(c.name)) {
+      // (EndConversation never prompts and its deny rules have no effect while other tools remain: toolDenied.)
+      if (!github && !RULED_TOOLS.has(c.name) && c.name !== "end_conversation") {
         // (An environment tool or request_secret is named to Coder and the owner by Coder's own name; its rules and hooks go by
         // Claude Code's, mcp__claude-code-remote__…, and by Coder's: coder-perms.mjs wholeRule. E1 of recheck 2, 2026-11-14.)
         const cc = REMOTE_TOOLS[c.name] ? c.name : ccTool(c.name);
@@ -7620,11 +7625,14 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         if (github) { reply("error: feedback is drafted from the chat on gofarther.dev, not from GitHub"); continue; }
         const v = checkSendFeedback(c.args);
         if (v.error) { reply(v.error); continue; }
-        if (feedbackDrafts >= FEEDBACK_MAX) { reply("error: at most " + FEEDBACK_MAX + " feedback drafts a job"); continue; }
-        feedbackDrafts++;
         const fb = { title: scrub(v.args.title), details: scrub(v.args.details), ...(v.args.area ? { area: scrub(v.args.area) } : {}) };
-        emit({ type: "feedback", ...fb, text: fb.title + (fb.area ? " (" + fb.area + ")" : "") + "\n\n" + fb.details });
-        reply(FEEDBACK_QUEUED);
+        // (Into the owner's queue on Coder's server: 10 drafts across chats, 30 days. Without it, this job's own count.)
+        let q = null;
+        if (typeof deps.envApi === "function") { try { q = await deps.envApi({ action: "feedback_queue", ...fb }); } catch { q = null; } }
+        const shown = q && q.ok ? q.inChat : ++feedbackDrafts;
+        if (shown > FEEDBACK_MAX) { emit({ type: "feedback_count", queued: q && q.ok ? q.queued : shown }); reply(feedbackQuietText(q && q.ok ? q.queued : shown)); continue; }
+        emit({ type: "feedback", ...fb, ...(q && q.ok ? { draftId: q.id, queued: q.queued } : {}), text: fb.title + (fb.area ? " (" + fb.area + ")" : "") + "\n\n" + fb.details });
+        reply(FEEDBACK_QUEUED + (q && q.ok ? " (" + q.queued + " in the owner's queue" + (q.dropped ? "; the oldest was dropped" : "") + ")" : ""));
       } else if (c.name === "end_conversation") {
         // CLAUDE CODE'S EndConversation (2026-11-23): only on sustained abuse, or when the owner asked and confirmed (its
         // description says so). The job ends after this round; the chat then takes no new messages (the Worker's `ended`).
@@ -7659,10 +7667,11 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
             m = markOf(r && r.output);
           }
           if (!m || m.kind !== "OK") { no("error: " + (m && m.kind === "ERR" ? m.rest : "could not enter the worktree")); continue; }
-          const [wt, br] = m.rest.split("|");
-          const said = (v.args.path ? "Switched to worktree at " + wt : "Created worktree at " + wt + (br ? " on branch " + br : "")) + ". Your commands now start in the worktree. Use exit_worktree to leave it.";
+          const [wt, br, , copied] = m.rest.split("|");
+          const nCopied = Number(copied) || 0;
+          const said = (v.args.path ? "Switched to worktree at " + wt : "Created worktree at " + wt + (br ? " on branch " + br : "") + (nCopied ? "; copied " + nCopied + " file" + (nCopied === 1 ? "" : "s") + " named in .worktreeinclude" : "")) + ". Your commands now start in the worktree. Use exit_worktree to leave it.";
           emit({ type: "result", id: c.id, code: 0, output: said, label: v.args.path ? "Entered the worktree at " + plain(wt).slice(0, 160) : "Created worktree " + plain(name).slice(0, 80) });
-          reply(said);
+          reply(enterResult(wt, br, said));
         } else {
           const remove = v.args.action === "remove";
           emit({ type: "bash", id: c.id, tool: "worktree", verb: remove ? "Removed the worktree" : "Left the worktree", command: v.args.action });
@@ -7682,7 +7691,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           if (!m || m.kind !== "OK") { no("error: " + (m && m.kind === "ERR" ? m.rest : "could not leave the worktree")); continue; }
           const said = remove ? "Exited and removed the worktree at " + st.top + (st.branch ? " and its branch " + st.branch : "") + (risk ? " (discarded " + risk + ")" : "") + ". Your commands now start in " + st.main + "." : "Exited the worktree. Your work is preserved at " + st.top + (st.branch ? " on branch " + st.branch : "") + ". Your commands now start in " + st.main + ".";
           emit({ type: "result", id: c.id, code: 0, output: said, label: remove ? "Removed the worktree" : "Left the worktree (kept)" });
-          reply(said);
+          reply(exitResult({ action: v.args.action, originalCwd: st.main, worktreePath: st.top, worktreeBranch: st.branch, discardedFiles: remove && risk ? st.files : 0, discardedCommits: remove && risk ? st.commits : 0, message: said }));
         }
       } else if (c.name === "send_user_file") {
         // CLAUDE CODE'S SENDUSERFILE (batch 8, MISS-55): each file read as `dev` from inside the chat's folders (coder-tools.mjs

@@ -3142,6 +3142,8 @@
       // draft with Copy (nothing is sent), and the line that says the chat ended.
       else if (e.type === 'findings') out.push(findingsHTML(e, i));
       else if (e.type === 'feedback') out.push('<div class="cd-fbcard"><div class="cd-fbcard-h"><b>Feedback draft</b><span>Not sent · copy it to send it on</span><button type="button" class="cd-meta-b" data-copy-ev="' + i + '" aria-label="Copy" title="Copy">' + META_ICON.copy + '</button></div><div class="cd-fbcard-t">' + esc(e.title || '') + (e.area ? ' <small>' + esc(e.area) + '</small>' : '') + '</div><pre class="cd-fbcard-d">' + esc(e.details || '') + '</pre></div>');
+      // (Past three draft cards in a chat, Claude Code shows only a count of queued drafts.)
+      else if (e.type === 'feedback_count') out.push('<div class="cd-localnote cpx-fbcount">Feedback drafts queued: ' + esc(String(Number(e.queued) || 0)) + ' · nothing sent</div>');
       else if (e.type === 'ended') out.push('<div class="cd-localnote cd-ended"><b>Coder ended this conversation.</b> Start a new chat to continue.</div>');
       // RENAMED CHAT, Claude Code's "Renamed session" step.
       else if (e.type === 'renamed') out.push('<div class="cd-localnote cd-renamed"><b>Renamed chat</b> · This chat is now named “' + esc(e.text) + '”' + (e.by === 'plan' ? ', after its approved plan' : '') + '.</div>');
@@ -4102,7 +4104,7 @@
   // THE REPOSITORY'S SKILLS (Claude Code's "/skill-name"; the machine names them at each message): after Coder's own commands.
   function skillsSlash() {
     const ev = [...(S.events || [])].reverse().find((e) => e && e.type === 'skills' && Array.isArray(e.list));
-    return ev ? ev.list.filter((x) => x && /^[A-Za-z0-9][\w-]{0,63}$/.test(String(x.name || '')) && !SLASH.some(([c]) => c === '/' + x.name)).slice(0, 50).map((x) => ['/' + x.name, String(x.description || 'Skill').slice(0, 200), [], true]) : [];
+    return ev ? ev.list.filter((x) => x && /^[A-Za-z0-9][\w-]{0,63}(?::[A-Za-z0-9][\w-]{0,63})?$/.test(String(x.name || '')) && !SLASH.some(([c]) => c === '/' + x.name)).slice(0, 50).map((x) => ['/' + x.name, String(x.description || 'Skill').slice(0, 200), [], true]) : [];
   }
   function slashMatches() {
     if (GLOOPY || S.slashOff || !/^\/[\w:-]*$/.test(S.draft || '')) return [];

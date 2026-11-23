@@ -36,16 +36,36 @@ const NAME_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/i;
 const fn = (name, description, properties, required) => ({ type: "function", function: { name, description, parameters: { type: "object", properties, required } } });
 const PLUGIN_WORDS = "A plugin bundles skills, commands, agents, hooks and connectors, installed or removed as one unit; it stays installed for all the owner's chats.";
 export const PLUGIN_TOOLS = Object.freeze([
-  fn("search_plugins", "Search the plugin catalog and the owner's installed plugins. " + PLUGIN_WORDS + " Use it when the owner's task could use a plugin or they ask about plugins; then offer one with suggest_plugin_install. Returns each plugin's name, description, what it contains and whether it is installed.", { query: { type: "string", description: "What to look for (e.g. \"database\", \"review\", \"sentry\")" } }, ["query"]),
+  // (Claude Code's own descriptions, word for word where they fit: "claude.ai" is Coder's catalog, "the user" the owner.)
+  fn("search_plugins", "Search the owner's Coder plugin catalog by keyword. Call this when a plugin (skills, commands, agents, hooks or connectors bundled as one unit) from the catalog might help complete the task.\n\nExamples:\n- \"use the deploy plugin\" → keywords [\"deploy\"]\n- \"is there something for linting?\" → keywords [\"lint\", \"format\", \"code quality\"]\n\nReturns a ranked list with name, description, what it contains, and whether the plugin is already installed. When results fit, call suggest_plugin_install to render the install card. If nothing relevant, proceed without mentioning that you searched.", { keywords: { type: "array", minItems: 1, maxItems: 8, items: { type: "string", minLength: 1, maxLength: 64 }, description: "Keyword phrases describing the owner's intent." } }, ["keywords"]),
   fn("suggest_plugin_install", "Show the owner a card of suggested plugins from the catalog, each with Install, and Not now. " + PLUGIN_WORDS + " You may suggest plugins without being asked when one fits the task. The owner does not have to answer: carry on with the task either way. Find names with search_plugins first.", { plugins: { type: "array", minItems: 1, maxItems: 3, items: { type: "string" }, description: "The catalog names of 1 to 3 plugins" }, reason: { type: "string", description: "One sentence: why these help with the owner's task" } }, ["plugins"]),
   fn("suggest_skills", "Show the owner a card of skills they can add (Add, Not now). A skill is saved instructions you load with the skill tool when a task matches. Use it when one of the skills that can be added (search_skills lists them) fits the task. The owner does not have to answer: carry on either way.", { skills: { type: "array", minItems: 1, maxItems: 4, items: { type: "string" }, description: "Names of 1 to 4 skills that can be added" }, reason: { type: "string", description: "One sentence: why" } }, ["skills"]),
   fn("show_onboarding_role_picker", "Show a row of role chips so the owner can pick their role (or type one) and get a matching plugin installed. Use it when onboarding the owner to Coder, or when they ask to set Coder up for their kind of work. Takes no arguments; waits until the owner picks or closes it. Returns { role } or { dismissed: true }.", {}, []),
-  fn("list_plugins", "List the plugins the owner has installed in Coder (not the catalog: use search_plugins for that), with what each contains.", {}, []),
-  fn("list_skills", "List every skill you can load with the skill tool: the repository's (.claude/skills and .claude/commands), the owner's saved skills, and the skills of their installed plugins (named plugin:skill).", {}, []),
-  fn("search_skills", "Search the skills you can load and the skills the owner can add (offer one of those with suggest_skills).", { query: { type: "string", description: "What to look for" } }, ["query"]),
+  fn("list_plugins", "List the plugins installed on the owner's Coder account (in every chat of theirs). Call this when the owner asks what plugins they have, or to confirm what was installed after a suggest_plugin_install card. Pass keywords to filter to a topic; omit to list all. To suggest a plugin they do NOT have yet, use search_plugins, then suggest_plugin_install.", { keywords: { type: "array", maxItems: 8, items: { type: "string", minLength: 1, maxLength: 64 }, description: "Optional filter; omit to list everything." } }, []),
+  fn("list_skills", "List the owner's enabled skills: the repository's (.claude/skills and .claude/commands), the owner's saved skills, and the skills of their installed plugins (named plugin:skill), each loadable with the skill tool. Call this when the owner asks what skills they have. Pass keywords to filter to a topic; omit to list all. To recommend skills they do NOT have yet, use suggest_skills; search_skills finds them.", { keywords: { type: "array", maxItems: 8, items: { type: "string", minLength: 1, maxLength: 64 }, description: "Optional filter; omit to list everything." } }, []),
+  fn("search_skills", "Search the owner's skills by keyword. Call this when a skill (a reference document or instruction set the owner has saved or enabled, or one they can add) might help complete the task.\n\nExamples:\n- \"follow the team's PR guidelines\" → keywords [\"pr\", \"review\", \"guidelines\"]\n- \"export this as a slide deck\" → keywords [\"pptx\", \"slides\", \"presentation\"]\n\nReturns a ranked list with name, description, and whether the skill is enabled. When results fit, call suggest_skills to render the add card. If nothing relevant, proceed without mentioning that you searched.", { keywords: { type: "array", minItems: 1, maxItems: 8, items: { type: "string", minLength: 1, maxLength: 64 }, description: "Keyword phrases describing the owner's intent." } }, ["keywords"]),
   fn("propose_skills", "Show the owner a card of new skills you wrote, for them to review and save to their skills (each with Save). Use it when you notice instructions worth keeping for later chats (a workflow the owner repeats, a checklist they gave you). Each skill: a short name (letters, digits, - and _), a one-line description of when to use it, and its full instructions.", { skills: { type: "array", minItems: 1, maxItems: 4, items: { type: "object", properties: { name: { type: "string" }, description: { type: "string" }, instructions: { type: "string" } }, required: ["name", "description", "instructions"] } } }, ["skills"]),
   fn("share_onboarding_guide", "Upload the repository's ONBOARDING.md (at its root, docs/ or .claude/) and return a share link teammates can open on gofarther.dev. Call it after the guide is written and saved. The owner is asked first.", {}, []),
 ]);
+
+/**
+ * Claude Code's `keywords` (SearchPlugins and SearchSkills: 1 to 8 phrases, required; ListPlugins and ListSkills: up to 8,
+ * optional), each 1 to 64 characters → { keywords } or { error }. A plain `query` string is still taken as one phrase.
+ */
+export function checkKeywords(args, required) {
+  const a = args && typeof args === "object" ? args : {};
+  let k = a.keywords;
+  if (k === undefined && typeof a.query === "string" && a.query.trim()) k = [a.query.trim().slice(0, 64)];
+  if (k === undefined || (Array.isArray(k) && !k.length && !required)) return required ? { error: "error: keywords is required: 1 to 8 keyword phrases" } : { keywords: [] };
+  if (!Array.isArray(k) || !k.every((x) => typeof x === "string")) return { error: "error: keywords must be an array of strings" };
+  if (k.length < (required ? 1 : 0) || k.length > 8) return { error: "error: keywords takes " + (required ? "1" : "0") + " to 8 phrases" };
+  if (k.some((x) => x.length < 1 || x.length > 64)) return { error: "error: each keyword phrase is 1 to 64 characters" };
+  return { keywords: k.slice() };
+}
+const kwHit = (keywords) => {
+  const words = keywords.join(" ").toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length > 1);
+  return (s) => !words.length || words.some((w) => (s.name + " " + s.description).toLowerCase().includes(w));
+};
 
 /** The guide file in the repository at `root`: { path, text } or { error }. */
 export function readGuide(root) {
@@ -98,15 +118,19 @@ export async function pluginTool(name, ctx) {
   const repoSkills = () => (Array.isArray(ctx.skills) ? ctx.skills : []).map((s) => ({ name: s.name, description: s.description, source: s.source || "repository" }));
 
   if (name === "list_plugins") {
-    step("List", "installed plugins");
-    const r = await api({ action: "plugins_list" });
+    const kw = checkKeywords(args, false);
+    if (kw.error) return done(kw.error, false);
+    step("List", "installed plugins" + (kw.keywords.length ? " about " + kw.keywords.join(", ") : ""));
+    const r = await api({ action: "plugins_list", keywords: kw.keywords });
     if (!Array.isArray(r.plugins)) return done(r.error || "error: Coder's server did not answer", false);
     return done(r.plugins.length ? "The owner's installed plugins:\n" + r.plugins.map(line).join("\n") : "The owner has no plugins installed. search_plugins finds plugins in the catalog.");
   }
   if (name === "search_plugins") {
-    const q = String(args.query || "").slice(0, 200);
+    const kw = checkKeywords(args, true);
+    if (kw.error) return done(kw.error, false);
+    const q = kw.keywords.join(", ");
     step("Search", "plugins for " + JSON.stringify(q));
-    const r = await api({ action: "plugins_search", query: q });
+    const r = await api({ action: "plugins_search", keywords: kw.keywords });
     if (!Array.isArray(r.plugins)) return done(r.error || "error: Coder's server did not answer", false);
     return done(r.plugins.length ? "Plugins matching " + JSON.stringify(q) + ":\n" + r.plugins.map(line).join("\n") + "\n\nOffer one that fits with suggest_plugin_install." : "No plugin matches " + JSON.stringify(q) + ".");
   }
@@ -122,15 +146,19 @@ export async function pluginTool(name, ctx) {
     return done("ok: the owner now sees a card suggesting " + found.map((p) => p.name).join(", ") + " (Install, Not now)." + (missing.length ? " Not in the catalog, left out: " + missing.join(", ") + "." : "") + " Carry on with the task; an installed plugin's skills are ready from the owner's next message.");
   }
   if (name === "list_skills") {
-    step("List", "skills");
-    const all = repoSkills();
+    const kw = checkKeywords(args, false);
+    if (kw.error) return done(kw.error, false);
+    step("List", "skills" + (kw.keywords.length ? " about " + kw.keywords.join(", ") : ""));
+    const all = repoSkills().filter(kwHit(kw.keywords));
+    if (!all.length && kw.keywords.length) return done("No enabled skill matches " + JSON.stringify(kw.keywords.join(", ")) + ". Omit keywords to list all.");
     return done(all.length ? "Skills you can load with the skill tool:\n" + all.map(skillLine).join("\n") : "There are no skills yet: none in the repository (.claude/skills), none saved by the owner, and none from plugins. search_skills finds skills the owner can add.");
   }
   if (name === "search_skills") {
-    const q = String(args.query || "").slice(0, 200);
+    const kw = checkKeywords(args, true);
+    if (kw.error) return done(kw.error, false);
+    const q = kw.keywords.join(", ");
     step("Search", "skills for " + JSON.stringify(q));
-    const words = q.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length > 1);
-    const hit = (s) => !words.length || words.some((w) => (s.name + " " + s.description).toLowerCase().includes(w));
+    const hit = kwHit(kw.keywords);
     const mine = repoSkills().filter(hit);
     const r = await api({ action: "skills_catalog" });
     const add = Array.isArray(r.skills) ? r.skills.filter((s) => !s.saved && hit(s)) : [];

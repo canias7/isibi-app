@@ -159,7 +159,7 @@ import { autoModeSetting } from "../container/coder-checker.mjs";
 import { descriptionOk, DESCRIPTION_MAX } from "../container/coder-envtools.mjs";
 import { modelAccess } from "./coder-model-gate.mjs";
 import { PROJECT_ID, SETUP_SCRIPT_MAX, scrub, secretVar } from "../container/coder-checks.mjs";
-import { handlePluginRoutes, sharedGuide, ownerSkills } from "./coder-plugins.mjs";
+import { handlePluginRoutes, sharedGuide, ownerSkills, ownerPluginParts } from "./coder-plugins.mjs";
 // (The check for a secret-looking variable is shared with Coder's machine, which tells Grok of them: coder-checks.mjs.)
 export { secretVar };
 import { okHost, okPattern, HEADER_RE, KEY_RE, PREFIXES, PATH_RE, headerValue, normSecret, normNetwork, parseEnv, toEnv, normConfig, configSecrets, SECRET_KINDS, notSentWhy, varsDropped } from "../container/coder-secrets.mjs";
@@ -1730,7 +1730,7 @@ export async function handleCoder(request, env, ctx, deps) {
   const call = (path, init) => box().fetch(new Request("http://coder" + path, init));
   const postPlain = (path, body, more = {}) => call(path, { method: "POST", headers: { "content-type": "application/json", ...more }, body: JSON.stringify(body) });
   // (A Coder turn carries the owner's saved skills and their plugins' skills: coder-plugins.mjs, 2026-11-23.)
-  const post = async (path, body, more = {}) => postPlain(path, path === "/turn" && body && typeof body === "object" && !body.agent ? { ...body, ownerSkills: await ownerSkills(bucket, uid).catch(() => []) } : body, more);
+  const post = async (path, body, more = {}) => postPlain(path, path === "/turn" && body && typeof body === "object" && !body.agent ? { ...body, ownerSkills: await ownerSkills(bucket, uid).catch(() => []), ...(await ownerPluginParts(bucket, uid).then((x) => ({ pluginHooks: x.hooks, pluginAgents: x.agents })).catch(() => ({}))) } : body, more);
   // (How many commits its disk holds that GitHub does not: on the machine's record, so its disk is never reclaimed with them.)
   const markUnpushed = (n) => Promise.resolve(typeof deps.markUnpushed === "function" ? deps.markUnpushed(uid + "-" + id, n) : markFlyUnpushed(env, uid + "-" + id, n)).catch(() => {});
   // A SUMMARY BY CODER'S OWN MODEL (owner items 3 and 9), on this Worker (deps.summarize in tests).
