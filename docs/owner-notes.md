@@ -4,6 +4,16 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-23: Coder's scheduling tools now work like Claude Code's
+
+- **Your time zone:** "0 9 * * *" now means 9am where you are, not 9am UTC. The page sends your device's time zone with each message.
+- **Spread-out times:** like Claude Code, repeating jobs start a little late (up to half the gap, at most 30 minutes) and one-time jobs at :00 or :30 up to 90 seconds early. Every answer says when the job will really run.
+- **Keep or not:** a job lasts only until you clear the chat (/clear), unless Coder was asked to keep it ("durable").
+- **Cloud tasks started from outside:** Coder can give a cloud scheduled task a web address. Make its secret token with **Make token** in the new `/scheduled` view (shown once; Coder never sees it). Each call starts one run: at most one a minute, and they count in the same 24 runs a day.
+- **Run logs:** Coder can read what a cloud task's last 3 runs did, page by page.
+- **`/scheduled`:** type it in a Coder chat to see this chat's scheduled jobs and your cloud tasks, and to cancel, turn off or delete them.
+- The caps are the same: 10 jobs a chat, 24 runs a day, cloud tasks at most hourly, Low effort. Not yet tried live on gofarther.dev.
+
 ## 2026-11-23: The Claude Code vs Coder sheet now knows Coder's 28 new tools
 
 The sheet ([`docs/claude-code-vs-coder.xlsx`](claude-code-vs-coder.xlsx)) still said Coder had no helper agents, workflows, scheduling, worktrees, artifacts, connector resources or plugins. Each of those rows was checked against Coder's code and corrected.

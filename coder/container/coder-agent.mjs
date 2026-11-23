@@ -4161,7 +4161,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   // How many files Gloopy has sent in this turn.
   let filesSent = 0;
   // (The chat's scheduled prompts and cloud scheduled tasks as the turn began, and what this turn changed: coder-schedule.mjs.)
-  const cronSt = cronState(schedule && typeof schedule === "object" ? schedule : {});
+  const cronSt = cronState({ ...(schedule && typeof schedule === "object" ? schedule : {}), cleared: cleared === true });
   // (send_feedback's drafts this job, and whether end_conversation ended it: coder-worktree.mjs.)
   let feedbackDrafts = 0, convoEnded = false;
   // REQUESTS SENT WITH THE OWNER'S SAVED KEYS, CHECKED (the audit, owner 2026-11-10: "do all of that"; Grok Bot checks

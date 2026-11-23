@@ -11,9 +11,11 @@
 // scheduled task opens a new chat on its repository and sends its prompt there. Every run is at the caps' effort (Low by
 // default), and at most `runsPerDay` start a day (UTC) per chat, and as many across the cloud scheduled tasks.
 
-import { cleanCron, cleanWake, cleanTrigger, nextCron, cronLimits, cronRunText, CRON_ID, TRIGGER_ID } from "../container/coder-schedule.mjs";
+import { cleanCron, cleanWake, cleanTrigger, nextCron, cronLimits, cronRunText, zoneOf, triggerView, cronJob, cronWords, iso, CRON_ID, TRIGGER_ID, HOOK_RX, HOOKS_PER_TRIGGER } from "../container/coder-schedule.mjs";
 
-export const CRON_DUE = "coder/cron-due/", TRIGGER_DUE = "coder/trigger-due/";
+export const CRON_DUE = "coder/cron-due/", TRIGGER_DUE = "coder/trigger-due/", TRIGGER_HOOKS = "coder/trigger-hooks/";
+/** A webhook trigger's call: its body at most this big; and at most one call a minute per task. */
+export const TRIGGER_HOOK_BODY_MAX = 64 * 1024, TRIGGER_HOOK_GAP_MS = 60 * 1000;
 /** A run that has not started this long after its time (the chat busy all along) is skipped, as Gloopy's are. */
 export const CRON_LATE_MS = 30 * 60 * 1000;
 const cronsKey = (uid, chat) => ["coder", uid, chat, "crons.json"].join("/");
@@ -37,7 +39,7 @@ export async function readCrons(bucket, uid, chat) {
   return { items: (d && Array.isArray(d.items) ? d.items : []).map(cleanCron).filter(Boolean).slice(0, 50), wake: cleanWake(d && d.wake), day: d && typeof d.day === "string" ? d.day : "", runs: d && Number.isInteger(d.runs) ? d.runs : 0 };
 }
 export async function writeCrons(bucket, uid, email, chat, data) {
-  const next = [...data.items.map((c) => c.next), ...(data.wake ? [data.wake.at] : [])].filter(Number.isFinite).reduce((m, t) => (m === null || t < m ? t : m), null);
+  const next = [...data.items.map((c) => c.fire ?? c.next), ...(data.wake ? [data.wake.at] : [])].filter(Number.isFinite).reduce((m, t) => (m === null || t < m ? t : m), null);
   if (!data.items.length && !data.wake) { await drop(bucket, cronsKey(uid, chat)); await drop(bucket, cronDueKey(uid, chat)); return; }
   await putJson(bucket, cronsKey(uid, chat), { items: data.items, wake: data.wake, day: data.day, runs: data.runs });
   if (next === null) await drop(bucket, cronDueKey(uid, chat)); else await putJson(bucket, cronDueKey(uid, chat), { uid, email: String(email || ""), chat, next });
@@ -53,10 +55,37 @@ export async function writeTriggers(bucket, uid, email, data) {
 }
 
 /** What a Coder turn is sent (the machine's cron_list and remote_trigger read these; it changes them only through its result). */
-export async function cronTurnOn(env, bucket, uid, chat) {
+export async function cronTurnOn(env, bucket, uid, chat, zone = "") {
   const c = await readCrons(bucket, uid, chat), t = await readTriggers(bucket, uid);
-  return { crons: c.items, wake: c.wake, triggers: t.items, limits: cronLimits(env) };
+  return { crons: c.items, wake: c.wake, triggers: t.items, limits: cronLimits(env), zone: zoneOf(zone), base: publicBase(env), logs: await runLogs(bucket, uid, t.items) };
 }
+export const publicBase = (env) => String((env && env.CODER_PUBLIC_URL) || "https://gofarther.dev").replace(/\/+$/, "");
+
+/** RUN LOGS FOR get_run_log: for each cloud scheduled task's latest 3 runs, its chat in lines (what was asked, said, run). */
+export const LOG_LINES = 120, LOG_RUNS = 3;
+export async function runLogs(bucket, uid, triggers) {
+  const out = {};
+  let budget = 200_000;
+  for (const t of triggers) for (const r of (t.runs || []).filter((x) => x.chat).slice(-LOG_RUNS)) {
+    if (budget <= 0 || !CHAT.test(r.chat)) continue;
+    const ev = await getJson(bucket, ["coder", uid, r.chat, "events.json"].join("/"), []);
+    const lines = (Array.isArray(ev) ? ev : []).map(logLine).filter(Boolean).slice(-LOG_LINES);
+    budget -= lines.reduce((n, l) => n + l.length, 0);
+    out[r.chat] = lines;
+  }
+  return out;
+}
+const logLine = (e) => {
+  if (!e || typeof e !== "object") return "";
+  const at = Number.isFinite(e.at) ? new Date(e.at).toISOString().slice(11, 19) + " " : "";
+  const cut = (s) => String(s || "").replace(/\s+/g, " ").trim().slice(0, 400);
+  if (e.type === "user") return at + "user: " + cut(e.text);
+  if (e.type === "text") return at + "assistant: " + cut(e.text);
+  if (e.type === "bash") return at + "tool " + cut(e.tool || "bash") + ": " + cut((e.verb ? e.verb + " " : "") + (e.command || ""));
+  if (e.type === "note" || e.type === "error") return at + e.type + ": " + cut(e.text || e.error);
+  if (e.type === "done" || e.type === "end") return at + "turn ended" + (e.status ? " (" + cut(e.status) + ")" : "");
+  return "";
+};
 
 /**
  * WHAT A CODER TURN CHANGED (its result: cronAdds, cronRemovals, wakeup, triggerOps), checked again here and kept, within the
@@ -75,9 +104,10 @@ export async function applyCronTurn(env, bucket, uid, email, chat, result, repo 
       const c = cleanCron(raw);
       if (!c || d.items.length >= L.max || d.items.some((x) => x.id === c.id)) continue;
       // (Its next run from now, as the Worker reckons it.)
-      const next = nextCron(c.cron, now);
+      const next = nextCron(c.cron, now, c.tz);
       if (next === null) continue;
-      d.items.push({ ...c, next, at: now, ...(c.recurring ? { expires: Math.min(Number(c.expires) || Infinity, now + 7 * 86400000) } : {}) });
+      const kept = cleanCron({ ...c, next, at: now, ...(c.recurring ? { expires: Math.min(Number(c.expires) || Infinity, now + 7 * 86400000) } : {}) });
+      if (kept) d.items.push(kept);
       out.crons++;
     }
     if (r.wakeup && r.wakeup.stop === true) d.wake = null;
@@ -91,18 +121,25 @@ export async function applyCronTurn(env, bucket, uid, email, chat, result, repo 
       if (!TRIGGER_ID.test(id)) continue;
       if (o.op === "create") {
         if (t.items.length >= L.triggerMax || t.items.some((x) => x.id === id)) continue;
-        const it = cleanTrigger({ ...o.trigger, repo: (o.trigger && o.trigger.repo) || repo, id, at: now, runs: [] });
+        const it = cleanTrigger({ ...o.trigger, repo: (o.trigger && o.trigger.repo) || repo, id, at: now, runs: [], hooks: [] });
         if (!it) continue;
-        it.next = it.enabled ? nextCron(it.cron, now) : null;
+        it.next = it.enabled ? nextCron(it.cron, now, it.tz) : null;
         t.items.push(it); out.triggers++;
       } else if (o.op === "update") {
         const i = t.items.findIndex((x) => x.id === id);
         if (i < 0) continue;
-        const it = cleanTrigger({ ...t.items[i], ...(o.trigger || {}), id, at: t.items[i].at, runs: t.items[i].runs });
+        const it = cleanTrigger({ ...t.items[i], ...(o.trigger || {}), id, at: t.items[i].at, runs: t.items[i].runs, hooks: t.items[i].hooks });
         if (!it) continue;
-        it.next = it.enabled ? nextCron(it.cron, now) : null;
+        it.next = it.enabled ? nextCron(it.cron, now, it.tz) : null;
         t.items[i] = it; out.triggers++;
-      } else if (o.op === "run" && t.items.some((x) => x.id === id)) out.runs.push(id);
+      } else if (o.op === "hook") {
+        // A WEBHOOK TRIGGER (create_webhook_trigger): an inbound address; its secret is made by the owner on the page.
+        const it = t.items.find((x) => x.id === id), hook = String(o.hook || "");
+        if (!it || !HOOK_RX.test(hook) || it.hooks.length >= HOOKS_PER_TRIGGER || it.hooks.some((h) => h.id === hook)) continue;
+        it.hooks.push({ id: hook, at: now });
+        await putJson(bucket, TRIGGER_HOOKS + hook + ".json", { uid, email: String(email || ""), trigger: id, hash: "" });
+        out.triggers++;
+      } else if (o.op === "run" && t.items.some((x) => x.id === id)) out.runs.push({ id, text: typeof o.text === "string" ? o.text.slice(0, 4000) : "" });
     }
     await writeTriggers(bucket, uid, email, t);
   }
@@ -152,14 +189,16 @@ export async function runCoderCrons(env, deps, now = Date.now()) {
 
 async function runCronDue(env, bucket, deps, rec, L, now) {
   const d = await readCrons(bucket, rec.uid, rec.chat);
-  const cands = [...d.items.filter((c) => c.next <= now).map((c) => ({ kind: "cron", it: c, at: c.next })), ...(d.wake && d.wake.at <= now ? [{ kind: "wake", it: d.wake, at: d.wake.at }] : [])].sort((a, b) => a.at - b.at);
+  const cands = [...d.items.filter((c) => (c.fire ?? c.next) <= now).map((c) => ({ kind: "cron", it: c, at: c.fire ?? c.next })), ...(d.wake && d.wake.at <= now ? [{ kind: "wake", it: d.wake, at: d.wake.at }] : [])].sort((a, b) => a.at - b.at);
   const due = cands[0];
   if (!due) { await writeCrons(bucket, rec.uid, rec.email, rec.chat, d); return "none"; }
   // Its next time, or gone: a one-shot cron and a wake-up after one run; a recurring cron after its final run past its 7 days.
   const onward = () => {
     if (due.kind === "wake") { d.wake = null; return; }
-    const c = due.it, next = nextCron(c.cron, now);
-    if (!c.recurring || next === null || (Number.isFinite(c.expires) && now >= c.expires)) d.items = d.items.filter((x) => x !== c); else c.next = next;
+    // (From its cron time or now, whichever is later: a run that starts early, as "*/5" does, isn't run twice.)
+    const c = due.it, next = nextCron(c.cron, Math.max(now, c.next), c.tz);
+    if (!c.recurring || next === null || (Number.isFinite(c.expires) && now >= c.expires)) d.items = d.items.filter((x) => x !== c);
+    else { c.next = next; Object.assign(c, cleanCron(c) || {}); }
   };
   const what = due.kind === "wake" ? "the loop's wake-up" : "scheduled task " + due.it.id;
   const skip = async (why) => { onward(); await note(bucket, rec.uid, rec.chat, "Skipped " + what + ": " + why, now).catch(() => {}); await writeCrons(bucket, rec.uid, rec.email, rec.chat, d); return "skipped"; };
@@ -176,9 +215,10 @@ async function runCronDue(env, bucket, deps, rec, L, now) {
 }
 
 /** A cloud scheduled task's run: a new chat on its repository, its prompt sent there (one late run, then the next from now). */
-export async function startTrigger(env, bucket, deps, rec, t, due, L = cronLimits(env), now = Date.now(), manual = false) {
-  const log = (result, extra = {}) => { due.runs = [...(due.runs || []), { at: now, result, ...extra }].slice(-20); };
-  if (!manual) due.next = nextCron(due.cron, now);
+export async function startTrigger(env, bucket, deps, rec, t, due, L = cronLimits(env), now = Date.now(), manual = false, given = null) {
+  const via = given && given.via ? given.via : manual ? "run" : "schedule";
+  const log = (result, extra = {}) => { due.runs = [...(due.runs || []), { at: now, result, via, ...extra }].slice(-50); };
+  if (!manual) due.next = nextCron(due.cron, now, due.tz);
   dayCount(t, now);
   if (t.runs >= L.runsPerDay) { log("skipped", { why: "already " + L.runsPerDay + " cloud scheduled runs today (UTC)" }); await writeTriggers(bucket, rec.uid, rec.email, t); return null; }
   const user = { id: rec.uid, email: rec.email };
@@ -186,7 +226,7 @@ export async function startTrigger(env, bucket, deps, rec, t, due, L = cronLimit
   const made = await call("projects", { repo: due.repo }).catch(() => ({ status: 0, data: {} }));
   const chat = made.status === 200 && made.data && made.data.project ? String(made.data.project.id || "") : "";
   if (!chat) { log("failed", { why: String((made.data && made.data.error) || "the chat could not be opened").slice(0, 200) }); await writeTriggers(bucket, rec.uid, rec.email, t); return null; }
-  const sent = await call("projects/" + chat + "/message", { text: cronRunText("trigger", due), effort: due.effort || L.effort }).catch(() => ({ status: 0 }));
+  const sent = await call("projects/" + chat + "/message", { text: cronRunText("trigger", due, via === "schedule" ? "" : { via: via === "webhook" ? "a call to its web address" : "started by hand", text: (given && given.text) || "" }), effort: due.effort || L.effort }).catch(() => ({ status: 0 }));
   t.runs++;
   log(sent.status === 200 ? "started" : "failed", { chat });
   await writeTriggers(bucket, rec.uid, rec.email, t);
@@ -195,10 +235,93 @@ export async function startTrigger(env, bucket, deps, rec, t, due, L = cronLimit
 
 /** Runs remote_trigger asked for with action "run", after the turn is saved. */
 export async function runTriggersNow(env, bucket, deps, uid, email, ids, now = Date.now()) {
-  for (const id of (Array.isArray(ids) ? ids : []).slice(0, 3)) {
+  for (const r of (Array.isArray(ids) ? ids : []).slice(0, 3)) {
+    const id = typeof r === "string" ? r : r && r.id;
     const t = await readTriggers(bucket, uid);
     const it = t.items.find((x) => x.id === id);
-    if (it) await startTrigger(env, bucket, deps, { uid, email }, t, it, cronLimits(env), now, true).catch(() => null);
+    if (it) await startTrigger(env, bucket, deps, { uid, email }, t, it, cronLimits(env), now, true, { via: "run", text: (r && r.text) || "" }).catch(() => null);
   }
 }
+
+const sha256 = async (s) => [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(String(s))))].map((b) => b.toString(16).padStart(2, "0")).join("");
+const sameHex = (a, b) => { a = String(a); b = String(b); if (!a || a.length !== b.length) return false; let r = 0; for (let i = 0; i < a.length; i++) r |= a.charCodeAt(i) ^ b.charCodeAt(i); return r === 0; };
+const reply = (obj, status = 200) => new Response(JSON.stringify(obj), { status, headers: { "content-type": "application/json", "cache-control": "no-store" } });
+
+/**
+ * A CALL TO A CLOUD SCHEDULED TASK'S WEB ADDRESS (create_webhook_trigger; Claude Code's API trigger, "/fire"): POST with
+ * Authorization: Bearer <token> and an optional JSON body { text }, handed to the run as a literal string. It starts a run
+ * as a scheduled one does: a new chat, at the task's effort, counted in the same runs a day; at most one a minute a task.
+ */
+export async function triggerHookCall(request, env, deps, hook, now = Date.now()) {
+  const bucket = env.CODER_BUCKET;
+  const no = (status, message) => reply({ error: { message } }, status);
+  if (!HOOK_RX.test(String(hook || ""))) return no(404, "There is no scheduled task at this address.");
+  const rec = await getJson(bucket, TRIGGER_HOOKS + hook + ".json", null);
+  if (!rec || typeof rec.uid !== "string" || !/^[\w-]{1,100}$/.test(rec.uid)) return no(404, "There is no scheduled task at this address.");
+  const raw = await request.text();
+  if (raw.length > TRIGGER_HOOK_BODY_MAX) return no(413, "The call's body is over 64 KB.");
+  const token = /^Bearer\s+(\S+)$/i.exec(String(request.headers.get("authorization") || ""));
+  if (!rec.hash || !token || !sameHex(await sha256(token[1]), rec.hash)) return no(401, "The token is missing or wrong: send it as Authorization: Bearer <token> (the owner makes it on gofarther.dev, Schedules).");
+  const t = await readTriggers(bucket, rec.uid);
+  const it = t.items.find((x) => x.id === rec.trigger);
+  const h = it && it.hooks.find((x) => x.id === hook);
+  if (!it || !h) { await drop(bucket, TRIGGER_HOOKS + hook + ".json"); return no(404, "There is no scheduled task at this address."); }
+  if (!it.enabled) return no(409, "“" + it.name + "” is turned off.");
+  const last = (it.runs || []).filter((r) => r.via === "webhook").at(-1);
+  if (last && now - last.at < TRIGGER_HOOK_GAP_MS) return no(429, "At most one call a minute starts a run of this task.");
+  dayCount(t, now);
+  if (t.runs >= cronLimits(env).runsPerDay) return no(429, "The cloud scheduled tasks have already run their most for today (UTC).");
+  let text = "";
+  if (raw.trim()) { try { const b = JSON.parse(raw); text = b && typeof b.text === "string" ? b.text : raw; } catch { text = raw; } }
+  h.calls = (h.calls || 0) + 1;
+  const chat = await startTrigger(env, bucket, deps, rec, t, it, cronLimits(env), now, true, { via: "webhook", text: text.slice(0, 4000) });
+  return chat ? reply({ type: "routine_fire", claude_code_session_id: chat, claude_code_session_url: publicBase(env) + "/?chat=" + chat }) : no(502, "The run could not start; see the task's runs on gofarther.dev.");
+}
+
+/**
+ * THE PAGE'S SCHEDULES VIEW (signed in): GET schedules?chat=<id> lists the chat's crons and wake-up and the owner's cloud
+ * scheduled tasks; POST cancels a cron (cancel), stops the wake-up (stopWake), turns a task off or on (trigger, enabled),
+ * deletes a task (trigger, remove) or a web address (hook, remove), or makes a web address's token (hook, token: shown once).
+ */
+export async function schedulesRoute(request, env, uid, email, url, now = Date.now()) {
+  const bucket = env.CODER_BUCKET;
+  const chat = String(url.searchParams.get("chat") || "");
+  const view = async () => {
+    const c = CHAT.test(chat) ? await readCrons(bucket, uid, chat) : { items: [], wake: null };
+    const t = await readTriggers(bucket, uid);
+    return { ok: true, crons: c.items.map((x) => ({ ...cronJob(x, now), tz: x.tz, next: iso(Math.max(now, x.fire ?? x.next), x.tz) })), wake: c.wake ? { at: c.wake.at, reason: c.wake.reason } : null, triggers: t.items.map((x) => ({ ...triggerView(x, publicBase(env)), runs: x.runs.slice(-5).reverse().map((r) => ({ at: r.at, result: r.result, via: r.via || "", chat: r.chat || "" })), hooks: x.hooks.map((h) => ({ id: h.id, url: publicBase(env) + "/api/coder/trigger-hook/" + h.id, hasToken: !!h.tokenAt, calls: h.calls || 0 })) })) };
+  };
+  if (request.method === "GET") return reply(await view());
+  if (request.method !== "POST") return reply({ error: "method" }, 405);
+  let b = {}; try { b = await request.json(); } catch { b = {}; }
+  if (typeof b.cancel === "string" || b.stopWake === true) {
+    if (!CHAT.test(chat)) return reply({ error: "no such chat" }, 404);
+    const d = await readCrons(bucket, uid, chat);
+    if (typeof b.cancel === "string") d.items = d.items.filter((x) => x.id !== b.cancel);
+    if (b.stopWake === true) d.wake = null;
+    await writeCrons(bucket, uid, email, chat, d);
+    return reply(await view());
+  }
+  const t = await readTriggers(bucket, uid);
+  const it = t.items.find((x) => x.id === b.trigger);
+  if (!it) return reply({ error: "no such scheduled task" }, 404);
+  let token = "";
+  if (typeof b.hook === "string") {
+    const h = it.hooks.find((x) => x.id === b.hook);
+    if (!h) return reply({ error: "no such web address" }, 404);
+    if (b.remove === true) { it.hooks = it.hooks.filter((x) => x !== h); await drop(bucket, TRIGGER_HOOKS + h.id + ".json"); }
+    else if (b.token === true) {
+      const a = new Uint8Array(32); crypto.getRandomValues(a);
+      token = "gfh_" + [...a].map((x) => x.toString(16).padStart(2, "0")).join("");
+      await putJson(bucket, TRIGGER_HOOKS + h.id + ".json", { uid, email: String(email || ""), trigger: it.id, hash: await sha256(token) });
+      h.tokenAt = now;
+    }
+  } else if (b.remove === true) {
+    for (const h of it.hooks) await drop(bucket, TRIGGER_HOOKS + h.id + ".json");
+    t.items = t.items.filter((x) => x !== it);
+  } else if (typeof b.enabled === "boolean") { it.enabled = b.enabled; it.next = it.enabled ? nextCron(it.cron, now, it.tz) : null; }
+  await writeTriggers(bucket, uid, email, t);
+  return reply({ ...(await view()), ...(token ? { token } : {}) });
+}
+
 export { CRON_ID };

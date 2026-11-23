@@ -173,7 +173,7 @@ import { parkRecord, parkedMeta, parkedOf, parkAnswer, closeParked, stopParked, 
 import { FROM_COPY, FROM_COPY_GB, CACHE_PENDING_MS, STREAM_HEADER, flyOn, flyAwake, markFlyUnpushed } from "./coder-fly.mjs";
 import { makeRouteTicket, readRouteTicket, ROUTE_TICKET_MS } from "./coder-auth.mjs";
 // CODER'S SCHEDULED PROMPTS AND CLOUD SCHEDULED TASKS (2026-11-23; Claude Code's CronCreate … RemoteTrigger).
-import { cronTurnOn, applyCronTurn, runTriggersNow } from "./coder-schedules.mjs";
+import { cronTurnOn, applyCronTurn, runTriggersNow, triggerHookCall, schedulesRoute } from "./coder-schedules.mjs";
 import { readSchedules, writeSchedules, schedulesForTurn, addSchedule, addFromTurn, runsLeft, queueEvent, setPaused, pauseAll, editSchedule, logRun, endRun, testText, LATE_MS } from "./gloopy-schedules.mjs";
 import { FILE_IN_MAX, FILE_OUT_MAX, ATTACH_MAX, readFiles, keepFile, removeFile, fileOf, filesForTurn, fileDownload, fileViewAddress, serveFileView, PREVIEW_TYPES, extOf, canPreview } from "./gloopy-files.mjs";
 import { ATTACH_FILE_MAX, keepAttach, attachOf, attachedFor } from "./coder-attach.mjs";
@@ -1339,6 +1339,9 @@ export async function handleCoder(request, env, ctx, deps) {
   // ── A CALL TO ONE OF GLOOPY'S WEBHOOKS (2026-11-09; src/gloopy-webhooks.mjs): from any service, with the webhook's key
   // (or its signature); it starts a Gloopy run with the webhook's task and what the call carried, as data. ──
   if (parts[0] === "gloopy-hook" && parts.length === 2 && request.method === "POST") return gloopyHookCall(request, env, ctx, deps, bucket, parts[1]);
+  // ── A CALL TO A CODER CLOUD SCHEDULED TASK'S WEB ADDRESS (2026-11-23; remote_trigger create_webhook_trigger,
+  // src/coder-schedules.mjs): with the token the owner made on the page; it starts one run, within the same caps. ──
+  if (parts[0] === "trigger-hook" && parts.length === 2 && request.method === "POST") return triggerHookCall(request, env, { coder: (req, who) => handleCoder(req, env, ctx, { ...deps, authUser: async () => who }) }, parts[1]);
   // ── THE LINK FROM THE OWNER'S DESKTOP APP (2026-11-11): a WebSocket, with the ticket the app was given, to Gloopy's
   // computer only while it is awake (a link never wakes it); Gloopy's browser then goes through the owner's computer. ──
   if (parts[0] === "gloopy-route" && parts.length === 1 && request.method === "GET") return gloopyRouteLink(request, env, deps, bucket, url);
@@ -1410,6 +1413,10 @@ export async function handleCoder(request, env, ctx, deps) {
   // only the emails in CODER_USERS may use it. Empty list = nobody.
   if (!coderAllowed(env, user)) return json({ error: "Coder is not open to this account yet." }, 403);
   const uid = user.id;
+
+  // CODER'S SCHEDULES ON THE PAGE (2026-11-23; src/coder-schedules.mjs): a chat's crons and wake-up and the owner's cloud
+  // scheduled tasks, to see and cancel; a task's web address token is made here and shown once.
+  if (parts[0] === "schedules" && parts.length === 1) return schedulesRoute(request, env, uid, user.email, url);
 
   if (parts[0] === "github") {
     if (!githubReady(env)) return json({ error: "GitHub is not set up for Coder yet." }, 503);
@@ -2192,7 +2199,10 @@ export async function handleCoder(request, env, ctx, deps) {
       const replyTo = rt && Number.isInteger(rt.pr) && rt.pr > 0 && Array.isArray(rt.ids) ? { pr: rt.pr, ids: rt.ids.filter((x) => Number.isInteger(x) && x > 0).slice(0, 10) } : null;
       const next = { ...meta, envId, title: meta.title || chatTitle(text), turn: meta.turn + 1, status: "running", at: Date.now(), starting: null, start: claim.id, sessionClear: undefined, ...(mid ? { mid } : {}), waiting: null, parked: null, autofixTries: body.autofix === true ? (meta.autofixTries || 0) + 1 : 0, marks, jobFromGithub: body.fromGithub === true, jobReplyTo: replyTo && replyTo.ids.length ? replyTo : null, envMoved: undefined, timing: { got: gotAt }, copyWant: copyOn && !copyWait ? { envId, key: setupKey } : null, asked: takeUp || wake || compactJob || !String(said || "").trim() ? null : { turn: meta.turn + 1, at: gotAt, text: String(shell ? "! " + shell : said).slice(0, 4000) } };
       // (The chat's scheduled prompts and the owner's cloud scheduled tasks, for cron_list and remote_trigger: src/coder-schedules.mjs.)
-      const scheduleOn = { schedule: { ...(await cronTurnOn(env, bucket, uid, id).catch(() => ({}))), repo: meta.repo } };
+      // (With the owner's time zone, from their device with this message or the last one: crons are in local time.)
+      const ownTz = typeof body.tz === "string" && okZone(body.tz) ? body.tz : typeof meta.tz === "string" && okZone(meta.tz) ? meta.tz : "";
+      if (ownTz) next.tz = ownTz;
+      const scheduleOn = { schedule: { ...(await cronTurnOn(env, bucket, uid, id, ownTz).catch(() => ({}))), repo: meta.repo } };
       const wakeOn = wake ? { wake: true } : {}, shellOn = shell ? { shell } : {}, compactOn = compactJob ? { compact: compactJob } : {};
       // (The first job after a /clear: its clear hooks run on the machine. Batch 6, MISS-61.)
       const clearOn = meta.sessionClear ? { cleared: true } : {};

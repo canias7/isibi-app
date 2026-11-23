@@ -1500,3 +1500,15 @@ button.cd-vault-tab:hover:not(.is-on){background:#f6f6f6}
 #gfApp .cd-fbcard-t { margin-top: 6px; font-weight: 600; font-size: 13px; }
 #gfApp .cd-fbcard-t small { font-weight: 400; color: #8a847b; margin-left: 4px; }
 #gfApp .cd-fbcard-d { margin: 6px 0 0; white-space: pre-wrap; font: inherit; font-size: 13px; color: #3b3833; }
+
+/* /scheduled (2026-11-23): this chat's scheduled tasks and the cloud scheduled tasks, to see and cancel. Coder only (#gfApp). */
+#gfApp .cd-sched { border: 1px solid var(--cd-line, #ddd); border-radius: 8px; padding: 8px 12px; margin: 8px 0; font-size: 13px; }
+#gfApp .cd-sched-h { font-weight: 600; margin: 6px 0 4px; }
+#gfApp .cd-sched ul { list-style: none; margin: 0; padding: 0; }
+#gfApp .cd-sched li { padding: 6px 0; border-top: 1px solid var(--cd-line, #eee); overflow-wrap: anywhere; }
+#gfApp .cd-sched li span { opacity: .75; }
+#gfApp .cd-sched-btn { font: inherit; font-size: 12px; padding: 1px 8px; margin-left: 4px; border-radius: 6px; border: 1px solid var(--cd-line, #ccc); background: transparent; color: inherit; cursor: pointer; }
+#gfApp .cd-sched-hook { margin-top: 4px; }
+#gfApp .cd-sched code { font-size: 12px; overflow-wrap: anywhere; }
+#gfApp .cd-sched-none { opacity: .7; margin: 0 0 4px; }
+#gfApp .cd-sched-token { margin-top: 8px; }
