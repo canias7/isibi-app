@@ -14,6 +14,9 @@
 //   scrub           anything shaped like a key is blanked before the model or
 //                   the owner sees it.
 import { inputErrorText, customIssue } from "./coder-zodtext.mjs";
+// (This file is also bundled into the Worker, which has no process: the pid exists only on Coder's machine.)
+const SELF_PID = typeof process !== "undefined" && process && process.pid ? process.pid : 0;
+
 
 export const PROJECT_ROOT = "/work";
 /**
@@ -166,8 +169,8 @@ export const PKILL_GUARD = [
   '      if [ -n "$__s" ]; then __s=; continue; fi',
   '      case "$__x" in --signal) __s=1 ;; --signal=*|-[0-9]*|-SIG*|-KILL|-TERM|-HUP|-INT|-QUIT|-USR1|-USR2|-STOP|-CONT|-e|--echo|-c|--count) ;; *) __a+=("$__x") ;; esac',
   "    done",
-  '    if command pgrep "${__a[@]}" 2>/dev/null | grep -qx "' + process.pid + '"; then',
-  "      printf '%s\\n' " + "'" + pkillRefusal(process.pid).replace(/'/g, "'\\''") + "' >&2",
+  '    if command pgrep "${__a[@]}" 2>/dev/null | grep -qx "' + SELF_PID + '"; then',
+  "      printf '%s\\n' " + "'" + pkillRefusal(SELF_PID).replace(/'/g, "'\\''") + "' >&2",
   "      return 1",
   "    fi",
 ];

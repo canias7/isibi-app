@@ -4,6 +4,11 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+
+## 2026-11-23: Deploy fix (run 279)
+
+The deploy stopped at its last step: one new line read a value that only exists on Coder's machine, and the website's server (Cloudflare) refused it. The live site was not changed. Fixed, with a test that loads the website's code the way Cloudflare does, so this can't slip through again.
+
 ## 2026-11-23: Six more helpers merged, and the comparison sheet updated
 
 All six helpers' work (their entries follow) is now on one branch. All of Coder's tests pass (1,844 of 1,845; the one left fails only because of a local settings folder on Claude's machine). The comparison sheet's "Tools" tab is now 65 the same, 26 different, 2 Claude Code only, and "Tool parameters & limits" 411, 58 and 26. What's left is mostly things Coder can't have (SSH, Windows, mods, claude.ai accounts) or your spending limits (helpers, messages between chats, scheduled runs). Not yet tried live on gofarther.dev.
