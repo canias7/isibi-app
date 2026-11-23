@@ -7,8 +7,8 @@
  * search again. Search once, then reply with a brief summary of the results."), and Coder gets the result in Claude Code's
  * words ("Web search results for query: …", "Links: […]", the summary, the REMINDER line). Its permission is Claude
  * Code's (a rule on the whole tool: WebSearch; asked without one, judged by auto mode's checker in Auto), and so is the
- * search budget: 200 calls a turn in Coder's chats, as in Claude Code's cloud sessions (the owner, 2026-11-14, chose Claude
- * Code's rule); Gloopy's chat keeps its own count (200, refilling about 100 an hour).
+ * search budget: 200 calls a chat in Coder's chats since 2026-11-23, refilling about 100 an hour, as Claude Code's interactive
+ * session ("/clear resets the count"; a job from GitHub, its -p run, per turn); Gloopy's chat keeps its own count (the same).
  *
  * CLAUDE CODE'S `mode` (its cloud sessions' WebSearch, 2.1.325; the owner, 2026-11-14, chose to add it): Coder's chats and
  * jobs from GitHub are offered Claude Code's input, "standard" or "extended", with its description and its note in the
@@ -91,6 +91,9 @@ export const WEB_SEARCH_MODE_TOOL = Object.freeze({ type: "function", function: 
   ...WEB_SEARCH_TOOL.function,
   parameters: { ...WEB_SEARCH_TOOL.function.parameters, properties: {
     ...WEB_SEARCH_TOOL.function.parameters.properties,
+    // (Coder's own chats since 2026-11-23: any number of hosts, as Claude Code's lists, Coder's code doing what Grok's 5 can't.)
+    allowed_domains: { type: "array", items: { type: "string" }, description: "Only include search results from these domains" },
+    blocked_domains: { type: "array", items: { type: "string" }, description: "Never include search results from these domains" },
     mode: { type: "string", enum: [...SEARCH_MODES], description: SEARCH_MODE_DESCRIPTION },
   }, required: ["query", "mode"] },
 } });
@@ -155,7 +158,8 @@ export function checkInput(args, ctx = {}) {
   if (!a.query.length) return { error: "error: Missing query" };
   const allowed = Array.isArray(a.allowed_domains) ? a.allowed_domains : [], blocked = Array.isArray(a.blocked_domains) ? a.blocked_domains : [];
   if (allowed.length && blocked.length) return { error: "error: Cannot specify both allowed_domains and blocked_domains in the same request" };
-  for (const [k, l] of [["allowed_domains", allowed], ["blocked_domains", blocked]]) {
+  // (Gloopy's chat keeps Grok's limit of 5; Coder's own chats take any number since 2026-11-23, searchRequest and hostFilter.)
+  if (!modes) for (const [k, l] of [["allowed_domains", allowed], ["blocked_domains", blocked]]) {
     if (l.length > DOMAINS_MAX) return { error: "error: Grok's web search takes at most " + DOMAINS_MAX + " domains in " + k + " (" + l.length + " were given): name " + DOMAINS_MAX + " or fewer, or search more than once" };
   }
   const out = { query: a.query };
@@ -365,7 +369,8 @@ export function searchRequest({ model = "", effort = "", args = {} } = {}) {
     model, ...(effort ? { effort } : {}),
     messages: [{ role: "system", content: SEARCH_SYSTEM }, { role: "user", content: searchAsk(query) }],
     tools: [],
-    webSearch: { ...(allowed.length ? { allowed_domains: allowed } : {}), ...(blocked.length ? { excluded_domains: blocked } : {}) },
+    // (A list longer than Grok's 5 isn't sent: Coder's own code keeps Claude Code's limit on the links, hostFilter.)
+    webSearch: { ...(allowed.length && allowed.length <= DOMAINS_MAX ? { allowed_domains: allowed } : {}), ...(blocked.length && blocked.length <= DOMAINS_MAX ? { excluded_domains: blocked } : {}) },
     tool_choice: "required",
     maxTurns: args.mode === "standard" ? SEARCH_STANDARD_TURNS : SEARCH_MAX_TURNS,
     parallelToolCalls: false,
@@ -373,7 +378,45 @@ export function searchRequest({ model = "", effort = "", args = {} } = {}) {
     emptyOk: true,
   };
 }
-export async function runWebSearch(send, { model = "", effort = "", args = {}, now = () => Date.now() } = {}) {
+/**
+ * CLAUDE CODE'S DOMAIN LISTS, IN CODER'S OWN CODE (2026-11-23): "Only include results from these hosts" and "Leave out results
+ * from these hosts", for any number of hosts (Grok's search takes 5): each search's links kept or left out by their host, a
+ * listed host covering its subdomains ("example.com" covers "docs.example.com"), "www." and a trailing dot aside.
+ */
+const hostKey = (h) => String(h || "").trim().toLowerCase().replace(/^\*\./, "").replace(/^https?:\/\//, "").replace(/[/:].*$/, "").replace(/\.$/, "").replace(/^www\./, "");
+export function hostCovered(host, list) {
+  const h = hostKey(host);
+  return !!h && (Array.isArray(list) ? list : []).some((d) => { const k = hostKey(d); return !!k && (h === k || h.endsWith("." + k)); });
+}
+export function hostFilter(facts, { allowed = [], blocked = [] } = {}) {
+  const a = (Array.isArray(allowed) ? allowed : []).filter((x) => typeof x === "string" && x.trim()), b = (Array.isArray(blocked) ? blocked : []).filter((x) => typeof x === "string" && x.trim());
+  if (!a.length && !b.length) return facts;
+  const keep = (l) => { let h = ""; try { h = new URL(l.url).hostname; } catch { return false; } return (!a.length || hostCovered(h, a)) && !(b.length && hostCovered(h, b)); };
+  return { ...facts, results: (facts.results || []).map((k) => (k && typeof k === "object" && Array.isArray(k.content) ? { ...k, content: k.content.filter(keep) } : k)) };
+}
+/**
+ * CLAUDE CODE'S TITLES ("Returns result titles and URLs"; 2026-11-23): Grok's sources come with no titles, so each link whose
+ * title is its address gets its page's own <title>, read by `titles` (Coder's tools script: the start of each page, through
+ * the chat's network gate, a few seconds each), and keeps its address where none comes. At most TITLES_MAX links a call.
+ */
+export const TITLES_MAX = 20;
+export async function withTitles(facts, titles) {
+  if (typeof titles !== "function") return facts;
+  const want = [];
+  for (const k of facts.results || []) if (k && typeof k === "object" && Array.isArray(k.content)) for (const l of k.content) if (l.title === l.url && !want.includes(l.url) && want.length < TITLES_MAX) want.push(l.url);
+  if (!want.length) return facts;
+  let got = {};
+  try { got = (await titles(want)) || {}; } catch { got = {}; }
+  const t = (u) => (typeof got[u] === "string" && got[u].trim() ? got[u].replace(/\s+/g, " ").trim().slice(0, 500) : "");
+  return { ...facts, results: facts.results.map((k) => (k && typeof k === "object" && Array.isArray(k.content) ? { ...k, content: k.content.map((l) => (l.title === l.url && t(l.url) ? { ...l, title: t(l.url) } : l)) } : k)) };
+}
+/** The <title> of a page's start (HTML entities for the common few decoded), or "". */
+export function titleOf(html) {
+  const m = /<title[^>]*>([\s\S]*?)<\/title\s*>/i.exec(String(html || ""));
+  if (!m) return "";
+  return m[1].replace(/<[^>]*>/g, "").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#0?39;|&apos;/g, "'").replace(/&nbsp;/g, " ").replace(/&#(\d+);/g, (_, n) => { const c = Number(n); return c > 31 && c < 0x110000 ? String.fromCodePoint(c) : " "; }).replace(/\s+/g, " ").trim().slice(0, 500);
+}
+export async function runWebSearch(send, { model = "", effort = "", args = {}, now = () => Date.now(), titles = null } = {}) {
   const t0 = now();
   const query = typeof args.query === "string" ? args.query : "";
   let r;
@@ -382,6 +425,8 @@ export async function runWebSearch(send, { model = "", effort = "", args = {}, n
     const cut = e && (e.name === "TimeoutError" || e.name === "AbortError");
     return { error: "error: " + (cut ? SEARCH_CUT_OFF : String((e && e.message) || e).replace(/\s+/g, " ").slice(0, 600)) };
   }
-  const facts = searchResults(r, query, Math.max(0, now() - t0) / 1000);
+  let facts = hostFilter(searchResults(r, query, 0), { allowed: args.allowed_domains, blocked: args.blocked_domains });
+  facts = await withTitles(facts, titles);
+  facts = { ...facts, durationSeconds: Math.max(0, now() - t0) / 1000 };
   return { facts, text: searchText(facts), usage: r && r.usage ? r.usage : null };
 }

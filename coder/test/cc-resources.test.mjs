@@ -3,6 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
+import { readFileSync } from "node:fs";
 const A = await import("../container/coder-agent.mjs");
 const R = await import("../container/coder-resources.mjs");
 const H = await import("../container/coder-hooks.mjs");
@@ -53,8 +54,13 @@ test("CR1 the four tools: Claude Code's names for hooks and rules, Artifact upfr
   assert.ok(A.CODER_TOOLS.some((t) => t.function.name === "artifact"), "Artifact is one of Coder's own tools");
   assert.ok(A.NOT_FROM_GITHUB.includes("artifact") && !A.GITHUB_TOOLS.some((t) => t.function.name === "artifact"));
   assert.deepEqual(of({}), [], "no connectors: no resource tools");
-  assert.deepEqual(of({ hasConnectors: true }), ["list_mcp_resources", "read_mcp_resource", "read_mcp_resource_dir", "refresh_mcp_tools", "wait_for_mcp_servers"]);
-  assert.deepEqual(of({ hasConnectors: true, toolSearchOn: true }), ["list_mcp_resources", "read_mcp_resource", "read_mcp_resource_dir", "refresh_mcp_tools"], "WaitForMcpServers only with tool search off");
+  assert.deepEqual(of({ hasConnectors: true }), ["list_mcp_resources", "read_mcp_resource", "read_mcp_resource_dir", "wait_for_mcp_servers"], "refresh_mcp_tools only with its switch");
+  assert.deepEqual(of({ hasConnectors: true, refresh: true }), ["list_mcp_resources", "read_mcp_resource", "read_mcp_resource_dir", "refresh_mcp_tools", "wait_for_mcp_servers"]);
+  assert.deepEqual(of({ hasConnectors: true, toolSearchOn: true, refresh: true }), ["list_mcp_resources", "read_mcp_resource", "read_mcp_resource_dir", "refresh_mcp_tools"], "WaitForMcpServers only with tool search off");
+  // (The switch: Claude Code's CLAUDE_CODE_ENABLE_REFRESH_MCP_TOOLS=1, Coder's CODER_ENABLE_REFRESH_MCP_TOOLS=1.)
+  const srv = readFileSync(new URL("../container/server.mjs", import.meta.url), "utf8");
+  assert.match(srv, /CLAUDE_CODE_ENABLE_REFRESH_MCP_TOOLS: "CODER_ENABLE_REFRESH_MCP_TOOLS"/);
+  assert.match(srv, /refreshTools: !gloopy && varOn\(rawVars\.CODER_ENABLE_REFRESH_MCP_TOOLS\)/);
   assert.deepEqual(of({ github: true, hasConnectors: true }), []);
   assert.deepEqual(of({ offered: true, hasConnectors: true }), [], "not Gloopy's");
 });
@@ -173,7 +179,6 @@ test("CR7 MCP Apps UI resources are left out of the list (a ui:// URI or text/ht
 });
 
 test("CR8 the Worker's routes and the machine's caller carry these actions", async () => {
-  const { readFileSync } = await import("node:fs");
   const routes = readFileSync(new URL("../src/coder-routes.mjs", import.meta.url), "utf8");
   assert.match(routes, /parts\[0\] === "artifact-page"/);
   assert.match(routes, /parts\[0\] === "artifact" && parts\.length === 3/);
@@ -351,7 +356,7 @@ test("CR14 the loop's resource dir, refresh and binary read: Claude Code's resul
     return { error: "error: ?" };
   };
   const more = { mcp: async () => ({ ok: true, body: "" }), exec: async (x) => { const q = toolReq(x.command) || (x.payload ? JSON.parse(x.payload) : null); if (q && q.tool === "save_upload") { saved.push(q.args); return { code: 0, output: ".coder-files/" + q.args.name + "\n" }; } return { code: 0, output: "" }; } };
-  const { told, seen } = await run([say("", [call("read_mcp_resource_dir", { server: "Files", uri: "file:///docs" }, "d1"), call("read_mcp_resource", { server: "Files", uri: "file:///p.png" }, "r1"), call("refresh_mcp_tools", {}, "f1")]), say("done")], { envApi, more });
+  const { told, seen } = await run([say("", [call("read_mcp_resource_dir", { server: "Files", uri: "file:///docs" }, "d1"), call("read_mcp_resource", { server: "Files", uri: "file:///p.png" }, "r1"), call("refresh_mcp_tools", {}, "f1")]), say("done")], { envApi, msg: { refreshTools: true }, more });
   assert.ok(names(seen[0]).includes("read_mcp_resource_dir") && names(seen[0]).includes("refresh_mcp_tools"));
   assert.match(told("d1"), /"mimeType": "inode\/directory"/);
   assert.deepEqual(saved, [{ name: "mcp-Files-p.png", data: "UE5HREFUQQ==" }]);

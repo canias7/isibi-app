@@ -2344,13 +2344,29 @@ export async function toolStamps({ paths }) {
  */
 export const WS_MAX = 1024 * 1024;
 const WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
-export async function toolWsWatch({ url, protocols = [] }, { out = (t) => process.stdout.write(t), allowPrivate = false } = {}) {
+/**
+ * BEHIND THE GATE'S PROXY (Claude Code's "Addresses and hosts denied to WebSocket watches", 2026-11-23): the address the proxy
+ * finds isn't checked (the gate's own lists decide: its blocked sites, Claude Code's deniedDomains, and the network list,
+ * its managed allowlist); Coder looks the host up itself first, as Claude Code does, and a host it can't resolve fails with
+ * "could not resolve <host>", unless the environment's CODER_PROXY_RESOLVES_HOSTS is 1 (or true), Claude Code's
+ * CLAUDE_CODE_PROXY_RESOLVES_HOSTS: then the proxy looks the hostname up. Only from the environment, never a repository's
+ * settings ("settings files can no longer set it where the host manages the network").
+ */
+export const proxyResolvesHosts = (v) => /^(?:1|true)$/i.test(String(v ?? "").trim());
+export const couldNotResolve = (host) => "could not resolve " + host + " (behind the network gate, Coder looks the host up itself; set CODER_PROXY_RESOLVES_HOSTS=1 in the environment's variables so the gate looks it up instead)";
+export async function toolWsWatch({ url, protocols = [] }, { out = (t) => process.stdout.write(t), allowPrivate = false, proxy = null, resolves = null, lookup = null } = {}) {
   const say = (v) => out(JSON.stringify(v) + "\n");
   let u;
   try { u = new URL(String(url)); } catch { say({ error: "not a WebSocket address" }); return ""; }
   if (u.protocol !== "ws:" && u.protocol !== "wss:") { say({ error: "not a ws:// or wss:// address" }); return ""; }
   const secure = u.protocol === "wss:", host = u.hostname.replace(/^\[|\]$/g, ""), port = Number(u.port) || (secure ? 443 : 80);
-  const px = process.env.CODER_NET_LIMITED === "1" && (process.env.HTTPS_PROXY || "");
+  const px = proxy !== null ? proxy : process.env.CODER_NET_LIMITED === "1" && (process.env.HTTPS_PROXY || "");
+  // (Behind the proxy: the host looked up here first, unless the proxy is to do it. proxyResolvesHosts.)
+  if (px && !isIP(host) && !proxyResolvesHosts(resolves !== null ? resolves : process.env.CODER_PROXY_RESOLVES_HOSTS)) {
+    const look = typeof lookup === "function" ? lookup : lookupCb;
+    const found = await new Promise((r) => { try { look(host, (e) => r(!e)); } catch { r(false); } });
+    if (!found) { say({ error: couldNotResolve(host) }); return ""; }
+  }
   // 1. ITS CONNECTION: through the proxy (CONNECT), or straight, refusing a private address.
   const got = await new Promise((done) => {
     if (px) {
@@ -2509,9 +2525,51 @@ export async function toolSendFile({ path }) {
  */
 export const errorLine = (e) => { const m = String((e && e.message) || e); return "error: " + (e && e.whole === true ? m : m.slice(0, e && e.long === true ? 4000 : 600)); };
 
+/**
+ * THE TITLES OF A WEB SEARCH'S LINKS (Claude Code's WebSearch "returns result titles and URLs"; Grok's search gives addresses
+ * only; 2026-11-23, coder-websearch.mjs withTitles): the start of each page (64 KB at most, 5 seconds each, side by side),
+ * through the chat's network gate when its list is on, never to a private address; its <title>, or nothing. `{ url: title }`.
+ */
+export const TITLE_BYTES = 65_536, TITLE_MS = 5_000;
+export async function toolPageTitles({ urls = [] } = {}, { get = null } = {}) {
+  const { titleOf, TITLES_MAX } = await import("./coder-websearch.mjs");
+  const list = (Array.isArray(urls) ? urls : []).filter((u) => typeof u === "string" && /^https?:\/\/\S+$/i.test(u) && u.length <= 2048).slice(0, TITLES_MAX);
+  const one = (url) => new Promise((done) => {
+    let u;
+    try { u = new URL(url); } catch { return done(""); }
+    let over = false, req = null;
+    const timer = setTimeout(() => { over = true; try { if (req) req.destroy(); } catch { /* gone */ } done(""); }, TITLE_MS);
+    const finish = (t) => { if (over) return; over = true; clearTimeout(timer); try { if (req) req.destroy(); } catch { /* gone */ } done(t); };
+    const onRes = (res) => {
+      if (res.statusCode < 200 || res.statusCode >= 300 || !/html/i.test(String(res.headers["content-type"] || ""))) return finish("");
+      const chunks = []; let size = 0;
+      res.on("data", (c) => { size += c.length; chunks.push(c); const t = titleOf(Buffer.concat(chunks).toString("utf8")); if (t || size >= TITLE_BYTES) finish(t); });
+      res.on("end", () => finish(titleOf(Buffer.concat(chunks).toString("utf8"))));
+      res.on("error", () => finish(""));
+    };
+    const headers = { "user-agent": WEBFETCH_UA_FOR_TITLES, accept: "text/html" };
+    try {
+      if (typeof get === "function") { req = get(u, headers, onRes); }
+      else {
+        if (isIP(u.hostname.replace(/^\[|\]$/g, "")) && privateAddress(u.hostname.replace(/^\[|\]$/g, ""))) return finish("");
+        const px = viaProxy(u);
+        const mod = u.protocol === "https:" ? https : http;
+        req = px && px.path ? http.request({ ...px, method: "GET", headers: { ...headers, ...px.headers } }, onRes) : mod.request(u, { method: "GET", headers, ...(px || { lookup: safeLookup }) }, onRes);
+        req.end();
+      }
+      if (req && typeof req.on === "function") req.on("error", () => finish(""));
+    } catch { finish(""); }
+  });
+  const got = await Promise.all(list.map(one));
+  const out = {};
+  list.forEach((u, i) => { if (got[i]) out[u] = got[i]; });
+  return JSON.stringify(out);
+}
+const WEBFETCH_UA_FOR_TITLES = "Coder-User (gofarther.dev; +https://gofarther.dev/)";
+
 // A WORKFLOW SCRIPT, ONE PASS (Claude Code's Workflow, 2026-11-23; coder-agents.mjs): run here, as `dev`, never in Coder's service.
 async function toolWorkflowStep(args) { return JSON.stringify(await workflowStep(args)); }
-export const TOOLS = { page_file: toolPageFile, save_file: toolSaveFile, save_upload: toolSaveUpload, send_file: toolSendFile, ps_parse: toolPsParse, save_picture: toolSavePicture, fit_picture: toolFitPicture, lsp: toolLsp, lsp_file: toolLspFile, lsp_take: toolLspTake, read: toolRead, write: toolWrite, edit: toolEdit, notebook_edit: toolNotebookEdit, file_check: toolFileCheck, grep: toolGrep, glob: toolGlob, web_fetch: toolWebFetch, mtimes: toolMtimes, listing: toolListing, changed: toolChanged, seen: toolSeen, snap: toolSnap, snapdiff: toolSnapDiff, http_hook: toolHttpHook, stamps: toolStamps, ws_watch: toolWsWatch, workflow_step: toolWorkflowStep };
+export const TOOLS = { page_file: toolPageFile, save_file: toolSaveFile, save_upload: toolSaveUpload, send_file: toolSendFile, ps_parse: toolPsParse, save_picture: toolSavePicture, fit_picture: toolFitPicture, lsp: toolLsp, lsp_file: toolLspFile, lsp_take: toolLspTake, read: toolRead, write: toolWrite, edit: toolEdit, notebook_edit: toolNotebookEdit, file_check: toolFileCheck, grep: toolGrep, glob: toolGlob, web_fetch: toolWebFetch, mtimes: toolMtimes, listing: toolListing, changed: toolChanged, seen: toolSeen, snap: toolSnap, snapdiff: toolSnapDiff, http_hook: toolHttpHook, stamps: toolStamps, ws_watch: toolWsWatch, workflow_step: toolWorkflowStep, page_titles: toolPageTitles };
 
 // Run as a command: node coder-tools.mjs <base64 of {"tool": ..., "args": {...}}>
 if (process.argv[1] && import.meta.url === "file://" + process.argv[1]) {

@@ -104,9 +104,11 @@ export const RESOURCE_TOOLS = Object.freeze([ARTIFACT_TOOL, LIST_RESOURCES_TOOL,
  * from GitHub or in Gloopy's chats (Claude Code registers RefreshMcpTools "only in sessions with at least one MCP server");
  * the wait only with tool search off.
  */
-export function resourceToolsFor({ github = false, offered = false, hasConnectors = false, toolSearchOn = false } = {}) {
+// (refresh_mcp_tools only with its switch, `refresh`: Claude Code "registers the tool only when you set
+// CLAUDE_CODE_ENABLE_REFRESH_MCP_TOOLS=1", Coder's CODER_ENABLE_REFRESH_MCP_TOOLS=1. 2026-11-23.)
+export function resourceToolsFor({ github = false, offered = false, hasConnectors = false, toolSearchOn = false, refresh = false } = {}) {
   if (github || offered || !hasConnectors) return [];
-  return [LIST_RESOURCES_TOOL, READ_RESOURCE_TOOL, READ_RESOURCE_DIR_TOOL, REFRESH_TOOLS_TOOL, ...(toolSearchOn ? [] : [WAIT_SERVERS_TOOL])];
+  return [LIST_RESOURCES_TOOL, READ_RESOURCE_TOOL, READ_RESOURCE_DIR_TOOL, ...(refresh ? [REFRESH_TOOLS_TOOL] : []), ...(toolSearchOn ? [] : [WAIT_SERVERS_TOOL])];
 }
 
 const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");

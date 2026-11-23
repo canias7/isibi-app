@@ -432,6 +432,8 @@ async function httpSession(url, token, steps, { fetchFn = fetch, idleMs = 0, req
     if (version) headers["mcp-protocol-version"] = version;
     if (token) headers.authorization = "Bearer " + token;
     if (session) headers["mcp-session-id"] = session;
+    // (A step's own headers, such as the chat's headersHelper output for a tool call: helperHeadersIn.)
+    if (extra && typeof extra === "object") for (const [k, v] of Object.entries(extra)) if (!(k in headers)) headers[k] = v;
     return headers;
   };
   /** The session's own GET (its stream, or a request's stream taken up again): event stream only, from `lastId` on. */
@@ -869,8 +871,17 @@ export function resultText(r) {
   if (!parts.length && r && r.structuredContent) parts.push(JSON.stringify(r.structuredContent));
   let text = parts.join("\n") || "(no output)";
   if (text.length > RESULT_MAX) text = text.slice(0, RESULT_MAX) + "\n…(cut: the answer was " + text.length + " characters)";
-  return { text, isError: !!(r && r.isError), ...(images.length ? { images } : {}) };
+  // (Claude Code's MCP tool result for the hooks, 2026-11-23: "text or a list of content blocks, depending on the server": the
+  // server's own blocks, when they fit in RESULT_MAX characters as JSON; a picture's data is kept.)
+  let blocks = null;
+  if (r && Array.isArray(r.content)) { try { const j = JSON.stringify(r.content); if (j.length <= RESULT_MAX * 2) blocks = r.content; } catch { blocks = null; } }
+  const out = { text, isError: !!(r && r.isError), ...(images.length ? { images } : {}) };
+  // (Not enumerable: the Worker's answer to the machine spells it out, withBlocks.)
+  if (blocks) Object.defineProperty(out, "content", { value: blocks, enumerable: false });
+  return out;
 }
+/** A call's answer with its content blocks spelled out for the machine (resultText keeps them out of sight). */
+export const withBlocks = (r) => (r && Array.isArray(r.content) ? { ...r, content: r.content } : r);
 
 // ── SIGN-IN (OAuth 2.1, PKCE, the client registered on the fly) ──────────────────────────────────────────────────
 
@@ -1168,7 +1179,7 @@ export async function removeConnector(bucket, uid, id) {
  * owner the server's questions (src/coder-elicit.mjs), or null: then a question is cancelled. `roots`: the chat's working
  * folders, the session's roots (a server's roots/list).
  */
-export async function callTool(env, bucket, uid, connectorId, tool, args, { fetchFn = fetch, now = Date.now(), ask = null, roots = [], wait = null, probeMs = 0 } = {}) {
+export async function callTool(env, bucket, uid, connectorId, tool, args, { fetchFn = fetch, now = Date.now(), ask = null, roots = [], wait = null, probeMs = 0, extraHeaders = null } = {}) {
   const list = await readConnectors(bucket, uid);
   const c = list.find((x) => x.id === connectorId);
   if (!c) return { text: "error: that connector was removed", isError: true };
@@ -1180,7 +1191,9 @@ export async function callTool(env, bucket, uid, connectorId, tool, args, { fetc
   // (On the connection Coder keeps for the connector, with no probe: keptSession; after a refreshed sign-in, a new one.)
   const once = async (force, anew = force) => {
     const token = await tokenOf(env, bucket, uid, c, { fetchFn, now, force });
-    const hdrs = Array.isArray(meta.headers) && meta.headers.length ? paramHeaders(meta.headers, argv) : null;
+    const ph = Array.isArray(meta.headers) && meta.headers.length ? paramHeaders(meta.headers, argv) : null;
+    // (The chat's headersHelper output, container/coder-mcphelper.mjs, with the call; a parameter header of the server's wins.)
+    const hdrs = extraHeaders || ph ? { ...(extraHeaders || {}), ...(ph || {}) } : null;
     const [r] = await keptSession(bucket, uid, c, token, [["tools/call", { name: tool, arguments: argv }, hdrs]], { fetchFn, ...(wait ? { wait } : {}), ...(probeMs ? { probeMs } : {}), talk }, { fresh: anew });
     return resultText(r);
   };
@@ -1528,6 +1541,18 @@ const same = (a, b) => { a = String(a); b = String(b); if (a.length !== b.length
  * `POST /api/coder/mcp` from Coder's machine: { tool, args } with the job's AI pass (the same headers as its AI calls).
  * Only the chat's current job, and only a tool it was given at its start.
  */
+/**
+ * A CONNECTOR CALL'S headersHelper HEADERS (2026-11-23; Claude Code's headersHelper output: "one JSON object of header names
+ * and string values", routing and client-identity names dropped): at most 20, each name a header token, each value a
+ * string of at most 8,192 characters with no line break; any other name or value left out. Null when none.
+ */
+const HELPER_DROPPED = /^(?:host|cookie|set-cookie|connection|content-length|content-type|transfer-encoding|te|trailer|upgrade|keep-alive|proxy-.*|x-forwarded-.*|forwarded|x-real-ip|via|origin|referer|user-agent|accept|mcp-.*|last-event-id)$/i;
+export function helperHeadersIn(h) {
+  if (!h || typeof h !== "object" || Array.isArray(h)) return null;
+  const out = {};
+  for (const [k, v] of Object.entries(h).slice(0, 20)) if (/^[!#$%&'*+.^_`|~0-9A-Za-z-]{1,100}$/.test(k) && !HELPER_DROPPED.test(k) && typeof v === "string" && v.length <= 8192 && !/[\r\n\0]/.test(v)) out[k.toLowerCase()] = v;
+  return Object.keys(out).length ? out : null;
+}
 export async function handleMcp(request, env, { fetchFn = fetch, now = Date.now(), pollMs = 0 } = {}) {
   if (request.method !== "POST") return answer({ error: "method" }, 405);
   const bucket = env && env.CODER_BUCKET;
@@ -1556,6 +1581,8 @@ export async function handleMcp(request, env, { fetchFn = fetch, now = Date.now(
   // then its answer (src/coder-elicit.mjs). Any other gets the answer alone, and a question is cancelled.
   // (The chat's working folders, which the machine sends with each call: the session's roots, Claude Code's roots/list.)
   const roots = rootPaths(body.roots);
-  if (body.ask === true) return streamedCall((send) => callTool(env, bucket, uid, which.id, which.tool, body.args, { fetchFn, now, roots, ask: { send, wait: (eid, signal) => pollAnswer(bucket, elicitKey(uid, id, eid), signal, pollMs ? { every: pollMs } : {}) } }));
-  return answer(await callTool(env, bucket, uid, which.id, which.tool, body.args, { fetchFn, now, roots }));
+  // (The chat's headersHelper output, sent by Coder's machine: authentication-style names only, container/coder-mcphelper.mjs.)
+  const extraHeaders = helperHeadersIn(body.headers);
+  if (body.ask === true) return streamedCall((send) => callTool(env, bucket, uid, which.id, which.tool, body.args, { fetchFn, now, roots, ...(extraHeaders ? { extraHeaders } : {}), ask: { send, wait: (eid, signal) => pollAnswer(bucket, elicitKey(uid, id, eid), signal, pollMs ? { every: pollMs } : {}) } }).then(withBlocks));
+  return answer(withBlocks(await callTool(env, bucket, uid, which.id, which.tool, body.args, { fetchFn, now, roots, ...(extraHeaders ? { extraHeaders } : {}) })));
 }

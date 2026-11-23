@@ -388,8 +388,8 @@ code in **each user's own GitHub**.
      page's instructions. Tests: `test/webfetch.test.mjs`.
    - *web_search* (`coder-websearch.mjs`): a tool like Claude Code's WebSearch, each
      search its own Grok request with xAI's web search alone, Claude Code's result
-     text, and 200 searches per message (Claude Code's cloud: no refill unless
-     `CODER_WEB_SEARCH_REFILLS_PER_HOUR`; a paused card's answer keeps its turn's count),
+     text, and 200 searches per chat (since 2026-11-23: see the web rows below; a
+     paused card's answer keeps the count),
      and Claude Code's `mode`: "standard" is one search (Coder's note says to use it by
      default), "extended" up to 8. Gloopy keeps 200 per chat, refilling about 100 an
      hour, and no mode. No other request
@@ -397,6 +397,18 @@ code in **each user's own GitHub**.
      8 searches (Claude Code's `max_uses: 8`, as one tool call a turn over 8 turns), a
      job from GitHub has its own count, and `WebSearch(query:…)` rules match a query.
      Tests: `test/websearch.test.mjs`.
+   - *The web rows* (2026-11-23, `test/cc-web-rows.test.mjs`): web_search counts 200 per
+     chat refilling about 100 an hour (`/clear` starts again; a GitHub job per turn),
+     takes domain lists of any length (Grok gets 5 or fewer, `hostFilter` does the
+     rest) and gives each link its page's `<title>` (tools script `page_titles`);
+     web_fetch sends `Coder-User (gofarther.dev; +https://gofarther.dev/)`, answers a
+     page that failed in the last minute without fetching it again, adds
+     `artifactRead` for the owner's artifacts, and in a GitHub job with the checker off
+     denies what would ask (claude -p's Manual mode); the `web-fetch` agent reads 48,000
+     characters of a page itself; `CODER_MCP_HEADERS_HELPER` (`coder-mcphelper.mjs`) adds
+     a command's headers to connector calls; connector hooks get the content blocks;
+     `refresh_mcp_tools` only with `CODER_ENABLE_REFRESH_MCP_TOOLS=1`; a WebSocket watch
+     behind the gate looks its host up first unless `CODER_PROXY_RESOLVES_HOSTS=1`.
    - *The email check* (`coder-privacy.mjs`, Claude Code 2.1.325's): the account's
      email beside what names a client (a User-Agent, identity=, a From: header, …) is
      refused in Claude Code's words, in bash, monitor and powershell calls and up to 8

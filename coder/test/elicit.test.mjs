@@ -265,7 +265,7 @@ test("EL7 the gate: a job that can ask gets its call as a stream (its pass check
   // A job that cannot ask (no `ask`): the plain answer, the question cancelled.
   s.replies.clear();
   const plain = await M.handleMcp(req({ tool: "mcp__linear__make_issue", args: {} }), e2, { fetchFn: s.fetchFn });
-  assert.deepEqual(await plain.json(), { text: 'got {"action":"cancel"}', isError: false });
+  assert.deepEqual(await plain.json(), { text: 'got {"action":"cancel"}', isError: false, content: [{ type: "text", text: 'got {"action":"cancel"}' }] });
   // A machine's answer kept in the chat's storage, checked as Claude Code's client checks one.
   const b2 = memBucket();
   assert.deepEqual(await W.keepAnswer(b2, "u1", "c1", { id: "e" + "b".repeat(20), result: { action: "accept", content: { a: [1] } } }), { ok: true });

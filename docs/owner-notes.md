@@ -34,6 +34,19 @@ From the comparison sheet's tool rows (Read, Write, Edit, Bash, Monitor, stoppin
 - Can't match on Coder's Linux machine: the Windows/PowerShell-only behaviour, and Claude Code's "on exit" behaviour (Coder chats never exit).
 - Not yet tried live on gofarther.dev.
 
+## 2026-11-23: Web search, page reading and connectors closer to Claude Code
+
+From the comparison sheet's web and connector rows:
+- **Web search** now counts 200 searches per chat (not per message), refilling about 100 an hour, and starts again after /clear, as Claude Code's own sessions do. Jobs started from GitHub still count per message.
+- **Web search results** now have page titles (Coder reads each page's title itself, since Grok's search gives only links), and "only these sites" / "not these sites" lists can be any length (Grok takes 5; Coder's own code filters the rest).
+- **Reading pages:** Coder now introduces itself to websites as "Coder-User (gofarther.dev; ...)", in the same style as Claude Code, so a site can allow it by name. A page that failed in the last minute is not fetched again; Coder is told it failed moments ago. Reading one of your public pages (artifacts) is now recorded as Claude Code records it.
+- **A new "web-fetch" helper**, like Claude Code's: it reads up to about 48,000 characters of a page itself and answers a question about it.
+- **Jobs from GitHub** with the safety checker off now refuse a page fetch that would need your OK, as Claude Code's command-line runs do (documentation sites are still fine).
+- **Connectors:** a new environment setting, `CODER_MCP_HEADERS_HELPER`, runs a short command (at most 500 characters, 10 seconds) whose printed headers go with each connector call, for connectors that need a fresh token. Hooks now see a connector's full answer, not just its text. "Re-read a connector's tools" is now off unless you set `CODER_ENABLE_REFRESH_MCP_TOOLS=1`, as in Claude Code.
+- **Live feeds (WebSocket watches)** on a limited network: Coder looks the address up itself first; if that fails, setting `CODER_PROXY_RESOLVES_HOSTS=1` in Environment lets the network gate do it.
+- **Not possible in Coder:** making web search US-only (Grok's search has no such setting), and the `/status` organization lines (Coder has no organizations or HIPAA setup).
+- Gloopy is unchanged. Not yet tried live on gofarther.dev.
+
 ## 2026-11-23: Five tool helpers merged, and the comparison sheet brought up to date
 
 Five helpers' work is now together on one branch (their own entries follow, below). All of Coder's tests pass (1,782 of 1,783; the one left is the known CD12 check, which fails only because of a local .claude folder).
