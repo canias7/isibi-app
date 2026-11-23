@@ -72,7 +72,7 @@ export const TOOL_SEARCH = "tool_search";
 // and request_secret, about 8,400 tokens a call, used only when the network or a key is the problem, are held back too and
 // loaded by tool_search when needed. Claude Code's cloud sends its remote tools on every call; Coder holds them back to save
 // that cost. A chat whose requests already carried them keeps them, as upfrontTools keeps tools that leave.)
-export const DEFERRED_TOOLS = Object.freeze(["lsp", "web_fetch", "web_search", "monitor", "stop_job", "todo_write", "task_create", "task_get", "task_list", "task_update", "enter_plan_mode", "exit_plan_mode", "request_secret", "get_environment", "list_environments", "update_environment", "create_environment", "switch_environment", "notebook_edit", "send_user_file", "cron_create", "cron_delete", "cron_list", "remote_trigger", "enter_worktree", "exit_worktree", "send_feedback", "end_conversation", "send_message", ...PLUGIN_DEFERRED, "list_mcp_resources", "read_mcp_resource"]);
+export const DEFERRED_TOOLS = Object.freeze(["lsp", "web_fetch", "web_search", "monitor", "stop_job", "todo_write", "task_create", "task_get", "task_list", "task_update", "enter_plan_mode", "exit_plan_mode", "request_secret", "get_environment", "list_environments", "update_environment", "create_environment", "switch_environment", "notebook_edit", "send_user_file", "cron_create", "cron_delete", "cron_list", "remote_trigger", "enter_worktree", "exit_worktree", "send_feedback", "end_conversation", "send_message", ...PLUGIN_DEFERRED, "list_mcp_resources", "read_mcp_resource", "read_mcp_resource_dir", "refresh_mcp_tools"]);
 
 /** Their search hints, Claude Code's own (its `searchHint`, matched by a keyword search), with Coder's swaps. */
 export const SEARCH_HINTS = Object.freeze({
@@ -116,6 +116,9 @@ export const SEARCH_HINTS = Object.freeze({
   // (Claude Code's ListMcpResourcesTool and ReadMcpResourceTool, held back as it holds them: coder-resources.mjs, 2026-11-23.)
   list_mcp_resources: "list resources exposed by connected connectors (MCP servers)",
   read_mcp_resource: "read a specific connector (MCP) resource by URI",
+  // (And ReadMcpResourceDirTool and RefreshMcpTools, which Coder gained the same day.)
+  read_mcp_resource_dir: "list a connector (MCP) folder resource's direct children",
+  refresh_mcp_tools: "re-read a connector's (MCP server's) tool list after it changed",
   // (Gloopy's own tools held back until needed, 2026-11-15, the owner: "yes fix it too": Coder's words, as above. Its
   // monitor, stop_job and request_secret have theirs.)
   pay: "pay at a checkout: fill in the owner's payment card",

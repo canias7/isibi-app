@@ -35,6 +35,8 @@ export const PAGE_NS = Object.freeze(["gloopy", "artifacts"]);
 const nsOf = (ns) => (PAGE_NS.includes(ns) ? ns : "gloopy");
 const listKey = (uid, ns = "gloopy") => ["coder", uid, nsOf(ns), "pages.json"].join("/");
 const fileKey = (uid, id, ns = "gloopy") => ["coder", uid, nsOf(ns), "pages", id + ".html"].join("/");
+/** Where a page list and a page are kept (Coder's artifacts keep their own fields in the list: src/coder-artifacts.mjs). */
+export const pageListKey = listKey, pageFileKey = fileKey;
 const b64url = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 const words = (t, max) => String(t == null ? "" : t).replace(/\s+/g, " ").replace(/[\p{Cf}\p{Cc}]/gu, "").trim().slice(0, max);
 

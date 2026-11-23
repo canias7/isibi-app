@@ -41,18 +41,20 @@ test("CR1 the four tools: Claude Code's names for hooks and rules, Artifact upfr
   assert.equal(H.ccTool("list_mcp_resources"), "ListMcpResourcesTool");
   assert.equal(H.ccTool("read_mcp_resource"), "ReadMcpResourceTool");
   assert.equal(H.ccTool("wait_for_mcp_servers"), "WaitForMcpServers");
-  for (const n of ["list_mcp_resources", "read_mcp_resource"]) { assert.ok(TS.DEFERRED_TOOLS.includes(n)); assert.equal(TS.SEARCH_HINTS[n], R.RESOURCE_HINTS[n]); }
+  assert.equal(H.ccTool("read_mcp_resource_dir"), "ReadMcpResourceDirTool");
+  assert.equal(H.ccTool("refresh_mcp_tools"), "RefreshMcpTools");
+  for (const n of ["list_mcp_resources", "read_mcp_resource", "read_mcp_resource_dir", "refresh_mcp_tools"]) { assert.ok(TS.DEFERRED_TOOLS.includes(n)); assert.equal(TS.SEARCH_HINTS[n], R.RESOURCE_HINTS[n]); }
   assert.ok(!TS.DEFERRED_TOOLS.includes("artifact") && !TS.DEFERRED_TOOLS.includes("wait_for_mcp_servers"));
   const art = R.ARTIFACT_TOOL.function;
-  assert.deepEqual(art.parameters.required, ["file_path", "title"]);
-  assert.match(art.description, /private, interactive page/);
-  assert.match(art.description, /owner is asked before it is published/);
+  assert.deepEqual(art.parameters.required, []);
+  assert.match(art.description, /renders an HTML file as an Artifact: a web page on gofarther.dev that is private by default/);
+  assert.match(art.description, /owner is asked before a page is published/);
   const of = (o) => R.resourceToolsFor(o).map((t) => t.function.name);
   assert.ok(A.CODER_TOOLS.some((t) => t.function.name === "artifact"), "Artifact is one of Coder's own tools");
   assert.ok(A.NOT_FROM_GITHUB.includes("artifact") && !A.GITHUB_TOOLS.some((t) => t.function.name === "artifact"));
   assert.deepEqual(of({}), [], "no connectors: no resource tools");
-  assert.deepEqual(of({ hasConnectors: true }), ["list_mcp_resources", "read_mcp_resource", "wait_for_mcp_servers"]);
-  assert.deepEqual(of({ hasConnectors: true, toolSearchOn: true }), ["list_mcp_resources", "read_mcp_resource"], "WaitForMcpServers only with tool search off");
+  assert.deepEqual(of({ hasConnectors: true }), ["list_mcp_resources", "read_mcp_resource", "read_mcp_resource_dir", "refresh_mcp_tools", "wait_for_mcp_servers"]);
+  assert.deepEqual(of({ hasConnectors: true, toolSearchOn: true }), ["list_mcp_resources", "read_mcp_resource", "read_mcp_resource_dir", "refresh_mcp_tools"], "WaitForMcpServers only with tool search off");
   assert.deepEqual(of({ github: true, hasConnectors: true }), []);
   assert.deepEqual(of({ offered: true, hasConnectors: true }), [], "not Gloopy's");
 });
@@ -74,7 +76,7 @@ test("CR2 a Markdown file becomes a plain page (headings, lists, code, tables, l
 test("CR3 Artifact asks the owner first, then publishes through Coder's server; the chat gets a page card; a second publish of the same artifact in the job goes without a card", async () => {
   const api = [], cards = [];
   const envApi = async (b) => { api.push(b); return { ok: true, text: "Published the artifact “Report” (id pabcdefghij, version " + api.length + ").", id: "pabcdefghij", version: api.length, public: false }; };
-  const { events, told } = await run([say("", [call("artifact", { file_path: "out/report.md", title: "Report" }, "a1")]), say("", [call("artifact", { file_path: "out/report.md", title: "Report", id: "pabcdefghij" }, "a2")]), say("Done.")],
+  const { events, told } = await run([say("", [call("artifact", { file_path: "out/report.md", title: "Report" }, "a1")]), say("", [call("artifact", { file_path: "out/report.md", title: "Report", url: "pabcdefghij" }, "a2")]), say("Done.")],
     { envApi, ask: (card) => { cards.push(card); return { choice: "yes" }; }, files: { "out/report.md": "# Report\n\nAll good." } });
   assert.equal(cards.length, 1, "asked once");
   assert.equal(cards[0].tool, "artifact");
@@ -160,7 +162,7 @@ test("CR6 the Worker side: an artifact is kept in its own folder (Gloopy's pages
   assert.equal(shown.status, 200);
   assert.equal((await PG.servePageFile(KEY, b, "u1", one.id, new URL("https://x" + open.url))).status, 404, "a Gloopy page address does not open it");
   assert.match((await ART.artifactNow(KEY, b, "u1", { jobFromGithub: true }, { html: "x", title: "t" })).error, /not from GitHub/);
-  assert.match((await ART.artifactNow(KEY, b, "u1", meta, { html: "x", title: "t", id: "pzzzzzzzzzz" })).error, /no artifact has the id/);
+  assert.match((await ART.artifactNow(KEY, b, "u1", meta, { html: "x", title: "t", id: "pzzzzzzzzzz" })).error, /no artifact has the url/);
 });
 
 test("CR7 MCP Apps UI resources are left out of the list (a ui:// URI or text/html;profile=mcp-app), other resources stay", () => {
@@ -181,4 +183,180 @@ test("CR8 the Worker's routes and the machine's caller carry these actions", asy
   const { envCaller } = await import("../container/coder-envtools.mjs");
   const call1 = envCaller({ url: "https://x/api/coder/model", headers: {} }, async () => new Response(JSON.stringify({ ok: true, resources: [{ uri: "a" }] })));
   assert.deepEqual(await call1({ action: "mcp_resources", op: "list" }), { ok: true, resources: [{ uri: "a" }] });
+});
+
+// ── MADE TO MATCH CLAUDE CODE'S INPUTS AND DESCRIPTIONS (2026-11-23, second pass) ──────────────────────────────────────
+
+test("CR9 Artifact's inputs by Claude Code's names and limits: its actions, description ≤1000, icon ≤40, label ≤60, limit 1–200, scope mine/shared/all; list takes only limit and scope; capabilities and contract are not available in Coder", () => {
+  const p = R.ARTIFACT_TOOL.function.parameters.properties;
+  assert.deepEqual(p.action.enum, ["publish", "list", "read", "delete", "open"]);
+  assert.equal(p.description.maxLength, 1000);
+  assert.equal(p.icon.maxLength, 40);
+  assert.equal(p.label.maxLength, 60);
+  assert.deepEqual([p.limit.minimum, p.limit.maximum], [1, 200]);
+  assert.deepEqual(p.scope.enum, ["mine", "shared", "all"]);
+  for (const k of ["file_path", "url", "title", "force", "capabilities", "contract", "public"]) assert.ok(p[k], k);
+  assert.ok(!("id" in p), "url, not id, names an existing artifact");
+  const bad = R.artifactInputProblem;
+  assert.equal(bad({ action: "list", limit: 10, scope: "all" }), "");
+  assert.match(bad({ action: "list", title: "x" }), /only limit and scope may be passed \(not title\)/);
+  assert.match(bad({ action: "list", limit: 201 }), /limit must be a whole number from 1 to 200/);
+  assert.match(bad({ action: "list", scope: "everyone" }), /scope must be/);
+  assert.match(bad({ action: "pin", url: "pabcdefghij" }), /pin, unpin and quickstart are not available in Coder/);
+  assert.match(bad({ action: "read" }), /read takes url/);
+  assert.match(bad({ action: "delete", url: "pabcdefghij", file_path: "a.html" }), /file_path is for action publish only/);
+  assert.match(bad({}), /publish takes file_path/);
+  assert.match(bad({ file_path: "a.html", icon: "x".repeat(41) }), /icon must be a string of at most 40/);
+  assert.match(bad({ file_path: "a.html", label: "x".repeat(61) }), /label must be a string of at most 60/);
+  assert.match(bad({ file_path: "a.html", description: "x".repeat(1001) }), /description must be a string of at most 1000/);
+  assert.equal(bad({ file_path: "a.html", capabilities: {} }), "", "{} (none) is accepted");
+  assert.match(bad({ file_path: "a.html", capabilities: { db: {} } }), /runtime capabilities \(db\) are not available in Coder/);
+  assert.match(bad({ file_path: "a.html", contract: "latest" }), /contract .* is not available in Coder/);
+  assert.match(bad({ file_path: "a.html", url: "https://elsewhere.example/x" }), /url is not one of Coder's artifacts/);
+  assert.equal(R.artifactIdOf("https://gofarther.dev/api/coder/artifact/u1/pabcdefghij?k=x"), "pabcdefghij");
+  assert.equal(R.artifactIdOf("pabcdefghij"), "pabcdefghij");
+  assert.match(R.ARTIFACT_DESCRIPTION, /\*\*Calls\*\*: `action` picks one \(publish when omitted\)/);
+  assert.match(R.ARTIFACT_DESCRIPTION, /`force: true` is a last-resort overwrite that discards the newer published version/);
+});
+
+test("CR10 the source file decoded as Claude Code decodes it: UTF-8, or UTF-16 LE by its byte-order mark; bad bytes and U+FFFD refused with the line and column (and '+N more'); the title is the page's own <title>; .markdown is not one of the types", () => {
+  assert.equal(R.decodeSource(Buffer.from([0x61, 0x0a, 0x62, 0xff])).error, "file_path: the source file is not valid UTF-8 text (first invalid byte at line 2, column 2). It may be saved in another encoding or contain binary data. Rewrite it as UTF-8, then publish again. Nothing was published.");
+  assert.equal(R.decodeSource(Buffer.from("ab\n\n  x�y��")).error, "file_path: the source file has the replacement character U+FFFD at line 3, column 4 (+2 more), usually left where an earlier edit or paste lost a character. Replace it with the intended text (in HTML, write an intended U+FFFD as &#xFFFD;), then publish again.");
+  assert.equal(R.decodeSource(Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from("<p>é</p>", "utf16le")])).text, "<p>é</p>");
+  assert.equal(R.decodeSource(Buffer.from("é ✓ 😀")).text, "é ✓ 😀");
+  const b64 = (t) => Buffer.from(t).toString("base64");
+  assert.equal(R.artifactPageOf("r.html", b64("<title>Q3 Board</title><p>hi</p>"), "Other").title, "Q3 Board");
+  assert.equal(R.artifactPageOf("r.html", b64("<p>hi</p>"), "Given").title, "Given");
+  assert.equal(R.artifactPageOf("deploy-failures.html", b64("<p>hi</p>")).title, "deploy-failures");
+  assert.match(R.artifactPageOf("a.markdown", b64("# x")).error, /only an \.html, \.htm or \.md file/);
+});
+
+test("CR11 the Worker's artifacts: list (newest first, limit, truncated, total, scope and rel), get, read with its versions and labels, icon kept on an update, a stale publish refused with the live page unless forced, delete; Gloopy's pages untouched", async () => {
+  const b = memBucket(), meta = { kind: "coder" };
+  await PG.keepPages(b, "u1", [{ id: "pgloopy0001", title: "Gloopy's", html: "<p>g</p>" }], 1);
+  const a = await ART.artifactNow(KEY, b, "u1", meta, { html: "<p>a</p>", title: "A", icon: "chart", description: "One.", label: "first" }, { now: 1000, chat: "c1" });
+  const z = await ART.artifactNow(KEY, b, "u1", meta, { html: "<p>z</p>", title: "Z" }, { now: 2000, chat: "c1" });
+  assert.equal(a.updated, false);
+  const two = await ART.artifactNow(KEY, b, "u1", meta, { op: "publish", html: "<p>a2</p>", title: "A", id: a.id, base: 1, label: "second" }, { now: 3000, chat: "c1" });
+  assert.deepEqual([two.version, two.updated], [2, true]);
+  const l = await ART.artifactNow(KEY, b, "u1", meta, { op: "list", limit: 1, scope: "mine" });
+  assert.deepEqual(l.artifacts.map((x) => [x.url, x.title, x.version, x.icon, x.description]), [[a.id, "A", 2, "chart", "One."]], "newest first, icon and description kept");
+  assert.equal(l.artifacts[0].updatedAt, new Date(3000).toISOString());
+  assert.deepEqual([l.total, l.truncated, l.scope], [2, true, undefined]);
+  const all = await ART.artifactNow(KEY, b, "u1", meta, { op: "list", scope: "all" });
+  assert.deepEqual([all.scope, all.artifacts.map((x) => x.rel)], ["all", ["mine", "mine"]]);
+  assert.deepEqual((await ART.artifactNow(KEY, b, "u1", meta, { op: "list", scope: "shared" })).artifacts, []);
+  const r = await ART.artifactNow(KEY, b, "u1", meta, { op: "read", id: a.id });
+  assert.equal(r.html, "<p>a2</p>");
+  assert.deepEqual(r.versions.map((v) => [v.version, v.label]), [[1, "first"], [2, "second"]]);
+  // (A stale base, and another chat's latest with no base: refused with the live page; force overwrites.)
+  const old = await ART.artifactNow(KEY, b, "u1", meta, { html: "<p>old</p>", title: "A", id: a.id, base: 1 }, { chat: "c1" });
+  assert.equal(old.stale, true);
+  assert.match(old.error, /newer version \(2\) than the one this publish is built on \(1\)\. Nothing was published/);
+  assert.equal(old.html, "<p>a2</p>");
+  const other = await ART.artifactNow(KEY, b, "u1", meta, { html: "<p>c2</p>", title: "A", id: a.id }, { chat: "c2" });
+  assert.match(other.error, /published from another chat, which this chat has not read/);
+  const forced = await ART.artifactNow(KEY, b, "u1", meta, { html: "<p>c2</p>", title: "A", id: a.id, force: true }, { chat: "c2" });
+  assert.equal(forced.version, 3);
+  assert.equal((await ART.artifactNow(KEY, b, "u1", meta, { op: "get", id: a.id })).title, "A");
+  const del = await ART.artifactNow(KEY, b, "u1", meta, { op: "delete", id: z.id });
+  assert.match(del.text, /^Deleted the artifact “Z”/);
+  assert.match((await ART.artifactNow(KEY, b, "u1", meta, { op: "read", id: z.id })).error, /no artifact has the url/);
+  assert.equal(b.m.has("coder/u1/artifacts/pages/" + z.id + ".html"), false);
+  assert.deepEqual((await PG.readPages(b, "u1")).map((p) => p.id), ["pgloopy0001"], "Gloopy's pages untouched");
+  // (The page's own remove and share keep the artifacts' own fields.)
+  const req = (body) => new Request("https://x/", { method: "POST", body: JSON.stringify(body) });
+  await ART.artifactPages(req({ share: a.id, public: true }), KEY, b, "u1");
+  assert.equal((await ART.artifactNow(KEY, b, "u1", meta, { op: "list" })).artifacts[0].icon, "chart");
+  assert.match((await ART.artifactNow(KEY, b, "u1", meta, { html: "x".repeat(PG.PAGE_MAX + 1), title: "Big" })).error, /an artifact is at most 512 KB/);
+});
+
+test("CR12 the loop: list, read and open need no card (open shows the artifact's card), delete always asks (an allow rule too), a stale publish hands over the live version and the next publish goes through", async () => {
+  const api = [], cards = [];
+  let version = 2, gets = 0;
+  const envApi = async (q) => {
+    api.push(q);
+    if (q.op === "list") return { ok: true, artifacts: [{ title: "A", url: "pabcdefghij", version }], total: 1 };
+    if (q.op === "get") return { ok: true, id: q.id, title: "A", version: gets++ ? version : 1 };
+    if (q.op === "read") return { ok: true, id: q.id, title: "A", version, html: "<p>live</p>", versions: [{ version: 1 }, { version: 2 }] };
+    if (q.op === "delete") return { ok: true, text: "Deleted the artifact “A” (pabcdefghij)." };
+    if (q.op === "publish" && q.base !== version) return { stale: true, version, html: "<p>live</p>", error: "error: newer version" };
+    return { ok: true, text: "Updated", id: q.id, version: ++version };
+  };
+  const steps = [
+    say("", [call("artifact", { action: "list", limit: 5 }, "l1"), call("artifact", { action: "open", url: "pabcdefghij" }, "o1")]),
+    say("", [call("artifact", { file_path: "p.html", url: "pabcdefghij", label: "fix" }, "p1")]),
+    say("", [call("artifact", { file_path: "p.html", url: "pabcdefghij" }, "p2")]),
+    say("", [call("artifact", { action: "read", url: "pabcdefghij" }, "r1"), call("artifact", { action: "delete", url: "pabcdefghij" }, "d1")]),
+    say("Done."),
+  ];
+  const { events, told } = await run(steps, { envApi, ask: (c) => { cards.push(c); return { choice: "yes" }; }, files: { "p.html": "<p>mine</p>" }, rules: { allow: ["Artifact"], ask: [], deny: [] } });
+  assert.deepEqual(JSON.parse(told("l1")), { artifacts: [{ title: "A", url: "pabcdefghij", version: 2 }], total: 1 });
+  assert.equal(api[0].limit, 5);
+  assert.ok(events.some((e) => e.type === "page" && e.id === "pabcdefghij" && e.artifact === true), "open shows its card");
+  assert.match(told("o1"), /^Showed the owner the artifact “A”/);
+  assert.match(told("p1"), /^error: newer version\n<p>live<\/p>$/, "the live version handed over");
+  assert.equal(api.find((q) => q.op === "publish").base, 1, "open counted as seeing version 1");
+  assert.equal(api.filter((q) => q.op === "publish")[1].base, 2, "the refusal counted as reading version 2");
+  assert.match(told("p2"), /^Updated/);
+  assert.equal(api.filter((q) => q.op === "publish")[1].label, undefined);
+  assert.match(told("r1"), /^Artifact “A” \(url pabcdefghij, version 3; writer: the owner\)\. Versions: \[\{"version":1\},\{"version":2\}\]\n<p>live<\/p>$/);
+  assert.equal(cards.length, 1, "only the delete asked, despite the allow rule");
+  assert.match(cards[0].what, /^Delete the artifact “A” \(pabcdefghij\) permanently/);
+  assert.match(told("d1"), /^Deleted/);
+});
+
+/** A fake MCP server with resources in folders, a binary one, and a tool list that changes. */
+function resourceServer() {
+  let tools = [{ name: "a", inputSchema: { type: "object" } }, { name: "b", inputSchema: { type: "object" } }];
+  const resources = [{ uri: "file:///docs/readme.md", name: "readme", mimeType: "text/markdown" }, { uri: "file:///docs/guides/one.md", name: "one" }, { uri: "file:///docs/guides/two.md", name: "two" }, { uri: "file:///other.txt", name: "other" }, { uri: "ui://widget", name: "w" }];
+  const fetchFn = async (url, init = {}) => {
+    const msg = JSON.parse(init.body);
+    if (!("id" in msg)) return new Response(null, { status: 202 });
+    const result = msg.method === "initialize" ? { protocolVersion: "2025-06-18", capabilities: { tools: {}, resources: {} }, serverInfo: { name: "fake", version: "1" } }
+      : msg.method === "tools/list" ? { tools }
+      : msg.method === "resources/list" ? { resources }
+      : msg.method === "resources/read" ? { contents: [{ uri: msg.params.uri, mimeType: "image/png", blob: Buffer.from("PNGDATA").toString("base64") }] }
+      : null;
+    return new Response(JSON.stringify({ jsonrpc: "2.0", id: msg.id, result }), { headers: { "content-type": "application/json", "mcp-session-id": "s1" } });
+  };
+  return { fetchFn, setTools: (t) => { tools = t; } };
+}
+
+test("CR13 the Worker's ReadMcpResourceDirTool (direct children, subfolders as inode/directory), a read's binary content handed back to be saved, and RefreshMcpTools (refreshed with added and removed, not_connected while signing in)", async () => {
+  const b = memBucket(), s = resourceServer();
+  await MCP.addConnector(KEY, b, "u1", { name: "Files", url: "https://mcp.example.com/mcp", fetchFn: s.fetchFn });
+  const dir = await MCP.resourceCall(KEY, b, "u1", {}, { op: "dir", server: "Files", uri: "file:///docs" }, { fetchFn: s.fetchFn });
+  assert.deepEqual(dir.resources, [{ uri: "file:///docs/readme.md", name: "readme", mimeType: "text/markdown" }, { uri: "file:///docs/guides/", name: "guides", mimeType: "inode/directory" }]);
+  assert.deepEqual((await MCP.resourceCall(KEY, b, "u1", {}, { op: "dir", server: "Files", uri: "file:///docs/guides/" }, { fetchFn: s.fetchFn })).resources.map((x) => x.name), ["one", "two"]);
+  const read = await MCP.resourceCall(KEY, b, "u1", {}, { op: "read", server: "Files", uri: "file:///p.png" }, { fetchFn: s.fetchFn });
+  assert.deepEqual(read.contents, [{ uri: "file:///p.png", mimeType: "image/png", blobBytes: 7, blob: Buffer.from("PNGDATA").toString("base64") }]);
+  s.setTools([{ name: "a", inputSchema: { type: "object" } }, { name: "c", inputSchema: { type: "object" } }]);
+  const now = Date.now() + 5000;
+  const ref = await MCP.resourceCall(KEY, b, "u1", {}, { op: "refresh" }, { fetchFn: s.fetchFn, now });
+  assert.deepEqual(ref.servers, [{ server: "Files", status: "refreshed", toolCount: 2, added: ["c"], removed: ["b"] }]);
+  assert.match((await MCP.resourceCall(KEY, b, "u1", {}, { op: "refresh", server: "Nope" }, { fetchFn: s.fetchFn })).error, /Server "Nope" not found\. Available servers: Files/);
+  const list = await MCP.readConnectors(b, "u1");
+  list[0].status = "auth";
+  await b.put(MCP.listKey("u1"), JSON.stringify(list));
+  assert.deepEqual((await MCP.resourceCall(KEY, b, "u1", {}, { op: "refresh" }, { fetchFn: s.fetchFn })).servers.map((x) => x.status), ["not_connected"]);
+});
+
+test("CR14 the loop's resource dir, refresh and binary read: Claude Code's result shapes; the binary content saved into the chat's uploads folder (blobSavedTo)", async () => {
+  const saved = [];
+  const envApi = async (q) => {
+    if (q.op === "dir") return { ok: true, server: "Files", resources: [{ uri: "file:///docs/guides/", name: "guides", mimeType: "inode/directory" }] };
+    if (q.op === "read") return { ok: true, server: "Files", contents: [{ uri: "file:///p.png", mimeType: "image/png", blobBytes: 7, blob: "UE5HREFUQQ==" }] };
+    if (q.op === "refresh") return { ok: true, servers: [{ server: "Files", status: "refreshed", toolCount: 2, added: ["c"], removed: ["b"] }] };
+    return { error: "error: ?" };
+  };
+  const more = { mcp: async () => ({ ok: true, body: "" }), exec: async (x) => { const q = toolReq(x.command) || (x.payload ? JSON.parse(x.payload) : null); if (q && q.tool === "save_upload") { saved.push(q.args); return { code: 0, output: ".coder-files/" + q.args.name + "\n" }; } return { code: 0, output: "" }; } };
+  const { told, seen } = await run([say("", [call("read_mcp_resource_dir", { server: "Files", uri: "file:///docs" }, "d1"), call("read_mcp_resource", { server: "Files", uri: "file:///p.png" }, "r1"), call("refresh_mcp_tools", {}, "f1")]), say("done")], { envApi, more });
+  assert.ok(names(seen[0]).includes("read_mcp_resource_dir") && names(seen[0]).includes("refresh_mcp_tools"));
+  assert.match(told("d1"), /"mimeType": "inode\/directory"/);
+  assert.deepEqual(saved, [{ name: "mcp-Files-p.png", data: "UE5HREFUQQ==" }]);
+  assert.match(told("r1"), /"blobSavedTo": "\.coder-files\/mcp-Files-p\.png"/);
+  assert.match(told("r1"), /Binary content \(image\/png, 7 bytes\) saved to \.coder-files\/mcp-Files-p\.png/);
+  assert.match(told("f1"), /"status": "refreshed"[\s\S]*"added": \[\n\s*"c"\n\s*\]/);
+  assert.equal(H.ccTool("refresh_mcp_tools"), "RefreshMcpTools");
 });
