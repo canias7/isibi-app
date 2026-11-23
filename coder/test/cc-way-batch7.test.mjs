@@ -328,6 +328,13 @@ test("MISS-54 the page: Share in the chat's ▾ menu, Private or Public with Cla
     assert.equal(await page.$("#cdIn"), null, "no message box");
     assert.equal(await page.$("[data-perm-choice]"), null);
     assert.ok(!asked.some((x) => !x.startsWith("GET ")), "nothing but reading");
+    // (Live test r11, 2026-11-23: the side said "Connect GitHub to start." on a shared chat's page. Now it says what this is,
+    // and New chat and Repositories lead back to the owner's own page.)
+    const side = await page.evaluate(() => document.body.innerText);
+    assert.doesNotMatch(side, /Connect GitHub to start\./);
+    assert.match(side, /You are viewing a shared chat\. Your chats/);
+    assert.equal(await page.$eval("#cdSideNew", (b) => b.disabled), false);
+    assert.equal(await page.$eval("#cdSideRepos", (b) => b.disabled), false);
     if (SHOTS) await page.screenshot({ path: join(SHOTS, "shared-view.png") });
     assert.deepEqual(errors, []);
   } finally { await b2.close(); }

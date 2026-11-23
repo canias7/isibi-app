@@ -3817,9 +3817,13 @@
     if (GLOOPY) return gloopySide(sd);
     if (!sd || !sd.tools || !sd.tools.isConnected) return;
     const ready = S.github && S.github.connected;
+    // (A shared chat's page loads no chats of its own: its buttons lead back to the owner's own page, and the list says what this
+    // is, not "Connect GitHub to start." Live test r11, 2026-11-23.)
+    const sharedView = S.phase === 'shared';
     sd.tools.innerHTML =
-      '<button type="button" class="gf-nav" id="cdSideNew"' + (ready ? '' : ' disabled') + '>' + SIDE_ICON.plus + 'New chat</button>' +
+      '<button type="button" class="gf-nav" id="cdSideNew"' + (ready || sharedView ? '' : ' disabled') + '>' + SIDE_ICON.plus + 'New chat</button>' +
       '<button type="button" class="gf-nav" id="cdSideRepos"' + (ready ? '' : ' disabled') + '>' + ICON.gh.replace('width="16" height="16"', 'width="18" height="18"') + 'Repositories</button>';
+    if (sharedView) sd.tools.querySelectorAll('#cdSideRepos').forEach((b) => { b.disabled = false; });
     const cur = S.project && S.phase === 'chat' ? S.project.id : '';
     // ARCHIVED CHATS (round 6, 2026-11-21; Claude Code on the web: an archived session leaves the list and can be shown and
     // restored): the row's ⋯ menu archives; "Archived (N)" at the end of Recents shows them, each with Unarchive.
@@ -3833,11 +3837,11 @@
         (S.rowMenu === x.id && !x.archived ? '<div class="gf-rowmenu" role="menu"><button type="button" role="menuitem" data-archive="' + esc(x.id) + '">Archive</button></div>' : '') +
       '</div>';
     const live = S.projects.filter((x) => !x.archived), kept = S.projects.filter((x) => x.archived);
-    sd.recents.innerHTML = (live.length ? live.map(row).join('') : '<p class="gf-none">' + (!ready ? 'Connect GitHub to start.' : kept.length ? 'No chats outside the archive.' : 'No chats yet. Start one with New chat.') + '</p>') +
+    sd.recents.innerHTML = (live.length ? live.map(row).join('') : '<p class="gf-none">' + (sharedView ? 'You are viewing a shared chat. <a href="/">Your chats</a>' : !ready ? 'Connect GitHub to start.' : kept.length ? 'No chats outside the archive.' : 'No chats yet. Start one with New chat.') + '</p>') +
       (kept.length ? '<button type="button" class="gf-archived" id="cdSideArchived" aria-expanded="' + !!S.showArchived + '">' + (S.showArchived ? 'Hide archived' : 'Archived (' + kept.length + ')') + '</button>' + (S.showArchived ? kept.map(row).join('') : '') : '');
     const on = (el, sel, ev, fn) => el.querySelectorAll(sel).forEach((n) => n.addEventListener(ev, fn));
-    on(sd.tools, '#cdSideNew', 'click', () => showPicker('new'));
-    on(sd.tools, '#cdSideRepos', 'click', () => showPicker('repos'));
+    on(sd.tools, '#cdSideNew', 'click', () => { if (S.phase === 'shared') location.href = '/'; else showPicker('new'); });
+    on(sd.tools, '#cdSideRepos', 'click', () => { if (S.phase === 'shared') location.href = '/'; else showPicker('repos'); });
     on(sd.recents, '.gf-item', 'click', (e) => { if (e.target.closest('.gf-x')) return; openProject(e.currentTarget.dataset.chat); });
     on(sd.recents, '.gf-item', 'keydown', (e) => { if (e.key === 'Enter') openProject(e.currentTarget.dataset.chat); });
     on(sd.recents, '.gf-x', 'click', (e) => { e.stopPropagation(); removeChat(e.currentTarget.dataset.remove); });

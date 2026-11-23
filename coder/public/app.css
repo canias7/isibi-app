@@ -70,6 +70,7 @@ body { padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) en
 .gf-item:hover .gf-x { display: block; }
 .gf-item:hover .gf-dot, .gf-item:hover .gf-prn { display: none; }
 .gf-none { color: #8a857d; font-size: 13px; padding: 4px 10px; margin: 0; }
+.gf-none a { color: inherit; text-decoration: underline; }
 .gf-me { position: relative; display: flex; align-items: center; gap: 10px; border-top: 1px solid #e3ded6; padding: 12px 10px 2px; margin-top: 8px; }
 .gf-meav { width: 28px; height: 28px; border-radius: 50%; background: #e4e0d9; display: grid; place-items: center; font: 600 12px Inter, system-ui, sans-serif; flex: none; }
 .gf-mename { flex: 1; min-width: 0; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

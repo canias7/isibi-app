@@ -4,6 +4,28 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-23: Live test of the 8 "Claude Code way" batches, and the notebook fix
+
+You said deploy, so all 8 batches went live (deploy 277) and I tried them on gofarther.dev with Grok on Low, in two throwaway chats (both deleted after).
+
+**Worked live:**
+- Coder's commands see Claude Code's labels: CLAUDECODE=1, the chat's session id, CLAUDE_EFFORT=low.
+- /model and /effort switch at once; a wrong value lists the right ones. /context shows its grid. /export saves the chat as a text file.
+- Coder now searches with plain commands (rg), not its own search tool, as Claude Code on Linux does.
+- The card for the .claude folder offers "Yes, and allow Coder to edit its own settings for this session"; after picking it, the next file there went through without asking.
+- Coder sent a file: a card with its name, caption and Download.
+- A CLAUDE.md in the repository is read, also after /clear.
+- Share: Public opens a read-only page; Private again and the link stops working.
+- Rewind "Restore code only" put the file back with no commit, and the next message's save took it to the branch.
+- /clear starts a fresh conversation: Coder no longer knew the earlier messages.
+- Queued for later and Send now both show on a waiting message and deliver it.
+
+**Fixed (not live until you say deploy):**
+- **Notebook editing was broken.** Every notebook edit failed with "give a path": Coder's check before the edit only knew how to describe a write or an edit, so the notebook's path and cell never reached the machine. Fixed, with a test that runs the real tool through Coder's loop (it fails the same way without the fix).
+- **A shared chat's page said "Connect GitHub to start."** on the left. Now it says you are viewing a shared chat, and New chat and Repositories go back to your own page.
+
+**Noticed:** right after the deploy, the first new chat took over 30 seconds to open; after that, about 4 seconds each.
+
 ## 2026-11-22: Claude Code way, batch 8
 
 I checked this batch's 12 items against Claude Code's docs (read again today, changelog up to version 2.1.330) and Coder's code. Five are built, three were already the same (in whole or in part), and the rest need your answer.

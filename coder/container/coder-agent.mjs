@@ -5006,9 +5006,11 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     };
     const fileCheck = async (name, args) => {
       const a = { ...args };
-      const p = typeof a.path === "string" ? a.path : a.file_path;
+      // (NotebookEdit's path is its notebook_path, and its check needs the cell and the edit: live test r11, 2026-11-23, every
+      // notebook_edit was refused here with "give a path", since only a write's or an edit's inputs were sent.)
+      const p = typeof a.path === "string" ? a.path : name === "notebook_edit" && typeof a.notebook_path === "string" ? a.notebook_path : a.file_path;
       const guard = readWouldAsk(p);
-      const req = { tool: "file_check", args: { tool: name, args: name === "write" ? { path: p } : { path: p, old_string: typeof a.old_string === "string" ? a.old_string : a.old_str, new_string: typeof a.new_string === "string" ? a.new_string : a.new_str, replace_all: a.replace_all }, ...(guard ? { guard: true } : {}) } };
+      const req = { tool: "file_check", args: { tool: name, args: name === "write" ? { path: p } : name === "notebook_edit" ? { notebook_path: p, cell_id: a.cell_id, new_source: a.new_source, cell_type: a.cell_type, edit_mode: a.edit_mode } : { path: p, old_string: typeof a.old_string === "string" ? a.old_string : a.old_str, new_string: typeof a.new_string === "string" ? a.new_string : a.new_str, replace_all: a.replace_all }, ...(guard ? { guard: true } : {}) } };
       const b64 = Buffer.from(JSON.stringify(req)).toString("base64");
       let r;
       try { r = await deps.exec({ command: "node --no-warnings " + TOOLS_SCRIPT + " " + (b64.length > 100_000 ? "@REQUEST" : b64), timeoutS: 60, tool: true, here: true, ...(b64.length > 100_000 ? { payload: JSON.stringify(req) } : {}) }); } catch { return ""; }
