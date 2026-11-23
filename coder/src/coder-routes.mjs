@@ -322,6 +322,8 @@ export const REVIEWS = {
  * typed, runs as a turn with Claude Code's own ask; what follows the command goes with it. Anything else: null.
  */
 export const INIT_TEXT = "Please analyze this codebase and create a CLAUDE.md file in the repository's root, which will be given to future sessions working in this repository. Add: 1. the commands used most (how to build, lint, run the tests, and run a single test); 2. the high-level architecture and structure, the big picture that takes reading several files to understand. If there is already a CLAUDE.md, read it and improve it instead of starting over, keeping what is still right. If there are README.md, .cursorrules, .github/copilot-instructions.md or similar rule files, include their important parts. Do not repeat yourself, do not list every file, and do not add generic advice or made-up sections. Begin the file with:\n\n# CLAUDE.md\n\nThis file provides guidance to Coder and other coding agents when working with code in this repository.";
+/** /code-review's findings as Claude Code's ReportFindings gives them: a list card (report_findings, 2026-11-23). */
+export const REPORT_WITH_FINDINGS = " When you have checked each finding, call report_findings once with them (an empty list when none survived), then answer in a sentence or two instead of repeating the list.";
 export function slashTurn(text) {
   const t = String(text || "").trim();
   const m = /^\/(init|review|code-review)(?:\s+([\s\S]*))?$/i.exec(t);
@@ -329,7 +331,7 @@ export function slashTurn(text) {
   const more = String(m[2] || "").trim().slice(0, 2000);
   const label = t.slice(0, 300);
   if (m[1].toLowerCase() === "init") return { label, text: INIT_TEXT + (more ? "\n\nThe owner added: " + more : "") };
-  return { label, text: REVIEWS.code.text + (more ? "\n\nThe owner added (a level, a pull request number, a branch or a path to review instead): " + more : "") };
+  return { label, text: REVIEWS.code.text + REPORT_WITH_FINDINGS + (more ? "\n\nThe owner added (a level, a pull request number, a branch or a path to review instead): " + more : "") };
 }
 // THE REPO'S ENVIRONMENT (owner, 2026-11-05, "14"): a setup script and the
 // owner's own variables, per repository, sealed like the GitHub token.
@@ -1921,6 +1923,8 @@ export async function handleCoder(request, env, ctx, deps) {
       if (shell && body.fromQueue !== true) await rememberShell(bucket, uid, meta.repo, shell).catch(() => {});
       // (The chat as it is now: another message may have started while this one was read.)
       meta = (await getJson(bucket, metaKey, null)) || meta;
+      // A CHAT CODER ENDED (end_conversation, Claude Code's EndConversation, 2026-11-23): no new messages; a new chat continues.
+      if (meta.convoEnded === true && !wake) return json({ error: "Coder ended this conversation. Start a new chat to continue.", ended: true }, 409);
       if (meta.status === "running") {
         // QUEUED WHILE CODER WORKS (Claude Code's queue): the owner's message, or `!` command, typed in the page; not a review,
         // a /compact, pictures or line comments, nor anything from GitHub. A message goes to the running job at once (Coder
@@ -2723,7 +2727,7 @@ export async function handleCoder(request, env, ctx, deps) {
       const knownShas = new Set((Array.isArray(meta.commits) ? meta.commits : []).map((c) => c && c.sha));
       const firstNew = meta.restoredPrior && typeof meta.restoredPrior === "object" ? commits.find((c) => c && !knownShas.has(c.sha)) : null;
       if (firstNew) commits = commits.map((c) => (c === firstNew ? { ...c, prior: meta.restoredPrior } : c));
-      const ended = { ...meta, ...modeNow, ...hookTitle, ...planTitle, ...(sessionRules ? { sessionRules } : {}), background, saved: meta.turn, ...(cwd ? { cwd } : {}), attribution, pr, prs, pushed, commits, ...(firstNew ? { restoredPrior: undefined } : {}), unpushed, unpushedSince: unpushed ? unpushedSince : 0, refetch: false, ...(keptHere ? { kept: true } : {}), waiting: asked ? asked.type : null, ran: Math.max(0, Date.now() - Number(meta.at || Date.now())), usage: usageSummary(s.result.usage, meta.turn), ...(contextKept(s.result.context) ? { context: contextKept(s.result.context) } : {}), summary: String(s.result.summary || "").slice(0, 4000) || meta.summary || "", status: s.result.status === "done" ? "idle" : s.result.status, at: Date.now(), jobReplyTo: null, ...afMeta };
+      const ended = { ...meta, ...modeNow, ...hookTitle, ...planTitle, ...(sessionRules ? { sessionRules } : {}), background, saved: meta.turn, ...(cwd ? { cwd } : {}), attribution, pr, prs, pushed, commits, ...(firstNew ? { restoredPrior: undefined } : {}), unpushed, unpushedSince: unpushed ? unpushedSince : 0, refetch: false, ...(keptHere ? { kept: true } : {}), waiting: asked ? asked.type : null, ran: Math.max(0, Date.now() - Number(meta.at || Date.now())), usage: usageSummary(s.result.usage, meta.turn), ...(contextKept(s.result.context) ? { context: contextKept(s.result.context) } : {}), summary: String(s.result.summary || "").slice(0, 4000) || meta.summary || "", status: s.result.status === "done" ? "idle" : s.result.status, at: Date.now(), jobReplyTo: null, ...afMeta, ...(s.result.ended === true ? { convoEnded: true } : {}) };
       // A JOB PAUSED ON A CARD LEFT OPEN (coder-park.mjs; Claude Code: "Questions stay open until you answer them", and in its
       // cloud "you can still answer when you come back"): the chat is idle, waiting on that card (`parked`, `waiting` for the
       // notifications), its record kept beside the chat for the answer that takes the turn up again.

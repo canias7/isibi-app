@@ -1477,3 +1477,20 @@ button.cd-vault-tab:hover:not(.is-on){background:#f6f6f6}
 #gfApp .cd-queued-now:hover { background: #ece8e1; color: #0d1b2a; }
 #gfApp .cd-queued-now:disabled { opacity: .5; cursor: default; }
 
+/* ReportFindings, SendFeedback and EndConversation cards (2026-11-23) */
+#gfApp .cd-findings, #gfApp .cd-fbcard { border: 1px solid #ece8e1; border-radius: 10px; background: #fff; margin: 8px 0; padding: 10px 12px; }
+#gfApp .cd-findings-h, #gfApp .cd-fbcard-h { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+#gfApp .cd-findings-h span, #gfApp .cd-fbcard-h span { color: #8a847b; font-size: 12px; }
+#gfApp .cd-findings-h .cd-meta-b, #gfApp .cd-fbcard-h .cd-meta-b { margin-left: auto; }
+#gfApp .cd-findings ol { margin: 8px 0 0; padding-left: 20px; }
+#gfApp .cd-finding { margin: 0 0 10px; font-size: 13px; }
+#gfApp .cd-finding-top { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+#gfApp .cd-finding-top code { font-size: 12px; overflow-wrap: anywhere; }
+#gfApp .cd-finding p { margin: 4px 0 0; }
+#gfApp .cd-finding .cd-finding-why { color: #6b665e; }
+#gfApp .cd-sev, #gfApp .cd-cat { font-size: 11px; border-radius: 999px; padding: 1px 7px; background: #f1eee9; color: #5c574f; }
+#gfApp .cd-finding.is-high .cd-sev { background: #fde8e6; color: #a3271b; }
+#gfApp .cd-finding.is-medium .cd-sev { background: #fdf1dc; color: #8a5a00; }
+#gfApp .cd-fbcard-t { margin-top: 6px; font-weight: 600; font-size: 13px; }
+#gfApp .cd-fbcard-t small { font-weight: 400; color: #8a847b; margin-left: 4px; }
+#gfApp .cd-fbcard-d { margin: 6px 0 0; white-space: pre-wrap; font: inherit; font-size: 13px; color: #3b3833; }

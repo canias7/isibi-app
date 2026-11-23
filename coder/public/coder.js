@@ -3133,6 +3133,11 @@
       // WHAT THE LANGUAGE SERVERS REPORTED, as Claude Code's row (diagnosticsHTML).
       else if (e.type === 'diagnostics') out.push(diagnosticsHTML(e, i));
       else if (e.type === 'notify') out.push('<div class="cd-localnote">Notified you: ' + esc(e.text) + '</div>');
+      // CLAUDE CODE'S ReportFindings, SendFeedback AND EndConversation (2026-11-23, coder-worktree.mjs): findingsHTML, a feedback
+      // draft with Copy (nothing is sent), and the line that says the chat ended.
+      else if (e.type === 'findings') out.push(findingsHTML(e, i));
+      else if (e.type === 'feedback') out.push('<div class="cd-fbcard"><div class="cd-fbcard-h"><b>Feedback draft</b><span>Not sent · copy it to send it on</span><button type="button" class="cd-meta-b" data-copy-ev="' + i + '" aria-label="Copy" title="Copy">' + META_ICON.copy + '</button></div><div class="cd-fbcard-t">' + esc(e.title || '') + (e.area ? ' <small>' + esc(e.area) + '</small>' : '') + '</div><pre class="cd-fbcard-d">' + esc(e.details || '') + '</pre></div>');
+      else if (e.type === 'ended') out.push('<div class="cd-localnote cd-ended"><b>Coder ended this conversation.</b> Start a new chat to continue.</div>');
       // RENAMED CHAT, Claude Code's "Renamed session" step.
       else if (e.type === 'renamed') out.push('<div class="cd-localnote cd-renamed"><b>Renamed chat</b> · This chat is now named “' + esc(e.text) + '”' + (e.by === 'plan' ? ', after its approved plan' : '') + '.</div>');
       // ITS MONITOR PAUSED THE RUN (2026-11-10; dots' "a pause can surface a warning for the owner to review").
@@ -3284,6 +3289,14 @@
   }
   // "Initialized session ›", folded; open, each start-up step and how long it took. (The Worker's own part, getting the machine
   // from the message's sending, is counted in "Set up a cloud container" when this page saw the message sent.)
+  /** ReportFindings' list card (2026-11-23): each finding's place, severity and category, summary and failure scenario. */
+  function findingsHTML(e, i) {
+    const list = Array.isArray(e.findings) ? e.findings : [];
+    const head = '<div class="cd-findings-h"><b>' + (list.length ? list.length + ' finding' + (list.length === 1 ? '' : 's') : 'No findings') + '</b>' + (e.level ? '<span>' + esc(e.level) + ' effort</span>' : '') + (list.length ? '<button type="button" class="cd-meta-b" data-copy-ev="' + i + '" aria-label="Copy" title="Copy">' + META_ICON.copy + '</button>' : '') + '</div>';
+    const items = list.map((f) => '<li class="cd-finding' + (f.severity ? ' is-' + esc(f.severity) : '') + '"><div class="cd-finding-top"><code>' + esc(f.file || '') + (f.line ? ':' + esc(String(f.line)) : '') + '</code>' + (f.severity ? '<span class="cd-sev">' + esc(f.severity) + '</span>' : '') + (f.category ? '<span class="cd-cat">' + esc(f.category) + '</span>' : '') + (f.outcome ? '<span class="cd-cat">' + esc(String(f.outcome).replace(/_/g, ' ')) + '</span>' : '') + '</div><p>' + esc(f.summary || '') + '</p><p class="cd-finding-why">' + esc(f.failure_scenario || '') + '</p></li>').join('');
+    return '<div class="cd-findings">' + head + (items ? '<ol>' + items + '</ol>' : '') + '</div>';
+  }
+
   function startupHTML(e, i, results) {
     const k = 'init' + i, open = !!S.open[k];
     let u = null, ui = -1;
