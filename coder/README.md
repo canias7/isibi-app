@@ -1053,6 +1053,7 @@ the account menu, keeps nine choices on the account (`prefsOf`, `prefsChange` in
 - `denyInstead`: refuse a step that would ask, instead of asking (off);
 - `autoOff`: Auto mode turned off (off);
 - `suggestOff`: prompt suggestions turned off (off, so suggestions are on).
+- `bashEditDiffEnabled`: Claude Code's key of that name, a user setting: the files a command changed show under its step in every mode (off: only in Auto and Bypass permissions; a repository's `false` still turns it off; CODER_BASH_EDIT_DIFF beats it).
 Each message takes them to the machine (`machinePrefs`, then `prefsIn` and
 `usePrefs` in `container/server.mjs`), and the Worker keeps a chat's machine awake
 as long as its background limit allows (`watchBackground`'s `maxMs`). Tests: `test/settings.test.mjs`.
@@ -2675,6 +2676,21 @@ jitter; `durable` (session-only jobs end with `/clear`); remote_trigger's
 makes on the page, hashed in `coder/trigger-hooks/`; one call a minute a task, counted in the
 24 a day), `get_run_log` (the latest 3 runs' chats, sent with each turn), `cursor` and
 `session_id`; `/scheduled` in the chat lists and cancels them (`GET/POST /api/coder/schedules`).
+
+TOOL ROWS FROM THE COMPARISON SHEET (2026-11-23, `test/cc-tool-rows.test.mjs`): edit and
+notebook_edit refuse a non-UTF-8 file in Claude Code's words (`CC_NOT_UTF8`), write replaces one
+unless the new text holds U+FFFD; Claude Code's 128 MB picture messages (a pipe is read up to
+128 MB); read gives 2,000 lines with no limit (`READ_DEFAULT_LINES`; not with allow_large) and
+sets `truncatedByTokenCap`; the `bashEditDiffEnabled` key (owner's Settings = user settings;
+a repository's false turns it off; the variable beats it; unset, Auto and Bypass only:
+`bashEditDiffOn`); BASH_MAX_TIMEOUT_MS / BASH_DEFAULT_TIMEOUT_MS above 2 hours raise the
+background maximum (to 24 hours at most); a pkill matching Coder's service is refused
+(`PKILL_GUARD`); Bash's hook result adds gitOperation, noOutputExpected, rawOutputPath and
+backgroundCwdHint (`container/coder-bashfacts.mjs`); write/edit add gitDiff; monitor adds
+persistent and keptInSandboxByCheck; the output file is checked before use ("task output
+swap refused", `outputSwapped`); write's diff is skipped past 10 MB; a saved tool result is
+capped at 1 GB; stop_job stops a background agent by ID or name; a whole `Bash` deny rule
+brings grep and glob back.
 
 WORKTREES, FEEDBACK, ENDING A CHAT AND REVIEW FINDINGS (2026-11-23, `container/coder-worktree.mjs`):
 Claude Code's EnterWorktree, ExitWorktree, SendFeedback and EndConversation as `enter_worktree`,

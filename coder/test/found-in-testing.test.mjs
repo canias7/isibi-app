@@ -1389,8 +1389,12 @@ test("CD244 write does not replace a file that is not valid UTF-8 (an old encodi
   const old = Buffer.from([0x63, 0x61, 0x66, 0xe9, 0x0a]);
   await writeFile(join(dir, "old.txt"), old);
   // (Claude Code 2.1.325's one text for Write and Edit, from its raw program, the file named first.)
-  assert.equal(await write("old.txt", "café\n"), "error: old.txt is not valid UTF-8: it uses a legacy encoding such as Windows-1252, Shift-JIS or GBK, or it is binary. These tools write UTF-8 (or UTF-16LE behind its byte-order mark) and never convert a file's encoding on their own, so nothing was written. If the file is text, make the change with a shell command that reads and writes it in its own encoding (iconv, or PowerShell Get-Content/Set-Content -Encoding), or ask the owner whether to convert it to UTF-8 first. To replace the whole file with new UTF-8 text anyway, delete it first, then write it.");
+  // (Since 2026-11-23, as Claude Code's Write: replaced unless the new text holds U+FFFD, then refused in its words.)
+  const { CC_NOT_UTF8 } = await import("../container/coder-tools.mjs");
+  assert.equal(await write("old.txt", "caf�\n"), "error: " + CC_NOT_UTF8);
   assert.deepEqual(await readFile(join(dir, "old.txt")), old, "untouched");
+  assert.match(await write("old.txt", "café\n"), /^The file old\.txt has been updated successfully\./);
+  assert.equal(await readFile(join(dir, "old.txt"), "utf8"), "café\n");
   await unlink(join(dir, "old.txt"));
   assert.match(await write("old.txt", "café\n"), /^File created successfully at: old\.txt \(file state is current in your context — no need to Read it back\)$/, "deleted first: a new file");
   assert.equal(await readFile(join(dir, "old.txt"), "utf8"), "café\n");
@@ -2162,7 +2166,7 @@ test("CD263 edit as Claude Code's Edit, tried side by side (tool 3; the owner, 2
   assert.match(await tool("edit", { path: "tabs.py", old_string: "2\treturn 1", new_string: "x" }), /^error: String to replace not found in file\./);
   // Encodings: an old one refused with the file as it was; UTF-16 and a UTF-8 mark kept.
   await put("latin1.txt", Buffer.from("caf\xe9 au lait\n", "latin1"));
-  assert.equal(await tool("edit", { path: "latin1.txt", old_string: "au lait", new_string: "noir" }), "error: latin1.txt is not valid UTF-8: it uses a legacy encoding such as Windows-1252, Shift-JIS or GBK, or it is binary. These tools write UTF-8 (or UTF-16LE behind its byte-order mark) and never convert a file's encoding on their own, so nothing was written. If the file is text, make the change with a shell command that reads and writes it in its own encoding (iconv, or PowerShell Get-Content/Set-Content -Encoding), or ask the owner whether to convert it to UTF-8 first. To replace the whole file with new UTF-8 text anyway, delete it first, then write it.");
+  assert.equal(await tool("edit", { path: "latin1.txt", old_string: "au lait", new_string: "noir" }), "error: File is not valid UTF-8. It may use a legacy encoding such as Windows-1252, Shift-JIS or GBK, or be binary. This tool saves the whole file as UTF-8, which would replace every byte it cannot decode with U+FFFD. Nothing was written. Make the change with a shell command that reads and writes the file in its own encoding, or ask the user whether to convert the file to UTF-8 first.");
   assert.deepEqual(await readFile(join(dir, "latin1.txt")), Buffer.from("caf\xe9 au lait\n", "latin1"), "untouched (Coder wrote it back as \"caf� noir\")");
   await put("u16.txt", Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from("hello utf16\r\n", "utf16le")]));
   assert.equal(await tool("edit", { path: "u16.txt", old_string: "hello", new_string: "hi" }), "The file u16.txt has been updated successfully.");

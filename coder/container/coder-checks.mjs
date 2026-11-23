@@ -154,10 +154,28 @@ export function cleanEnv(home, { root = false } = {}) {
  * `bash -c "<the command>"`, so before this `pgrep -f vite` always found its own shell, and `pkill -f "npm run dev"` ended the
  * very command that ran it. (Here, not in server.mjs, whose root never runs these: a root-safety test keeps it so.)
  */
+/**
+ * A PKILL WHOSE PATTERN MATCHES CODER'S OWN SERVICE IS REFUSED (Claude Code on Linux, v2.1.214: "tests the pattern with pgrep
+ * first and refuses when its own process ID is in the result"), in Claude Code's words, word for word. The pattern is tried
+ * with pgrep (the signal options left out); where the commands cannot see the service, pgrep never finds it and pkill runs.
+ */
+export const pkillRefusal = (pid) => "pkill: refusing to run — this pattern matches the Claude CLI process (PID " + pid + "). Narrow the pattern, or target your own children with `pkill -P $$ ...`.";
+export const PKILL_GUARD = [
+  "    local __a=() __x __s=",
+  '    for __x in ${1+"$@"}; do',
+  '      if [ -n "$__s" ]; then __s=; continue; fi',
+  '      case "$__x" in --signal) __s=1 ;; --signal=*|-[0-9]*|-SIG*|-KILL|-TERM|-HUP|-INT|-QUIT|-USR1|-USR2|-STOP|-CONT|-e|--echo|-c|--count) ;; *) __a+=("$__x") ;; esac',
+  "    done",
+  '    if command pgrep "${__a[@]}" 2>/dev/null | grep -qx "' + process.pid + '"; then',
+  "      printf '%s\\n' " + "'" + pkillRefusal(process.pid).replace(/'/g, "'\\''") + "' >&2",
+  "      return 1",
+  "    fi",
+];
 export const PROC_WRAPPERS = ["pkill", "pgrep", "pidwait"].map((n) => [
   "unalias " + n + " 2>/dev/null || true",
   "if command -v " + n + " >/dev/null 2>&1; then",
   "  function " + n + " {",
+  ...(n === "pkill" ? PKILL_GUARD : []),
   '    case "$(command ' + n + ' --help 2>&1)" in',
   '      *--ignore-ancestors*) set -- --ignore-ancestors ${1+"$@"} ;;',
   "    esac",

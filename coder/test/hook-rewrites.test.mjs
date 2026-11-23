@@ -188,7 +188,7 @@ test("HR4 in Coder's loop: a hook's new output becomes the tool's answer through
   assert.deepEqual(resp("g1"), grepFacts);
   assert.deepEqual(resp("r1"), { type: "text", file: { filePath: "/work/shop/a.js", content: "TODO", numLines: 1, startLine: 1, totalLines: 1 } });
   assert.deepEqual([resp("b1").stdout, resp("b1").output, resp("b1").code], ["a.js", "a.js", 0], "a command's keeps Coder's output and exit code");
-  assert.deepEqual(resp("m1"), { taskId: "job1", timeoutMs: 60000 });
+  assert.deepEqual(resp("m1"), { taskId: "job1", timeoutMs: 60000, persistent: false, keptInSandboxByCheck: false });
   // stop_job's: Claude Code's TaskStop object, and a hook's new one shown as its JSON.
   const st = await loop([say("", [call("bash", { command: "npm run dev", run_in_background: true }, "b2")]), say("", [call("stop_job", { job: "job1" }, "s1")]), say("done")], { PostToolUse: [{ matcher: "TaskStop", hooks: [{ type: "command", command: "post.sh" }] }] }, {
     execRun: () => ({ code: -1, background: true, pid: 9, log: "/srv/bg.log", jobId: "job1", output: "" }),
