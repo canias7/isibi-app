@@ -1,0 +1,61 @@
+/* Plugins and skills on Coder's page (2026-11-23; coder-plugins.js): the chat's cards under #gfApp, the sidebar's panels (.cpx-modal, on the page's body). */
+#gfApp .cpx-card { border: 1px solid #e5e3dd; border-radius: 14px; background: #fff; margin: 8px 0; padding: 6px 0; max-width: 560px; }
+#gfApp .cpx-head { display: flex; flex-direction: column; gap: 2px; padding: 8px 16px 4px; font-size: 14px; }
+#gfApp .cpx-head b { font-weight: 600; color: #1f1e1c; }
+#gfApp .cpx-sub, #gfApp .cpx-why { font-size: 13px; color: #6b6760; }
+#gfApp .cpx-why { margin: 0; padding: 0 16px 6px; }
+#gfApp .cpx-row, .cpx-modal .cpx-prow { display: flex; align-items: center; gap: 12px; padding: 8px 16px; }
+#gfApp .cpx-ic, .cpx-modal .cpx-ic { flex: none; width: 32px; height: 32px; border-radius: 8px; background: #f3f1ec; color: #4a4741; display: inline-flex; align-items: center; justify-content: center; }
+#gfApp .cpx-name, .cpx-modal .cpx-name { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; font-size: 14px; }
+#gfApp .cpx-name b, .cpx-modal .cpx-name b { font-weight: 500; color: #1f1e1c; overflow-wrap: anywhere; }
+#gfApp .cpx-name span, .cpx-modal .cpx-name span { color: #4a4741; font-size: 13px; }
+#gfApp .cpx-name small, .cpx-modal .cpx-name small { color: #8a857c; font-size: 12px; }
+#gfApp .cpx-btn, .cpx-modal .cpx-btn { flex: none; border: 1px solid #dcd8d0; background: #fff; border-radius: 8px; padding: 5px 12px; font: inherit; font-size: 13px; cursor: pointer; color: #1f1e1c; }
+#gfApp .cpx-btn:hover, .cpx-modal .cpx-btn:hover { background: #f5f3ef; }
+#gfApp .cpx-btn:disabled, .cpx-modal .cpx-btn:disabled { opacity: .55; cursor: default; }
+.cpx-modal .cpx-rm { color: #b3261e; }
+#gfApp .cpx-on, .cpx-modal .cpx-on { flex: none; font-size: 13px; color: #2e7d4f; padding: 5px 4px; }
+#gfApp .cpx-note, .cpx-modal .cpx-note { padding: 6px 16px; font-size: 13px; color: #4a4741; }
+.cpx-modal .cpx-err, #gfApp .cpx-err { color: #b3261e; }
+#gfApp .cpx-foot { display: flex; justify-content: flex-end; border-top: 1px solid #efece6; margin-top: 4px; padding: 6px 12px 2px; }
+#gfApp .cpx-later { border: 0; background: none; font: inherit; font-size: 13px; color: #6b6760; cursor: pointer; padding: 5px 8px; border-radius: 8px; }
+#gfApp .cpx-later:hover { background: #f5f3ef; color: #1f1e1c; }
+#gfApp .cpx-prop { border-top: 1px solid #f2f0eb; }
+#gfApp .cpx-prop:first-of-type { border-top: 0; }
+#gfApp .cpx-show { border: 0; background: none; font: inherit; font-size: 12.5px; color: #6b6760; cursor: pointer; padding: 0 16px 8px 60px; text-decoration: underline; }
+#gfApp .cpx-body { margin: 0 16px 10px 60px; padding: 10px 12px; background: #f7f6f2; border-radius: 8px; font-size: 12.5px; white-space: pre-wrap; max-height: 260px; overflow: auto; }
+#gfApp .cpx-url { padding: 0 16px 8px 60px; font-size: 12.5px; overflow-wrap: anywhere; }
+#gfApp .cpx-chips { display: flex; flex-wrap: wrap; gap: 8px; padding: 8px 16px; }
+#gfApp .cpx-chip { border: 1px solid #dcd8d0; background: #fff; border-radius: 999px; padding: 7px 14px; font: inherit; font-size: 14px; cursor: pointer; color: #1f1e1c; }
+#gfApp .cpx-chip:hover:not(:disabled) { background: #f5f3ef; border-color: #1f1e1c; }
+#gfApp .cpx-chip:disabled { opacity: .6; cursor: default; }
+#gfApp .cpx-other { display: flex; gap: 8px; padding: 4px 16px 8px; align-items: center; flex-wrap: wrap; }
+#gfApp .cpx-in, .cpx-modal .cpx-in { flex: 1; min-width: 140px; font: inherit; font-size: 14px; border: 1px solid #d9d6cf; border-radius: 10px; padding: 7px 11px; color: #1f1e1d; background: #fff; }
+.cpx-modal .cpx-panel { max-width: 620px; max-height: calc(100vh - 32px); display: flex; flex-direction: column; }
+.cpx-modal .cpx-bar { display: flex; gap: 10px; align-items: center; margin: 14px 0 6px; flex-wrap: wrap; }
+.cpx-modal .cpx-seg { display: inline-flex; border: 1px solid #e5e3dd; border-radius: 10px; padding: 2px; }
+.cpx-modal .cpx-seg button { border: 0; background: none; font: inherit; font-size: 13.5px; padding: 6px 12px; border-radius: 8px; cursor: pointer; color: #4a4741; }
+.cpx-modal .cpx-seg button.on { background: #f1efea; color: #1f1e1c; font-weight: 500; }
+.cpx-modal .cpx-seg i { font-style: normal; color: #8a857c; }
+.cpx-modal .cpx-list { list-style: none; margin: 4px 0 0; padding: 0; overflow: auto; min-height: 0; flex: 1; }
+.cpx-modal .cpx-prow { padding: 10px 2px; border-top: 1px solid #eee9e1; }
+.cpx-modal .cpx-cat { font-style: normal; font-size: 11px; color: #6b6760; border: 1px solid #e0ddd6; border-radius: 6px; padding: 0 6px; align-self: flex-start; }
+.cpx-modal .cpx-scroll { overflow: auto; min-height: 0; flex: 1; }
+.cpx-modal .cpx-gh { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: #8a857c; margin: 14px 0 0; }
+.cpx-modal .cpx-sl { list-style: none; margin: 6px 0 0; padding: 0; }
+.cpx-modal .cpx-sl li { display: flex; flex-direction: row; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid #eee9e1; }
+.cpx-modal .cpx-li b { font-weight: 500; color: #1f1e1c; }
+.cpx-modal .cpx-li small { color: #6b665e; font-size: 13px; }
+.cpx-modal .cpx-li { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.cpx-modal .cpx-empty { font-size: 13px; color: #8a857c; margin: 6px 0; padding: 0; }
+.cpx-modal .cpx-note { padding: 8px 0 0; }
+@media (max-width: 520px) { #gfApp .cpx-show, #gfApp .cpx-url { padding-left: 16px; } #gfApp .cpx-body { margin-left: 16px; } }
+@media (prefers-color-scheme: dark) {
+  #gfApp .cpx-card { background: #262624; border-color: #3a3936; }
+  #gfApp .cpx-head b, #gfApp .cpx-name b { color: #eeece6; }
+  #gfApp .cpx-name span { color: #c9c6bf; }
+  #gfApp .cpx-ic { background: #33322f; color: #d8d5ce; }
+  #gfApp .cpx-btn, #gfApp .cpx-chip, #gfApp .cpx-in { background: #2f2e2b; border-color: #45433f; color: #eeece6; }
+  #gfApp .cpx-body { background: #1f1f1d; color: #d8d5ce; }
+  #gfApp .cpx-foot, #gfApp .cpx-prop { border-color: #3a3936; }
+}

@@ -63,6 +63,7 @@ import { psDescription, psCommand, psSleepWhat } from "./coder-ps.mjs";
 import { psParseResult, psParseFail, psExitOf, PS_PARSE_RETRYABLE, psCommands, psFileRedirections, psCmdlet, psWriteTargets } from "./coder-psparse.mjs";
 import { posix as pathPosix } from "node:path";
 import { readSkills as _readSkills, skillsListing, skillLoaded, slashSkill, skillRule, SKILL_TOOL } from "./coder-skills.mjs";
+import { PLUGIN_TOOLS, PLUGIN_TOOL_NAMES, pluginTool } from "./coder-plugins.mjs";
 import { checkAction, actionShown, autoDenied, checkUnavailable, blockedShown, limitWhy, checkerState, countBlock, countAllowed, resume, droppedInAuto, NO_VERDICT, NO_VERDICT_STOP, NOT_RUN_ROW, STOPPED_NO_VERDICT, noVerdictTold, noVerdictStopTold, NO_VERDICT_STOP_SHOWN, noVerdictWait, noPromptDenied } from "./coder-checker.mjs";
 import { psDecision, psPlanFile, toolGlob, MODES, MODE_NAMES, normMode, bashDecision, MONITOR_SETTINGS, namedForMonitor, fetchDecision, fileToolDecision, fileRuleHit, readCommand, fileCommandTargets, parseRule, allowRuleCovers, readBlockWhy, sensitiveWhy, linkOutWhy, ruleAskWhy, askedWhy, hookAskWhy, hookAskTold, planWriteWhy, planCallWhy, ccPath, RULE_MAX, REJECTED, REJECTED_SAID, NOT_NOW, PLAN_NOTE, PLAN_EXITED, AUTO_NOTE, AUTO_EXITED, planApproved, wholeReadOnly, movesWorkTree, monitorRules, partsAllowedByRules, discardsWork, wsDecision, wsProblem, wsAskText, wholeRule, MONITOR_BASH_DENIED, toolSearchParamRule, toolSearchParamDenied } from "./coder-perms.mjs";
 // (Claude Code's plan mode and ExitPlanMode, with its plan file: the owner, 2026-11-14, "Do all the talk to you tools execpt
@@ -1526,6 +1527,8 @@ export const CODER_TOOLS = Object.freeze([
   LIST_AGENTS_TOOL,
   SEND_MESSAGE_TOOL,
   WORKFLOW_TOOL,
+  // CLAUDE CODE'S PLUGIN, SKILL AND ONBOARDING TOOLS (2026-11-23; coder-plugins.mjs).
+  ...PLUGIN_TOOLS,
 ]);
 /** A chat's title from an approved plan (Claude Code titles the session after the plan): its first Markdown heading, else its
  * first non-empty line, as plain text on one line, at most 80 characters; "" when there is none. */
@@ -1759,7 +1762,7 @@ export function modeChangeNote(from, to, { planExited = PLAN_EXITED, autoExit = 
 // mode, which offers only the tools it allows. Each of these still refuses in such a job if called anyway.
 // (Nor enter_plan_mode: Claude Code offers EnterPlanMode only where someone can be asked, never in a non-interactive run, and
 // a job from GitHub is always Auto. 2026-11-14.)
-export const NOT_FROM_GITHUB = Object.freeze(["request_secret", ...ENV_TOOL_NAMES, "pr_comments", "pr_read", "pr_update", "suggest_connectors", "undo_last_job", "auto_fix", "enter_plan_mode", "rename_chat", "enter_worktree", "exit_worktree", "end_conversation", "send_feedback", "agent", "subagent_handback", "list_agents", "send_message", "workflow", ...CRON_TOOL_NAMES]);
+export const NOT_FROM_GITHUB = Object.freeze(["request_secret", ...ENV_TOOL_NAMES, "pr_comments", "pr_read", "pr_update", "suggest_connectors", "undo_last_job", "auto_fix", "enter_plan_mode", "rename_chat", "enter_worktree", "exit_worktree", "end_conversation", "send_feedback", "agent", "subagent_handback", "list_agents", "send_message", "workflow", ...CRON_TOOL_NAMES, ...PLUGIN_TOOL_NAMES]);
 export const GITHUB_TOOLS = Object.freeze(CODER_TOOLS.filter((t) => !NOT_FROM_GITHUB.includes(t.function.name)));
 /**
  * THIS CHAT'S TOOL LIST, bash as its environment sets it: with background commands off (CODER_DISABLE_BACKGROUND_TASKS,
@@ -2183,7 +2186,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   const webCacheKey = deps && typeof deps.chatId === "string" && deps.chatId ? "chat:" + deps.chatId : "job:" + randomUUID();
   if (Array.isArray(tools)) tools = webFetchTools(tools, webFetch);
   // THE REPOSITORY'S SKILLS (coder-skills.mjs; the audit, 2026-11-20): Coder's chats only, never Gloopy's or a job from GitHub.
-  const skillList = Array.isArray(skills) && !Array.isArray(tools) && !github ? skills.filter((s) => s && typeof s.name === "string" && typeof s.body === "string").slice(0, 50) : [];
+  const skillList = Array.isArray(skills) && !Array.isArray(tools) && !github ? skills.filter((s) => s && typeof s.name === "string" && typeof s.body === "string").slice(0, 100) : [];
   const offered = Array.isArray(tools) ? new Set(tools.map((t) => t && t.function && t.function.name).filter(Boolean)) : null;
   // GLOOPY'S TOOLS HELD BACK UNTIL NEEDED (the owner, 2026-11-15: "yes fix it too"; gloopy-agent.mjs GLOOPY_HELD_BACK): those
   // of `holdBack` it is offered are named in tool search's note and sent only once tool_search has loaded them, from then on
@@ -7706,6 +7709,11 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         c.tsAnswer = (v) => toolSearchAnswer(v, { pool, deferred });
         c.keepTail = r.note ? "\n\n(Note from Coder's app, not the owner: " + r.note + ")" : "";
         reply(r.text + c.keepTail, { toolsLoaded: r.loaded, ...(r.defs.length ? { toolDefs: r.defs } : {}) });
+      } else if (PLUGIN_TOOL_NAMES.includes(c.name) && !github && !offered) {
+        // (Claude Code's plugin, skill and onboarding tools: coder-plugins.mjs, 2026-11-23.)
+        const o = await pluginTool(c.name, { args: c.args || {}, id: c.id, deps, emit, reply, scrub, skills: skillList, root: deps.root, canAsk, askOwner, answerOutcome, askQuestions: (ev) => askQuestions(ev, c.args || {}, c.id) });
+        if (o === "stop") return stopNow(reply);
+        if (o === "no") return noEnd(i, "stopped: the owner said no");
       } else if (c.name === "suggest_connectors" && !github && !offered) {
         // (Claude Code's Suggested connectors, as its own tool: the card, then a short list for the model. 2026-11-16.)
         const q = scrub(String((c.args && c.args.query) || "")).slice(0, 100);
