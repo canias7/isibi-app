@@ -179,6 +179,8 @@ import { HOOK_PREFIX, HOOK_BODY_MAX, readWebhooks, addWebhook, removeWebhook, wr
 import { PERMISSIONS, PERMISSION_KEYS, MODES as GLOOPY_MODES, DEFAULT_MODE, DEFAULTS, TESTING, cleanPermissions } from "../container/gloopy-permissions.mjs";
 import { cleanRules, RULES_MAX as GLOOPY_RULES_MAX, RULE_MAX, CARD_TTL_MS, RULE_MODES, RULE_WORDS, cleanMarked, cleanTaught, cleanSites, siteHost, SITE_MODES, SITE_WORDS, SITES_MAX } from "../container/gloopy-check.mjs";
 import { readPages, pagesForTurn, keepPages, removePage, pageAddress, servePageFile } from "./gloopy-pages.mjs";
+import { artifactPages } from "./coder-artifacts.mjs";
+import { servePublicArtifact } from "./gloopy-pages.mjs";
 import { scanCard } from "./gloopy-cardscan.mjs";
 import { readLogins, saveLogin, editLogin, importLogins, removeLogin, loginList, loginFor, loginSite, LOGINS_MAX, readCards, saveCard, editCard, removeCard, cardList, cardLabel, cardBrand, checkCard, cardFor, cardsForTurn, CARDS_MAX, readContacts, saveContact, editContact, removeContact, contactList, CONTACTS_MAX } from "./gloopy-vault.mjs";
 import { cleanSchedule, checkSchedule, whenLocal, whenWords, cleanWebhook, HOOK_ID, okZone } from "../container/gloopy-schedule.mjs";
@@ -1320,6 +1322,10 @@ export async function handleCoder(request, env, ctx, deps) {
   // ── ONE OF GLOOPY'S PAGES, SHOWN (2026-11-09; src/gloopy-pages.mjs): a plain visit from the page's frame, with no
   // sign-in header; its signed address says whose page it is, for 10 minutes. ──
   if (parts[0] === "gloopy-page" && parts.length === 3 && request.method === "GET") return servePageFile(env, bucket, decodeURIComponent(parts[1]), parts[2], url);
+  // ── ONE OF CODER'S ARTIFACTS (2026-11-23; src/coder-artifacts.mjs): from its signed 10-minute address (the owner's Open),
+  // or from its public link while it is marked public. ──
+  if (parts[0] === "artifact-page" && parts.length === 3 && request.method === "GET") return servePageFile(env, bucket, decodeURIComponent(parts[1]), parts[2], url, Date.now(), "artifacts");
+  if (parts[0] === "artifact" && parts.length === 3 && request.method === "GET") return servePublicArtifact(env, bucket, decodeURIComponent(parts[1]), parts[2], url);
   // ── ONE OF GLOOPY'S FILES, SHOWN (the audit, 2026-11-10; src/gloopy-files.mjs): a PDF or a picture, the same way. ──
   if (parts[0] === "gloopy-view" && parts.length === 3 && request.method === "GET") return serveFileView(env, bucket, decodeURIComponent(parts[1]), parts[2], url);
   // ── A SAVED LOGIN, FOR GLOOPY'S MACHINE (2026-11-09; src/gloopy-vault.mjs): asked by its service with the running
@@ -3412,6 +3418,8 @@ export async function handleCoder(request, env, ctx, deps) {
     return json({ ok: true, secrets: secretList(cur.secrets), reached: await reachRunning(cur) });
   }
 
+  // CODER'S ARTIFACTS, FOR THE PAGE (2026-11-23; Claude Code's Artifact): list, Open, the public link on or off, remove.
+  if (action === "pages") return artifactPages(request, env, bucket, uid);
   // THE REPO'S FILE NAMES, for @ in the chat box (owner, 2026-11-05, "16").
   // A FILE ATTACHED TO THE NEXT MESSAGE (audit M-d-14, "Go Claude Code way", 2026-11-22; Claude Code's cloud sessions take
   // files of any kind, not only pictures): the page sends it here first; it is kept with the chat (src/coder-attach.mjs).

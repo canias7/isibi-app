@@ -3097,9 +3097,12 @@
       else if (e.type === 'page') {
         // A PAGE GLOOPY MADE (2026-11-09; Grok Bot's page card, "the page's title and Open"): it opens the latest version;
         // a card for a page published again later says so.
+        // (Coder's artifacts too, 2026-11-23: "Artifact", "· Public" and its public link when it has one.)
+        const kind = e.artifact ? 'Artifact' : 'Page';
         const later = S.events.slice(i + 1).some((x) => x.type === 'page' && x.id === e.id);
-        const sub = later ? 'Updated below' : Number(e.version) > 1 ? 'Updated' + (e.note ? ': ' + e.note : '') : 'Page';
-        out.push('<div class="cd-pagecard"><span class="cd-pagecard-ic">' + ICON.page + '</span><span class="cd-pagecard-txt"><b>' + esc(e.title || 'Page') + '</b><span>' + esc(sub) + '</span></span><button type="button" class="cd-card-yes cd-pagecard-open" data-page-open="' + esc(e.id) + '">Open</button></div>');
+        const sub = later ? 'Updated below' : (Number(e.version) > 1 ? 'Updated' + (e.note ? ': ' + e.note : '') : kind) + (e.public ? ' · Public' : e.artifact ? ' · Private' : '');
+        const pubLink = !later && e.link && /^https:\/\//.test(String(e.link)) ? '<a class="cd-card-no cd-pagecard-open" href="' + esc(e.link) + '" target="_blank" rel="noopener noreferrer">Public link</a>' : '';
+        out.push('<div class="cd-pagecard"><span class="cd-pagecard-ic">' + ICON.page + '</span><span class="cd-pagecard-txt"><b>' + esc(e.title || kind) + '</b><span>' + esc(sub) + '</span></span>' + pubLink + '<button type="button" class="cd-card-yes cd-pagecard-open" data-page-open="' + esc(e.id) + '">Open</button></div>');
       }
       else if (e.type === 'handoff') {
         // A STEP ONLY YOU CAN DO, IN GLOOPY'S BROWSER (2026-11-09; Grok Bot hands you the computer, dots' browser handoff):

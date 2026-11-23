@@ -970,7 +970,8 @@ export function parseRule(text) {
   // tools execpt for the notify one"; whole-tool rules, as TodoWrite's. EnterPlanMode, Coder's enter_plan_mode, too. And
   // ToolSearch, Coder's tool_search: denied, tool search is off, as Claude Code's MCP docs say; coder-toolsearch.mjs.)
   // (NotebookEdit, Coder's notebook_edit since batch 5: a rule on the whole tool; Edit(...) path rules cover it too.)
-  const m = /^(Bash|WebFetch|Read|Edit|Write|NotebookEdit|Grep|Glob|LSP|Monitor|WebSearch|TaskStop|KillShell|KillBash|AskUserQuestion|ExitPlanMode|EnterPlanMode|TodoWrite|TaskCreate|TaskGet|TaskList|TaskUpdate|PowerShell|ToolSearch|Skill)(?:\(([\s\S]*)\))?$/.exec(String(text || "").trim());
+  // (Artifact and the MCP resource tools: whole-tool rules, coder-resources.mjs, 2026-11-23.)
+  const m = /^(Bash|WebFetch|Read|Edit|Write|NotebookEdit|Grep|Glob|LSP|Monitor|WebSearch|TaskStop|KillShell|KillBash|AskUserQuestion|ExitPlanMode|EnterPlanMode|TodoWrite|TaskCreate|TaskGet|TaskList|TaskUpdate|PowerShell|ToolSearch|Skill|Artifact|ListMcpResourcesTool|ReadMcpResourceTool|WaitForMcpServers)(?:\(([\s\S]*)\))?$/.exec(String(text || "").trim());
   if (!m) return null;
   // (TaskStop's old names, KillShell and KillBash, name it still: Claude Code 2.1.322 keeps them as its aliases.)
   if (m[1] === "KillShell" || m[1] === "KillBash") m[1] = "TaskStop";
