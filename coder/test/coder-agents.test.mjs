@@ -19,6 +19,9 @@ const base = (send, extra = {}) => ({ send, exec: async () => ({ code: 0, output
 const opts = (text) => ({ text, mode: "auto", rules: { allow: [], ask: [], deny: [] } });
 const toolAnswer = (r, id) => String((r.messages.find((m) => m.role === "tool" && m.tool_call_id === id) || {}).content || "");
 
+/** A background workflow's result, from its task notification. */
+const wfResult = (r, id) => { for (const m of r.messages) { const x = new RegExp("<task-id>" + id + "</task-id>[\\s\\S]*?<result>\\n([\\s\\S]*?)\\n</result>").exec(String(m.content || "")); if (x) return x[1]; } return ""; };
+
 test("the tools: agent, list_agents, workflow and subagent_handback upfront; send_message held back; Claude Code's names for hooks; the caps in the descriptions", () => {
   const names = A.CODER_TOOLS.map((t) => t.function.name);
   for (const n of ["agent", "subagent_handback", "list_agents", "send_message", "workflow"]) assert.ok(names.includes(n), n);
@@ -48,7 +51,7 @@ test("agent runs a subagent on Coder's loop with the chat's model and effort and
   const seen = [];
   let subTurn = 0;
   const main = [
-    say("", [call("agent", { description: "Find the config", prompt: "Where is the config loaded?", subagent_type: "Explore", name: "finder" }, "a1")]),
+    say("", [call("agent", { run_in_background: false, description: "Find the config", prompt: "Where is the config loaded?", subagent_type: "Explore", name: "finder" }, "a1")]),
     say("", [call("list_agents", {}, "l1")]),
     say("", [call("send_message", { to: "finder", message: "And where is it saved?" }, "s1")]),
     say("Done."),
@@ -75,7 +78,7 @@ test("agent runs a subagent on Coder's loop with the chat's model and effort and
 
 test("the cap: past CODER_MAX_SUBAGENTS_TOTAL an agent call is refused and the model is told to do the rest itself; subagent_handback in the main chat is refused", async () => {
   const main = [
-    say("", [call("agent", { description: "one", prompt: "do one" }, "a1"), call("agent", { description: "two", prompt: "do two" }, "a2"), call("subagent_handback", { message: "x" }, "h0")]),
+    say("", [call("agent", { run_in_background: false, description: "one", prompt: "do one" }, "a1"), call("agent", { run_in_background: false, description: "two", prompt: "do two" }, "a2"), call("subagent_handback", { message: "x" }, "h0")]),
     say("ok"),
   ];
   let mi = 0, subs = 0;
@@ -95,7 +98,8 @@ log('reviewed ' + found.length)
 return { found }`;
   const prompts = [];
   let mi = 0;
-  const main = [say("", [call("workflow", { script, args: { files: ["a.js", "b.js", "c.js", "d.js"] } }, "w1")]), say("", [call("workflow", { resumeFromRunId: "wf-1" }, "w2")]), say("ok")];
+  // (A workflow runs in the background, as Claude Code's: the call answers at once, and its result is a task notification.)
+  const main = [say("", [call("workflow", { script, args: { files: ["a.js", "b.js", "c.js", "d.js"] } }, "w1")]), say("Launched."), say("", [call("workflow", { resumeFromRunId: "wf-1" }, "w2")]), say("Launched again."), say("ok")];
   let live = 0, peak = 0;
   const send = async (req) => {
     if (isSub(req)) {
@@ -106,13 +110,14 @@ return { found }`;
     return main[Math.min(mi++, main.length - 1)];
   };
   const r = await A.runCoder(base(send, { workflowStep: G.workflowStep }), opts("review"));
-  const w1 = toolAnswer(r, "w1");
+  assert.match(toolAnswer(r, "w1"), /^Workflow launched in the background\.\ntaskId: wf-1 · taskType: local_workflow · runId: wf-1\nworkflowName: review\nsummary: review files/);
+  const w1 = wfResult(r, "wf-1");
   assert.match(w1, /^workflow “review” · runId wf-1 · 4 agents run/);
   assert.match(w1, /## Review\nreviewed 4/);
   assert.deepEqual(JSON.parse(w1.split("result:\n")[1]), { found: [{ ok: true }, { ok: false }, { ok: true }, { ok: true }] });
   assert.ok(peak <= 3, "at most 3 at once, was " + peak);
   assert.equal(prompts.length, 4, "the resumed run reused all four");
-  assert.match(toolAnswer(r, "w2"), /runId wf-2 · 0 agents run/);
+  assert.match(wfResult(r, "wf-2"), /runId wf-2 · 0 agents run/);
   assert.match(prompts[0], /JSON Schema/);
 });
 

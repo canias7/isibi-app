@@ -297,6 +297,8 @@ export const definitionChars = (def) => { const f = (def && def.function) || {};
  * per-server tool cap"), so this is the only one, Grok's.
  */
 export const XAI_TOOLS_MAX = 350;
+/** The most tools tool search's catalog holds (Claude Code's tool search docs, Limits: "Up to 10,000 tools in the catalog"). */
+export const TOOL_SEARCH_CATALOG_MAX = 10_000;
 /**
  * CLAUDE_CODE_MAX_MCP_DESCRIPTION_LENGTH AS CLAUDE CODE READS IT (2.1.325's H.int({ min: 1, digitsOnly: true }); its env-vars
  * docs: "Accepts a positive whole number in plain digits. Anything else is ignored and the defaults apply"), here the chat's

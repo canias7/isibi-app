@@ -278,16 +278,16 @@ test("TS12 hooks see it as ToolSearch (Claude Code runs them for it as for any t
   assert.ok(!names(denied.seen[0]).includes("tool_search") && names(denied.seen[0]).includes("web_fetch"), "every tool upfront");
 });
 
-test("TS13 a loaded tool stays after a summary (Claude Code carries them on its compact boundary): a summary's message keeps them, the Worker's and the job's own; after it the deferred tools not loaded are named again", async () => {
+test("TS13 a loaded tool is dropped by a summary of the messages that found it (Claude Code's tool search: \"Found tools stay loaded until the messages where they were found are compacted; then Claude searches for them again\"), the Worker's and the job's own; Gloopy's summaries keep them as before; after it every deferred tool is named again", async () => {
   const part = [{ role: "assistant", content: "" }, { role: "tool", tool_call_id: "s1", content: "<functions>…", toolsLoaded: ["lsp"] }];
   const s = C.summaryMessage("what happened", "the earlier jobs", [], part);
-  assert.deepEqual(s.toolsLoaded, ["lsp"]);
+  assert.deepEqual(s.toolsLoaded, []);
   assert.equal(s.toolSearchOn, true);
   assert.deepEqual(C.summaryMessage("x", "y").toolsLoaded, undefined, "no part, no record");
   // The Worker's summary before a job (compactHistory) and Rewind's and /compact's on the Worker pass what they summarize.
   const msgs = [{ role: "user", content: "a".repeat(200) }, ...part, { role: "assistant", content: "ok" }, { role: "user", content: "b" }, { role: "assistant", content: "ok" }, { role: "user", content: "c" }, { role: "assistant", content: "ok" }, { role: "user", content: "d" }, { role: "assistant", content: "ok" }];
   const out = await SUM.compactHistory(msgs, async () => "summary", { at: 10 });
-  assert.deepEqual(out.messages[0].toolsLoaded, ["lsp"]);
+  assert.deepEqual(out.messages[0].toolsLoaded, []);
   assert.match(read("src/coder-routes.mjs"), /filesTouched\(msgs\.slice\(from, to\)\), msgs\.slice\(from, to\)\)/);
   // (Gloopy's /compact on the Worker, in its words as before since 2026-11-14: `{ gloopy: true }`.)
   assert.match(read("src/coder-routes.mjs"), /filesTouched\(msgs\), msgs, \{ gloopy: true \}\)\]/);
@@ -295,15 +295,15 @@ test("TS13 a loaded tool stays after a summary (Claude Code carries them on its 
   const g = await SUM.compactHistory(msgs, async () => "summary", { at: 10, gloopy: true });
   assert.deepEqual(g.messages[0].toolsLoaded, ["lsp"]);
   assert.ok(g.messages[0].content.startsWith(C.SUMMARY_TAG) && g.messages[0].compactSummary === undefined, "Gloopy's words as before");
-  // The owner's /compact in a job, then the next message: lsp still sent, the others named again.
+  // The owner's /compact in a job, then the next message: lsp no longer sent; every deferred tool named again, lsp too.
   const first = await job([say("", [call("tool_search", { query: "select:lsp", max_results: 5 }, "s1")]), say("done")]);
   const compacted = await job([say("the summary")], { messages: first.r.messages, extra: { compact: { focus: "" } } });
   assert.equal(compacted.r.messages.length, 1);
-  assert.deepEqual(compacted.r.messages[0].toolsLoaded, ["lsp"]);
+  assert.deepEqual(compacted.r.messages[0].toolsLoaded, []);
   const after = await job([say("ok")], { messages: compacted.r.messages });
-  assert.ok(names(after.seen[0]).includes("lsp") && !names(after.seen[0]).includes("web_fetch"));
+  assert.ok(!names(after.seen[0]).includes("lsp") && !names(after.seen[0]).includes("web_fetch"));
   const again = after.seen[0].messages.find((m) => String(m.content).includes("deferred tools are now available"));
-  assert.ok(again && !again.content.includes("\nlsp\n") && again.content.includes("\nweb_fetch\n"));
+  assert.ok(again && again.content.includes("\nlsp\n") && again.content.includes("\nweb_fetch\n"));
 });
 
 test("TS14 a chat that already ran without tool search keeps every tool upfront while ENABLE_TOOL_SEARCH is unset (Claude Code: \"stays so until it is compacted or cleared\"); true turns it on there", async () => {

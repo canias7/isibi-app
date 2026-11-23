@@ -426,7 +426,7 @@ test("TK9 CLAUDE_CODE_ENABLE_TASKS=0 (Coder's CODER_ENABLE_TASKS, or the reposit
   const S = await import("../container/server.mjs");
   assert.deepEqual([S.REPO_OWN_ENV.CLAUDE_CODE_ENABLE_TASKS, S.REPO_OWN_ENV.CLAUDE_CODE_TASK_LIST_ID], ["CODER_ENABLE_TASKS", "CODER_TASK_LIST_ID"]);
   const server = read("container/server.mjs");
-  assert.match(server, /tasksOff: varOff\(rawVars\.CODER_ENABLE_TASKS\),/);
+  assert.match(server, /tasksOff: varOff\(rawVars\.CODER_ENABLE_TASKS\) \|\| !taskToolsAvailable\(\{ cloud: true, optIn: varOn\(rawVars\.CLAUDE_CODE_ENABLE_TODO_TOOLS\) \}\),/);
   assert.match(server, /todos: todoStore\(join\(memRoot, project \+ "\.todos\.json"\)\),/);
   const dir = mkdtempSync(join(tmpdir(), "coder-todos-"));
   try {

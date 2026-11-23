@@ -59,12 +59,12 @@ export function subagentBudget(caps) {
 
 /** The kinds of subagent (Claude Code's built-in general-purpose, Explore and Plan), and the tools each gets. */
 export const AGENT_TYPES = Object.freeze({
-  "general-purpose": { tools: ["bash", "read", "edit", "write", "notebook_edit", "grep", "glob", "web_fetch", "web_search"], note: "", description: "General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you." },
+  "general-purpose": { tools: ["bash", "read", "edit", "write", "notebook_edit", "grep", "glob", "web_fetch", "web_search", "agent"], note: "", description: "General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you." },
   Explore: { tools: ["bash", "read", "grep", "glob", "web_fetch", "web_search"], note: "You are an Explore agent: search and read only. Never change a file: no edits, no writes, no commands that change anything (no installs, no git commit, no rm, no redirects into files).", description: "Fast agent specialized for exploring codebases. Use this when you need to quickly find files by patterns, search code for keywords, or answer questions about the codebase (read-only)." },
   Plan: { tools: ["bash", "read", "grep", "glob", "web_fetch", "web_search"], note: "You are a Plan agent: research the code and design an implementation plan (the steps, the files, the risks). Never change a file: no edits, no writes, no commands that change anything.", description: "Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task: it returns step-by-step plans, identifies critical files, and considers architectural trade-offs (read-only)." },
 });
 /** The tools a subagent can ever have (Claude Code's "tools available to subagents", in Coder's names). */
-export const SUBAGENT_AVAILABLE = Object.freeze(["bash", "read", "edit", "write", "notebook_edit", "grep", "glob", "lsp", "web_fetch", "web_search"]);
+export const SUBAGENT_AVAILABLE = Object.freeze(["bash", "read", "edit", "write", "notebook_edit", "grep", "glob", "lsp", "web_fetch", "web_search", "agent"]);
 /** The models an agent can run on: Coder's own (coder-model.mjs), and the effort levels Claude Code's input takes. */
 export const AGENT_MODELS = Object.freeze(CODER_MODELS.map((m) => m.id));
 export const AGENT_EFFORTS = Object.freeze(["low", "medium", "high", "xhigh", "max"]);
@@ -76,14 +76,14 @@ const capsWords = "at most 3 subagents run at the same time and at most 10 in al
 /** Claude Code's Agent tool, its inputs (AgentInput) and its description, in Coder's words. */
 export const AGENT_TOOL = Object.freeze({ type: "function", function: {
   name: "agent",
-  description: "Launch a new agent to handle complex, multi-step tasks autonomously.\n\nThe agent tool launches specialized agents (subprocesses) that autonomously handle complex tasks. Each agent type has specific capabilities and tools available to it.\n\nAvailable agent types and the tools they have access to:\n- general-purpose: " + AGENT_TYPES["general-purpose"].description + " (Tools: bash, read, edit, write, notebook_edit, grep, glob, web_fetch, web_search)\n- Explore: " + AGENT_TYPES.Explore.description + " (Tools: bash, read, grep, glob, web_fetch, web_search)\n- Plan: " + AGENT_TYPES.Plan.description + " (Tools: bash, read, grep, glob, web_fetch, web_search)\n- the repository's custom agents: each file in " + AGENTS_DIR + "/*.md with a name and a description in its frontmatter (and optionally tools, disallowedTools, model, effort, maxTurns, isolation and background; the file's body is its instructions). list_agents lists them.\n\nWhen using the agent tool, specify a subagent_type parameter to select which agent type to use. If omitted, the general-purpose agent is used. The old name of this tool, Task, still works.\n\nWhen NOT to use the agent tool:\n- If you want to read a specific file path, use read or glob instead, to find the match more quickly\n- If you are searching for a specific class definition like \"class Foo\", use glob instead\n- If you are searching for code within a specific file or set of 2-3 files, use read instead\n- Other tasks that are not related to the agent descriptions above\n\nUsage notes:\n- Always include a short description (3-5 words) summarizing what the agent will do\n- Launch multiple agents concurrently whenever possible, to maximize performance; to do that, use a single message with multiple agent calls (they run side by side; " + capsWords + ")\n- When the agent is done, it will return a single message back to you. The result returned by the agent is not visible to the owner. To show the owner the result, you should send a text message back to the owner with a concise summary of the result.\n- You can optionally run agents in the background using the run_in_background parameter. When an agent runs in the background, you will be automatically notified when it completes; do not sleep, poll, or proactively check on its progress. Continue with other work or respond to the owner instead.\n- To continue a previously spawned agent, use send_message with the agent's ID or name as the `to` field. The agent resumes with its full context preserved. Each fresh agent invocation with a prompt starts without context, so provide a complete task description.\n- The agent's outputs should generally be trusted\n- Clearly tell the agent whether you expect it to write code or just to do research (search, file reads, web fetches, etc.), since it is not aware of the owner's intent\n- If the agent description mentions that it should be used proactively, then you should try your best to use it without the owner having to ask for it first. Use your judgement.\n- You can optionally set isolation: \"worktree\" to run the agent in a temporary git worktree, giving it an isolated copy of the repository. The worktree is automatically cleaned up if the agent makes no changes; if changes are made, the worktree path and branch are returned in the result.\n- model and effort run the agent on another of Coder's models (" + AGENT_MODELS.join(", ") + ") or effort level; the chat's are used when left out. An effort the model doesn't take runs at the nearest level it does.\n- Launching an agent never asks the owner; the agent's own steps are checked against the chat's rules as it runs, and a step that would need the owner's OK is refused (the agent says so in its report). A subagent can't start agents of its own.\n- Coder has no agent teams and no remote agents: team_name and mode are accepted for Claude Code's input and ignored, and isolation \"remote\" is refused.",
+  description: "Launch a new agent to handle complex, multi-step tasks autonomously.\n\nThe agent tool launches specialized agents (subprocesses) that autonomously handle complex tasks. Each agent type has specific capabilities and tools available to it.\n\nAvailable agent types and the tools they have access to:\n- general-purpose: " + AGENT_TYPES["general-purpose"].description + " (Tools: bash, read, edit, write, notebook_edit, grep, glob, web_fetch, web_search, agent)\n- Explore: " + AGENT_TYPES.Explore.description + " (Tools: bash, read, grep, glob, web_fetch, web_search)\n- Plan: " + AGENT_TYPES.Plan.description + " (Tools: bash, read, grep, glob, web_fetch, web_search)\n- the repository's custom agents: each file in " + AGENTS_DIR + "/*.md with a name and a description in its frontmatter (and optionally tools, disallowedTools, model, effort, maxTurns, isolation and background; the file's body is its instructions). list_agents lists them.\n\nWhen using the agent tool, specify a subagent_type parameter to select which agent type to use. If omitted, the general-purpose agent is used. The old name of this tool, Task, still works.\n\nWhen NOT to use the agent tool:\n- If you want to read a specific file path, use read or glob instead, to find the match more quickly\n- If you are searching for a specific class definition like \"class Foo\", use glob instead\n- If you are searching for code within a specific file or set of 2-3 files, use read instead\n- Other tasks that are not related to the agent descriptions above\n\nUsage notes:\n- Always include a short description (3-5 words) summarizing what the agent will do\n- Launch multiple agents concurrently whenever possible, to maximize performance; to do that, use a single message with multiple agent calls (they run side by side; " + capsWords + ")\n- When the agent is done, it will return a single message back to you. The result returned by the agent is not visible to the owner. To show the owner the result, you should send a text message back to the owner with a concise summary of the result.\n- run_in_background: left out, an agent you start from the main conversation runs in the background, and one a subagent starts is waited for (unless its definition sets background: true); set it to false to wait for the result, true to run in the background. When an agent runs in the background, you will be automatically notified when it completes; do not sleep, poll, or proactively check on its progress. Continue with other work or respond to the owner instead.\n- To continue a previously spawned agent, use send_message with the agent's ID or name as the `to` field. The agent resumes with its full context preserved. Each fresh agent invocation with a prompt starts without context, so provide a complete task description.\n- The agent's outputs should generally be trusted\n- Clearly tell the agent whether you expect it to write code or just to do research (search, file reads, web fetches, etc.), since it is not aware of the owner's intent\n- If the agent description mentions that it should be used proactively, then you should try your best to use it without the owner having to ask for it first. Use your judgement.\n- You can optionally set isolation: \"worktree\" to run the agent in a temporary git worktree, giving it an isolated copy of the repository. The worktree is automatically cleaned up if the agent makes no changes; if changes are made, the worktree path and branch are returned in the result.\n- model and effort run the agent on another of Coder's models (" + AGENT_MODELS.join(", ") + ") or effort level; the chat's are used when left out. An effort the model doesn't take runs at the nearest level it does.\n- Launching an agent never asks the owner; the agent's own steps are checked against the chat's rules as it runs, and a step that would need the owner's OK is refused (the agent says so in its report). A general-purpose subagent can start agents of its own (they share the job's caps).\n- Coder has no agent teams and no remote agents: team_name and mode are accepted for Claude Code's input and ignored, and isolation \"remote\" is refused.",
   parameters: { type: "object", properties: {
     description: { type: "string", description: "A short (3-5 word) description of the task" },
     prompt: { type: "string", description: "The task for the agent to perform" },
     subagent_type: { type: "string", description: "The type of specialized agent to use for this task: general-purpose (the default), Explore, Plan, or the name of a custom agent in " + AGENTS_DIR + "/" },
     model: { type: "string", enum: [...AGENT_MODELS], description: "Optional model to use for this agent. If not specified, inherits from the chat" },
     effort: { type: "string", enum: [...AGENT_EFFORTS], description: "Optional effort level for this agent. If not specified, inherits from the chat (or the custom agent's effort)" },
-    run_in_background: { type: "boolean", description: "Set to true to run this agent in the background. You will be notified when it completes." },
+    run_in_background: { type: "boolean", description: "Whether to run this agent in the background (you will be notified when it completes). Left out: true from the main conversation, false from a subagent" },
     name: { type: "string", description: "Name for the spawned agent. Makes it addressable via send_message({to: name}) while it runs and after it finishes." },
     team_name: { type: "string", description: "Deprecated; ignored (Coder has no agent teams)" },
     mode: { type: "string", enum: ["acceptEdits", "auto", "bypassPermissions", "default", "dontAsk", "plan"], description: "Deprecated; ignored. A subagent runs in the chat's permission mode, refusing what would need the owner's OK" },
@@ -119,7 +119,7 @@ export const SEND_MESSAGE_TOOL = Object.freeze({ type: "function", function: {
 /** Claude Code's Workflow tool, its inputs (WorkflowInput) and its description, in Coder's words. */
 export const WORKFLOW_TOOL = Object.freeze({ type: "function", function: {
   name: "workflow",
-  description: "Runs a dynamic workflow: a script that orchestrates many subagents and returns one consolidated result. Use it only when the owner asks for a workflow or a task needs the same step over many items (an audit of many files, a migration, cross-checked research). At least one of script, name or scriptPath is required.\n\nThe script must begin with `export const meta = { name: '...', description: '...' }` as a literal (an optional `phases` array names its stages), then plain JavaScript with top-level await:\n- `await agent(prompt, { label, schema, subagent_type, model, effort, phase })` runs one subagent and gives its report; with `schema` (a JSON Schema) the parsed JSON it returns. It gives null when the agent failed, its answer didn't match the schema, or the cap was reached.\n- `parallel([() => agent(...), ...])` runs several at once and waits for all; `pipeline(items, (item) => agent(...))` runs one per item.\n- `phase(title)` starts a stage (agents after it are grouped under it) and `log(message)` shows progress.\n- `args` is the input; `return` the result.\nDate.now(), Math.random() and new Date() with no argument throw (pass a time in args). The script runs in the chat's sandbox, not with your tools. In Coder the run finishes before this call answers. The answer gives the workflow's name, summary, runId, the agents run per phase, the log and the result: resumeFromRunId with the runId reruns a script and reuses the agent() calls already done with unchanged input (same job only). Limits: " + capsWords + ".",
+  description: "Runs a dynamic workflow: a script that orchestrates many subagents in the background and returns one consolidated result. Use it only when the owner asks for a workflow or a task needs the same step over many items (an audit of many files, a migration, cross-checked research). At least one of script, name or scriptPath is required.\n\nThe script must begin with `export const meta = { name: '...', description: '...' }` as a literal (an optional `phases` array names its stages), then plain JavaScript with top-level await:\n- `await agent(prompt, { label, schema, subagent_type, model, effort, phase })` runs one subagent and gives its report; with `schema` (a JSON Schema) the parsed JSON it returns. It gives null when the agent failed, its answer didn't match the schema, or the cap was reached.\n- `parallel([() => agent(...), ...])` runs several at once and waits for all; `pipeline(items, (item) => agent(...))` runs one per item.\n- `phase(title)` starts a stage (agents after it are grouped under it) and `log(message)` shows progress.\n- `args` is the input; `return` the result.\nDate.now(), Math.random() and new Date() with no argument throw (pass a time in args). The script runs in the chat's sandbox, not with your tools. The call returns at once (status async_launched: taskId, taskType local_workflow, workflowName, runId, summary, scriptPath; error if the script fails its syntax check, and then it never ran) and the workflow runs in the background; you are notified when it completes, with the agents run per phase, the log and the result. stop_job with the taskId stops it. resumeFromRunId with the runId reruns a script and reuses the agent() calls already done with unchanged input (same job only). Limits: " + capsWords + ".",
   parameters: { type: "object", properties: {
     script: { type: "string", description: "Inline workflow script. Must begin with export const meta = { name, description } as a literal, followed by the script body using agent(), parallel(), pipeline(), and phase()" },
     name: { type: "string", description: "Name of a workflow saved in .claude/workflows/<name>.js. Resolved to a script" },
@@ -222,14 +222,23 @@ export function toolStatsOf(messages) {
       } else st.otherToolCount++;
     }
   }
+  // (frameCount: Claude Code's count of screen frames a computer-use agent took; Coder's agents take none.)
+  st.frameCount = 0;
   return st;
 }
 /** Claude Code's usage on an agent's result: its last request's, and its whole run's tokens. */
 export function usageOf(list) {
   const u = Array.isArray(list) ? list.filter((x) => x && typeof x === "object") : [];
   const last = u.at(-1) || {};
-  const total = u.reduce((n, x) => n + (Number(x.in) || 0) + (Number(x.out) || 0), 0);
-  return { usage: { input_tokens: Number(last.in) || 0, output_tokens: Number(last.out) || 0, cache_creation_input_tokens: null, cache_read_input_tokens: Number(last.cached) || null, server_tool_use: null, service_tier: null, cache_creation: null }, totalTokens: total };
+  // (Claude Code: "usage and totalTokens come from the subagent's final API request, not the whole run". 2026-11-23.)
+  const total = (Number(last.in) || 0) + (Number(last.out) || 0);
+  return { usage: { input_tokens: Number(last.in) || 0, output_tokens: Number(last.out) || 0, cache_creation_input_tokens: null, cache_read_input_tokens: Number(last.cached) || null, server_tool_use: null, service_tier: null, cache_creation: null, inference_geo: null, speed: null, iterations: null, output_tokens_details: { thinking_tokens: Number(last.reasoning) || 0 }, fallback_credit: null }, totalTokens: total };
+}
+/** Claude Code's modelsUsed: the run's models in order, only when a mid-run swap happened (a model shows again on a swap back). */
+export function modelsUsedOf(list, first = "") {
+  const seq = [];
+  for (const x of [{ model: first }, ...(Array.isArray(list) ? list : [])]) { const m = x && typeof x.model === "string" ? x.model : ""; if (m && seq.at(-1) !== m) seq.push(m); }
+  return seq.length > 1 ? seq : null;
 }
 /** A summary for send_message (Claude Code: the first line when none is given; over 200 characters cut with an ellipsis). */
 export function summaryOf(summary, message) {
@@ -251,14 +260,18 @@ export const SUBAGENT_SYSTEM = `You are an agent for Coder, the owner's AI codin
 - When you are done, call subagent_handback with your full report for Coder (what you did, what you found, the relevant file paths). It ends your run. Coder relays what matters to the owner, so give the essentials, with no emojis.`;
 
 /** What every custom agent is told after its own instructions. */
-export const SUBAGENT_TAIL = "You run as a subagent of Coder, the owner's AI coding assistant on gofarther.dev, with one task from Coder. Never ask the owner anything: you can't reach them; a step that needs their OK is refused (say so in your report). When you are done, call subagent_handback with your full report (it ends your run), with no emojis.";
+export const SUBAGENT_TAIL = "You run as a subagent of Coder, the owner's AI coding assistant on gofarther.dev, with one task from Coder. Never ask the owner anything: you can't reach them; a step that needs their OK is refused (say so in your report). When you are done, call subagent_handback with your full report if you have that tool (it ends your run); otherwise end with your full report as your final answer. No emojis.";
 
 /** The tools a subagent of `type` gets from `coderTools` (Coder's own definitions), and subagent_handback (`names`: a custom agent's). */
-export function subagentTools(coderTools, type, names = null) {
+export function subagentTools(coderTools, type, names = null, { mode = "auto" } = {}) {
   const want = Array.isArray(names) ? names.filter((n) => SUBAGENT_AVAILABLE.includes(n)) : (AGENT_TYPES[type] || AGENT_TYPES["general-purpose"]).tools;
   const list = Array.isArray(coderTools) ? coderTools : [...(coderTools || [])];
-  return [...want.map((n) => list.find((t) => t && t.function && t.function.name === n)).filter(Boolean), SUBAGENT_HANDBACK_TOOL];
+  const got = want.map((n) => list.find((t) => t && t.function && t.function.name === n) || (n === "agent" ? AGENT_TOOL : null)).filter(Boolean);
+  // (Claude Code gives SubagentHandback only in auto mode, and then whatever the agent's tools say: handbackFor.)
+  return handbackFor(mode) ? [...got, SUBAGENT_HANDBACK_TOOL] : got;
 }
+/** Whether a subagent gets subagent_handback (Claude Code: "Given only in auto mode"; otherwise its last words are its report). */
+export const handbackFor = (mode) => mode === "auto";
 
 // PLUGIN AGENTS AS CUSTOM SUBAGENTS (2026-11-23; Claude Code's plugins reference: a plugin's agents/<name>.md, frontmatter
 // then the system prompt, named plugin:agent). Read with the same parser as the repository's .claude/agents/*.md files
@@ -416,6 +429,20 @@ globalThis.Date = new Proxy(Date, { construct(t, a) { if (!a.length) throw new E
   return { status: "error", error: "the script is waiting on something that never ends (only agent(), parallel() and pipeline() can be awaited)", logs };
 }
 
+/** Where a background agent's report is written when it finishes (Claude Code's outputFile), in the chat's sandbox. */
+export const OUTPUT_DIR = "/tmp/coder-agents";
+
+/**
+ * A WORKFLOW SCRIPT'S SYNTAX CHECK before it runs (Claude Code's Workflow result: "error when the script fails its syntax
+ * check (then it never ran despite the status)"): its meta, and the body compiled (never run) here. → { meta } | { error }.
+ */
+export function syntaxCheck(script) {
+  const parts = splitScript(script);
+  if (parts.error) return { error: parts.error };
+  try { new vm.Script("(async () => {\n" + parts.body + "\n})", { filename: "workflow.js" }); } catch (e) { return { error: String((e && e.message) || e).slice(0, 300), meta: parts.meta }; }
+  return { meta: parts.meta };
+}
+
 /** The tool names this file answers (coder-agent.mjs sends their calls to agentToolCall). */
 export const AGENT_TOOL_NAMES = Object.freeze(["agent", "subagent_handback", "list_agents", "send_message", "workflow"]);
 /** Claude Code's old name for its Agent tool ("The previous name `Task` is still accepted as an alias"). */
@@ -471,7 +498,7 @@ async function runAgent(entry, prompt, past, k) {
     model: entry.model, effort: entry.effort, toolNames: entry.toolNames,
     system: systemFor(entry.type, entry.def) + (context.length ? "\n\n" + context.join("\n") : ""),
     maxRounds: entry.def && entry.def.maxTurns ? entry.def.maxTurns : SUBAGENT_ROUNDS,
-    cwd: wt ? wt.path : "", agentId: entry.id,
+    cwd: wt ? wt.path : "", agentId: entry.id, stopReq: () => entry.stopReq === true,
   })).catch((e) => ({ status: "error", messages: [], usage: [], summary: String((e && e.message) || e).slice(0, 300) })));
   let res = (await once(prompt, past)) || { status: "error", messages: [], usage: [] };
   const allUsage = [...(Array.isArray(res.usage) ? res.usage : [])];
@@ -499,17 +526,29 @@ async function runAgent(entry, prompt, past, k) {
   const stats = toolStatsOf(res.messages);
   const u = usageOf(res.usage);
   const toolUses = Object.entries(stats).filter(([n]) => n.endsWith("Count")).reduce((n, [, v]) => n + v, 0);
+  const swaps = modelsUsedOf(res.usage, entry.model);
   const result = {
     status: "completed", agentId: entry.id, agentType: entry.type, content: [{ type: "text", text: report }],
-    resolvedModel: entry.model, totalToolUseCount: toolUses, totalDurationMs: Math.max(0, nowOf(k) - t0), totalTokens: u.totalTokens,
+    resolvedModel: entry.model, ...(swaps ? { modelsUsed: swaps } : {}), totalToolUseCount: toolUses, totalDurationMs: Math.max(0, nowOf(k) - t0), totalTokens: u.totalTokens,
     usage: u.usage, toolStats: stats, prompt: String(prompt).slice(0, 20_000),
     ...(kept ? { worktreePath: kept.path, ...(kept.branch ? { worktreeBranch: kept.branch } : {}) } : {}),
   };
   entry.result = result;
+  if (entry.outputFile && typeof k.writeText === "function") { try { await k.writeText(entry.outputFile, report + "\n"); } catch { /* the notification carries it too */ } }
   const text = report + "\n\nagentId: " + entry.id + (entry.name ? " (name: " + entry.name + ")" : "") + " · " + entry.status + " · send_message continues it"
     + (kept ? "\nworktreePath: " + kept.path + (kept.branch ? "\nworktreeBranch: " + kept.branch : "") : "")
     + "\n<usage>model: " + entry.model + (entry.effort ? " (" + entry.effort + ")" : "") + "\ntotal_tokens: " + u.totalTokens + "\ntool_uses: " + toolUses + "\nduration_ms: " + result.totalDurationMs + "</usage>";
   return { code: res.status === "done" ? 0 : 1, text, label: (entry.sends ? "Agent answered: " : "Agent finished: ") + label, usage: Array.isArray(res.usage) ? res.usage : [], stop: res.status === "stopped", result };
+}
+
+/**
+ * WHETHER AN AGENT RUNS IN THE BACKGROUND (Claude Code's run_in_background: "Left out, a call from the main conversation runs
+ * the new agent in the background, and a call from a subagent waits for it", unless the agent's definition sets background).
+ */
+export function backgroundOf(asked, def, isSub) {
+  if (asked === true || asked === false) return asked;
+  if (def && def.background) return true;
+  return !isSub;
 }
 
 /**
@@ -521,7 +560,6 @@ export async function startAgent(c, k) {
   const args = c && c.args && typeof c.args === "object" ? c.args : {};
   const description = oneLine(args.description, 80), prompt = String(args.prompt ?? "").trim();
   const type = args.subagent_type === undefined || args.subagent_type === "" ? "general-purpose" : String(args.subagent_type);
-  if (k.isSub) return { error: "error: a subagent can't start agents of its own" };
   if (!prompt) return { error: "error: give prompt: the task for the agent" };
   if (args.isolation !== undefined && args.isolation !== "worktree") return { error: args.isolation === "remote" ? "error: isolation \"remote\" runs Claude Code's agents in a cloud session, which Coder doesn't have; leave it out or use \"worktree\"" : "error: isolation is \"worktree\"" };
   const defs = AGENT_TYPES[type] ? [] : await customOf(k);
@@ -535,7 +573,7 @@ export async function startAgent(c, k) {
   if (name && (name === "main" || [...k.agents.values()].some((a) => a.name === name))) return { error: "error: an agent named “" + name + "” already exists: send_message continues it" };
   if (!k.budget.take()) return { error: capNote(k) };
   const id = "agent-" + (k.agents.size + 1);
-  const entry = { id, name, type, description: description || oneLine(prompt, 80), status: "running", messages: [], sends: 0, model: mdl.model, effort: mdl.effort, toolNames: tools.names, def, isolation: args.isolation === "worktree" || (def && def.isolation === "worktree") ? "worktree" : "", background: args.run_in_background === true || !!(def && def.background) };
+  const entry = { id, name, type, description: description || oneLine(prompt, 80), status: "running", messages: [], sends: 0, model: mdl.model, effort: mdl.effort, toolNames: tools.names, def, isolation: args.isolation === "worktree" || (def && def.isolation === "worktree") ? "worktree" : "", background: backgroundOf(args.run_in_background, def, k.isSub) };
   k.agents.set(id, entry);
   entry.promise = runAgent(entry, prompt, [], k);
   entry.promise.catch(() => {});
@@ -558,11 +596,6 @@ export async function agentToolCall(c, k) {
   const stopped = async () => { try { return typeof k.stopped === "function" && (await k.stopped()) === true; } catch { return false; } };
   const say = (code, out, label, extra) => { emit({ type: "result", id: c.id, code, output: String(out).slice(0, 20_000), ...(label ? { label } : {}), ...(extra || {}) }); k.reply(out); };
   const no = (m) => { say(1, m); return { usage }; };
-  const run = async ({ type, prompt, messages, label, tag, model, effort }) => {
-    const r = await k.budget.run(() => Promise.resolve().then(() => k.startSub({ type, prompt, messages, label, emit: taggedEmit(emit, tag, label), model, effort, toolNames: (AGENT_TYPES[type] || AGENT_TYPES["general-purpose"]).tools, system: systemFor(type), maxRounds: SUBAGENT_ROUNDS, cwd: "", agentId: tag.replace(/-$/, "") })).catch((e) => ({ status: "error", messages: [], usage: [], summary: String((e && e.message) || e).slice(0, 300) })));
-    for (const u of (r && r.usage) || []) usage.push(u);
-    return r || { status: "error", messages: [], usage: [] };
-  };
 
   if (c.name === "subagent_handback") {
     if (!k.isSub) return no("error: only a subagent hands back a report; you are the main conversation, so answer the owner in words");
@@ -584,17 +617,19 @@ export async function agentToolCall(c, k) {
 
   if (c.name === "agent") {
     const description = oneLine(args.description, 80), prompt = String(args.prompt ?? "").trim();
-    emit({ type: "bash", id: c.id, tool: "agent", verb: args.run_in_background === true ? "Started an agent in the background" : "Started an agent", command: description || oneLine(prompt, 80) });
+    emit({ type: "bash", id: c.id, tool: "agent", verb: args.run_in_background === true || (args.run_in_background === undefined && !k.isSub) ? "Started an agent in the background" : "Started an agent", command: description || oneLine(prompt, 80) });
     const pre = k.early instanceof Map ? k.early.get(c.id) : null;
     if (pre) k.early.delete(c.id);
     const st = pre ? await pre : await startAgent(c, k);
     if (!st || st.error) return no((st && st.error) || "error: the agent could not start");
     const entry = st.entry;
     if (entry.background && k.bg instanceof Map) {
-      const b = { entry, done: false, out: null };
+      const b = { entry, done: false, out: null, kind: "agent" };
+      const canRead = typeof k.writeText === "function";
+      if (canRead) { entry.outputFile = OUTPUT_DIR + "/" + entry.id + ".output"; try { await k.writeText(entry.outputFile, ""); } catch { entry.outputFile = ""; } }
       b.promise = entry.promise.then((x) => { b.done = true; b.out = x; }, (e) => { b.done = true; b.out = { code: 1, text: "error: " + String((e && e.message) || e), usage: [] }; });
       k.bg.set(entry.id, b);
-      say(0, "Async agent launched successfully.\nagentId: " + entry.id + (entry.name ? " (name: " + entry.name + ")" : "") + " (use send_message with to: '" + (entry.name || entry.id) + "' to continue this agent)\nThe agent is working in the background. You will be notified automatically when it completes.\nDo not duplicate this agent's work: avoid working with the same files or topics it is using. Briefly tell the owner what you launched and end your response, or go on with other work.", "Agent started in the background: " + entry.description, { agentResult: { status: "async_launched", isAsync: true, agentId: entry.id, description: entry.description, resolvedModel: entry.model, prompt: prompt.slice(0, 20_000) } });
+      say(0, "Async agent launched successfully.\nagentId: " + entry.id + (entry.name ? " (name: " + entry.name + ")" : "") + " (use send_message with to: '" + (entry.name || entry.id) + "' to continue this agent)\nThe agent is working in the background. You will be notified automatically when it completes." + (entry.outputFile ? "\noutputFile: " + entry.outputFile + " (its report is written there when it finishes)" : "") + "\nDo not duplicate this agent's work: avoid working with the same files or topics it is using. Briefly tell the owner what you launched and end your response, or go on with other work.", "Agent started in the background: " + entry.description, { agentResult: { status: "async_launched", isAsync: true, agentId: entry.id, description: entry.description, resolvedModel: entry.model, prompt: prompt.slice(0, 20_000), outputFile: entry.outputFile || "", canReadOutputFile: !!entry.outputFile } });
       return { usage };
     }
     const out = await entry.promise;
@@ -625,7 +660,7 @@ export async function agentToolCall(c, k) {
   }
 
   if (c.name === "workflow") {
-    emit({ type: "bash", id: c.id, tool: "workflow", verb: "Ran a workflow", command: oneLine(args.scriptPath || args.name || args.resumeFromRunId || "inline script", 120) });
+    emit({ type: "bash", id: c.id, tool: "workflow", verb: "Started a workflow", command: oneLine(args.scriptPath || args.name || args.resumeFromRunId || "inline script", 120) });
     if (k.isSub) return no("error: a subagent can't run workflows");
     const prev = typeof args.resumeFromRunId === "string" && args.resumeFromRunId ? k.runs.get(args.resumeFromRunId) : null;
     if (args.resumeFromRunId && !prev) return no("error: no workflow run " + oneLine(args.resumeFromRunId, 40) + " in this job");
@@ -644,60 +679,106 @@ export async function agentToolCall(c, k) {
     else if (prev) { script = prev.script; scriptPath = prev.scriptPath || ""; }
     else return no("error: give script, name or scriptPath");
     const input = args.args === undefined && prev ? prev.args : args.args;
-    // (Resumed: the agent() calls already done are reused; a call's key holds its prompt and options, so one whose input
-    // changed is run again, as Claude Code's resumeFromRunId does.)
     const done = new Map(prev ? prev.done : []);
     const runId = "wf-" + (k.runs.size + 1);
-    const record = { runId, script, scriptPath, args: input, done, status: "running" };
+    const taskId = runId;
+    const record = { runId, script, scriptPath, args: input, done, status: "running", stopReq: false };
     k.runs.set(runId, record);
-    let pass = null, agentsRun = 0, capped = 0, logs = [];
-    const byPhase = new Map();
-    for (let n = 0; n < WORKFLOW_PASSES; n++) {
-      if (await stopped()) { record.status = "stopped"; say(1, "stopped by the owner (resumeFromRunId " + runId + " continues it)"); return { usage, stop: true }; }
-      pass = await k.step({ script, args: input, done: [...done] });
-      if (!pass || typeof pass !== "object") pass = { status: "error", error: "the script's pass gave nothing" };
-      if (Array.isArray(pass.logs)) logs = pass.logs;
-      if (pass.status !== "pending") break;
-      const fresh = [];
-      for (const p of pass.pending || []) if (p && typeof p.key === "string" && !done.has(p.key) && !fresh.some((x) => x.key === p.key)) fresh.push(p);
-      if (!fresh.length) { pass = { status: "error", error: "the script waits on agent() calls that never settle" }; break; }
-      const base = done.size;
-      await Promise.all(fresh.map(async (p, j) => {
-        if (!k.budget.take()) { capped++; done.set(p.key, { ok: null }); return; }
-        agentsRun++;
-        const ph = typeof p.phase === "string" && p.phase ? p.phase : "";
-        byPhase.set(ph, (byPhase.get(ph) || 0) + 1);
-        const type = AGENT_TYPES[p.subagent_type] ? p.subagent_type : "general-purpose";
-        const mdl = resolveAgentModel({ model: AGENT_MODELS.includes(p.model) ? p.model : "", effort: AGENT_EFFORTS.includes(p.effort) ? p.effort : "" }, null, k.chat || {});
-        const prompt = p.prompt + (p.schema ? "\n\nYour report (subagent_handback's message) must be only JSON matching this JSON Schema, with no other words:\n" + JSON.stringify(p.schema) : "");
-        const label = (ph ? ph + " · " : "") + (p.label || "step " + (base + j + 1));
-        const r = await run({ type, prompt, messages: [], label, tag: runId + "-" + (base + j + 1) + "-", model: mdl.model, effort: mdl.effort });
-        if (r.status !== "done") { done.set(p.key, { ok: null }); return; }
-        const rep = reportOf(r);
-        if (p.schema) { const v = schemaAnswer(rep, p.schema); done.set(p.key, { ok: v.error ? null : v.value }); } else done.set(p.key, { ok: rep });
-      }));
-    }
-    const meta = pass && pass.meta ? pass.meta : null;
-    const nm = meta && meta.name ? meta.name : "";
-    const phases = [...byPhase.entries()].filter(([p]) => p).map(([p, n]) => p + ": " + n);
-    const head = "workflow" + (nm ? " “" + nm + "”" : "") + " · runId " + runId + " · " + agentsRun + " agent" + (agentsRun === 1 ? "" : "s") + " run" + (capped ? " · " + capped + " agent() call" + (capped === 1 ? "" : "s") + " gave null: this job's cap of subagents was reached" : "")
-      + (meta && meta.description ? "\nsummary: " + meta.description : "") + (phases.length ? "\nphases: " + phases.join(", ") : "") + (scriptPath ? "\nscriptPath: " + scriptPath : "");
-    const logText = logs.length ? "\nlog:\n" + logs.join("\n") : "";
-    const fields = { workflowResult: { workflowName: nm, runId, summary: meta ? meta.description : "", ...(scriptPath ? { scriptPath } : {}), agentsRun, ...(phases.length ? { phases: Object.fromEntries([...byPhase.entries()].filter(([p]) => p)) } : {}) } };
-    if (!pass || pass.status !== "done") {
+    // CLAUDE CODE'S WORKFLOW RETURNS AT ONCE (2026-11-23): status async_launched with taskId, taskType local_workflow,
+    // workflowName (meta.name), runId, summary (meta.description), scriptPath; error when the script fails its syntax check
+    // (then it never runs, despite the status). The run's final result comes later as a task notification.
+    const chk = syntaxCheck(script);
+    const meta0 = chk.meta || null;
+    const launched = { status: "async_launched", taskId, taskType: "local_workflow", workflowName: meta0 ? meta0.name : "", runId, summary: meta0 ? meta0.description : "", ...(scriptPath ? { scriptPath } : {}) };
+    if (chk.error) {
       record.status = "failed";
-      const why = pass && pass.status === "pending" ? "it was still waiting after " + WORKFLOW_PASSES + " passes" : String((pass && pass.error) || "it failed");
-      say(1, "error: the " + head + "\nstopped: " + why + logText + "\n(resumeFromRunId " + runId + " reruns it and reuses the agents already done)", "", { ...fields, workflowResult: { ...fields.workflowResult, error: why } });
+      say(1, "Workflow launched with an error: the script failed its syntax check, so it never ran: " + chk.error + "\ntaskId: " + taskId + " · runId " + runId + (scriptPath ? "\nscriptPath: " + scriptPath + " (edit it and run again)" : ""), "Workflow not run: " + oneLine(chk.error, 80), { workflowResult: { ...launched, error: chk.error } });
       return { usage };
     }
-    record.status = "done";
-    let out; try { out = JSON.stringify(pass.result, null, 2); } catch { out = String(pass.result); }
-    if (out === undefined) out = "null";
-    if (out.length > WORKFLOW_RESULT_MAX) out = out.slice(0, WORKFLOW_RESULT_MAX) + "\n…(cut: " + out.length + " characters)";
-    say(0, head + logText + "\nresult:\n" + out, "Workflow finished" + (nm ? ": " + nm : ""), fields);
+    const own = [];
+    const runAll = async () => {
+      const stoppedHere = async () => record.stopReq || (await stopped());
+      const runOne = async (o) => { const r = await k.budget.run(() => Promise.resolve().then(() => k.startSub({ type: o.type, prompt: o.prompt, messages: [], label: o.label, emit: taggedEmit(emit, o.tag, o.label), model: o.model, effort: o.effort, toolNames: (AGENT_TYPES[o.type] || AGENT_TYPES["general-purpose"]).tools, system: systemFor(o.type), maxRounds: SUBAGENT_ROUNDS, cwd: "", agentId: o.tag.replace(/-$/, ""), stopReq: () => record.stopReq })).catch((e) => ({ status: "error", messages: [], usage: [], summary: String((e && e.message) || e).slice(0, 300) }))); for (const u of (r && r.usage) || []) own.push(u); return r || { status: "error", messages: [], usage: [] }; };
+      let pass = null, agentsRun = 0, capped = 0, logs = [];
+      const byPhase = new Map();
+      for (let n = 0; n < WORKFLOW_PASSES; n++) {
+        if (await stoppedHere()) { record.status = "stopped"; return { code: 1, killed: true, text: "workflow " + runId + " was stopped (resumeFromRunId " + runId + " continues it)", usage: own }; }
+        pass = await k.step({ script, args: input, done: [...done] });
+        if (!pass || typeof pass !== "object") pass = { status: "error", error: "the script's pass gave nothing" };
+        if (Array.isArray(pass.logs)) logs = pass.logs;
+        if (pass.status !== "pending") break;
+        const fresh = [];
+        for (const p of pass.pending || []) if (p && typeof p.key === "string" && !done.has(p.key) && !fresh.some((x) => x.key === p.key)) fresh.push(p);
+        if (!fresh.length) { pass = { status: "error", error: "the script waits on agent() calls that never settle" }; break; }
+        const base = done.size;
+        await Promise.all(fresh.map(async (p, j) => {
+          if (!k.budget.take()) { capped++; done.set(p.key, { ok: null }); return; }
+          agentsRun++;
+          const ph = typeof p.phase === "string" && p.phase ? p.phase : "";
+          // (The progress view groups the agents under the script's named stages, meta.phases and phase(): a line per stage.)
+          if (ph && !byPhase.has(ph)) emit({ type: "note", text: "Workflow " + runId + " · phase: " + ph, phase: ph, workflow: runId });
+          byPhase.set(ph, (byPhase.get(ph) || 0) + 1);
+          const type = AGENT_TYPES[p.subagent_type] ? p.subagent_type : "general-purpose";
+          const mdl = resolveAgentModel({ model: AGENT_MODELS.includes(p.model) ? p.model : "", effort: AGENT_EFFORTS.includes(p.effort) ? p.effort : "" }, null, k.chat || {});
+          const prompt = p.prompt + (p.schema ? "\n\nYour report (subagent_handback's message, or your final answer) must be only JSON matching this JSON Schema, with no other words:\n" + JSON.stringify(p.schema) : "");
+          const label = (ph ? ph + " · " : "") + (p.label || "step " + (base + j + 1));
+          const r = await runOne({ type, prompt, label, tag: runId + "-" + (base + j + 1) + "-", model: mdl.model, effort: mdl.effort });
+          if (r.status !== "done") { done.set(p.key, { ok: null }); return; }
+          const rep = reportOf(r);
+          if (p.schema) { const v = schemaAnswer(rep, p.schema); done.set(p.key, { ok: v.error ? null : v.value }); } else done.set(p.key, { ok: rep });
+        }));
+      }
+      const meta = pass && pass.meta ? pass.meta : meta0;
+      const nm = meta && meta.name ? meta.name : "";
+      const phases = [...byPhase.entries()].filter(([p]) => p).map(([p, n]) => p + ": " + n);
+      const head = "workflow" + (nm ? " “" + nm + "”" : "") + " · runId " + runId + " · " + agentsRun + " agent" + (agentsRun === 1 ? "" : "s") + " run" + (capped ? " · " + capped + " agent() call" + (capped === 1 ? "" : "s") + " gave null: this job's cap of subagents was reached" : "")
+        + (meta && meta.description ? "\nsummary: " + meta.description : "") + (phases.length ? "\nphases: " + phases.join(", ") : "") + (scriptPath ? "\nscriptPath: " + scriptPath : "");
+      const logText = logs.length ? "\nlog:\n" + logs.join("\n") : "";
+      if (!pass || pass.status !== "done") {
+        record.status = "failed";
+        const why = pass && pass.status === "pending" ? "it was still waiting after " + WORKFLOW_PASSES + " passes" : String((pass && pass.error) || "it failed");
+        return { code: 1, text: "error: the " + head + "\nstopped: " + why + logText + "\n(resumeFromRunId " + runId + " reruns it and reuses the agents already done)", usage: own };
+      }
+      record.status = "done";
+      let out; try { out = JSON.stringify(pass.result, null, 2); } catch { out = String(pass.result); }
+      if (out === undefined) out = "null";
+      if (out.length > WORKFLOW_RESULT_MAX) out = out.slice(0, WORKFLOW_RESULT_MAX) + "\n…(cut: " + out.length + " characters)";
+      return { code: 0, text: head + logText + "\nresult:\n" + out, usage: own };
+    };
+    const entry = { id: taskId, name: "", description: "workflow" + (meta0 && meta0.name ? " “" + meta0.name + "”" : ""), type: "workflow", status: "running", record };
+    const p = runAll().catch((e) => ({ code: 1, text: "error: " + String((e && e.message) || e).slice(0, 300), usage: own }));
+    if (k.bg instanceof Map) {
+      const b = { entry, done: false, out: null, kind: "workflow" };
+      b.promise = p.then((x) => { b.done = true; b.out = x; entry.status = x && x.code === 0 ? "completed" : "failed"; });
+      k.bg.set(taskId, b);
+      say(0, "Workflow launched in the background.\ntaskId: " + taskId + " · taskType: local_workflow · runId: " + runId + (launched.workflowName ? "\nworkflowName: " + launched.workflowName : "") + (launched.summary ? "\nsummary: " + launched.summary : "") + (scriptPath ? "\nscriptPath: " + scriptPath : "") + "\nYou will be notified automatically when it completes (resumeFromRunId " + runId + " reruns it later, reusing finished agents; stop_job with " + taskId + " stops it). Do not poll for it; go on with other work or tell the owner what you launched.", "Workflow started in the background" + (launched.workflowName ? ": " + launched.workflowName : ""), { workflowResult: launched });
+      return { usage };
+    }
+    // (No background list, as in a test's bare loop: the run is waited for, and its result is this call's answer.)
+    const out = await p;
+    for (const u of out.usage || []) usage.push(u);
+    say(out.code, out.text, out.code === 0 ? "Workflow finished" : "", { workflowResult: launched });
     return { usage };
   }
   return no("error: unknown agent tool");
+}
+
+/**
+ * TASKSTOP FOR A BACKGROUND AGENT OR WORKFLOW (Claude Code from v2.1.198: "TaskStop's task_id also accepts ... a named
+ * background agent, by agent ID or name"): asks it to stop. → the stopped task's JSON answer, or null when none matches.
+ */
+export function stopBgTask(bg, idOrName) {
+  if (!(bg instanceof Map)) return null;
+  const want = String(idOrName || "").trim();
+  if (!want) return null;
+  let hit = bg.get(want) ? [want, bg.get(want)] : [...bg.entries()].find(([, b]) => b && b.entry && b.entry.name && b.entry.name === want);
+  if (!hit) return null;
+  const [id, b] = hit;
+  if (b.done) return { code: 1, text: "Task " + id + " is not running (status: " + (b.entry.status || "completed") + ")" };
+  b.entry.stopReq = true;
+  if (b.entry.record) b.entry.record.stopReq = true;
+  const type = b.kind === "workflow" ? "local_workflow" : "local_agent";
+  return { code: 0, text: JSON.stringify({ message: "Successfully stopped task: " + id + " (" + (b.entry.description || id) + ")", task_id: id, task_type: type }) };
 }
 
 /** The background agents that have ended: a notification for each (Claude Code's task notification), and they leave the list. */
@@ -708,7 +789,9 @@ export function takeBgAgents(bg) {
     if (!b.done) continue;
     bg.delete(id);
     const o = b.out || { code: 1, text: "(no report)", usage: [] };
-    out.push({ id, usage: o.usage || [], ok: o.code === 0, text: "<task-notification>\n<task-id>" + id + "</task-id>\n<status>" + (o.code === 0 ? "completed" : "failed") + "</status>\n<summary>Agent “" + (b.entry.name || b.entry.description) + "” " + (o.code === 0 ? "completed" : "failed") + "</summary>\n<result>\n" + o.text + "\n</result>\n</task-notification>" });
+    const st = b.entry.stopReq || o.killed ? "killed" : o.code === 0 ? "completed" : "failed";
+    const what = b.kind === "workflow" ? "Workflow " + (b.entry.record && b.entry.record.runId ? b.entry.record.runId : id) : "Agent “" + (b.entry.name || b.entry.description) + "”";
+    out.push({ id, kind: b.kind || "agent", usage: o.usage || [], ok: o.code === 0, text: "<task-notification>\n<task-id>" + id + "</task-id>\n" + (b.kind === "workflow" ? "<task-type>local_workflow</task-type>\n" : "") + "<status>" + st + "</status>\n<summary>" + what + " " + (st === "killed" ? "was stopped" : st) + "</summary>\n" + (b.entry.outputFile ? "<output-file>" + b.entry.outputFile + "</output-file>\n" : "") + "<result>\n" + o.text + "\n</result>\n</task-notification>" });
   }
   return out;
 }

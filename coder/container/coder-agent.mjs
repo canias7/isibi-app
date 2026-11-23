@@ -50,7 +50,7 @@ import { sharedChat, sharedChatText, NOT_FETCHED, webFetchDescription, WEBFETCH_
 import { ENV_TOOLS, ENV_TOOL_NAMES, ENV_INPUT_CHECKS, envTable } from "./coder-envtools.mjs";
 import { withMcpServer } from "./coder-hooks.mjs";
 // (Claude Code's tool search in Coder's chats, its ToolSearch as tool_search: coder-toolsearch.mjs. 2026-11-14.)
-import { TOOL_SEARCH, TOOL_SEARCH_TOOL, isDeferred, decideToolSearch, toolSearchRecord, requestTools, upfrontTools, upfrontRecord, entryName, sameTools, announcement, runToolSearch, notLoadedHint, toolSearchAnswer, stillListed, retracts, isMcpName, mcpParts, mcpDescMaxOf, XAI_TOOLS_MAX, lockTools, heldBackRefusal } from "./coder-toolsearch.mjs";
+import { TOOL_SEARCH, TOOL_SEARCH_TOOL, isDeferred, decideToolSearch, toolSearchRecord, requestTools, upfrontTools, upfrontRecord, entryName, sameTools, announcement, runToolSearch, notLoadedHint, toolSearchAnswer, stillListed, retracts, isMcpName, mcpParts, mcpDescMaxOf, XAI_TOOLS_MAX, TOOL_SEARCH_CATALOG_MAX, lockTools, heldBackRefusal } from "./coder-toolsearch.mjs";
 import { PARK_MS, PARKED_SUMMARY, STEP_SITES, Parked, parkRecord, parkAnswer, parkedRound, closeParked, keptCall, siteOfCard, wordsAfterResults } from "./coder-park.mjs";
 import { askedCall, untilBackground, serverOf, cardAnswer, cardEnding, elicitHookVerdict, elicitHookAnswer, afterResultHooks, elicitReply, responseNotice, completeNotice, toolDisplayName } from "./coder-elicit.mjs";
 import { HOOK_EVENTS, STOP_BLOCK_CAP, ENV_FILE_EVENTS, GATING_EVENTS, AGENT_HOOK_TURNS, HOOK_JUDGE, HOOK_JUDGE_AGENT, hooksFor, hookInput, hookResult, hookResultSafe, persistHookText, hooksOutcome, ccTool, hookToolInput, toolInputFromHook, givenPathKept, hookAnswers, answeredText, hookName, hookNoteText, hookPrompt, parseHookVerdict, httpUrlAllowed, asyncHookTexts, watchedNames, stopFailureKind, hookShell, splitHookOut, asBashInput, withoutGrant, ruleEntry, entryRule, runMcpToolHook } from "./coder-hooks.mjs";
@@ -75,7 +75,7 @@ import { fileNameOf } from "./gloopy-browser.mjs";
 import { needsCheck, stepWords, stepSends, gloopyCheck, gloopyMonitor, MONITOR_EVERY, MONITOR_MAX, ownerWords, cleanRules, cleanSites, siteFor, plain, decide, formWords, markedNote, taughtNote, requestWords, bodyPreview, CARD_TTL_MS, signinCheck, signinWarning, WARNINGS, readsInFull } from "./gloopy-check.mjs";
 import { cleanPermissions, permissionLabel } from "./gloopy-permissions.mjs";
 import { asText, asNumber } from "./coder-text.mjs";
-import { AGENT_TOOL, LIST_AGENTS_TOOL, SEND_MESSAGE_TOOL, WORKFLOW_TOOL, SUBAGENT_HANDBACK_TOOL, AGENT_TOOL_NAMES, AGENT_TYPES, SUBAGENT_SYSTEM, SUBAGENT_ROUNDS, SUBAGENT_MS, WORKFLOW_PASS_S, subagentCaps, subagentBudget, subagentTools, agentToolCall, startAgent, takeBgAgents, customAgentsFrom, agentFilesScript, agentFilesOf, agentWorktreeScript, agentWorktreeFinishScript, AGENT_ALIASES, agentToolFor } from "./coder-agents.mjs";
+import { AGENT_TOOL, LIST_AGENTS_TOOL, SEND_MESSAGE_TOOL, WORKFLOW_TOOL, SUBAGENT_HANDBACK_TOOL, AGENT_TOOL_NAMES, AGENT_TYPES, SUBAGENT_SYSTEM, SUBAGENT_ROUNDS, SUBAGENT_MS, WORKFLOW_PASS_S, subagentCaps, subagentBudget, subagentTools, agentToolCall, startAgent, takeBgAgents, stopBgTask, customAgentsFrom, agentFilesScript, agentFilesOf, agentWorktreeScript, agentWorktreeFinishScript, AGENT_ALIASES, agentToolFor } from "./coder-agents.mjs";
 /** A contact entry from the owner's Vault in one line (as gloopy-agent.mjs's contactWords, kept here to import nothing of it). */
 const contactWords = (x) => { const place = [x.line1, x.line2, x.city, [x.region, x.postal].filter(Boolean).join(" "), x.country].filter(Boolean).join(", "); return [x.nickname ? "“" + x.nickname + "”" : "", [x.name, place].filter(Boolean).join(", "), x.phone, x.email].filter(Boolean).join(" · "); };
 // (Claude Code's Artifact, ListMcpResourcesTool, ReadMcpResourceTool, ReadMcpResourceDirTool, RefreshMcpTools and WaitForMcpServers, 2026-11-23: coder-resources.mjs.)
@@ -1421,7 +1421,7 @@ export const CODER_TOOLS = Object.freeze([
   // mid-conversation"). It took the place of Coder's old monitor, which looked at a background command's output: Claude Code
   // dropped that tool (TaskOutput, 2.1.277), and Claude reads output files with Read.
   fn("monitor", "Start a monitor: a shell command that runs in the background and whose every stdout line comes to you as an event while you work, so you can react when something happens (a server's ready line, an error in a log, a build or deploy that finishes, a file that changes, a status you poll in a loop) instead of checking again and again. Lines that come close together arrive together. Stderr goes to a file of its own and is no event. Or, for a server that already pushes events, a WebSocket (ws) instead of a command: each text message is one event, a binary one comes as a placeholder line, a message over 1 MiB ends the watch, and when the socket closes the watch ends and you are told its close code. It ends when its command exits, at its deadline (timeout_ms: default 300000, 5 minutes; at most 1800000, 30 minutes; you are told once, so you can start it again if you still need it), or with stop_job. One that prints too many lines is stopped, so filter what it prints (grep --line-buffered, awk with fflush()). A command is checked like a bash command (the same rules and questions); a WebSocket is asked about first, or judged by auto mode's checker. To read a background command's output, read its output file.", { command: { type: "string", description: "Shell command or script. Each stdout line is an event; exit ends the watch. Not with ws." }, ws: { type: "object", description: "WebSocket to open. Each text frame is an event; binary frames are reported as a placeholder line. Socket close ends the watch. Cannot be combined with command.", properties: { url: { type: "string", description: "A ws:// or wss:// URL, ASCII only, with no user name or password" }, protocols: { type: "array", items: { type: "string" }, description: "WebSocket subprotocols to offer (RFC 6455 tokens, each once)" } }, required: ["url"] }, description: { type: "string", description: "What it watches, in a few words (shown with each event)" }, timeout_ms: { type: "integer", description: "Its deadline in milliseconds (default 300000, at most 1800000)" } }, ["description"]),
-  fn("stop_job", "Stop a background command by its id (like Claude Code's TaskStop), when it is no longer needed.", { task_id: { type: "string", description: "The id of the background command or monitor to stop" }, shell_id: { type: "string", description: "Deprecated: use task_id" }, job: { type: "string", description: "Coder's older name for task_id" } }, []),
+  fn("stop_job", "Stop a background command by its id (like Claude Code's TaskStop), when it is no longer needed; also a background agent (its id or name) or a background workflow (its taskId).", { task_id: { type: "string", description: "The id of the background command, monitor, agent or workflow to stop (an agent also by its name)" }, shell_id: { type: "string", description: "Deprecated: use task_id" }, job: { type: "string", description: "Coder's older name for task_id" } }, []),
   // (Claude Code's request_credential: SECRET_WORDS and SECRET_INPUTS, above. The owner, 2026-11-14.)
   fn("request_secret", SECRET_WORDS, SECRET_INPUTS, ["host", "reason"]),
   // CLAUDE CODE'S ENVIRONMENT TOOLS (the owner, 2026-11-14: "Do all the talk to you tools execpt for the notify one"; its cloud
@@ -3604,6 +3604,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     const own = at < 0 ? chatTools.slice() : chatTools.slice(0, at), theirs = at < 0 ? [] : chatTools.slice(at);
     chatTools.splice(0, chatTools.length, ...own, TOOL_SEARCH_TOOL, ...theirs.map((f) => (mcpByName.has(f.function.name) && !tsUpfront.has(f.function.name) ? asFn(mcpByName.get(f.function.name), true) : f)));
   }
+  // (Tool search on: its catalog holds at most 10,000 tools, as Claude Code's; one request still carries at most xAI's 350.)
+  if (tsOn && chatTools.length > TOOL_SEARCH_CATALOG_MAX) chatTools.splice(TOOL_SEARCH_CATALOG_MAX);
   // (WaitForMcpServers only with tool search off: "ToolSearch handles the wait when it's enabled". 2026-11-23.)
   if (tsOn) { const w = chatTools.findIndex((t) => t && t.function && t.function.name === WAIT_SERVERS); if (w >= 0) chatTools.splice(w, 1); }
   // (Tool search off: every tool upfront, at most xAI's 350 a request, room kept for exit_plan_mode in plan mode; the
@@ -4175,7 +4177,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   const agentBg = new Map();
   let agentEarly = new Map();
   let customAgentsP = null;
-  const isSubHere = () => !!(offered && offered.has("subagent_handback"));
+  // (A subagent's loop: runCoder's `subagent`. Not whether it has subagent_handback, which only auto mode gives.)
+  const isSubHere = () => !!(subagent && typeof subagent === "object");
   const shRun = async (command, timeoutS = 60) => { try { return await deps.exec({ command, timeoutS, tool: true }); } catch (e) { return { code: -1, output: String((e && e.message) || e) }; } };
   /** What coder-agents.mjs needs of this loop for one call (`reply`: that call's answer). */
   const agentKit = (reply) => {
@@ -4199,13 +4202,14 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         if (o.decision === "block") return o.blocks.join("\n") || o.reason || "";
         return o.context.length ? "SubagentStop hook feedback:\n" + o.context.join("\n") : "";
       },
-      startSub: ({ type, prompt, messages: past, label, emit: subEmit, model: m, effort: ef, toolNames, system: sys, maxRounds: mr, cwd, agentId }) => runCoder({ ...deps, emit: subEmit, subagentBudget: agentBudget, ...(cwd ? inFolder(deps, cwd) : {}) }, { text: prompt, messages: past || [], system: sys || SUBAGENT_SYSTEM + (AGENT_TYPES[type] && AGENT_TYPES[type].note ? "\n\n" + AGENT_TYPES[type].note : ""), tools: subagentTools(subTools, type, toolNames), context, base, model: m || model, effort: ef || effort, mode: modeNow(), rules, hooks, denyInstead: true, nudges: false, who: "Coder's agent “" + label + "”", asHelper: true, github: false, tasksOff: true, maxRounds: mr || SUBAGENT_ROUNDS, maxMs: Math.min(SUBAGENT_MS, left), subagent: { id: agentId || "", type } }),
+      startSub: ({ type, prompt, messages: past, label, emit: subEmit, model: m, effort: ef, toolNames, system: sys, maxRounds: mr, cwd, agentId, stopReq }) => runCoder({ ...deps, emit: subEmit, subagentBudget: agentBudget, ...(cwd ? inFolder(deps, cwd) : {}), ...(typeof stopReq === "function" ? { stopped: async () => stopReq() || (await stopped()) } : {}) }, { text: prompt, messages: past || [], system: sys || SUBAGENT_SYSTEM + (AGENT_TYPES[type] && AGENT_TYPES[type].note ? "\n\n" + AGENT_TYPES[type].note : ""), tools: subagentTools(subTools, type, toolNames, { mode: modeNow() }), context, base, model: m || model, effort: ef || effort, mode: modeNow(), rules, hooks, denyInstead: true, nudges: false, who: "Coder's agent “" + label + "”", asHelper: true, github: false, tasksOff: true, maxRounds: mr || SUBAGENT_ROUNDS, maxMs: Math.min(SUBAGENT_MS, left), subagent: { id: agentId || "", type } }),
       step: typeof deps.workflowStep === "function" ? deps.workflowStep : async (a) => { const r = await appTool(deps, "workflow_step", a, { timeoutS: WORKFLOW_PASS_S }); try { return JSON.parse(r.output); } catch { return { status: "error", error: r.output.trim().slice(0, 400) || "the script's pass failed" }; } },
+      writeText: async (p, text) => { const b64 = Buffer.from(String(text), "utf8").toString("base64"); const q = "'" + String(p).replace(/'/g, "'\\''") + "'"; const r = await shRun("mkdir -p -- \"$(dirname -- " + q + ")\" && printf %s '" + b64 + "' | base64 -d > " + q, 20); if (!r || r.code !== 0) throw new Error("could not write " + p); },
       readText: async (p) => { try { const r = await deps.exec({ command: "cat -- '" + String(p).replace(/'/g, "'\\''") + "'", timeoutS: 15, tool: true }); return r && r.code === 0 ? { text: String(r.output || "") } : { error: "could not read " + p }; } catch { return { error: "could not read " + p }; } },
     };
   };
   /** The background agents that have finished: their notifications for Grok (Claude Code's task notifications), counted. */
-  const takeAgentNotes = () => { const out = takeBgAgents(agentBg); for (const n of out) { for (const u of n.usage) usage.push(u); emit({ type: "note", text: "Background agent " + n.id + (n.ok ? " finished." : " failed.") }); } return out.map((n) => n.text); };
+  const takeAgentNotes = () => { const out = takeBgAgents(agentBg); for (const n of out) { for (const u of n.usage) usage.push(u); emit({ type: "note", text: (n.kind === "workflow" ? "Background workflow " : "Background agent ") + n.id + (n.ok ? " finished." : " failed.") }); } return out.map((n) => n.text); };
   // GLOOPY'S PAGES published in this turn (the Worker keeps them when the turn ends).
   const pageRequests = [];
   // Gloopy's schedules it stopped in this turn, and the wake-ups it set (the Worker keeps the schedules; it applies these
@@ -5996,6 +6000,9 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         emit({ type: "bash", id: c.id, tool: c.name, verb: "Stopped", command: asText(c.args.job) + (j ? " (" + scrub(j.command.split("\n")[0]).slice(0, 80) + ")" : "") });
         // (Claude Code 2.1.322's words for TaskStop: "No task found with ID: …", "Task … is not running (status: …)", and when it
         // stopped one, its JSON, {"message":"Successfully stopped task: … (…)", …}; Bash docs pass 9.)
+        // (A background agent or workflow, by its id or an agent's name: Claude Code's TaskStop from v2.1.198. 2026-11-23.)
+        const sa = !j ? stopBgTask(agentBg, asText(c.args.job)) : null;
+        if (sa) { let shown = sa.text; try { const o = JSON.parse(sa.text); shown = o.message; toolFacts.set(c.id, o); } catch { /* not JSON */ } emit({ type: "result", id: c.id, code: sa.code, output: shown }); reply(sa.text); continue; }
         if (!j) { const m = "No task found with ID: " + asText(c.args.job).slice(0, 40); emit({ type: "result", id: c.id, code: 1, output: m }); reply(m); continue; }
         const name = asText(c.args.job);
         // WHETHER IT RUNS, AND ITS STOP, COME FROM CODER'S SERVICE, which started it (live test, 2026-11-08: a check
@@ -7582,9 +7589,13 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         emit({ type: "bash", id: c.id, tool: "skill", verb: "Skill", command: scrub(nm).slice(0, 80) });
         if (!sk || !sk.model) { const m = "Unknown skill: " + nm.slice(0, 80); emit({ type: "result", id: c.id, code: 1, output: m }); reply(m); continue; }
         if (skillRule(ownRules, "deny", sk.name, parseRule)) { const m = "Permission to use Skill with skill " + sk.name + " has been denied."; emit({ type: "result", id: c.id, code: -1, ran: false, output: m }); reply(m); continue; }
-        const askR = skillRule(ownRules, "ask", sk.name, parseRule);
+        const askR0 = skillRule(ownRules, "ask", sk.name, parseRule);
+        // (A skill that sets allowed-tools, disallowed-tools or hooks asks first, as Claude Code's can, unless a Skill(name)
+        // allow rule covers it or the chat bypasses permissions. 2026-11-23.)
+        const askFields = !askR0 && typeof sk.asks === "string" && sk.asks && modeNow() !== "bypassPermissions" && !skillRule(ownRules, "allow", sk.name, parseRule) ? sk.asks : "";
+        const askR = askR0 || askFields;
         if (askR) {
-          const card = { tool: "skill", id: c.id, what: "Load the skill " + sk.name, why: ruleAskWhy(askR, modeNow(), "tool"), told: askedWhy("Skill") };
+          const card = { tool: "skill", id: c.id, what: "Load the skill " + sk.name, why: askR0 ? ruleAskWhy(askR0, modeNow(), "tool") : "This skill sets " + askFields + ", which change what Coder may do while it runs.", told: askedWhy("Skill") };
           const a = canAsk() ? await askOwner(card) : await noOneHooks(card);
           if (!a) { reply(card.told); continue; }
           const o = answerOutcome(a);
