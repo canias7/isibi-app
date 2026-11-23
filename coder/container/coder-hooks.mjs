@@ -123,7 +123,7 @@ export const AGENT_HOOK_TURNS = 50;
 // (web_search is Claude Code's WebSearch since it became Coder's own tool: the owner, 2026-11-14, "start fixing and filling
 // in gaps on those tools"; its tool_input, query and the domain lists, has Claude Code's names already.)
 // (The task list's four since 2026-11-14, the owner: "Do all the talk to you tools execpt for the notify one".)
-export const CC_TOOL = { bash: "Bash", powershell: "PowerShell", monitor: "Monitor", read: "Read", write: "Write", edit: "Edit", notebook_edit: "NotebookEdit", grep: "Grep", glob: "Glob", lsp: "LSP", web_fetch: "WebFetch", web_search: "WebSearch", stop_job: "TaskStop", ask_user: "AskUserQuestion", exit_plan_mode: "ExitPlanMode", enter_plan_mode: "EnterPlanMode", todo: "TodoWrite", todo_write: "TodoWrite", task_create: "TaskCreate", task_get: "TaskGet", task_list: "TaskList", task_update: "TaskUpdate", tool_search: "ToolSearch", skill: "Skill", notify: "PushNotification" };
+export const CC_TOOL = { send_user_file: "SendUserFile", bash: "Bash", powershell: "PowerShell", monitor: "Monitor", read: "Read", write: "Write", edit: "Edit", notebook_edit: "NotebookEdit", grep: "Grep", glob: "Glob", lsp: "LSP", web_fetch: "WebFetch", web_search: "WebSearch", stop_job: "TaskStop", ask_user: "AskUserQuestion", exit_plan_mode: "ExitPlanMode", enter_plan_mode: "EnterPlanMode", todo: "TodoWrite", todo_write: "TodoWrite", task_create: "TaskCreate", task_get: "TaskGet", task_list: "TaskList", task_update: "TaskUpdate", tool_search: "ToolSearch", skill: "Skill", notify: "PushNotification" };
 export const ccTool = (name, monitor = false) => (monitor ? "Monitor" : CC_TOOL[name] || String(name || ""));
 // (And the environment tools and request_secret by Claude Code's names for them, its claude-code-remote MCP server's tools,
 // mcp__claude-code-remote__get_environment … mcp__claude-code-remote__request_credential: a hook's tool_name, its matcher and
@@ -360,6 +360,8 @@ const FULL_PATH_TOOLS = new Set(["read", "write", "edit"]);
 export function hookToolInput(name, args, at = null) {
   const a = args && typeof args === "object" ? { ...args } : {};
   if ((name === "read" || name === "write" || name === "edit") && typeof a.path === "string" && a.file_path === undefined) a.file_path = a.path;
+  // (The owner's read size, Coder's own input to its read: never Grok's, so never a hook's. Batch 8.)
+  if (name === "read") delete a.read_chars;
   // (NotebookEdit's own input names: notebook_path, never Coder's `path`. Batch 5.)
   if (name === "notebook_edit") { if (typeof a.notebook_path !== "string" && typeof a.path === "string") a.notebook_path = a.path; delete a.path; delete a.file_path; if (at && typeof a.notebook_path === "string") a.notebook_path = hookPath(a.notebook_path, at); }
   if (at && FULL_PATH_TOOLS.has(name)) for (const k of ["path", "file_path"]) if (typeof a[k] === "string") a[k] = hookPath(a[k], at);
@@ -1037,9 +1039,66 @@ export function crashLine(stderr) {
   if (/^\S+:\d+$/.test(lines[0])) { const e = lines.find((l) => /^(?:[A-Za-z_$][\w$]*Error|Error)(?: \[\w+\])?:/.test(l)); if (e) return e; }
   return lines[0];
 }
+/**
+ * THE CONVERSATION AS CLAUDE CODE'S TRANSCRIPT ("Go Claude Code way", batch 8, 2026-11-22, audit M-c-56; Claude Code's hooks
+ * reference, common input fields: "transcript_path: Path to conversation JSON. The transcript file is written asynchronously
+ * and may lag the in-memory conversation"; its transcripts are JSON lines in ~/.claude/projects/…/<session>.jsonl): one line
+ * per message, as Claude Code writes them: `type` "user" or "assistant", `message` with Claude's roles and content blocks
+ * (text, tool_use with the tool's Claude Code name and input, tool_result, image), `uuid` and `parentUuid` chaining them,
+ * `sessionId`, `cwd`, `timestamp`, `isSidechain` false, `userType` "external"; a note from Coder's app is `isMeta`, as Claude
+ * Code's reminders are. Coder's own instructions (the system message) are not in it, as Claude Code's system prompt is not.
+ */
+export function transcriptLines(messages, { session = "", cwd = "", model = "", from = 0, parent = null, at = Date.now() } = {}) {
+  const list = Array.isArray(messages) ? messages : [];
+  // (The same message keeps its uuid when the file is written again: made from the chat and its place, four FNV-1a hashes,
+  // as this module also runs in Coder's Worker, which has no Node modules.)
+  const fnv = (str, seed) => { let h = seed >>> 0; for (let k = 0; k < str.length; k++) { h ^= str.charCodeAt(k); h = Math.imul(h, 16777619) >>> 0; } return h.toString(16).padStart(8, "0"); };
+  const uuidOf = (i) => { const key = String(session) + ":" + i; const h = [2166136261, 3735928559, 1540483477, 2654435761].map((seed) => fnv(key, seed)).join(""); return h.slice(0, 8) + "-" + h.slice(8, 12) + "-4" + h.slice(13, 16) + "-a" + h.slice(17, 20) + "-" + h.slice(20, 32); };
+  const part = (p) => {
+    if (typeof p === "string") return { type: "text", text: p };
+    if (!p || typeof p !== "object") return { type: "text", text: String(p ?? "") };
+    if (p.type === "text") return { type: "text", text: String(p.text ?? "") };
+    const url = p.type === "image_url" ? String((p.image_url && (p.image_url.url ?? p.image_url)) || "") : "";
+    const m = /^data:([\w.+/-]+);base64,(.*)$/s.exec(url);
+    if (m) return { type: "image", source: { type: "base64", media_type: m[1], data: m[2] } };
+    if (url) return { type: "image", source: { type: "url", url } };
+    return { type: "text", text: JSON.stringify(p) };
+  };
+  const content = (c) => (Array.isArray(c) ? c.map(part) : String(c ?? ""));
+  const out = [];
+  let prev = parent;
+  const stamp = new Date(at).toISOString();
+  for (let i = Math.max(0, from); i < list.length; i++) {
+    const m = list[i];
+    if (!m || typeof m !== "object" || m.role === "system") continue;
+    let entry;
+    if (m.role === "assistant") {
+      const blocks = [];
+      const text = typeof m.content === "string" ? m.content : Array.isArray(m.content) ? m.content.map((p) => (p && p.type === "text" ? String(p.text || "") : "")).join("") : "";
+      if (text) blocks.push({ type: "text", text });
+      for (const tc of Array.isArray(m.tool_calls) ? m.tool_calls : []) {
+        const f = (tc && tc.function) || {};
+        let args = {};
+        try { args = typeof f.arguments === "string" ? JSON.parse(f.arguments || "{}") : (f.arguments && typeof f.arguments === "object" ? f.arguments : {}); } catch { args = { _raw: String(f.arguments || "") }; }
+        const name = String(f.name || "");
+        blocks.push({ type: "tool_use", id: String((tc && tc.id) || ""), name: ccTool(name), input: hookToolInput(name, args) });
+      }
+      entry = { type: "assistant", message: { role: "assistant", type: "message", ...(model ? { model: String(model) } : {}), content: blocks } };
+    } else if (m.role === "tool") {
+      entry = { type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: String(m.tool_call_id || ""), content: content(m.content) }] } };
+    } else if (m.role === "user") {
+      entry = { type: "user", ...(m.appNote ? { isMeta: true } : {}), message: { role: "user", content: content(m.content) } };
+    } else continue;
+    const uuid = uuidOf(i);
+    out.push(JSON.stringify({ parentUuid: prev, isSidechain: false, userType: "external", cwd: String(cwd), sessionId: String(session), ...entry, uuid, timestamp: stamp }));
+    prev = uuid;
+  }
+  return { lines: out, last: prev };
+}
 /** The input every hook gets (Claude Code's common fields), with the event's own. */
-export function hookInput(event, { session = "", cwd = "", mode = "auto", effort = "", promptId = "", scratch = "/tmp/coder-scratch" } = {}, extra = {}) {
+export function hookInput(event, { session = "", transcript = "", cwd = "", mode = "auto", effort = "", promptId = "", scratch = "/tmp/coder-scratch" } = {}, extra = {}) {
   // (`scratchpad_dir`: the chat's scratch folder, as Claude Code's common fields give it: Bash docs pass 9.)
   // (No permission_mode for the events whose examples on Claude Code's hooks page have none; TaskCompleted's has one. 2026-11-19.)
-  return { session_id: String(session), ...(promptId ? { prompt_id: String(promptId) } : {}), cwd: String(cwd), ...(scratch ? { scratchpad_dir: String(scratch) } : {}), ...(NO_MODE_EVENTS.has(event) ? {} : { permission_mode: String(mode) }), hook_event_name: event, ...(effort ? { effort: { level: String(effort) } } : {}), ...extra };
+  // (`transcript_path`: the chat's conversation as Claude Code's JSON lines, transcriptLines; batch 8.)
+  return { session_id: String(session), ...(transcript ? { transcript_path: String(transcript) } : {}), ...(promptId ? { prompt_id: String(promptId) } : {}), cwd: String(cwd), ...(scratch ? { scratchpad_dir: String(scratch) } : {}), ...(NO_MODE_EVENTS.has(event) ? {} : { permission_mode: String(mode) }), hook_event_name: event, ...(effort ? { effort: { level: String(effort) } } : {}), ...extra };
 }

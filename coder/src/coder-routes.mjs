@@ -1337,6 +1337,8 @@ export async function handleCoder(request, env, ctx, deps) {
   // ── A CODER CHAT'S ATTACHED FILE, FOR ITS MACHINE (audit M-d-14; src/coder-attach.mjs): with that chat's running job's own
   // pass, as Gloopy's; nothing else is given out. ──
   if (parts[0] === "coder-file-get" && parts.length === 1 && request.method === "POST") return coderJobFile(request, env, bucket);
+  // (And a file the chat's job sends the owner, Claude Code's SendUserFile: kept with the chat. Batch 8, MISS-55.)
+  if (parts[0] === "coder-file-put" && parts.length === 1 && request.method === "POST") return coderJobFile(request, env, bucket, true);
   // GLOOPY'S COMPUTER'S COPY (the audit, 2026-11-10; src/gloopy-backup.mjs): its work folder and its browser's sign-ins,
   // kept and given back with its running job's own pass.
   if ((parts[0] === "gloopy-backup-get" || parts[0] === "gloopy-backup-put") && parts.length === 1 && request.method === "POST") return gloopyJobBackup(request, env, bucket, parts[0] === "gloopy-backup-put", url.searchParams.get("part") || "");
@@ -4532,7 +4534,7 @@ async function gloopyJobFile(request, env, bucket, put) {
  * A CODER CHAT'S ATTACHED FILE, FOR ITS MACHINE (audit M-d-14): the running job's own pass for that chat and turn (never
  * Gloopy's), and { id } one of the files that chat keeps: its bytes, its name in x-file-name. Anything else: refused.
  */
-export async function coderJobFile(request, env, bucket) {
+export async function coderJobFile(request, env, bucket, put = false) {
   const h = request.headers;
   const chat = String(h.get("x-coder-chat") || ""), turn = String(h.get("x-coder-turn") || "");
   const m = /^([\w-]{1,100})\/([\w-]{1,100})$/.exec(chat);
@@ -4543,6 +4545,16 @@ export async function coderJobFile(request, env, bucket) {
   if (diff) return json({ error: "not allowed" }, 403);
   const meta = await getJson(bucket, keyOf(m[1], m[2], "meta.json"), null);
   if (!meta || isGloopy(meta) || meta.status !== "running" || String(meta.turn) !== turn) return json({ error: "not allowed" }, 403);
+  // A FILE THE JOB SENDS THE OWNER (Claude Code's SendUserFile; batch 8, MISS-55): kept with the chat as an attached file is,
+  // marked as sent by Coder, within the chat's limits (none is ever dropped); the owner downloads it from the chat.
+  if (put) {
+    const len = Number(request.headers.get("content-length") || 0);
+    if (len > ATTACH_FILE_MAX) return json({ error: "That file is over " + ATTACH_FILE_MAX / 1048576 + " MB." }, 413);
+    let name = "";
+    try { name = decodeURIComponent(request.headers.get("x-file-name") || ""); } catch { name = ""; }
+    const kept = await keepAttach(bucket, m[1], m[2], { name, bytes: new Uint8Array(await request.arrayBuffer()), out: true });
+    return kept.error ? json({ error: kept.error }, 400) : json({ id: kept.id, name: kept.name, size: kept.size });
+  }
   let body = {}; try { body = await request.json(); } catch { body = {}; }
   const f = await attachOf(bucket, m[1], m[2], String(body.id || ""));
   if (!f) return json({ error: "no such file" }, 404);

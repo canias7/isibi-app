@@ -36,11 +36,12 @@ async function getJson(bucket, key, fallback) {
 /** A chat's attached files: [{ id, name, size, at }], oldest first. */
 export async function readAttach(bucket, uid, id) {
   const l = await getJson(bucket, listKey(uid, id), []);
-  return (Array.isArray(l) ? l : []).filter((x) => x && ATTACH_ID.test(x.id) && attachName(x.name)).map((x) => ({ id: x.id, name: attachName(x.name), size: Number(x.size) || 0, at: Number(x.at) || 0 }));
+  return (Array.isArray(l) ? l : []).filter((x) => x && ATTACH_ID.test(x.id) && attachName(x.name)).map((x) => ({ id: x.id, name: attachName(x.name), size: Number(x.size) || 0, at: Number(x.at) || 0, ...(x.out === true ? { out: true } : {}) }));
 }
 
 /** A FILE KEPT WITH THE CHAT: its name cleaned, its size within ATTACH_FILE_MAX, the chat within its limits. It, or { error }. */
-export async function keepAttach(bucket, uid, id, { name, bytes }, now = Date.now()) {
+// (`out`: a file Coder sent the owner, Claude Code's SendUserFile, kept the same way: batch 8, MISS-55.)
+export async function keepAttach(bucket, uid, id, { name, bytes, out = false }, now = Date.now()) {
   const n = attachName(name);
   if (!n) return { error: "That file has no name that can be kept." };
   const size = bytes ? bytes.byteLength : 0;
@@ -48,7 +49,7 @@ export async function keepAttach(bucket, uid, id, { name, bytes }, now = Date.no
   if (size > ATTACH_FILE_MAX) return { error: "That file is over " + ATTACH_FILE_MAX / 1048576 + " MB." };
   const list = await readAttach(bucket, uid, id);
   if (list.length >= ATTACH_KEPT_MAX || list.reduce((a, x) => a + x.size, 0) + size > ATTACH_TOTAL_MAX) return { error: "This chat already keeps as many attached files as it can. Start a new chat to attach more." };
-  const item = { id: "a" + crypto.randomUUID().replace(/-/g, "").slice(0, 12), name: n, size, at: now };
+  const item = { id: "a" + crypto.randomUUID().replace(/-/g, "").slice(0, 12), name: n, size, at: now, ...(out ? { out: true } : {}) };
   await bucket.put(fileKey(uid, id, item.id), bytes, { httpMetadata: { contentType: "application/octet-stream" }, customMetadata: { name: n } });
   await bucket.put(listKey(uid, id), JSON.stringify([...list, item]), { httpMetadata: { contentType: "application/json" } });
   return item;

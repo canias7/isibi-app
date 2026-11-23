@@ -1800,6 +1800,9 @@
     // /context [all], CLAUDE CODE'S (batch 7 of "Go Claude Code way", MISS-62): what fills the conversation, as of Coder's last
     // answer (the machine counts it at each job's end; no AI call), shown in the chat as Claude Code's grid and list.
     if (!GLOOPY && /^\/context(?:\s+all)?$/i.test(text)) { boxEmpty(); contextCmd(); return; }
+    // /export [filename], CLAUDE CODE'S ("Export the current conversation as plain text. With a filename, writes directly to that
+    // file"; batch 8 of "Go Claude Code way", MISS-63): the chat as plain text, saved as a file from this page. No AI call.
+    if (!GLOOPY && /^\/export(?:\s|$)/i.test(text)) { boxEmpty(); exportCmd(text.replace(/^\/export\s*/i, '')); return; }
     // /model <name> AND /effort <level>, CLAUDE CODE'S (batch 2 of "Go Claude Code way", 2026-11-22): set them at once, as the
     // two pickers on the box do; alone, they say the current one and the choices. Nothing goes to the AI.
     if (!GLOOPY && /^\/(model|effort)(?:\s|$)/i.test(text)) { boxEmpty(); const r = pickCmd(text, MODELS, S.pick); if (r.pick) { S.pick = r.pick; savePick(); } note(r.text); return; }
@@ -3036,7 +3039,9 @@
         const ext = (/\.([A-Za-z0-9]{1,6})$/.exec(String(e.name || '')) || [])[1] || '';
         // A PDF or a picture can be looked at here first (the audit, 2026-11-10).
         const viewable = /^(pdf|png|jpe?g|gif|webp)$/i.test(ext);
-        out.push('<div class="cd-filecard"><span class="cd-filecard-icon">' + ICON.doc + (ext ? '<b>' + esc(ext.toUpperCase()) + '</b>' : '') + '</span><span class="cd-filecard-t"><b>' + esc(e.name || 'File') + '</b><small>' + esc(sizeWords(Number(e.size) || 0)) + '</small></span>' + (viewable ? '<button type="button" class="cd-card-no cd-filecard-view" data-file-view="' + esc(e.id) + '" data-file-name="' + esc(e.name || 'file') + '">Preview</button>' : '') + '<button type="button" class="cd-card-yes cd-filecard-get" data-file-get="' + esc(e.id) + '" data-file-name="' + esc(e.name || 'file') + '">Download</button></div>');
+        // (Coder's SendUserFile, batch 8: "attach" is a download card only; in a Coder chat a picture only, as data: addresses.)
+        const preview = viewable && e.display !== 'attach' && (GLOOPY || !/^pdf$/i.test(ext));
+        out.push('<div class="cd-filecard"><span class="cd-filecard-icon">' + ICON.doc + (ext ? '<b>' + esc(ext.toUpperCase()) + '</b>' : '') + '</span><span class="cd-filecard-t"><b>' + esc(e.name || 'File') + '</b><small>' + esc(sizeWords(Number(e.size) || 0)) + (e.caption ? ' · ' + esc(String(e.caption).slice(0, 300)) : '') + '</small></span>' + (preview ? '<button type="button" class="cd-card-no cd-filecard-view" data-file-view="' + esc(e.id) + '" data-file-name="' + esc(e.name || 'file') + '">Preview</button>' : '') + '<button type="button" class="cd-card-yes cd-filecard-get" data-file-get="' + esc(e.id) + '" data-file-name="' + esc(e.name || 'file') + '">Download</button></div>');
       }
       else if (e.type === 'hook') {
         // A WEBHOOK GLOOPY SET UP (2026-11-09: "2"; Grok Bot's routine webhook fields): its address, and its key when the
@@ -3796,7 +3801,9 @@
       (p && !p.readOnly && Number(p.unpushed) > 0 ? '<button type="button" class="cd-hbtn" id="cdPush" title="Coder pushes after each turn that changes files, but this push did not go through, so the work is only on Coder\'s machine. Push sends it to the branch ' + esc(p.branch) + ' on GitHub."' + (S.running || S.sending || S.pushing ? ' disabled' : '') + '>' + (S.pushing ? 'Pushing…' : 'Push · ' + Number(p.unpushed) + ' unpushed') + '</button>' : '') +
       (p && RPANEL ? '<button type="button" class="cd-rp-tog" id="cdRpToggle" aria-label="' + (rpOpen() ? 'Hide' : 'Show') + ' the side panel" title="' + (rpOpen() ? 'Hide' : 'Show') + ' the side panel" aria-pressed="' + rpOpen() + '">' + META_ICON.panel + '</button>' : '') +
     '</div>' +
-    (S.showChanges ? changesHTML() : '') + (S.showEnv ? envHTML() : '');
+    (S.showChanges ? changesHTML() : '') + (S.showEnv ? envHTML() : '') +
+    // (A file Coder sent you, shown over the chat as Gloopy's are: Preview on its card. Batch 8, SendUserFile.)
+    (S.view ? viewHTML() : '');
   }
 
   // THE SIDEBAR: New chat, Repositories, and Recents (the chats).
@@ -3889,6 +3896,28 @@
   }
 
   function note(text) { S.events.push({ type: 'note', text, at: Date.now(), local: true }); draw(true); }
+  // THE CONVERSATION AS PLAIN TEXT, Claude Code's /export way: "> " before each of the owner's messages, "⏺ " before each of
+  // Coder's answers and steps (the step as Tool(what)), and "  ⎿  " before a step's result, its next lines indented to match.
+  function exportText(events, title) {
+    const out = [];
+    const indent = (t, first, rest) => String(t || '').replace(/\r/g, '').split('\n').map((l, i) => (i ? rest : first) + l).join('\n');
+    if (title) out.push('# ' + title, '');
+    for (const e of Array.isArray(events) ? events : []) {
+      if (!e || e.local) continue;
+      if (e.type === 'user' && String(e.text || '').trim()) out.push(indent(e.text, '> ', '  '), '');
+      else if (e.type === 'text' && String(e.text || '').trim()) out.push(indent(e.text, '⏺ ', '  '), '');
+      else if (e.type === 'bash') out.push('⏺ ' + (EXPORT_TOOL[e.tool] || (e.tool ? String(e.tool) : 'Bash')) + '(' + String(e.command || '').split('\n')[0].slice(0, 300) + ')');
+      else if (e.type === 'result') { const o = String(e.output || '').trim(); out.push(indent(o.length > 2000 ? o.slice(0, 2000) + '\n…' : o || '(No output)', '  ⎿  ', '     '), ''); }
+    }
+    return out.join('\n').replace(/\n{3,}/g, '\n\n').trim() + '\n';
+  }
+  const EXPORT_TOOL = { bash: 'Bash', read: 'Read', write: 'Write', edit: 'Edit', notebook_edit: 'NotebookEdit', grep: 'Grep', glob: 'Glob', web_fetch: 'WebFetch', web_search: 'WebSearch', files: 'SendUserFile', monitor: 'Monitor', powershell: 'PowerShell', lsp: 'LSP' };
+  // (The file's name with none given: the date and time, then the title's words, as "2026-11-22-153012-fix-the-login-button.txt".)
+  function exportName(title, d) {
+    const p = (n) => String(n).padStart(2, '0');
+    const slug = String(title || 'conversation').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 50) || 'conversation';
+    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + '-' + p(d.getHours()) + p(d.getMinutes()) + p(d.getSeconds()) + '-' + slug + '.txt';
+  }
   function commentsHTML() {
     if (!S.comments.length) return '';
     return '<div class="cd-chips">' + S.comments.map((c, i) => '<span class="cd-chip" title="' + esc(c.quote) + '">💬 ' + esc(c.file.split('/').pop()) + (c.line ? ':' + c.line : '') + ' — ' + esc(c.text.slice(0, 40)) + '<button type="button" data-uncomment="' + i + '" aria-label="Remove comment">×</button></span>').join('') + '</div>';
@@ -4000,7 +4029,7 @@
   // start of the box lists Coder's commands with a line each; ↑↓ to move, Enter or Tab or a click to pick, Esc to close.
   // (/btw, /init and /review: Claude Code's, round 6, 2026-11-21. /autocompact: Claude Code's, 2026-11-21, per chat here.
   // /clear with its other names /reset and /new: Claude Code's, batch 6, MISS-61; the Worker empties what Coder reads.)
-  const SLASH = [['/autocompact', 'Set the auto-compact window: auto, or a size such as 500k'], ['/btw', 'Ask a side question without adding to the conversation'], ['/clear', 'Start a new conversation with empty context', ['reset', 'new']], ['/compact', 'Shrink this chat into a short summary (add what to keep after it)'], ['/context', 'Visualize current context usage as a colored grid'], ['/effort', 'Set the effort level for the model'], ['/init', 'Create or update CLAUDE.md for this repository'], ['/model', 'Set the AI model for this chat'], ['/permissions', 'Choose the mode: Auto, Accept edits or Plan', ['allowed-tools']], ['/review', 'Review the changes on this branch', ['code-review']], ['/rewind', 'Go back to an earlier message', ['checkpoint', 'undo']]];
+  const SLASH = [['/autocompact', 'Set the auto-compact window: auto, or a size such as 500k'], ['/btw', 'Ask a side question without adding to the conversation'], ['/clear', 'Start a new conversation with empty context', ['reset', 'new']], ['/compact', 'Shrink this chat into a short summary (add what to keep after it)'], ['/context', 'Visualize current context usage as a colored grid'], ['/effort', 'Set the effort level for the model'], ['/export', 'Export the current conversation as plain text'], ['/init', 'Create or update CLAUDE.md for this repository'], ['/model', 'Set the AI model for this chat'], ['/permissions', 'Choose the mode: Auto, Accept edits or Plan', ['allowed-tools']], ['/review', 'Review the changes on this branch', ['code-review']], ['/rewind', 'Go back to an earlier message', ['checkpoint', 'undo']]];
   // As Claude Code's / list: from the start of a name, of a word inside it, or of one of its other names; '-', '_' and ':' ignored.
   // THE REPOSITORY'S SKILLS (Claude Code's "/skill-name"; the machine names them at each message): after Coder's own commands.
   function skillsSlash() {
@@ -4032,6 +4061,24 @@
     return { name: m[1], near: near ? near[0] : '' };
   }
   // /model and /effort: the new pick (or none) and the chat's line. Pure, so a test can run it.
+  // /export: the conversation as plain text (exportText), saved as a .txt file under the name given, or one made from the date and
+  // the chat's title, as Claude Code's own default name is made from the date and the first prompt.
+  function exportCmd(arg) {
+    if (!S.project) return note('Open a chat first.');
+    const text = exportText(S.events, S.project.title || '');
+    let name = String(arg || '').trim().replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_').slice(0, 120);
+    if (!name) name = exportName(S.project.title || '', new Date());
+    if (!/\.[A-Za-z0-9]{1,8}$/.test(name)) name += '.txt';
+    // (A data: address, as the page's other downloads: its rules block blob: ones.)
+    const fr = new FileReader();
+    fr.onload = () => {
+      const a = document.createElement('a');
+      a.href = String(fr.result || ''); a.download = name; document.body.appendChild(a); a.click(); a.remove();
+      note('Conversation exported to: ' + name);
+    };
+    fr.onerror = () => note('The conversation could not be exported.');
+    fr.readAsDataURL(new Blob([text], { type: 'text/plain;charset=utf-8' }));
+  }
   function pickCmd(text, models, pick) {
     const m = /^\/(model|effort)\s*(.*)$/i.exec(String(text || '').trim());
     if (!m) return { text: '' };
@@ -5246,6 +5293,20 @@
       const b = e.currentTarget, id = b.dataset.fileView, name = b.dataset.fileName || 'file';
       if (!S.project) return;
       b.disabled = true;
+      // (A file a Coder chat keeps, one Coder sent you: its own bytes, shown from this page. Batch 8, SendUserFile.)
+      if (!GLOOPY) {
+        const got = await call('/projects/' + encodeURIComponent(S.project.id) + '/files/' + encodeURIComponent(id), { file: name });
+        b.disabled = false;
+        if (!got.blob) { note((got.data && got.data.error) || 'That file could not be shown.'); return; }
+        const ext = ((/\.([A-Za-z0-9]{1,6})$/.exec(name) || [])[1] || '').toLowerCase();
+        const type = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : 'image/' + ext;
+        // (A data: address, as the page's pictures are: its rules block blob: ones.)
+        const url = await new Promise((ok) => { const fr = new FileReader(); fr.onload = () => ok(String(fr.result || '')); fr.onerror = () => ok(''); fr.readAsDataURL(new Blob([got.blob], { type })); });
+        if (!url) { note('That file could not be shown.'); return; }
+        S.view = { id, name, url, type };
+        draw();
+        return;
+      }
       const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/files/' + encodeURIComponent(id) + '/view');
       b.disabled = false;
       if (r.status !== 200 || !r.data || !r.data.url) { note((r.data && r.data.error) || 'That file could not be shown.'); return; }

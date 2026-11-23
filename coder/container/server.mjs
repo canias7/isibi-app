@@ -32,7 +32,7 @@ import { runCoder, connectorTools, connectorCaller, connectorHookCaller, MACHINE
 import { planStore, plansDirectoryFor, plansDirWarning } from "./coder-plan-file.mjs";
 import { envCaller } from "./coder-envtools.mjs";
 import { memoryLoaded, memorySafe } from "./coder-tools.mjs";
-import { hooksFrom, hooksFor, hookInput, hookShell, splitHookOut, asyncHookTexts, sessionEndBudget, sessionEndHookLimit, httpUrlAllowed, runMcpToolHook, stopCapOf } from "./coder-hooks.mjs";
+import { hooksFrom, hooksFor, hookInput, transcriptLines, hookShell, splitHookOut, asyncHookTexts, sessionEndBudget, sessionEndHookLimit, httpUrlAllowed, runMcpToolHook, stopCapOf } from "./coder-hooks.mjs";
 import { autoModeSetting } from "./coder-checker.mjs";
 /** The owner's auto mode rules as the Worker sent them, checked again here (autoModeSetting), or null. */
 export const autoModeIn = (v) => { if (!v || typeof v !== "object" || Array.isArray(v)) return null; const a = autoModeSetting(JSON.stringify(v)); return a.ok && a.value ? a.value : null; };
@@ -589,6 +589,31 @@ export function warnGibFrom(ownerVars, what, pref) {
   }
   return pref;
 }
+/**
+ * THE CHAT'S TRANSCRIPT FOR ITS HOOKS ("Go Claude Code way", batch 8, 2026-11-22, audit M-c-56; Claude Code gives every hook
+ * transcript_path, "Path to conversation JSON", its JSON lines in ~/.claude/projects/…/<session>.jsonl, which "may lag the
+ * in-memory conversation"): the conversation as Claude Code's lines (coder-hooks.mjs transcriptLines), in root's own folder
+ * beside the chat's memory on the kept disk, which Coder's commands and hooks may read but not change or replace. Written just
+ * before an event's hooks run: whole at the job's first, then only what is new; whole again when the conversation got shorter
+ * (a summary). Never through a link. The path, or "" when it could not be written.
+ */
+export const transcriptFileFor = (memRoot, project) => join(memRoot, project + ".transcript", project + ".jsonl");
+export function writeTranscript(file, convo, state, { session = "", cwd = "", model = "" } = {}) {
+  try {
+    const folder = dirname(file);
+    mkdirSync(folder, { recursive: true, mode: 0o755 });
+    const st = lstatSync(folder);
+    if (!st.isDirectory() || st.isSymbolicLink()) return "";
+    const list = Array.isArray(convo) ? convo : [];
+    const whole = !state.n || list.length < state.n;
+    const r = transcriptLines(list, { session, cwd, model, from: whole ? 0 : state.n, parent: whole ? null : state.last || null });
+    const fd = openSync(file, constants.O_WRONLY | constants.O_CREAT | constants.O_NOFOLLOW | (whole ? constants.O_TRUNC : constants.O_APPEND), 0o644);
+    try { if (r.lines.length) writeSync(fd, r.lines.join("\n") + "\n"); } finally { closeSync(fd); }
+    state.n = list.length;
+    state.last = whole ? r.last : r.last || state.last || null;
+    return file;
+  } catch { return ""; }
+}
 /** A yes from the environment's variables, as Claude Code reads one ("1", "true", "yes", "on"). */
 export const varOn = (v) => /^(1|true|yes|on)$/i.test(String(v ?? "").trim());
 /** A no, the same way ("0", "false", "no", "off"). */
@@ -1011,6 +1036,9 @@ export const REPO_OWN_ENV = { BASH_DEFAULT_TIMEOUT_MS: "BASH_DEFAULT_TIMEOUT_MS"
   // (WebFetch's three, none on Claude Code's list of names project settings can't set: the owner, 2026-11-14, "start fixing
   // and filling in gaps on those tools"; coder-webfetch.mjs.)
   CLAUDE_CODE_DISABLE_WEB_FETCH: "CODER_DISABLE_WEB_FETCH", CLAUDE_CODE_WEBFETCH_CACHE_TTL_MS: "CODER_WEBFETCH_CACHE_TTL_MS", CLAUDE_CODE_WEBFETCH_DEADLINE_MS: "CODER_WEBFETCH_DEADLINE_MS",
+  // (How much one read gives: Claude Code's CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS, not on its list of names project settings
+  // can't set. "Go Claude Code way", batch 8, audit MISS-79.)
+  CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS: "CODER_FILE_READ_MAX_OUTPUT_TOKENS",
   // (The task list's two, neither on Claude Code's list of names project settings can't set: CLAUDE_CODE_ENABLE_TASKS=0 gives
   // todo_write in place of the task tools, CLAUDE_CODE_TASK_LIST_ID names the list. 2026-11-14; coder-tasks.mjs.)
   CLAUDE_CODE_ENABLE_TASKS: "CODER_ENABLE_TASKS", CLAUDE_CODE_TASK_LIST_ID: "CODER_TASK_LIST_ID",
@@ -5029,6 +5057,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     // A COMMAND'S LONG OUTPUT, SAVED (tool 4, like Claude Code's "a file saved to the session directory"): root's own
     // folder beside the memory (on the kept disk on Fly.io), kept from message to message, the newest OUT_FILES_KEEP.
     const outDir = join(memRoot, project + ".out");
+    // (What of the conversation this job wrote to the chat's transcript so far: writeTranscript. Batch 8.)
+    const transcriptState = { n: 0, last: null };
     try {
       await mkdir(memRoot, { recursive: true, mode: 0o755 });
       await mkdir(memDir, { recursive: true });
@@ -5597,8 +5627,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         return { name, data: Buffer.from(await r.arrayBuffer()).toString("base64") };
       },
       put: async ({ name, data }) => {
-        if (!gloopy) throw new Error("only Gloopy hands files over");
-        const r = await (filesFetch || fetch)(filesAt("gloopy-file-put"), { method: "POST", headers: { "content-type": "application/octet-stream", "x-file-name": encodeURIComponent(String(name || "")), ...jobHeaders }, body: Buffer.from(String(data || ""), "base64") }).catch(() => null);
+        // (A Coder chat's own, Claude Code's SendUserFile, kept with the chat by its own route: batch 8, MISS-55.)
+        const r = await (filesFetch || fetch)(filesAt(gloopy ? "gloopy-file-put" : "coder-file-put"), { method: "POST", headers: { "content-type": "application/octet-stream", "x-file-name": encodeURIComponent(String(name || "")), ...jobHeaders }, body: Buffer.from(String(data || ""), "base64") }).catch(() => null);
         const out = r ? await r.json().catch(() => null) : null;
         if (!r || !r.ok || !out || !out.id) throw new Error((out && out.error) || "Coder's Worker could not keep it");
         return { id: String(out.id), name: String(out.name || name), size: Number(out.size) || 0 };
@@ -5715,10 +5745,14 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
           try { writeFileSync(fd, String(text)); } finally { closeSync(fd); }
           return file;
         },
+        // THE CHAT'S TRANSCRIPT, for its hooks' transcript_path (batch 8): Coder's chats only.
+        ...(gloopy ? {} : { transcript: (convo, o = {}) => writeTranscript(transcriptFileFor(memRoot, project), convo, transcriptState, { session: project, cwd: dir, model: String((o && o.model) || "") }) }),
         hookWatch: { get: () => HOOK_WATCH.get(project) || null, set: (v) => { HOOK_WATCH.set(project, v); } },
         // GREP'S AND GLOB'S SETTINGS (coder-search.mjs; Claude Code's CLAUDE_CODE_GLOB_TIMEOUT_SECONDS, CLAUDE_CODE_GLOB_HIDDEN and
         // CLAUDE_CODE_GLOB_NO_IGNORE, under Coder's names), for their runs on this machine.
         searchSettings: searchSettingsFrom(rawVars),
+        // (The owner's read size, CODER_FILE_READ_MAX_OUTPUT_TOKENS or Claude Code's CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS: batch 8.)
+        readTokens: rawVars.CODER_FILE_READ_MAX_OUTPUT_TOKENS,
         // THE CHAT'S TASK LIST, kept between messages (Claude Code keeps a session's in ~/.claude/tasks/; the owner, 2026-11-14:
         // "Do all the talk to you tools execpt for the notify one"): root's own file beside the chat's memory, on the kept disk
         // on Fly.io (coder-tasks.mjs, taskStore).
@@ -6205,7 +6239,9 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       t.box = boxAtEnd(t.box, BOX);
       const budget = sessionEndBudget(t.hooksLast, t.sessionEndMs);
       // (Its mode named as the message's hooks were told it: hookModeName.)
-      const input = hookInput("SessionEnd", { session: project, cwd: String(t.cwd || t.home0 || ""), mode: hookModeName(t.mode || "auto", t.fileEdits) }, { reason });
+      // (Its transcript_path: the chat's transcript as its last job left it, when there is one. Batch 8.)
+      const tFile = transcriptFileFor(memRoot, project);
+      const input = hookInput("SessionEnd", { session: project, transcript: existsSync(tFile) ? tFile : "", cwd: String(t.cwd || t.home0 || ""), mode: hookModeName(t.mode || "auto", t.fileEdits) }, { reason });
       for (const h of list) {
         if (h.type === "http" && !httpUrlAllowed(h.url, h.urlsAllowed)) continue;
         const mark = "<<coder-hook-stderr-" + randomUUID().replace(/-/g, "").slice(0, 10) + ">>";

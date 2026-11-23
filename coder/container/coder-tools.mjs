@@ -826,7 +826,16 @@ export async function toolFileCheck({ tool = "", args = {}, guard = false } = {}
   return "ok";
 }
 
-export async function toolRead({ path, offset, limit, pages = "", allow_large = false, max_chars, facts = false }) {
+/**
+ * HOW MUCH ONE READ GIVES, SET BY THE OWNER ("Go Claude Code way", batch 8, 2026-11-22, audit MISS-79; Claude Code's tools
+ * reference: "By default one call returns at most 25,000 tokens, or the value you set in CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS";
+ * its env-vars page: "Override the default token limit for file reads, which is 25,000 tokens"): Coder's machine passes the
+ * environment's (or the repository's settings') CODER_FILE_READ_MAX_OUTPUT_TOKENS or CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS
+ * as read_chars, its tokens at 4 characters each. A read with allow_large still goes by the room left. Pictures, PDFs and
+ * notebooks keep their own limits, as in Claude Code.
+ */
+export function readCharsOf(chars) { const n = Math.floor(Number(chars)); return Number.isFinite(n) && n > 0 ? Math.min(Math.max(n, 400), READ_LARGE_CHARS) : READ_CHARS; }
+export async function toolRead({ path, offset, limit, pages = "", allow_large = false, max_chars, read_chars, facts = false }) {
   // (Claude Code's checks before its hooks first, in its order: fileInputProblem.)
   const first = fileInputProblem("read", { path, pages }) || fileInputProblem("read", { path }, "after");
   if (first) fail(first);
@@ -871,7 +880,8 @@ export async function toolRead({ path, offset, limit, pages = "", allow_large = 
   const from = Math.max(1, Math.floor(Number(offset) || 1));
   if (from > total) return told(rel + " has " + total + " line" + (total === 1 ? "" : "s") + ": offset " + from + " is past its end.", "", 0, from, total);
   const large = allow_large === true;
-  const cap = large ? Math.min(Math.max(Math.floor(Number(max_chars) || 0), READ_CHARS), READ_LARGE_CHARS) : READ_CHARS;
+  const usual = readCharsOf(read_chars);
+  const cap = large ? Math.min(Math.max(Math.floor(Number(max_chars) || 0), usual), READ_LARGE_CHARS) : usual;
   const size = Buffer.byteLength(text);
   if (!asked && !large && size > READ_WHOLE_MAX) fail(rel + " is " + kb(size) + ", over the 256 KB a whole read takes: read a part with offset and limit, search it with grep, or set allow_large when you truly need all of it at once");
   const want = Number(limit) > 0 ? Math.min(Math.floor(Number(limit)), READ_LINES_MAX) : READ_LINES_MAX;
@@ -885,7 +895,7 @@ export async function toolRead({ path, offset, limit, pages = "", allow_large = 
   // starts at it says so, with the ways to see it.
   const tooLong = (i) => "line " + (i + 1) + " of " + rel + " is " + kb(Buffer.byteLength(lines[i])) + " by itself, more than one read takes (about " + Math.round(cap / 1000) + ",000 characters): " + (large ? "" : "set allow_large to read it whole, or ") + "show a part of it with bash, e.g. sed -n " + (i + 1) + "p " + shq(rel) + " | cut -c1-50000";
   // How many lines from index `start` fit in one usual read: the limit to suggest next (exact, as lines differ).
-  const fitting = (start) => { let u = 0, k = 0; for (let i = start; i < total && k < READ_LINES_MAX; i++) { const r = rowOf(i).length + 1; if (k && u + r > READ_CHARS) break; u += r; k++; } return k; };
+  const fitting = (start) => { let u = 0, k = 0; for (let i = start; i < total && k < READ_LINES_MAX; i++) { const r = rowOf(i).length + 1; if (k && u + r > usual) break; u += r; k++; } return k; };
   const rows = [];
   let used = 0;
   for (let i = from - 1; i < end; i++) {

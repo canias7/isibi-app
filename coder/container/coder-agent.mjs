@@ -91,6 +91,12 @@ export const TOOLS_SCRIPT = fileURLToPath(new URL("./coder-tools.mjs", import.me
  * out of what monitor shows. CWD_WORDS: a command that may change folders (Claude Code: "A `cd`, `pushd`, `popd`, or
  * `chdir` inside a command that is moved to the background never carries over").
  */
+/**
+ * THE OWNER'S READ SIZE (Claude Code's CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS, "Override the default token limit for file
+ * reads, which is 25,000 tokens"; Coder's CODER_FILE_READ_MAX_OUTPUT_TOKENS beside it): the characters one read gives (its
+ * tokens at 4 characters each), or 0 when it is unset or not a whole number above 0 (the usual 100,000 then). Batch 8.
+ */
+export function readTokensChars(v) { const x = String(v ?? "").trim(); return /^\d{1,9}$/.test(x) && Number(x) > 0 ? Math.min(Number(x) * 4, READ_LARGE_CHARS) : 0; }
 export const CWD_MARK = "\u001eCODER-CWD-";
 export const CWD_WORDS = /(?:^|[^\w./-])(?:cd|pushd|popd|chdir)(?=$|[\s;&|)])/m;
 export const noCwdMarks = (s) => String(s).replace(/\n\u001eCODER-CWD-[0-9a-f]{16}:[^\n]*\n/g, "");
@@ -1049,6 +1055,8 @@ async function keepFromBrowser(deps, r, at, zone = "") {
 export const WRITE_CHECKS_MAX = 30;
 /** At most this many files Gloopy sends in one message. */
 const FILES_PER_TURN = 10;
+/** Claude Code's SendUserFile description, word for word but for "the owner" and Coder's page (it has no side panel). Batch 8. */
+export const SEND_USER_FILE_DESCRIPTION = "Send files to the owner. Use this for any file the owner would want to see — a generated diagram, a report, a screenshot, a built artifact — and you want it surfaced, not just mentioned. Send deliverables as they are produced, not batched at the end of the task: a complete draft or a meaningfully updated version of the thing the owner asked for is worth sending mid-task, so they can follow progress and redirect early. Do NOT send routine working files — scratch files, debug output, partial fragments, or every incremental save of something you're still actively editing; each call renders a file card in the conversation, and a stream of cards for one file is noise. Re-send a file only when it has meaningfully changed since the last send. Paths can be absolute or relative to the current working directory.\n\nAdd a `caption` when a one-liner of context helps (\"the failing case is row 42\", \"before vs after\"). Skip it if the file speaks for itself.\n\nSet `status` on every call. Use `proactive` when you're initiating — the owner is away and you want this to reach their phone (build artifact ready, report generated). Use `normal` when replying to something the owner just said.\n\nSet `display` to choose how the file is presented. Use `'render'` when the owner should see the content in the chat's preview right now — a chart, a diagram, an image, a PDF. Use `'attach'` when the file is something they'll save and open elsewhere — source code, a spreadsheet, a document for another app — and a preview would just be noise. Leave it unset to let the page decide by file type.\n\nFiles must already exist on the local filesystem — the tool sends files, it doesn't fetch URLs or render content. When unsure of a path, verify with ls first; absolute paths avoid ambiguity about the working directory. Each file is at most 5 MB.";
 export const visibleChars = (s) => String(s).replace(/[\u0000-\u001f\u007f]/g, (c) => ({ "\0": "\\0", "\n": "\\n", "\r": "\\r", "\t": "\\t" })[c] || "\\x" + c.charCodeAt(0).toString(16).padStart(2, "0"));
 /** The small copy of a picture the chat shows under a Read step (the owner, 2026-11-08: "Fix those 3"): a JPEG data URL. */
 export const THUMB_RE = /^data:image\/jpeg;base64,[A-Za-z0-9+/]+=*$/;
@@ -1472,6 +1480,15 @@ export const CODER_TOOLS = Object.freeze([
     name: "notify",
     description: "Send the owner a notification on their phone or computer (where they turned notifications on). Use it when the owner asked to be told about something (\"notify me when the tests finish\"), at that moment, or for news they would want while away during a long job. Not for the end of your answer: Coder's app tells them when a long job finishes. One short sentence; at most 3 a job.",
     parameters: { type: "object", properties: { message: { type: "string" } }, required: ["message"] },
+  } },
+  // A FILE SENT TO THE OWNER ("Go Claude Code way", batch 8, 2026-11-22, audit MISS-55): Claude Code's SendUserFile ("Sends files
+  // from the session to you with an optional caption, so a generated report, diagram, screenshot, or built artifact reaches
+  // your device instead of only being mentioned in the transcript"; in its cloud sessions), its inputs and its description,
+  // with Coder's words for the owner. Held back until tool_search loads it, as Claude Code's deferred tools are.
+  { type: "function", function: {
+    name: "send_user_file",
+    description: SEND_USER_FILE_DESCRIPTION,
+    parameters: { type: "object", properties: { files: { type: "array", items: { type: "string" }, minItems: 1, description: "File paths (absolute or relative to the current working directory) to send to the owner. Always pass an array, even for a single file." }, caption: { type: "string", description: "Optional short caption for the file(s)." }, status: { type: "string", enum: ["normal", "proactive"], description: "Use 'proactive' when you're surfacing a file the owner hasn't asked for and needs to see now — a generated artifact, a completed report. Use 'normal' when replying to something the owner just said." }, display: { type: "string", enum: ["render", "attach"], description: "How the page should present the file. 'render' shows it in the chat's preview (for pictures and PDFs — anything the owner wants to look at now). 'attach' shows a download card only, no preview (for deliverables the owner will save and open elsewhere). Omit to let the page decide by file type." } }, required: ["files", "status"] },
   } },
   // AUTO-FIX, LIKE CLAUDE CODE'S (owner item 2; its docs: "paste the PR URL into a session and tell Claude
   // to auto-fix it", "tell Claude to stop watching the PR").
@@ -2752,6 +2769,17 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   const promptId = typeof text === "string" && text.trim() ? randomUUID() : "";
   // (The mode as Claude Code names it to hooks: hookModeName.)
   const hookMode = () => hookModeName(modeNow(), fileEdits);
+  // THE CHAT'S TRANSCRIPT FOR ITS HOOKS (Claude Code's transcript_path; "Go Claude Code way", batch 8, audit M-c-56): the
+  // conversation so far, written by Coder's machine as Claude Code's JSON lines just before an event's hooks run (deps.transcript;
+  // none for Gloopy or where the machine keeps none). Before the job's conversation is made, the chat's saved one.
+  const transcriptNow = () => {
+    if (typeof deps.transcript !== "function") return "";
+    let c = null;
+    try { c = convo; } catch { c = null; }
+    try { return String(deps.transcript(Array.isArray(c) ? c : Array.isArray(messages) ? messages : [], { model }) || ""); } catch { return ""; }
+  };
+  // (How much one read gives, when the owner set CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS: its tokens at 4 characters each. Batch 8.)
+  const readChars = readTokensChars(deps.readTokens);
   const hookCtx = () => ({ session: String(deps.chatId || ""), cwd: String((typeof deps.here === "function" && deps.here()) || deps.root || ""), mode: hookMode(), effort: String(effort || ""), promptId });
   // (Where a file tool's short path and ~ lead, for its hooks: read's, write's and edit's path in full, as Claude Code's hooks get
   // it, coder-hooks.mjs hookPath. Round 6.)
@@ -2850,7 +2878,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     a.path = full;
     const d = github ? null : fileToolDecision(c.name, full, { rules: ownRules, root: deps.root || "/", cwd: ruleCwd(), home: deps.home || "", real: (x) => realPath(x), input: a, roots: workdirs.slice(1) });
     if (d && (d.verdict === "deny" || d.verdict === "ask")) return "error: " + (d.why || "the owner's rules do not let this hook read there");
-    if (c.name === "read") { delete a.allow_large; delete a.max_chars; }
+    if (c.name === "read") { delete a.allow_large; delete a.max_chars; delete a.read_chars; if (readChars) a.read_chars = readChars; }
     // (A search with the owner's Read deny rules, its result object left off: coder-search.mjs.)
     const search = c.name === "grep" || c.name === "glob";
     return readAnswer(factsAnswer((await appTool(deps, c.name, a, search ? { ctx: searchCtx(), timeoutS: searchExecS() } : {})).output).text).text.slice(0, 30_000);
@@ -2910,7 +2938,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     const list = hookList.length ? hooksFor(hookList, event, value, call) : [];
     if (!list.length) return null;
     // (An MCP tool's server, as Claude Code's tool events carry it: mcp_server, coder-hooks.mjs withMcpServer. D2 of recheck 3.)
-    const input = hookInput(event, hookCtx(), withMcpServer(event, extra, (n) => (mcpByName.get(n) || {}).connector));
+    const input = hookInput(event, { ...hookCtx(), transcript: transcriptNow() }, withMcpServer(event, extra, (n) => (mcpByName.get(n) || {}).connector));
     // (A Bash matcher's hook on a Monitor command gets a Bash call, Claude Code 2.1.314: asBashInput.)
     const inputFor = (h) => (h.asBash ? asBashInput(input) : input);
     const bg = (h) => h.type === "command" && (h.async === true || h.asyncRewake === true);
@@ -2952,7 +2980,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   const elicitHooks = async (event, server, extra) => {
     const list = hookList.length ? hooksFor(hookList, event, server) : [];
     if (!list.length) return null;
-    const input = hookInput(event, hookCtx(), extra);
+    const input = hookInput(event, { ...hookCtx(), transcript: transcriptNow() }, extra);
     const bg = (h) => h.type === "command" && (h.async === true || h.asyncRewake === true);
     for (const h of list) if (bg(h)) startAsync(h, input);
     const now0 = list.filter((h) => !bg(h));
@@ -5137,7 +5165,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       if (READ_TOOLS.has(x.name)) {
         if (readBlock) return;
         if (typeof args.path !== "string" && typeof args.file_path === "string") args.path = args.file_path;
-        if (x.name === "read") { if (args.allow_large === true) return; delete args.max_chars; }
+        if (x.name === "read") { if (args.allow_large === true) return; delete args.max_chars; delete args.read_chars; if (readChars) args.read_chars = readChars; }
         const tgt = targetFor(x.name, args);
         const d = github ? null : fileToolDecision(x.name, tgt, { rules: ownRules, root: deps.root || "/", cwd: ruleCwd(), home: deps.home || "", real: (q) => realPath(q), input: args, roots: workdirs.slice(1) });
         if (d && d.verdict === "deny") early.refused(x.id);
@@ -6920,6 +6948,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // window"): only Coder says how much an allow_large read may give: what is left before this job is summarized.
         // (In Coder's chats, the room before Claude Code's auto-compact threshold, its tokens at 4 characters each: limitsNow.)
         if (c.name === "read") { delete args.max_chars; if (args.allow_large === true) args.max_chars = readRoom(); }
+        // (The owner's read size, CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS: deps.readChars; Grok's own read_chars is never taken. Batch 8.)
+        if (c.name === "read") { delete args.read_chars; if (readChars) args.read_chars = readChars; }
         // THE ACCOUNT'S EMAIL AS A CLIENT'S IDENTITY in what a write or an edit puts in a file, or the address in a page's URL
         // (Claude Code 2.1.325's privacy check, coder-privacy.mjs: Write's content, Edit's new_string, WebFetch's url): refused
         // below, after the owner's deny rules, with no card first.
@@ -7444,6 +7474,34 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         sessionTitle = title;
         emit({ type: "renamed", text: title });
         reply("ok: this chat is now named \u201c" + title + "\u201d.");
+      } else if (c.name === "send_user_file") {
+        // CLAUDE CODE'S SENDUSERFILE (batch 8, MISS-55): each file read as `dev` from inside the chat's folders (coder-tools.mjs
+        // send_file, never through a link out of them; at most 5 MB), handed to Coder's Worker by Coder's service with this job's
+        // pass, and kept with the chat (src/coder-attach.mjs: never dropped); the owner gets a card with its name, size, the
+        // caption, and Download (Preview for a picture unless display is "attach"). "proactive" also notifies them.
+        const args = c.args || {};
+        const list = Array.isArray(args.files) ? args.files.filter((x) => typeof x === "string" && x.trim()) : typeof args.files === "string" && args.files.trim() ? [args.files] : [];
+        const caption = scrub(String(args.caption || "")).replace(/\s+/g, " ").trim().slice(0, 300);
+        const display = args.display === "render" || args.display === "attach" ? args.display : "";
+        emit({ type: "bash", id: c.id, tool: "files", verb: "Sent you " + (list.length === 1 ? "a file" : list.length + " files"), command: plain(list.join(", ")).slice(0, 200) });
+        const no = (m) => { emit({ type: "result", id: c.id, code: 1, output: m }); reply(m); };
+        if (!list.length) { no("error: files must name at least one file"); continue; }
+        if (!deps.files || typeof deps.files.put !== "function") { no("error: files can't be sent to the owner from this computer right now"); continue; }
+        const sentNow = [], failed = [];
+        for (const path of list) {
+          if (filesSent >= FILES_PER_TURN) { failed.push(path + ": at most " + FILES_PER_TURN + " files in one message"); continue; }
+          const file = await readOwnFile(deps, path);
+          if (file.error) { failed.push(path + ": " + file.error); continue; }
+          let sent;
+          try { sent = await deps.files.put({ name: String(file.name || ""), data: file.data }); } catch (e) { failed.push(path + ": " + String((e && e.message) || e).slice(0, 300)); continue; }
+          filesSent++;
+          sentNow.push(sent);
+          emit({ type: "file", id: sent.id, name: plain(sent.name).slice(0, 120), size: sent.size, ...(caption ? { caption } : {}), ...(display ? { display } : {}) });
+        }
+        if (sentNow.length && args.status === "proactive") emit({ type: "notify", text: ("Coder sent you " + (sentNow.length === 1 ? "“" + plain(sentNow[0].name).slice(0, 80) + "”" : sentNow.length + " files") + (caption ? ": " + caption : "")).slice(0, 200) });
+        const said = (sentNow.length ? "sent: " + sentNow.map((f) => "“" + f.name + "” (" + sizeWords(f.size) + ")").join(", ") + " — the owner has " + (sentNow.length === 1 ? "it" : "them") + " as a file card in the chat, kept with the chat." : "") + (failed.length ? (sentNow.length ? "\n" : "") + "error: not sent: " + failed.join("; ") : "");
+        emit({ type: "result", id: c.id, code: sentNow.length ? 0 : 1, output: said, ...(sentNow.length ? { label: "Sent you " + (sentNow.length === 1 ? "“" + plain(sentNow[0].name).slice(0, 80) + "”" : sentNow.length + " files") } : {}) });
+        reply(said);
       } else if (c.name === "notify") {
         const message = scrub(String(c.args.message || "")).replace(/\s+/g, " ").trim().slice(0, 200);
         if (!message) { reply("error: write the message"); continue; }

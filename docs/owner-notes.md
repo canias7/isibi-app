@@ -4,6 +4,34 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-22: Claude Code way, batch 8
+
+I checked this batch's 12 items against Claude Code's docs (read again today, changelog up to version 2.1.330) and Coder's code. Five are built, three were already the same (in whole or in part), and the rest need your answer.
+
+**Built, the way Claude Code does it:**
+- **Coder can send you a file.** Claude Code's cloud sessions have a tool that sends a file to you (a report, a screenshot, a built file) with a short caption. Coder has it now, with Claude Code's own instructions for it. The file shows in the chat as a card with its name, size and caption, and Download (and Preview for a picture). If Coder marks it as news you'd want while away, you also get a notification. Files are kept with the chat, like the files you attach; none is ever deleted. At most 5 MB each. (A screenshot is in the chat.)
+- **/export**, as in Claude Code: type it and the chat is saved to your computer as a plain text file, in Claude Code's layout (your messages after "> ", Coder's answers and steps after "⏺"). "/export notes" names the file. No AI call.
+- **Hooks get the conversation file.** Claude Code hands every hook the path of a file holding the conversation so far (`transcript_path`), in its own format. Coder now writes that file on the chat's machine just before your hooks run, in the same format, and passes its path. Hooks and Coder can read it but not change it. Gloopy's chats don't have it.
+- **A setting for how much one read gives.** As in Claude Code, `CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS` in an environment (or a repository's `.claude/settings.json`) sets it; unset, it stays at about 25,000 tokens.
+- **Limited network is exactly Claude Code's list.** Coder used to reach four extra download sites on Limited (Debian's two package sites, go.dev and sh.rustup.rs; you kept them on 7 November). Claude Code's list doesn't have them, so they are gone. If a setup script needs one, add it under Allowed domains.
+
+**Already the same:**
+- Reading a web page: Claude Code reads pages with its small model, or with the chat's own model at the chat's own effort when the small one can't be used. Coder has only Grok 4.7, so it already does the second.
+- A chat you haven't named takes its plan's title when you approve the plan (done on 20 November).
+- /btw, /clear, /context, /compact, /model, /effort, /init, /review, /rewind and /autocompact are already there.
+
+**Waiting for your answer:**
+- Claude Code reads web pages with a smaller, cheaper model. Do you want me to add a cheaper Grok model just for reading pages? (It changes which paid model is called.)
+- Claude Code runs the whole setup script as admin. Coder can't do that the same way: its sandbox keeps admin out of your project and home folders (so your files stay yours), and a script run as admin there could not write into the project (`npm install` would fail). Today the script runs as Coder's user with `sudo` working for anything. Keep it that way?
+- Claude Code loads each instruction file whole (up to 4 MB each); Coder loads up to 100,000 characters in all (your choice on 8 November). Very big files would cost more Grok on every message. Switch to Claude Code's way?
+- Claude Code shows a "+42 −18" count of changed lines, and lists its edits before they are saved, in the right-hand panel you removed on 16 November. Where should the count go (for example on the "See changes" button), and should See changes list a running job's edits as Claude Code does? I can show screenshots of options.
+- Claude Code's `/goal` keeps working until a condition is met; each check is an extra AI call, so every goal would cost more Grok. Do you want it, and with what limit?
+- A repository's settings can set the starting effort (`effortLevel`) in Claude Code; that could run Grok above your Low default and cost more. Allow it?
+- Claude Code names a new chat with one tiny AI call from the first message (and names it again from an approved plan the same way). Coder uses the first words, and the plan's heading, with no AI call. Use one tiny Grok call per new chat?
+- Claude Code also has /recap (one AI call), /branch (copy a chat), /loop and /schedule (repeats, each a paid job), /memory (a terminal screen) and /cd (move the chat's folder). The first four cost money or were already asked; /memory and /cd only make sense in a terminal. Do you want any of them?
+
+- Tests: `coder/test/cc-way-batch8.test.mjs` (the page parts in a real browser). Older tests that checked the old way now check the new one: the four extra sites, Coder's tool list and the held-back tools (now with the file tool), and the "/" list (now with /export). Full test suite: 1701 of 1701 pass. Not tried live on gofarther.dev yet; not deployed.
+
 ## 2026-11-22: Claude Code way, batch 7
 
 I checked this batch's 12 items against Claude Code's docs (read again today), its changelog (up to version 2.1.330) and Coder's code. Five are built, two were already the same, and five need your answer.

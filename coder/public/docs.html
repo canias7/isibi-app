@@ -74,7 +74,7 @@
 
         <h3 id="read-text">Text files</h3>
         <ul>
-          <li>A whole file comes at once when it fits: up to about <b>100,000 characters</b>.</li>
+          <li>A whole file comes at once when it fits: up to about <b>100,000 characters</b>. As in Claude Code, <code>CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS</code> in the environment (or a repository's settings) changes this, in tokens of about 4 characters.</li>
           <li>A bigger file comes in parts. The first part ends with a note, such as <code>[PARTIAL view: lines 1-1111 of 1561 (about 90 KB of 127 KB). Read more with offset 1112 and limit 450. …]</code>, and Coder reads on before it answers.</li>
           <li>A file over <b>256 KB</b> isn't read whole in one go: Coder reads the part it needs, or searches it first.</li>
           <li>Lines are never cut. A single line too long for one read is read on its own.</li>

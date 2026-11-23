@@ -1822,6 +1822,11 @@ Claude Code's hooks reference and 2.1.322's own program. Tests:
   old names (`netSaved`: the box and no domains is "trusted", anything else
   "custom"), so no environment reaches anything new. Coder proposes a new
   environment's level as none, limited or full.
+  **Allow package managers** reaches exactly Claude Code's 204 default sites
+  (`DEFAULT_HOSTS`, checked against `test/fixtures/claude-code-trusted.txt`):
+  since batch 8 (M-b-33) Coder no longer adds deb.debian.org,
+  security.debian.org, go.dev and sh.rustup.rs; add them under Allowed domains
+  when a setup needs them.
 - *Variables commands never get*: PATH, HOME, SHELL, USER, LD_…,
   NODE_OPTIONS, BASH_ENV, ENV, SHELLOPTS, BASHOPTS, CDPATH and OTEL_… (one
   list, `VAR_DROPPED_RE`, for the machine's `safeVars` and the page) are named
@@ -2601,6 +2606,40 @@ instruction files and memory by name and the connectors' tools; the Worker keeps
 the chat (`contextKept`, `meta.context`), `/clear` empties it, and the page draws a
 grid of 100 squares and the list (`contextHTML`). No AI call; it reads as of Coder's
 last answer.
+
+`/export [filename]` (batch 8, MISS-63) saves the chat as plain text, as Claude
+Code's does ("Export the current conversation as plain text"): `> ` before each of
+the owner's messages, `⏺ ` before each answer and step (the step as `Tool(what)`),
+`  ⎿  ` before a step's result. With a name the file gets it (`.txt` added when it has
+no ending); without, it is named from the date and the chat's title. The page makes
+the file itself (`exportText`, `exportName`); no AI call.
+
+THE TRANSCRIPT FOR HOOKS (batch 8, M-c-56): every hook gets `transcript_path`, as
+Claude Code's common input fields do ("Path to conversation JSON"). Coder's machine
+writes the conversation as Claude Code's JSON lines (`transcriptLines` in
+`coder-hooks.mjs`: `type` user or assistant, Claude's content blocks with the tool's
+Claude Code name, `uuid`/`parentUuid`, `sessionId`, `cwd`, `timestamp`; Coder's own
+notes `isMeta`, its instructions left out) to
+`/srv/coder-memory/<chat>.transcript/<chat>.jsonl` (`writeTranscript`), root's own
+folder that hooks and commands may read but not change, just before an event's hooks
+run: whole at a job's first, then only what is new, whole again after a summary. Never
+through a link. Gloopy's chats have none.
+
+SENDING A FILE (batch 8, MISS-55): `send_user_file` is Claude Code's SendUserFile
+(its inputs `files`, `caption`, `status` normal or proactive, `display` render or
+attach, and its description), held back until `tool_search` loads it; hooks and rules
+see `SendUserFile`. Each file is read as `dev` from the chat's folders (`send_file`,
+never through a link, at most 5 MB) and handed with the job's pass to the Worker
+(`coder-file-put`), which keeps it with the chat as attached files are
+(`keepAttach`, marked `out`; nothing is dropped). The chat shows a card with the name,
+size and caption, Download, and Preview for a picture (the page's rules show pictures, not PDFs, from data: addresses) unless `display` is
+`attach`; `proactive` also sends a notification.
+
+HOW MUCH ONE READ GIVES (batch 8, MISS-79): `CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS`
+(or `CODER_FILE_READ_MAX_OUTPUT_TOKENS`), in the environment or a repository's
+settings `env`, sets it, its tokens at 4 characters each (`readTokensChars`); unset,
+about 100,000 characters (25,000 tokens), as in Claude Code. A read with
+`allow_large` still goes by the room left.
 
 A chat can be shared by its link (batch 7, MISS-54), as Claude Code's sessions on a
 personal plan: the title's ▾ menu has Share, with Private (the start) or Public and

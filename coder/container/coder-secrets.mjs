@@ -69,6 +69,9 @@ export function headerValue({ value, prefix }) {
 // THE DEFAULT LIST ("Trusted"), from Claude Code's cloud-environment docs
 // (code.claude.com/docs/en/cloud-environments, read 2026-11-06): package
 // registries, GitHub and other code hosts, container registries, cloud SDKs.
+// EXACTLY CLAUDE CODE'S 204, NOTHING MORE ("Go Claude Code way", batch 8, 2026-11-22, audit M-b-33; its docs read again
+// that day): the four sites Coder had kept beside them (deb.debian.org, security.debian.org, go.dev, sh.rustup.rs) are
+// gone, as Claude Code's Limited network can't reach them either. The owner adds any of them under Allowed sites.
 export const DEFAULT_HOSTS = [
   // version control
   "github.com", "api.github.com", "npm.pkg.github.com", "raw.githubusercontent.com", "pkg-npm.githubusercontent.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com", "codeload.github.com", "avatars.githubusercontent.com", "camo.githubusercontent.com", "gist.github.com", "gitlab.com", "registry.gitlab.com", "bitbucket.org", "api.bitbucket.org",
@@ -83,15 +86,15 @@ export const DEFAULT_HOSTS = [
   // Ruby
   "rubygems.org", "api.rubygems.org", "index.rubygems.org", "ruby-lang.org", "www.ruby-lang.org", "rubyforge.org", "rubyonrails.org", "rvm.io", "get.rvm.io",
   // Rust
-  "crates.io", "index.crates.io", "static.crates.io", "rustup.rs", "static.rust-lang.org", "sh.rustup.rs",
+  "crates.io", "index.crates.io", "static.crates.io", "rustup.rs", "static.rust-lang.org",
   // Go
-  "proxy.golang.org", "sum.golang.org", "index.golang.org", "golang.org", "go.dev", "goproxy.io", "pkg.go.dev",
+  "proxy.golang.org", "sum.golang.org", "index.golang.org", "golang.org", "goproxy.io", "pkg.go.dev",
   // JVM
   "maven.org", "repo.maven.org", "central.maven.org", "repo1.maven.org", "repo.maven.apache.org", "maven.google.com", "jcenter.bintray.com", "gradle.org", "services.gradle.org", "plugins.gradle.org", "plugins-artifacts.gradle.org", "kotlinlang.org", "spring.io", "repo.spring.io",
   // other package managers
   "packagist.org", "repo.packagist.org", "nuget.org", "api.nuget.org", "pub.dev", "api.pub.dev", "hex.pm", "cpan.org", "metacpan.org", "api.metacpan.org", "cocoapods.org", "cdn.cocoapods.org", "haskell.org", "hackage.haskell.org", "swift.org",
   // Linux
-  "archive.ubuntu.com", "security.ubuntu.com", "ubuntu.com", "*.ubuntu.com", "ppa.launchpad.net", "launchpad.net", "*.nixos.org", "deb.debian.org", "security.debian.org",
+  "archive.ubuntu.com", "security.ubuntu.com", "ubuntu.com", "*.ubuntu.com", "ppa.launchpad.net", "launchpad.net", "*.nixos.org",
   // dev tools
   "dl.k8s.io", "pkgs.k8s.io", "k8s.io", "releases.hashicorp.com", "apt.releases.hashicorp.com", "rpm.releases.hashicorp.com", "archive.releases.hashicorp.com", "hashicorp.com", "repo.anaconda.com", "conda.anaconda.org", "anaconda.org", "anaconda.com", "continuum.io", "apache.org", "archive.apache.org", "downloads.apache.org", "eclipse.org", "download.eclipse.org", "nodejs.org", "developer.apple.com", "developer.android.com", "pkg.stainless.com", "binaries.prisma.sh",
   // monitoring, mirrors, schemas
