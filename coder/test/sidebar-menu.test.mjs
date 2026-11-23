@@ -73,7 +73,7 @@ test("sidebar: Plugins and More sit under Repositories; Plugins and More fold op
     await page.click("#cdSideSkills");
     assert.match(await page.textContent(".gf-sidelist"), /\/deploy[\s\S]*How we deploy the shop/);
     await page.click(".gf-sidelist .cd-notify-done");
-    await page.click(".gf-sidelist .cd-notify-done");
+    assert.equal(await page.$(".gf-sidelist"), null);
     assert.deepEqual(errors, []);
   } finally { await browser.close(); }
 });

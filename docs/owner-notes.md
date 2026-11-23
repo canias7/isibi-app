@@ -4,6 +4,20 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-23: Plugins and More in Coder's sidebar
+
+You sent a picture of the Claude app's sidebar and asked for the same in Coder, under Repositories, but without Search and Artifacts.
+
+**What's there now:**
+- **Plugins ▾** folds open to show Connectors, Skills, Hooks and Permission rules.
+  - Connectors opens the connectors page.
+  - Skills lists the open chat's repository skills (type / to use one).
+  - Hooks opens Settings with Advanced already open.
+  - Permission rules opens the rules list.
+- **More ▾** folds open to show Settings and Notifications.
+
+Tested on a test copy of the page (sidebar-menu.test.mjs). It isn't live until you say deploy.
+
 ## 2026-11-23: The Claude Code vs Coder sheet, from all of Claude Code's docs
 
 You asked for everything from Claude Code's docs, in the layout from your picture. The file is [`docs/claude-code-vs-coder.xlsx`](claude-code-vs-coder.xlsx), with a short guide in [`docs/claude-code-vs-coder.md`](claude-code-vs-coder.md).

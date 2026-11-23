@@ -425,7 +425,7 @@
    * Claude Code's own way of it, is said under it.
    */
   const BG_HOURS = [2, 4, 8, 12, 24], DISK_GIB = [0, 1, 2, 5, 10, 20], MEM_GIB = [0, 1, 2, 4, 8];
-  async function showSettings(opts) {
+  async function showSettings() {
     const r = await call('/settings');
     if (r.status !== 200) { S.error = (r.data && r.data.error) || 'Settings could not be opened.'; return draw(); }
     const prefs = { bgHours: 2, endDetached: true, diskWarnGib: 0, memWarnGib: 0, ...((r.data && r.data.prefs) || {}) };
@@ -448,7 +448,7 @@
       paint();
     };
     const opt = (v, label, on) => '<option value="' + v + '"' + (on ? ' selected' : '') + '>' + esc(label) + '</option>';
-    let advOpen = !!(opts && opts.advanced);
+    let advOpen = S.setAdv === true; S.setAdv = false;
     const paint = () => {
       box.innerHTML = '<div class="cd-sure-title">Settings</div>' +
         '<div class="cd-sure-text">For all your chats. Changes save on their own.</div>' +
@@ -3862,7 +3862,7 @@
     on(sd.tools, '#cdSidePlugins', 'click', () => { S.sidePlugins = !S.sidePlugins; drawSide(); });
     on(sd.tools, '#cdSideMore', 'click', () => { S.sideMore = !S.sideMore; drawSide(); });
     on(sd.tools, '#cdSideConnectors', 'click', () => showConnectors());
-    on(sd.tools, '#cdSideHooks', 'click', () => showSettings({ advanced: true }));
+    on(sd.tools, '#cdSideHooks', 'click', () => { S.setAdv = true; showSettings(); });
     on(sd.tools, '#cdSideRules', 'click', () => showRules());
     on(sd.tools, '#cdSideSettings', 'click', () => showSettings());
     on(sd.tools, '#cdSideNotify', 'click', () => showNotifications());
@@ -3882,7 +3882,7 @@
     const box = document.createElement('div'); box.className = 'cd-sure-box gf-sidelist'; box.setAttribute('role', 'dialog'); box.setAttribute('aria-modal', 'true'); box.setAttribute('aria-label', title);
     box.innerHTML = '<div class="cd-sure-title">' + esc(title) + '</div><div class="cd-sure-text">' + esc(hint) + '</div>' +
       (items === null ? '<p class="gf-none">' + esc(noChat) + '</p>' : !items.length ? '<p class="gf-none">' + esc(empty) + '</p>' :
-        '<ul class="gf-sidelist-ul">' + items.map(([a, b]) => '<li><b>' + esc(a) + '</b><small>' + esc(b) + '</small></li>').join('') + '</ul>') +
+        '<ul class="gf-sidelist-ul" style="list-style:none;margin:8px 0;padding:0;max-height:50vh;overflow:auto">' + items.map(([a, b]) => '<li style="display:flex;flex-direction:column;gap:2px;padding:8px 0;border-top:1px solid #eee9e1"><b>' + esc(a) + '</b><small style="color:#6b665e">' + esc(b) + '</small></li>').join('') + '</ul>') +
       '<div class="cd-sure-row"><button type="button" class="cd-notify-done">Done</button></div>';
     wrap.append(box); document.body.append(wrap);
     const close = () => { document.removeEventListener('keydown', key); wrap.remove(); };
