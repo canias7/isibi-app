@@ -4,6 +4,10 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-23: Six more helpers merged, and the comparison sheet updated
+
+All six helpers' work (their entries follow) is now on one branch. All of Coder's tests pass (1,844 of 1,845; the one left fails only because of a local settings folder on Claude's machine). The comparison sheet's "Tools" tab is now 65 the same, 26 different, 2 Claude Code only, and "Tool parameters & limits" 411, 58 and 26. What's left is mostly things Coder can't have (SSH, Windows, mods, claude.ai accounts) or your spending limits (helpers, messages between chats, scheduled runs). Not yet tried live on gofarther.dev.
+
 ## 2026-11-23: Projects and a browser for Coder's chats
 
 - **Projects:** a new Projects panel (sidebar: Plugins, then Projects) where you make projects that hold documents and instructions. The one marked "Use in chats" is the one Coder can read, search, write and delete documents in, with Claude Code's Projects tool.
