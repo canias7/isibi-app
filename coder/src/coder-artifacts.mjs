@@ -11,11 +11,27 @@
  * here for Coder's chats), from its own short-lived signed address, sandboxed as Gloopy's pages are; a public link opens it
  * for anyone while it is marked public.
  */
-import { readPages, pageAddress, publicAddress, pageListKey, pageFileKey, PAGE_ID, PAGE_MAX, PAGES_MAX } from "./gloopy-pages.mjs";
+import { readPages, pageAddress, publicAddress, pageListKey, pageFileKey, PAGE_ID, PAGES_MAX, ARTIFACT_CAPABILITIES, dbChange, dropDb } from "./gloopy-pages.mjs";
 
 export const ARTIFACTS_NS = "artifacts";
 /** How many versions' records an artifact keeps (number, when, label, size), and how much of a page a read answers. */
 export const VERSIONS_KEPT = 50, READ_MAX = 200_000;
+/** Claude Code's page limit ("The rendered page must be 16 MiB or smaller"); kept in R2, so Coder can hold it too (Gloopy's pages keep 512 KB). */
+export const ARTIFACT_MAX = 16 * 1024 * 1024;
+/** Coder's page runtime version (Claude Code's `contract`): "latest" is this one. */
+export const ARTIFACT_RUNTIME = "1.0.0";
+/** A capabilities declaration checked as Claude Code's artifact service checks it: → an error line, or "". */
+export function capabilitiesProblem(caps) {
+  if (caps === undefined) return "";
+  if (!caps || typeof caps !== "object" || Array.isArray(caps)) return "error: capabilities must be an object";
+  for (const [k, cfg] of Object.entries(caps)) {
+    const check = ARTIFACT_CAPABILITIES[k];
+    if (!check) return "error: the capability \"" + String(k).slice(0, 64) + "\" is not one this account can use (Coder's pages can use: " + Object.keys(ARTIFACT_CAPABILITIES).join(", ") + "). Nothing was published.";
+    const bad = check(cfg);
+    if (bad) return "error: " + bad + ". Nothing was published.";
+  }
+  return "";
+}
 const enc = new TextEncoder();
 const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", "cache-control": "no-store" } });
 const words = (t, max) => String(t == null ? "" : t).replace(/[\p{Cf}\p{Cc}]/gu, " ").replace(/\s+/g, " ").trim().slice(0, max);
@@ -52,6 +68,13 @@ export async function artifactNow(env, bucket, uid, meta, body, { now = Date.now
   }
   const id = typeof body.id === "string" ? body.id.trim() : "";
   const found = id ? list.find((p) => p.id === id) : null;
+  // (Claude Code's ArtifactData: the page's shared database, read and written as the owner. Only for a page that declares db.)
+  if (op === "db") {
+    if (!found) return { error: "error: no artifact has the url " + id.slice(0, 20) + " (action list gives the owner's artifacts)" };
+    if (!(found.capabilities && found.capabilities.db)) return { error: "error: the artifact “" + found.title + "” has no database: publish it with capabilities { db: {} } first" };
+    const r = await dbChange(bucket, uid, id, { op: body.dbOp, collection: body.collection, doc: body.doc, data: body.data });
+    return r.ok ? { ...r, text: JSON.stringify(r.docs ? { docs: r.docs } : r.doc !== undefined ? { doc: r.doc } : { ok: true }) } : { error: "error: " + r.error };
+  }
   if (op === "get" || op === "read" || op === "delete") {
     if (!found) return { error: "error: no artifact has the url " + id.slice(0, 20) + " (action list gives the owner's artifacts)" };
     const link = found.public === true ? await publicAddress(env, uid, id) : "";
@@ -64,6 +87,7 @@ export async function artifactNow(env, bucket, uid, meta, body, { now = Date.now
     }
     await putList(bucket, uid, list.filter((p) => p.id !== id));
     if (typeof bucket.delete === "function") await bucket.delete(pageFileKey(uid, id, ARTIFACTS_NS));
+    await dropDb(bucket, uid, id);
     return { ok: true, text: "Deleted the artifact “" + found.title + "” (" + id + "). Its link no longer works, for anyone." };
   }
   if (op !== "publish") return { error: "error: op is publish, list, get, read or delete" };
@@ -71,7 +95,10 @@ export async function artifactNow(env, bucket, uid, meta, body, { now = Date.now
   const title = words(body.title, 80);
   if (!html || !title) return { error: "error: the page and its title are needed" };
   const size = enc.encode(html).length;
-  if (size > PAGE_MAX) return { error: "error: the page is " + Math.ceil(size / 1024) + " KB; an artifact is at most " + Math.round(PAGE_MAX / 1024) + " KB (big embedded images are the usual cause). Nothing was published." };
+  if (size > ARTIFACT_MAX) return { error: "error: the page is " + (size / 1048576).toFixed(1) + " MiB; an artifact is at most 16 MiB (big embedded images are the usual cause). Nothing was published." };
+  const capsBad = capabilitiesProblem(body.capabilities);
+  if (capsBad) return { error: capsBad };
+  if (body.contract !== undefined && body.contract !== "latest" && body.contract !== ARTIFACT_RUNTIME) return { error: "error: contract " + String(body.contract).slice(0, 20) + " is not a runtime version Coder has (it has " + ARTIFACT_RUNTIME + "; 'latest' is that one). Nothing was published." };
   if (id && !found) return { error: "error: no artifact has the url " + id.slice(0, 20) + "; leave url out to publish a new one" };
   if (found && body.force !== true) {
     const base = Number(body.base) || 0, newest = Number(found.version) || 1;
@@ -96,12 +123,17 @@ export async function artifactNow(env, bucket, uid, meta, body, { now = Date.now
   if (typeof body.icon === "string" && words(body.icon, 40)) p.icon = words(body.icon, 40);
   if (typeof body.description === "string") { if (words(body.description, 1000)) p.description = words(body.description, 1000); else delete p.description; }
   if (typeof body.public === "boolean") { if (body.public) p.public = true; else delete p.public; }
+  // (Left out on a redeploy, the stored capabilities and contract are kept; {} clears the capabilities.)
+  if (body.capabilities !== undefined) { if (Object.keys(body.capabilities).length) p.capabilities = body.capabilities; else delete p.capabilities; }
+  if (body.contract !== undefined) p.contract = ARTIFACT_RUNTIME;
+  if (!p.contract) p.contract = ARTIFACT_RUNTIME;
+  const warnings = size > 4 * 1024 * 1024 ? ["The page is " + (size / 1048576).toFixed(1) + " MiB: big pages open slowly on phones; embedded images are the usual cause."] : [];
   const label = words(body.label, 60);
   p.versions = [...(Array.isArray(p.versions) ? p.versions : []), { version: p.version, at: new Date(now).toISOString(), size, ...(label ? { label } : {}) }].slice(-VERSIONS_KEPT);
   await putList(bucket, uid, list);
   const link = p.public ? await publicAddress(env, uid, newId) : "";
   const text = (found ? "Updated" : "Published") + " the artifact “" + title + "” (url " + newId + ", version " + p.version + (label ? ", “" + label + "”" : "") + "). It is private to the owner, who opens it from its card in the chat." + (link ? " Public link (anyone with it can open the page): " + link : p.public ? " It is marked public, but its link could not be made: Coder's key is not set." : "");
-  return { ok: true, text, id: newId, url: newId, title, version: p.version, updated: !!found, public: !!p.public, ...(link ? { link } : {}) };
+  return { ok: true, text, id: newId, url: newId, path: newId, title, version: p.version, contract: p.contract, capabilities: p.capabilities || {}, warnings, updated: !!found, liveSubscription: false, public: !!p.public, ...(link ? { link } : {}) };
 }
 
 /**

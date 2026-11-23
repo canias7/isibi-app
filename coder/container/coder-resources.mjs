@@ -39,7 +39,12 @@ export const RESOURCE_HINTS = Object.freeze({
 /** Claude Code's limits on the Artifact tool's inputs. */
 export const ARTIFACT_ACTIONS = Object.freeze(["publish", "list", "read", "delete", "open"]);
 export const ARTIFACT_SCOPES = Object.freeze(["mine", "shared", "all"]);
+/** Coder's page runtime version, and the capabilities its pages can declare (src/gloopy-pages.mjs ARTIFACT_CAPABILITIES). */
+export const ARTIFACT_RUNTIME = "1.0.0";
+export const ARTIFACT_CAPABILITY_NAMES = Object.freeze(["db"]);
 export const ARTIFACT_LIMITS = Object.freeze({ description: 1000, icon: 40, label: 60, limitMin: 1, limitMax: 200, limitDefault: 25 });
+/** The biggest file publish reads: the 16 MiB page, or a Markdown file a little over it. */
+export const ARTIFACT_FILE_MAX = 16 * 1024 * 1024;
 const CONTRACT_RE = /^(latest|(0|[1-9]\d{0,3})\.(0|[1-9]\d{0,4})\.(0|[1-9]\d{0,5}))$/;
 
 export const ARTIFACT_DESCRIPTION = [
@@ -49,11 +54,11 @@ export const ARTIFACT_DESCRIPTION = [
   "",
   "Before publishing, write the page as ONE self-contained file with your file tools: its own <style>, a <title> that is a name of two to four words, colors as tokens on :root redefined for dark mode under @media (prefers-color-scheme: dark), an explicit body background, and a layout that works at phone width with a 16px side gutter and no horizontal scroll. Load external scripts only from cdnjs.cloudflare.com (preferred), cdn.jsdelivr.net or unpkg.com, stylesheets only from Google Fonts, and put everything else inline (charts as inline SVG, images as data: URIs). Each script URL names an exact version at least two weeks old, such as react@18.3.1. The page makes no network calls of its own: put its data in it.",
   "",
-  "**Runtime capabilities**: Coder's pages are static. capabilities (other than {}) and contract are not available in Coder, and a publish that gives them is refused.",
+  "**Runtime capabilities**: a page can declare `capabilities` Coder really provides. Coder has one: `db` (config {}), a small shared database the page keeps on Coder's server (at most 1,000 documents and 1 MB), the same for every viewer: the page calls `window.claude.db.get(collection, doc)`, `.list(collection)`, `.set(collection, doc, data)`, `.update(collection, doc, data)` and `.delete(collection, doc)`, each answering a promise. Use it when the page's job is to hold records people add to or change (a tracker, a sign-up sheet, a checklist). Any other capability is refused. Leave `capabilities` out on a republish to keep the stored ones; {} clears them. `contract` is the page's runtime version: Coder has one, " + ARTIFACT_RUNTIME + " ('latest' is that one); left out, it is kept.",
   "",
   "**Format**: author the page as .html; a .md file is made into a styled page. The file must be .html, .htm or .md and decode as UTF-8 (or as little-endian UTF-16 with its byte-order mark); a file that doesn't decode, or contains U+FFFD, is refused with the line and column to fix.",
   "",
-  "**Size**: keep the page at 512 KB or smaller; at most 100 artifacts. Embedded data: URIs count toward that limit.",
+  "**Size**: keep the rendered page at 16 MiB or smaller; at most 100 artifacts. Embedded data: URIs count toward that limit.",
   "",
   "**Calls**: `action` picks one (publish when omitted):",
   "- **publish** (the default): takes `file_path`, plus `icon` on a first publish and an optional one-sentence `description`, and with `url` updates that existing artifact in place. `title` is the fallback title for an HTML page whose file has no <title>. `label` is a short name for this publish. `public: true` also makes a public link anyone can open (only when the owner wants to share it); `public: false` takes the link away.",
@@ -88,8 +93,8 @@ export const ARTIFACT_TOOL = fn(ARTIFACT, ARTIFACT_DESCRIPTION, {
   force: { type: "boolean", description: "publish: a last-resort overwrite that **discards** the newer published version. On a conflict, merge your changes onto the newer content that the refusal hands you and publish again. Pass true only when the owner explicitly said to discard that specific version." },
   limit: { type: "integer", minimum: ARTIFACT_LIMITS.limitMin, maximum: ARTIFACT_LIMITS.limitMax, description: "list only: the maximum number of artifacts to return (default 25)." },
   scope: { type: "string", enum: [...ARTIFACT_SCOPES], description: "list: which listing to return. 'mine' is the default; 'shared' (artifacts other people shared with the owner: Coder has none) and 'all'." },
-  capabilities: { type: "object", description: "publish: the runtime capabilities this page declares, as {name: config}. Not available in Coder (its pages are static): only {} (none) is accepted." },
-  contract: { type: "string", description: "publish: the artifact's runtime version ('latest' or an exact version). Not available in Coder: a publish that gives it is refused." },
+  capabilities: { type: "object", description: "publish: the runtime capabilities this page declares, as {name: config}: Coder has db ({}), the page's shared database. On a redeploy omit the field to keep what the page has, and {} clears it." },
+  contract: { type: "string", description: "publish: the artifact's runtime version. Leaving it out keeps the current version (the default), 'latest' upgrades, and an exact version pins it (Coder has " + ARTIFACT_RUNTIME + ")." },
   public: { type: "boolean", description: "publish: true also gives the artifact a public link anyone can open (only when the owner wants to share it); false takes its public link away. Leave out to keep it as it is (a new artifact is private)." },
 }, []);
 export const LIST_RESOURCES_TOOL = fn(LIST_RESOURCES, LIST_RESOURCES_DESCRIPTION, { server: { type: "string", description: "Optional server name to filter resources by" } }, []);
@@ -316,8 +321,10 @@ export function artifactInputProblem(args) {
   if (typeof args.file_path !== "string" || !args.file_path.trim()) return "error: publish takes file_path: the .html, .htm or .md file to publish";
   if (args.url !== undefined && !artifactIdOf(args.url)) return "error: url is not one of Coder's artifacts (its id looks like p followed by 10 letters and digits); leave it out to publish a new artifact";
   if (args.capabilities !== undefined && (typeof args.capabilities !== "object" || args.capabilities === null || Array.isArray(args.capabilities))) return "error: capabilities must be an object";
-  if (args.capabilities && Object.keys(args.capabilities).length) return "error: runtime capabilities (" + Object.keys(args.capabilities).slice(0, 5).join(", ") + ") are not available in Coder: its pages are static and make no calls. Put the page's data in it and publish without capabilities. Nothing was published.";
-  if (args.contract !== undefined) return typeof args.contract === "string" && CONTRACT_RE.test(args.contract) ? "error: contract (the artifact's runtime version) is not available in Coder: its pages have no runtime. Publish without it. Nothing was published." : "error: contract must be 'latest' or an exact version such as 1.2.3";
+  const unknown = args.capabilities ? Object.keys(args.capabilities).filter((k) => !ARTIFACT_CAPABILITY_NAMES.includes(k)) : [];
+  if (unknown.length) return "error: the capabilit" + (unknown.length === 1 ? "y " : "ies ") + unknown.slice(0, 5).join(", ") + (unknown.length === 1 ? " is" : " are") + " not one this account can use (Coder's pages can use: " + ARTIFACT_CAPABILITY_NAMES.join(", ") + "). Nothing was published.";
+  if (args.capabilities && args.capabilities.db !== undefined && (typeof args.capabilities.db !== "object" || args.capabilities.db === null || Array.isArray(args.capabilities.db) || Object.keys(args.capabilities.db).length)) return "error: the db capability takes an empty config ({}). Nothing was published.";
+  if (args.contract !== undefined) { if (typeof args.contract !== "string" || !CONTRACT_RE.test(args.contract)) return "error: contract must be 'latest' or an exact version such as 1.2.3"; if (args.contract !== "latest" && args.contract !== ARTIFACT_RUNTIME) return "error: contract " + args.contract + " is not a runtime version Coder has (it has " + ARTIFACT_RUNTIME + "; 'latest' is that one). Nothing was published."; }
   return "";
 }
 
@@ -372,7 +379,7 @@ async function artifactCall(c, h, args, done) {
   // ── PUBLISH ──
   const path = args.file_path.trim();
   const pub = typeof args.public === "boolean" ? args.public : undefined;
-  const file = await h.readFile(deps, path);
+  const file = await h.readFile(deps, path, { max: ARTIFACT_FILE_MAX });
   if (file.error) return done(1, "error: " + file.error);
   const page = artifactPageOf(file.name || path, file.data, h.scrub(str(args.title, 80)));
   if (page.error) return done(1, page.error);
@@ -386,7 +393,7 @@ async function artifactCall(c, h, args, done) {
     if (e !== undefined) return e;
   }
   const seen = id && h.seen ? h.seen.get(id) : undefined;
-  const r = await ask(deps, { action: "artifact", op: "publish", html: page.html, title, ...(id ? { id } : {}), ...(seen ? { base: seen } : {}), ...(args.force === true ? { force: true } : {}), ...(pub === undefined ? {} : { public: pub }), ...(args.description !== undefined ? { description: h.scrub(str(args.description, ARTIFACT_LIMITS.description)) } : {}), ...(args.icon !== undefined ? { icon: str(args.icon, ARTIFACT_LIMITS.icon) } : {}), ...(args.label !== undefined ? { label: h.scrub(str(args.label, ARTIFACT_LIMITS.label)) } : {}) });
+  const r = await ask(deps, { action: "artifact", op: "publish", html: page.html, title, ...(id ? { id } : {}), ...(seen ? { base: seen } : {}), ...(args.force === true ? { force: true } : {}), ...(pub === undefined ? {} : { public: pub }), ...(args.description !== undefined ? { description: h.scrub(str(args.description, ARTIFACT_LIMITS.description)) } : {}), ...(args.icon !== undefined ? { icon: str(args.icon, ARTIFACT_LIMITS.icon) } : {}), ...(args.label !== undefined ? { label: h.scrub(str(args.label, ARTIFACT_LIMITS.label)) } : {}), ...(args.capabilities !== undefined ? { capabilities: args.capabilities } : {}), ...(args.contract !== undefined ? { contract: args.contract } : {}) });
   if (r.stale) {
     // (Refused: a newer version than this job's. The live one is handed over and counts as read, as in Claude Code.)
     if (h.seen && r.version) h.seen.set(id, r.version);
@@ -396,5 +403,6 @@ async function artifactCall(c, h, args, done) {
   if (h.approved) h.approved.add(r.id);
   if (h.seen) h.seen.set(r.id, r.version);
   emit({ type: "page", id: r.id, title, version: r.version, artifact: true, ...(r.public ? { public: true } : {}), ...(r.link ? { link: r.link } : {}) });
-  return done(0, answerText(r), { label: (r.version > 1 ? "Updated “" : "Published “") + title.slice(0, 60) + "”" });
+  const facts = { url: r.url || r.id, path: r.path || r.id, title, version: r.version, contract: r.contract || ARTIFACT_RUNTIME, capabilities: r.capabilities || {}, warnings: Array.isArray(r.warnings) ? r.warnings : [], updated: r.updated === true, liveSubscription: false };
+  return done(0, answerText(r) + "\n" + JSON.stringify(facts), { label: (r.version > 1 ? "Updated “" : "Published “") + title.slice(0, 60) + "”" });
 }

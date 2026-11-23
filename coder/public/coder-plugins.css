@@ -36,6 +36,12 @@
 .cpx-modal .cpx-seg { display: inline-flex; border: 1px solid #e5e3dd; border-radius: 10px; padding: 2px; }
 .cpx-modal .cpx-seg button { border: 0; background: none; font: inherit; font-size: 13.5px; padding: 6px 12px; border-radius: 8px; cursor: pointer; color: #4a4741; }
 .cpx-modal .cpx-seg button.on { background: #f1efea; color: #1f1e1c; font-weight: 500; }
+/* Marketplaces (2026-11-23): the Git URL box and each marketplace's plugins. */
+.cpx-modal .cpx-mkadd { display: flex; gap: 8px; margin: 10px 0; }
+.cpx-modal .cpx-mkadd .cpx-in { flex: 1; min-width: 0; }
+.cpx-modal .cpx-mk { border: 1px solid #ece8e1; border-radius: 10px; padding: 8px 10px; margin: 8px 0; }
+.cpx-modal .cpx-mk-h { display: flex; align-items: center; gap: 8px; font-size: 13.5px; }
+.cpx-modal .cpx-mk-h span { color: #8a847b; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1; }
 .cpx-modal .cpx-seg i { font-style: normal; color: #8a857c; }
 .cpx-modal .cpx-list { list-style: none; margin: 4px 0 0; padding: 0; overflow: auto; min-height: 0; flex: 1; }
 .cpx-modal .cpx-prow { padding: 10px 2px; border-top: 1px solid #eee9e1; }

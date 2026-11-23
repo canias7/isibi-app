@@ -124,7 +124,8 @@ export async function servePageFile(env, bucket, uid, id, url, now = Date.now(),
   if (diff) return nope();
   const o = await bucket.get(fileKey(uid, id, ns));
   if (!o) return nope();
-  return new Response(await o.text(), { status: 200, headers: { "content-type": "text/html; charset=utf-8", "content-security-policy": PAGE_CSP, "x-content-type-options": "nosniff", "referrer-policy": "no-referrer", "cache-control": "private, no-store" } });
+  const page = nsOf(ns) === "artifacts" ? await withCapabilities(env, bucket, uid, id, await o.text()) : { html: await o.text(), csp: PAGE_CSP };
+  return new Response(page.html, { status: 200, headers: { "content-type": "text/html; charset=utf-8", "content-security-policy": page.csp, "x-content-type-options": "nosniff", "referrer-policy": "no-referrer", "cache-control": "private, no-store" } });
 }
 
 // ── A PUBLIC LINK (Coder's artifacts, 2026-11-23; Claude Code: "You can share it with a public link") ──────────────────
@@ -157,5 +158,91 @@ export async function servePublicArtifact(env, bucket, uid, id, url) {
   if (!p || p.public !== true) return nope();
   const o = await bucket.get(fileKey(uid, id, "artifacts"));
   if (!o) return nope();
-  return new Response(await o.text(), { status: 200, headers: { "content-type": "text/html; charset=utf-8", "content-security-policy": PAGE_CSP, "x-content-type-options": "nosniff", "referrer-policy": "no-referrer", "cache-control": "no-store" } });
+  const page = await withCapabilities(env, bucket, uid, id, await o.text());
+  return new Response(page.html, { status: 200, headers: { "content-type": "text/html; charset=utf-8", "content-security-policy": page.csp, "x-content-type-options": "nosniff", "referrer-policy": "no-referrer", "cache-control": "no-store" } });
+}
+
+// ── AN ARTIFACT'S RUNTIME CAPABILITIES (2026-11-23; Claude Code's Artifact `capabilities`: "the runtime capabilities the page
+// uses"). Coder provides one it can really keep: "db", a small shared database the page keeps (every viewer sees the same
+// rows), read and written by the page through window.claude.db (get, list, set, update, delete) and by Coder through the
+// artifact tool's db actions. A page that declares it gets a script defining window.claude.db, and its rules let it call
+// Coder's server (connect-src), nothing else. Any other capability is refused as one the account can't use.
+
+/** The capabilities Coder's artifacts can declare, each with its config's check (→ an error line, or ""). */
+export const ARTIFACT_CAPABILITIES = Object.freeze({
+  db: (cfg) => (cfg && typeof cfg === "object" && !Array.isArray(cfg) && Object.keys(cfg).length === 0 ? "" : "the db capability takes an empty config ({})"),
+});
+/** What a page's database may hold. */
+export const DB_DOCS_MAX = 1000, DB_BYTES_MAX = 1024 * 1024, DB_DOC_MAX = 64 * 1024;
+const DB_NAME = /^[\w.-]{1,64}$/;
+const dbKey = (uid, id) => ["coder", uid, "artifacts", "db", id + ".json"].join("/");
+const appOrigin = (env) => String((env && (env.APP_ORIGIN || env.CODER_PUBLIC_URL)) || "https://gofarther.dev").replace(/\/+$/, "");
+/** The artifact's stored capabilities ({} when none). */
+export async function artifactCapabilities(bucket, uid, id) {
+  const l = await getJson(bucket, listKey(uid, "artifacts"), []);
+  const p = Array.isArray(l) ? l.find((x) => x && x.id === id) : null;
+  return p && p.capabilities && typeof p.capabilities === "object" && !Array.isArray(p.capabilities) ? p.capabilities : {};
+}
+/** The signed part of a page's database address (it works while the page declares db). */
+export async function dbPass(env, uid, id) {
+  const k = await passKey(env);
+  return k ? b64url(await crypto.subtle.sign("HMAC", k, enc.encode("db:artifacts:" + uid + ":" + id))) : "";
+}
+/** The page with what its capabilities need: { html, csp }. */
+export async function withCapabilities(env, bucket, uid, id, html) {
+  const caps = await artifactCapabilities(bucket, uid, id);
+  if (!caps.db) return { html, csp: PAGE_CSP };
+  const t = await dbPass(env, uid, id);
+  if (!t) return { html, csp: PAGE_CSP };
+  const at = appOrigin(env) + "/api/coder/artifact-db/" + encodeURIComponent(uid) + "/" + id + "?k=" + t;
+  const script = "<script>(function(){var A=" + JSON.stringify(at) + ";function q(o){var u=A;for(var k in o)if(o[k]!=null)u+='&'+k+'='+encodeURIComponent(o[k]);return u}function j(r){return r.json().then(function(b){if(!r.ok)throw new Error(b&&b.error||'db error');return b})}" +
+    "var db={get:function(c,d){return fetch(q({collection:c,doc:d})).then(j).then(function(b){return b.doc})},list:function(c){return fetch(q({collection:c})).then(j).then(function(b){return b.docs})}," +
+    "set:function(c,d,v){return fetch(q({collection:c,doc:d}),{method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify(v)}).then(j)},update:function(c,d,v){return fetch(q({collection:c,doc:d,merge:1}),{method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify(v)}).then(j)}," +
+    "delete:function(c,d){return fetch(q({collection:c,doc:d}),{method:'DELETE'}).then(j)}};window.claude=Object.assign(window.claude||{},{db:db})})();</script>";
+  const out = /<head[^>]*>/i.test(html) ? html.replace(/<head[^>]*>/i, (m) => m + script) : script + html;
+  return { html: out, csp: PAGE_CSP.replace("connect-src 'none'", "connect-src " + appOrigin(env)) };
+}
+const dbAnswer = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", "cache-control": "no-store", "access-control-allow-origin": "*", "access-control-allow-methods": "GET, PUT, DELETE, OPTIONS", "access-control-allow-headers": "content-type" } });
+export async function readDb(bucket, uid, id) { const v = await getJson(bucket, dbKey(uid, id), {}); return v && typeof v === "object" && !Array.isArray(v) ? v : {}; }
+export async function dropDb(bucket, uid, id) { if (typeof bucket.delete === "function") await bucket.delete(dbKey(uid, id)); }
+/** One change to a page's database (the page's or Coder's): op get | list | set | update | delete. → { ok, ... } | { error }. */
+export async function dbChange(bucket, uid, id, { op, collection, doc, data }) {
+  if (!DB_NAME.test(String(collection || ""))) return { error: "collection: 1 to 64 letters, digits, _, . or -" };
+  const all = await readDb(bucket, uid, id);
+  const col = all[collection] && typeof all[collection] === "object" ? all[collection] : {};
+  if (op === "list") return { ok: true, docs: Object.entries(col).map(([k, v]) => ({ id: k, data: v })) };
+  if (!DB_NAME.test(String(doc || ""))) return { error: "doc: 1 to 64 letters, digits, _, . or -" };
+  if (op === "get") return { ok: true, doc: Object.prototype.hasOwnProperty.call(col, doc) ? col[doc] : null };
+  if (op === "delete") { delete col[doc]; all[collection] = col; await bucket.put(dbKey(uid, id), JSON.stringify(all), { httpMetadata: { contentType: "application/json" } }); return { ok: true }; }
+  if (op !== "set" && op !== "update") return { error: "op: get, list, set, update or delete" };
+  if (!data || typeof data !== "object" || Array.isArray(data)) return { error: "a document is a JSON object" };
+  const one = op === "update" && col[doc] && typeof col[doc] === "object" ? { ...col[doc], ...data } : data;
+  if (enc.encode(JSON.stringify(one)).length > DB_DOC_MAX) return { error: "a document is at most " + DB_DOC_MAX / 1024 + " KB" };
+  col[doc] = one; all[collection] = col;
+  if (Object.values(all).reduce((n, c) => n + Object.keys(c || {}).length, 0) > DB_DOCS_MAX) return { error: "the page's database holds at most " + DB_DOCS_MAX + " documents" };
+  const text = JSON.stringify(all);
+  if (enc.encode(text).length > DB_BYTES_MAX) return { error: "the page's database holds at most 1 MB" };
+  await bucket.put(dbKey(uid, id), text, { httpMetadata: { contentType: "application/json" } });
+  return { ok: true };
+}
+/** THE PAGE'S CALLS (no sign-in: the signed address, while the artifact declares db). */
+export async function serveArtifactDb(request, env, bucket, uid, id, url) {
+  if (request.method === "OPTIONS") return dbAnswer({ ok: true });
+  const given = String(url.searchParams.get("k") || "");
+  if (!PAGE_ID.test(id) || !/^[\w-]{1,80}$/.test(uid) || !given) return dbAnswer({ error: "not found" }, 404);
+  const want = await dbPass(env, uid, id);
+  if (!want || want.length !== given.length) return dbAnswer({ error: "not found" }, 404);
+  let diff = 0;
+  for (let i = 0; i < want.length; i++) diff |= want.charCodeAt(i) ^ given.charCodeAt(i);
+  if (diff || !(await artifactCapabilities(bucket, uid, id)).db) return dbAnswer({ error: "not found" }, 404);
+  const collection = url.searchParams.get("collection"), doc = url.searchParams.get("doc");
+  let r;
+  if (request.method === "GET") r = await dbChange(bucket, uid, id, { op: doc ? "get" : "list", collection, doc });
+  else if (request.method === "DELETE") r = await dbChange(bucket, uid, id, { op: "delete", collection, doc });
+  else if (request.method === "PUT") {
+    const raw = (await request.text()).slice(0, DB_DOC_MAX + 1);
+    let data = null; try { data = JSON.parse(raw); } catch { data = null; }
+    r = await dbChange(bucket, uid, id, { op: url.searchParams.get("merge") ? "update" : "set", collection, doc, data });
+  } else return dbAnswer({ error: "method" }, 405);
+  return dbAnswer(r, r.ok ? 200 : 400);
 }

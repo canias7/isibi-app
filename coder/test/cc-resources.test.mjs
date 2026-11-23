@@ -210,8 +210,12 @@ test("CR9 Artifact's inputs by Claude Code's names and limits: its actions, desc
   assert.match(bad({ file_path: "a.html", label: "x".repeat(61) }), /label must be a string of at most 60/);
   assert.match(bad({ file_path: "a.html", description: "x".repeat(1001) }), /description must be a string of at most 1000/);
   assert.equal(bad({ file_path: "a.html", capabilities: {} }), "", "{} (none) is accepted");
-  assert.match(bad({ file_path: "a.html", capabilities: { db: {} } }), /runtime capabilities \(db\) are not available in Coder/);
-  assert.match(bad({ file_path: "a.html", contract: "latest" }), /contract .* is not available in Coder/);
+  assert.equal(bad({ file_path: "a.html", capabilities: { db: {} } }), "", "db is one Coder provides (2026-11-23)");
+  assert.match(bad({ file_path: "a.html", capabilities: { camera: {} } }), /camera is not one this account can use/);
+  assert.match(bad({ file_path: "a.html", capabilities: { db: { x: 1 } } }), /db capability takes an empty config/);
+  assert.equal(bad({ file_path: "a.html", contract: "latest" }), "");
+  assert.equal(bad({ file_path: "a.html", contract: "1.0.0" }), "");
+  assert.match(bad({ file_path: "a.html", contract: "2.0.0" }), /not a runtime version Coder has/);
   assert.match(bad({ file_path: "a.html", url: "https://elsewhere.example/x" }), /url is not one of Coder's artifacts/);
   assert.equal(R.artifactIdOf("https://gofarther.dev/api/coder/artifact/u1/pabcdefghij?k=x"), "pabcdefghij");
   assert.equal(R.artifactIdOf("pabcdefghij"), "pabcdefghij");
@@ -268,7 +272,8 @@ test("CR11 the Worker's artifacts: list (newest first, limit, truncated, total, 
   const req = (body) => new Request("https://x/", { method: "POST", body: JSON.stringify(body) });
   await ART.artifactPages(req({ share: a.id, public: true }), KEY, b, "u1");
   assert.equal((await ART.artifactNow(KEY, b, "u1", meta, { op: "list" })).artifacts[0].icon, "chart");
-  assert.match((await ART.artifactNow(KEY, b, "u1", meta, { html: "x".repeat(PG.PAGE_MAX + 1), title: "Big" })).error, /an artifact is at most 512 KB/);
+  assert.match((await ART.artifactNow(KEY, b, "u1", meta, { html: "x".repeat(ART.ARTIFACT_MAX + 1), title: "Big" })).error, /an artifact is at most 16 MiB/);
+  assert.equal((await ART.artifactNow(KEY, b, "u1", meta, { html: "x".repeat(PG.PAGE_MAX + 1), title: "Over Gloopy's" })).ok, true, "over 512 KB is fine for an artifact now");
 });
 
 test("CR12 the loop: list, read and open need no card (open shows the artifact's card), delete always asks (an allow rule too), a stale publish hands over the live version and the next publish goes through", async () => {

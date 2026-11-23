@@ -204,6 +204,8 @@ export async function pluginTool(name, ctx) {
     const p = a.choice === "answers" && Array.isArray(a.picks) && a.picks[0] ? a.picks[0] : null;
     const picked = p && Array.isArray(p.options) && p.options.length ? ROLE_OPTIONS[p.options[0]] : null;
     const typed = p && !picked && typeof p.other === "string" ? p.other.trim().slice(0, 100) : "";
+    // (Claude Code: "an empty object when approved without a pick".)
+    if (!picked && !typed && a.choice === "answers") return done(JSON.stringify({}));
     if (!picked && !typed) return done(JSON.stringify(a.choice === "chat" ? { dismissed: true, said: String(a.text || "").slice(0, 2000) } : { dismissed: true }));
     if (!picked) return done(JSON.stringify({ role: typed }) + "\nNo plugin matches that role by name; search_plugins can find one.");
     const ins = await api({ action: "plugins_install", name: picked.plugin });

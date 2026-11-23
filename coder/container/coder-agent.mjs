@@ -1019,9 +1019,9 @@ export function coderAttachNote(put, missed, left = 0) {
  * A FILE IN GLOOPY'S WORK FOLDER, read as `dev` from inside it (coder-tools.mjs send_file: never through a link out of
  * it; at most 5 MB): { name, size, data } (base64), or { error }. For a file Gloopy sends the owner or uploads to a site.
  */
-async function readOwnFile(deps, path) {
+async function readOwnFile(deps, path, { max } = {}) {
   let r;
-  try { r = await deps.exec({ command: "node --no-warnings " + TOOLS_SCRIPT + " " + Buffer.from(JSON.stringify({ tool: "send_file", args: { path } })).toString("base64"), timeoutS: 60, tool: true, here: true }); }
+  try { r = await deps.exec({ command: "node --no-warnings " + TOOLS_SCRIPT + " " + Buffer.from(JSON.stringify({ tool: "send_file", args: { path, ...(max ? { max } : {}) } })).toString("base64"), timeoutS: 60, tool: true, here: true }); }
   catch (e) { r = { code: -1, output: String((e && e.message) || e) }; }
   let file = null;
   try { file = r && r.code === 0 ? JSON.parse(r.output) : null; } catch { file = null; }
@@ -7629,6 +7629,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // (Into the owner's queue on Coder's server: 10 drafts across chats, 30 days. Without it, this job's own count.)
         let q = null;
         if (typeof deps.envApi === "function") { try { q = await deps.envApi({ action: "feedback_queue", ...fb }); } catch { q = null; } }
+        // (The owner turned Claude-drafted feedback off after dismissing a draft, as Claude Code offers: nothing is drafted.)
+        if (q && typeof q.error === "string" && /feedback off/.test(q.error)) { reply(q.error); continue; }
         const shown = q && q.ok ? q.inChat : ++feedbackDrafts;
         if (shown > FEEDBACK_MAX) { emit({ type: "feedback_count", queued: q && q.ok ? q.queued : shown }); reply(feedbackQuietText(q && q.ok ? q.queued : shown)); continue; }
         emit({ type: "feedback", ...fb, ...(q && q.ok ? { draftId: q.id, queued: q.queued } : {}), text: fb.title + (fb.area ? " (" + fb.area + ")" : "") + "\n\n" + fb.details });
@@ -7728,7 +7730,9 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         notified++;
         emit({ type: "notify", text: message });
         // (Claude Code's PushNotification result for its PostToolUse hooks, 2026-11-23: message, pushSent and sentAt.)
-        toolFacts.set(c.id, { message, pushSent: true, sentAt: new Date().toISOString() });
+        // (localSent: the open page also shows it, as Claude Code's desktop notification from a local session; disabledReason is
+        // set only when nothing could be sent: config_off, user_present or no_transport. Here push always goes through Coder's server.)
+        toolFacts.set(c.id, { message, pushSent: true, localSent: true, sentAt: new Date().toISOString() });
         reply("ok: sent to the owner's devices that have notifications on.");
       } else if (c.name === "auto_fix") {
         // From GitHub (strangers can write there) the owner's settings are never changed.

@@ -1791,6 +1791,12 @@
     if (!GLOOPY && S.rewinding && text) { S.error = 'Coder is still rewinding this chat: send it once that is done.'; return draw(); }
     if (!GLOOPY && text) S.rewindAfter = false;
     if (!GLOOPY && /^\/(permissions|allowed-tools)$/i.test(text)) { boxEmpty(); S.modeMenu = true; draw(); return; }
+    // /rename [name], CLAUDE CODE'S ("Rename the current conversation", the person types it; 2026-11-23): with a name, the chat
+    // is renamed at once (no AI call); alone, the name box opens in the top bar, as Rename in its menu does.
+    if (!GLOOPY && /^\/rename(?:\s|$)/i.test(text)) { boxEmpty(); renameCmd(text.replace(/^\/rename\s*/i, '')); return; }
+    // /autofix-pr [off], CLAUDE CODE'S (Auto-fix pull requests, 2026-11-23): Coder watches this chat's pull request and fixes CI
+    // failures and review comments, as the Auto-fix switch does; "off" stops it. No AI call now.
+    if (!GLOOPY && /^\/autofix-pr(?:\s|$)/i.test(text)) { boxEmpty(); autofixCmd(text.replace(/^\/autofix-pr\s*/i, '')); return; }
     // /btw, CLAUDE CODE'S SIDE QUESTION (round 6, 2026-11-21): answered in a panel over the chat, even while Coder works; it
     // never joins the chat or its history. Alone, it opens the last answer again.
     if (!GLOOPY && /^\/btw(?:\s|$)/i.test(text)) { boxEmpty(); btwAsk(text.replace(/^\/btw\s*/i, '')); return; }
@@ -3145,10 +3151,10 @@
       // CLAUDE CODE'S ReportFindings, SendFeedback AND EndConversation (2026-11-23, coder-worktree.mjs): findingsHTML, a feedback
       // draft with Copy (nothing is sent), and the line that says the chat ended.
       else if (e.type === 'findings') out.push(findingsHTML(e, i));
-      else if (e.type === 'feedback') out.push('<div class="cd-fbcard"><div class="cd-fbcard-h"><b>Feedback draft</b><span>Not sent · copy it to send it on</span><button type="button" class="cd-meta-b" data-copy-ev="' + i + '" aria-label="Copy" title="Copy">' + META_ICON.copy + '</button></div><div class="cd-fbcard-t">' + esc(e.title || '') + (e.area ? ' <small>' + esc(e.area) + '</small>' : '') + '</div><pre class="cd-fbcard-d">' + esc(e.details || '') + '</pre></div>');
+      else if (e.type === 'feedback') out.push(feedbackCardHTML(e, i));
       // (Past three draft cards in a chat, Claude Code shows only a count of queued drafts.)
       else if (e.type === 'feedback_count') out.push('<div class="cd-localnote cpx-fbcount">Feedback drafts queued: ' + esc(String(Number(e.queued) || 0)) + ' · nothing sent</div>');
-      else if (e.type === 'ended') out.push('<div class="cd-localnote cd-ended"><b>Coder ended this conversation.</b> Start a new chat to continue.</div>');
+      else if (e.type === 'ended') out.push('<div class="cd-localnote cd-ended"><b>Coder ended this conversation.</b> Start a new chat (or /clear) to continue.</div>');
       // RENAMED CHAT, Claude Code's "Renamed session" step.
       else if (e.type === 'renamed') out.push('<div class="cd-localnote cd-renamed"><b>Renamed chat</b> · This chat is now named “' + esc(e.text) + '”' + (e.by === 'plan' ? ', after its approved plan' : '') + '.</div>');
       // ITS MONITOR PAUSED THE RUN (2026-11-10; dots' "a pause can surface a warning for the owner to review").
@@ -4103,7 +4109,7 @@
   // start of the box lists Coder's commands with a line each; ↑↓ to move, Enter or Tab or a click to pick, Esc to close.
   // (/btw, /init and /review: Claude Code's, round 6, 2026-11-21. /autocompact: Claude Code's, 2026-11-21, per chat here.
   // /clear with its other names /reset and /new: Claude Code's, batch 6, MISS-61; the Worker empties what Coder reads.)
-  const SLASH = [['/autocompact', 'Set the auto-compact window: auto, or a size such as 500k'], ['/btw', 'Ask a side question without adding to the conversation'], ['/clear', 'Start a new conversation with empty context', ['reset', 'new']], ['/compact', 'Shrink this chat into a short summary (add what to keep after it)'], ['/context', 'Visualize current context usage as a colored grid'], ['/effort', 'Set the effort level for the model'], ['/export', 'Export the current conversation as plain text'], ['/init', 'Create or update CLAUDE.md for this repository'], ['/model', 'Set the AI model for this chat'], ['/permissions', 'Choose the mode: Auto, Accept edits or Plan', ['allowed-tools']], ['/review', 'Review the changes on this branch', ['code-review']], ['/rewind', 'Go back to an earlier message', ['checkpoint', 'undo']], ['/scheduled', 'See and cancel scheduled tasks', ['crons', 'loop', 'routines']]];
+  const SLASH = [['/autocompact', 'Set the auto-compact window: auto, or a size such as 500k'], ['/autofix-pr', "Watch this chat's pull request and fix CI failures and review comments (off to stop)"], ['/btw', 'Ask a side question without adding to the conversation'], ['/clear', 'Start a new conversation with empty context', ['reset', 'new']], ['/compact', 'Shrink this chat into a short summary (add what to keep after it)'], ['/context', 'Visualize current context usage as a colored grid'], ['/effort', 'Set the effort level for the model'], ['/export', 'Export the current conversation as plain text'], ['/init', 'Create or update CLAUDE.md for this repository'], ['/model', 'Set the AI model for this chat'], ['/permissions', 'Choose the mode: Auto, Accept edits or Plan', ['allowed-tools']], ['/rename', 'Rename the current conversation'], ['/review', 'Review the changes on this branch (--comment posts the findings on the pull request)', ['code-review']], ['/rewind', 'Go back to an earlier message', ['checkpoint', 'undo']], ['/scheduled', 'See and cancel scheduled tasks', ['crons', 'loop', 'routines']], ['/security-review', 'Complete a security review of the changes on this branch'], ['/team-onboarding', 'Write ONBOARDING.md for teammates and share it as a link']];
   // As Claude Code's / list: from the start of a name, of a word inside it, or of one of its other names; '-', '_' and ':' ignored.
   // THE REPOSITORY'S SKILLS (Claude Code's "/skill-name"; the machine names them at each message): after Coder's own commands.
   function skillsSlash() {
@@ -4118,7 +4124,7 @@
     return [...SLASH, ...skillsSlash()].filter(([c, , other]) => hit(c.slice(1)) || (other || []).some(hit));
   }
   // The commands Coder knows by name: its / list and their other names, the repository's skills, and those its server reads.
-  const SLASH_MORE = ['/compact', '/init', '/review', '/code-review', '/signins', '/signout', '/pause', '/resume', '/schedules'];
+  const SLASH_MORE = ['/compact', '/init', '/review', '/code-review', '/security-review', '/team-onboarding', '/rename', '/autofix-pr', '/signins', '/signout', '/pause', '/resume', '/schedules'];
   function unknownSlash(text) {
     const m = /^\/([A-Za-z][\w:-]*)(?:\s|$)/.exec(String(text || ''));
     if (!m) return null;
@@ -4137,6 +4143,75 @@
   // /model and /effort: the new pick (or none) and the chat's line. Pure, so a test can run it.
   // /export: the conversation as plain text (exportText), saved as a .txt file under the name given, or one made from the date and
   // the chat's title, as Claude Code's own default name is made from the date and the first prompt.
+  // CLAUDE CODE'S DRAFT CARD (SendFeedback, 2026-11-23: "press 1 to review, 2 twice to send as written, 0 to dismiss (it stays
+  // queued)"; the review screen's Send transcript starts at yes). Keys 1, 2 and 0 work while the newest draft card waits; after
+  // a dismissal Coder asks whether to turn Claude-drafted feedback off, and stops asking after two No's (counted while the page is open).
+  function feedbackCardHTML(e, i) {
+    const st = (S.fb && S.fb[e.draftId || i]) || {};
+    const head = '<div class="cd-fbcard-h"><b>Feedback draft</b><span>' + (st.sent ? '✓ Sent' + (st.receipt ? ' · receipt ' + esc(st.receipt) : '') : st.dismissed ? 'Dismissed · still queued' : 'Not sent yet') + '</span><button type="button" class="cd-meta-b" data-copy-ev="' + i + '" aria-label="Copy" title="Copy">' + META_ICON.copy + '</button></div>';
+    const title = '<div class="cd-fbcard-t">' + esc(e.title || '') + (e.area ? ' <small>' + esc(e.area) + '</small>' : '') + '</div>';
+    const body = st.review ? '<pre class="cd-fbcard-d">' + esc(e.details || '') + '</pre><label class="cd-fbcard-tr"><input type="checkbox" data-fb-tr="' + i + '"' + (st.transcript === false ? '' : ' checked') + '> Send transcript (this conversation goes with the report)</label>' : '';
+    const keys = st.sent || st.dismissed || !e.draftId ? '' : '<div class="cd-fbcard-keys"><button type="button" class="cd-btn-2" data-fb-review="' + i + '"><kbd>1</kbd> ' + (st.review ? 'Hide' : 'Review') + '</button><button type="button" class="cd-btn-2' + (st.arm ? ' cd-fbcard-arm' : '') + '" data-fb-send="' + i + '"><kbd>2</kbd> ' + (st.arm ? 'Press again to send' : 'Send') + '</button><button type="button" class="cd-btn-2" data-fb-dismiss="' + i + '"><kbd>0</kbd> Dismiss</button></div>';
+    const ask = st.askOff ? '<div class="cd-fbcard-ask">Turn off Claude-drafted feedback? <button type="button" class="cd-btn-2" data-fb-off="' + i + '">Turn off</button><button type="button" class="cd-btn-2" data-fb-keep="' + i + '">No</button></div>' : '';
+    return '<div class="cd-fbcard" data-fb-card="' + i + '">' + head + title + body + keys + ask + '</div>';
+  }
+  // (The keys act on the newest draft card still waiting, while the box is empty, as Claude Code's card above the prompt.)
+  if (!GLOOPY && typeof document !== 'undefined' && typeof window !== 'undefined' && !window.__cdFbKeys) {
+    window.__cdFbKeys = true;
+    document.addEventListener('keydown', (ev) => {
+      if (ev.ctrlKey || ev.metaKey || ev.altKey || !['0', '1', '2'].includes(ev.key)) return;
+      const t = ev.target, tag = t && t.tagName;
+      if (tag && (tag === 'INPUT' || tag === 'SELECT' || (tag === 'TEXTAREA' && (t.id !== 'cdIn' || t.value)))) return;
+      if (t && t.isContentEditable) return;
+      const evs = (S && S.events) || [];
+      let i = evs.length - 1;
+      for (; i >= 0; i--) { const e = evs[i]; if (e && e.type === 'feedback' && e.draftId) { const st = (S.fb || {})[e.draftId] || {}; if (!st.sent && !st.dismissed) break; } }
+      if (i < 0) return;
+      ev.preventDefault();
+      fbAct(ev.key === '1' ? 'review' : ev.key === '2' ? 'send' : 'dismiss', i);
+    });
+  }
+  function fbState(i) { const e = S.events[i]; S.fb = S.fb || {}; const k = (e && e.draftId) || i; return (S.fb[k] = S.fb[k] || {}); }
+  async function fbAct(kind, i) {
+    const e = S.events[i]; if (!e || e.type !== 'feedback') return;
+    const st = fbState(i);
+    if (kind === 'review') { st.review = !st.review; st.arm = false; }
+    else if (kind === 'send') {
+      if (!st.arm) { st.arm = true; return draw(); }
+      st.arm = false;
+      const r = await call('/feedback/' + encodeURIComponent(e.draftId) + '/send', { method: 'POST', body: JSON.stringify({ transcript: st.transcript !== false, project: S.project && S.project.id, model: S.pick && S.pick.model }) });
+      if (r.status === 200 && r.data && r.data.ok) { st.sent = true; st.receipt = r.data.receipt; } else note((r.data && r.data.error) || 'The feedback could not be sent.');
+    } else if (kind === 'dismiss') {
+      st.dismissed = true; st.arm = false;
+      const asked = Number(S.fbOffNo) || 0;
+      if (asked < 2 && !(S.settings && S.settings.feedbackOff)) st.askOff = true;
+    } else if (kind === 'keep') {
+      st.askOff = false;
+      S.fbOffNo = (Number(S.fbOffNo) || 0) + 1;
+    } else if (kind === 'off') {
+      st.askOff = false;
+      const r = await call('/feedback/settings', { method: 'POST', body: JSON.stringify({ off: true }) });
+      note(r.status === 200 ? 'Claude-drafted feedback is off: Coder will not draft feedback reports. Turn it back on in Settings.' : 'It could not be turned off.');
+    }
+    draw();
+  }
+  // /rename: the chat's new name (at most 80 characters), or the name box when none is given.
+  async function renameCmd(arg) {
+    if (!S.project) return note('Open a chat first.');
+    const v = String(arg || '').replace(/\s+/g, ' ').trim().slice(0, 80);
+    if (!v) { S.renaming = true; draw(); const i = root.querySelector('#cdTitleIn'); if (i) { i.focus(); i.select(); } return; }
+    const r = await call('/projects/' + encodeURIComponent(S.project.id), { method: 'POST', body: JSON.stringify({ title: v }) });
+    if (r.status === 200 && r.data && r.data.project) { S.project = { ...S.project, title: r.data.project.title }; syncEntry(); drawSide(); note('Session renamed to: ' + r.data.project.title); }
+    else note((r.data && r.data.error) || 'The chat could not be renamed.');
+  }
+  // /autofix-pr [off]: turns this chat's auto-fix on (or off) on Coder's server.
+  async function autofixCmd(arg) {
+    if (!S.project) return note('Open a chat first.');
+    const on = !/^(off|stop|false|no)$/i.test(String(arg || '').trim());
+    const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/autofix', { method: 'POST', body: JSON.stringify({ on }) });
+    if (r.status === 200 && r.data && r.data.project) { S.project = r.data.project; note(on ? "Auto-fix is on: Coder watches this chat's pull request and fixes CI failures and review comments." : 'Auto-fix is off.'); }
+    else note((r.data && r.data.error) || 'Auto-fix could not be changed.');
+  }
   function exportCmd(arg) {
     if (!S.project) return note('Open a chat first.');
     const text = exportText(S.events, S.project.title || '');
@@ -5719,6 +5794,12 @@
     on('#cdTitleMore', 'click', () => { S.titleMenu = !S.titleMenu; draw(); });
     on('#cdRename', 'click', () => { S.titleMenu = false; S.renaming = true; draw(); const i = root.querySelector('#cdTitleIn'); if (i) { i.focus(); i.select(); } });
     on('#cdShare', 'click', () => { S.titleMenu = false; draw(); shareDialog(); });
+    on('[data-fb-review]', 'click', (e) => fbAct('review', Number(e.currentTarget.dataset.fbReview)));
+    on('[data-fb-send]', 'click', (e) => fbAct('send', Number(e.currentTarget.dataset.fbSend)));
+    on('[data-fb-dismiss]', 'click', (e) => fbAct('dismiss', Number(e.currentTarget.dataset.fbDismiss)));
+    on('[data-fb-off]', 'click', (e) => fbAct('off', Number(e.currentTarget.dataset.fbOff)));
+    on('[data-fb-keep]', 'click', (e) => fbAct('keep', Number(e.currentTarget.dataset.fbKeep)));
+    on('[data-fb-tr]', 'change', (e) => { fbState(Number(e.currentTarget.dataset.fbTr)).transcript = e.currentTarget.checked; });
     on('#cdTitleIn', 'keydown', async (e) => {
       if (e.key === 'Escape') { e.preventDefault(); S.renaming = false; return draw(); }
       if (e.key !== 'Enter') return;

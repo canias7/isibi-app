@@ -127,7 +127,8 @@ export function makePassword({ length = 20, symbols = true } = {}) {
   return out.join("");
 }
 // A FILE TOOL'S ANSWER (read: up to 20 PDF pages, each as a picture, like Claude Code's Read; the owner, 2026-11-08: "Yes fix that too"); a command's output keeps RAW_OUTPUT_MAX.
-export const TOOL_OUTPUT_MAX = 8 * 1024 * 1024;
+// (24 MiB: an artifact's 16 MiB page comes back as base64, 2026-11-23.)
+export const TOOL_OUTPUT_MAX = 24 * 1024 * 1024;
 // The user the AI's commands run as (the image makes `dev`, 1001); unset in tests.
 const RUN_UID = process.env.CODER_RUN_UID ? Number(process.env.CODER_RUN_UID) : undefined;
 const RUN_GID = process.env.CODER_RUN_GID ? Number(process.env.CODER_RUN_GID) : undefined;
