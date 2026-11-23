@@ -1477,3 +1477,12 @@ button.cd-vault-tab:hover:not(.is-on){background:#f6f6f6}
 #gfApp .cd-queued-now:hover { background: #ece8e1; color: #0d1b2a; }
 #gfApp .cd-queued-now:disabled { opacity: .5; cursor: default; }
 
+
+/* The sidebar's Plugins and More (owner, 2026-11-23). */
+#gfApp .gf-chev { margin-left: auto; display: inline-flex; color: #8a857c; transition: transform .15s; }
+#gfApp .gf-chev.open { transform: rotate(180deg); }
+#gfApp .gf-sub { display: flex; flex-direction: column; margin: 0 0 2px; }
+#gfApp .gf-nav.gf-subnav { padding: 7px 10px 7px 40px; font-size: 14px; color: #3a3833; }
+.gf-sidelist-ul { list-style: none; margin: 8px 0; padding: 0; max-height: 50vh; overflow: auto; }
+.gf-sidelist-ul li { display: flex; flex-direction: column; gap: 2px; padding: 8px 0; border-top: 1px solid #eee9e1; }
+.gf-sidelist-ul li small { color: #6b665e; }

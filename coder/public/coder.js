@@ -425,7 +425,7 @@
    * Claude Code's own way of it, is said under it.
    */
   const BG_HOURS = [2, 4, 8, 12, 24], DISK_GIB = [0, 1, 2, 5, 10, 20], MEM_GIB = [0, 1, 2, 4, 8];
-  async function showSettings() {
+  async function showSettings(opts) {
     const r = await call('/settings');
     if (r.status !== 200) { S.error = (r.data && r.data.error) || 'Settings could not be opened.'; return draw(); }
     const prefs = { bgHours: 2, endDetached: true, diskWarnGib: 0, memWarnGib: 0, ...((r.data && r.data.prefs) || {}) };
@@ -448,7 +448,7 @@
       paint();
     };
     const opt = (v, label, on) => '<option value="' + v + '"' + (on ? ' selected' : '') + '>' + esc(label) + '</option>';
-    let advOpen = false;
+    let advOpen = !!(opts && opts.advanced);
     const paint = () => {
       box.innerHTML = '<div class="cd-sure-title">Settings</div>' +
         '<div class="cd-sure-text">For all your chats. Changes save on their own.</div>' +
@@ -514,7 +514,6 @@
     ok: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
     back: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>',
     close: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>',
-    search: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>',
     down: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>',
   };
   const PERM_WORDS = { allow: 'Always allow', ask: 'Needs approval', block: 'Blocked' };
@@ -3809,6 +3808,10 @@
   // THE SIDEBAR: New chat, Repositories, and Recents (the chats).
   const SIDE_ICON = {
     plus: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>',
+    search: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>',
+    plugins: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 2v6M15 2v6M6 8h12v4a6 6 0 0 1-12 0zM12 18v4"/></svg>',
+    more: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg>',
+    chev: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>',
   };
   function drawSide() {
     const sd = S.side;
@@ -3822,7 +3825,21 @@
     const sharedView = S.phase === 'shared';
     sd.tools.innerHTML =
       '<button type="button" class="gf-nav" id="cdSideNew"' + (ready || sharedView ? '' : ' disabled') + '>' + SIDE_ICON.plus + 'New chat</button>' +
-      '<button type="button" class="gf-nav" id="cdSideRepos"' + (ready ? '' : ' disabled') + '>' + ICON.gh.replace('width="16" height="16"', 'width="18" height="18"') + 'Repositories</button>';
+      '<button type="button" class="gf-nav" id="cdSideRepos"' + (ready ? '' : ' disabled') + '>' + ICON.gh.replace('width="16" height="16"', 'width="18" height="18"') + 'Repositories</button>' +
+      // THE SIDEBAR'S OTHER ITEMS (the owner, 2026-11-23, with a picture of the Claude app's sidebar: "under repo ... put plugins
+      // with a drop down and it has connectors, skills, etc"): Plugins (folds open) and More (owner: no Search or Artifacts).
+      (sharedView ? '' :
+        '<button type="button" class="gf-nav" id="cdSidePlugins" aria-expanded="' + !!S.sidePlugins + '"' + (ready ? '' : ' disabled') + '>' + SIDE_ICON.plugins + 'Plugins<span class="gf-chev' + (S.sidePlugins ? ' open' : '') + '">' + SIDE_ICON.chev + '</span></button>' +
+        (S.sidePlugins && ready ? '<div class="gf-sub" role="group" aria-label="Plugins">' +
+          '<button type="button" class="gf-nav gf-subnav" id="cdSideConnectors">Connectors</button>' +
+          '<button type="button" class="gf-nav gf-subnav" id="cdSideSkills">Skills</button>' +
+          '<button type="button" class="gf-nav gf-subnav" id="cdSideHooks">Hooks</button>' +
+          '<button type="button" class="gf-nav gf-subnav" id="cdSideRules">Permission rules</button></div>' : '') +
+        '<button type="button" class="gf-nav" id="cdSideMore" aria-expanded="' + !!S.sideMore + '"' + (ready ? '' : ' disabled') + '>' + SIDE_ICON.more + 'More<span class="gf-chev' + (S.sideMore ? ' open' : '') + '">' + SIDE_ICON.chev + '</span></button>' +
+        (S.sideMore && ready ? '<div class="gf-sub" role="group" aria-label="More">' +
+          '<button type="button" class="gf-nav gf-subnav" id="cdSideSettings">Settings</button>' +
+          '<button type="button" class="gf-nav gf-subnav" id="cdSideNotify">Notifications</button></div>' : '') +
+        '');
     if (sharedView) sd.tools.querySelectorAll('#cdSideRepos').forEach((b) => { b.disabled = false; });
     const cur = S.project && S.phase === 'chat' ? S.project.id : '';
     // ARCHIVED CHATS (round 6, 2026-11-21; Claude Code on the web: an archived session leaves the list and can be shown and
@@ -3842,6 +3859,15 @@
     const on = (el, sel, ev, fn) => el.querySelectorAll(sel).forEach((n) => n.addEventListener(ev, fn));
     on(sd.tools, '#cdSideNew', 'click', () => { if (S.phase === 'shared') location.href = '/'; else showPicker('new'); });
     on(sd.tools, '#cdSideRepos', 'click', () => { if (S.phase === 'shared') location.href = '/'; else showPicker('repos'); });
+    on(sd.tools, '#cdSidePlugins', 'click', () => { S.sidePlugins = !S.sidePlugins; drawSide(); });
+    on(sd.tools, '#cdSideMore', 'click', () => { S.sideMore = !S.sideMore; drawSide(); });
+    on(sd.tools, '#cdSideConnectors', 'click', () => showConnectors());
+    on(sd.tools, '#cdSideHooks', 'click', () => showSettings({ advanced: true }));
+    on(sd.tools, '#cdSideRules', 'click', () => showRules());
+    on(sd.tools, '#cdSideSettings', 'click', () => showSettings());
+    on(sd.tools, '#cdSideNotify', 'click', () => showNotifications());
+    on(sd.tools, '#cdSideSkills', 'click', () => sideList('Skills', S.project ? skillsSlash().map(([c, d]) => [c, d]) : null,
+      'Skills are saved instructions in the repository’s .claude/skills folder. Type / in the message box to use one.', 'Open a chat to see its repository’s skills.', 'This chat’s repository has no skills yet.'));
     on(sd.recents, '.gf-item', 'click', (e) => { if (e.target.closest('.gf-x')) return; openProject(e.currentTarget.dataset.chat); });
     on(sd.recents, '.gf-item', 'keydown', (e) => { if (e.key === 'Enter') openProject(e.currentTarget.dataset.chat); });
     on(sd.recents, '.gf-x', 'click', (e) => { e.stopPropagation(); removeChat(e.currentTarget.dataset.remove); });
@@ -3849,6 +3875,22 @@
     on(sd.recents, '[data-archive]', 'click', (e) => { e.stopPropagation(); archiveChat(e.currentTarget.dataset.archive, true); });
     on(sd.recents, '[data-unarchive]', 'click', (e) => { e.stopPropagation(); archiveChat(e.currentTarget.dataset.unarchive, false); });
     on(sd.recents, '#cdSideArchived', 'click', () => { S.showArchived = !S.showArchived; drawSide(); });
+  }
+  // A plain list in a box, for the sidebar's Skills.
+  function sideList(title, items, hint, noChat, empty) {
+    const wrap = document.createElement('div'); wrap.className = 'cd-sure';
+    const box = document.createElement('div'); box.className = 'cd-sure-box gf-sidelist'; box.setAttribute('role', 'dialog'); box.setAttribute('aria-modal', 'true'); box.setAttribute('aria-label', title);
+    box.innerHTML = '<div class="cd-sure-title">' + esc(title) + '</div><div class="cd-sure-text">' + esc(hint) + '</div>' +
+      (items === null ? '<p class="gf-none">' + esc(noChat) + '</p>' : !items.length ? '<p class="gf-none">' + esc(empty) + '</p>' :
+        '<ul class="gf-sidelist-ul">' + items.map(([a, b]) => '<li><b>' + esc(a) + '</b><small>' + esc(b) + '</small></li>').join('') + '</ul>') +
+      '<div class="cd-sure-row"><button type="button" class="cd-notify-done">Done</button></div>';
+    wrap.append(box); document.body.append(wrap);
+    const close = () => { document.removeEventListener('keydown', key); wrap.remove(); };
+    const key = (e) => { if (e.key === 'Escape') close(); };
+    document.addEventListener('keydown', key);
+    wrap.onclick = (e) => { if (e.target === wrap) close(); };
+    box.querySelector('.cd-notify-done').onclick = close;
+    box.querySelector('.cd-notify-done').focus();
   }
   // Archive or unarchive: only the chat's mark changes, on the server; nothing is deleted, and a failure leaves it as it was.
   async function archiveChat(id, archived) {
