@@ -2811,6 +2811,9 @@
       else if (e.type === 'permission') out.push(permHTML(e));
       else if (e.type === 'github') out.push('<div class="cd-gh">' + ICON.gh + '<span>' + prose(e.text).replace(/^<p>|<\/p>$/g, '') + '</span></div>');
       else if (e.type === 'error') out.push('<div class="cd-err">' + esc(noColor(e.text)) + '</div>');
+      // (Claude Code's plugin and skill cards, and its role picker: coder-plugins.js, 2026-11-23.)
+      else if (!GLOOPY && window.CoderPluginsUI && (e.type === 'plugins_suggest' || e.type === 'skills_suggest' || e.type === 'skills_propose' || e.type === 'guide_shared')) out.push(window.CoderPluginsUI.cardHTML(e));
+      else if (!GLOOPY && window.CoderPluginsUI && e.type === 'question' && e.kind === 'role_picker') { const ans = S.events.find((x) => x.type === 'permanswer' && x.pid === e.pid); out.push(window.CoderPluginsUI.roleHTML(e, (S.running || !!(S.project && S.project.parked && S.project.parked.pid === e.pid)) && !ans, ans)); }
       else if (e.type === 'question') {
         // CODER'S QUESTIONS, LIKE CLAUDE CODE'S (owner, 2026-11-06, "2"; up to 4 in one card, owner pick 4,
         // 2026-11-08): each with its header chip and its choices with their explanations, the recommended
@@ -3831,6 +3834,7 @@
       (sharedView ? '' :
         '<button type="button" class="gf-nav" id="cdSidePlugins" aria-expanded="' + !!S.sidePlugins + '"' + (ready ? '' : ' disabled') + '>' + SIDE_ICON.plugins + 'Plugins<span class="gf-chev' + (S.sidePlugins ? ' open' : '') + '">' + SIDE_ICON.chev + '</span></button>' +
         (S.sidePlugins && ready ? '<div class="gf-sub" role="group" aria-label="Plugins">' +
+          '<button type="button" class="gf-nav gf-subnav" id="cdSidePluginsList">Plugins</button>' +
           '<button type="button" class="gf-nav gf-subnav" id="cdSideConnectors">Connectors</button>' +
           '<button type="button" class="gf-nav gf-subnav" id="cdSideSkills">Skills</button>' +
           '<button type="button" class="gf-nav gf-subnav" id="cdSideHooks">Hooks</button>' +
@@ -3866,7 +3870,9 @@
     on(sd.tools, '#cdSideRules', 'click', () => showRules());
     on(sd.tools, '#cdSideSettings', 'click', () => showSettings());
     on(sd.tools, '#cdSideNotify', 'click', () => showNotifications());
-    on(sd.tools, '#cdSideSkills', 'click', () => sideList('Skills', S.project ? skillsSlash().map(([c, d]) => [c, d]) : null,
+    on(sd.tools, '#cdSidePluginsList', 'click', () => { if (window.CoderPluginsUI) window.CoderPluginsUI.pluginsPanel(); });
+    // (The repository's skills, and the owner's saved and plugins' skills: coder-plugins.js. Without it, the list as before.)
+    on(sd.tools, '#cdSideSkills', 'click', () => window.CoderPluginsUI ? window.CoderPluginsUI.skillsPanel(S.project ? skillsSlash().map(([c, d]) => [c, d]) : null) : sideList('Skills', S.project ? skillsSlash().map(([c, d]) => [c, d]) : null,
       'Skills are saved instructions in the repository’s .claude/skills folder. Type / in the message box to use one.', 'Open a chat to see its repository’s skills.', 'This chat’s repository has no skills yet.'));
     on(sd.recents, '.gf-item', 'click', (e) => { if (e.target.closest('.gf-x')) return; openProject(e.currentTarget.dataset.chat); });
     on(sd.recents, '.gf-item', 'keydown', (e) => { if (e.key === 'Enter') openProject(e.currentTarget.dataset.chat); });
@@ -5927,6 +5933,8 @@
     // For tests and screenshots only.
     _state: S,
   };
+  // (Plugins and skills on the page: coder-plugins.js, 2026-11-23.)
+  if (!GLOOPY && window.CoderPluginsUI) window.CoderPluginsUI.init({ call, draw: () => draw(), project: () => S.project, events: () => S.events || [] });
   return view;
   }
   window.CoderView = makeView('coder');

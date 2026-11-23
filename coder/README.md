@@ -36,6 +36,17 @@ code in **each user's own GitHub**.
    bash, web_search and the rest: `CODER_TOOLS` in `container/coder-agent.mjs`)
    and finishes by answering in words.
 
+   **Plugins and skills, as in Claude Code** (2026-11-23): a plugin bundles skills,
+   commands, agents, hooks and connectors and is installed or removed as one, per
+   owner (`src/coder-plugins.mjs`: a small built-in catalog, `coder/<uid>/plugins.json`,
+   the owner's saved skills in `coder/<uid>/skills.json`). Coder's tools for them
+   (`container/coder-plugins.mjs`): search_plugins, suggest_plugin_install,
+   suggest_skills and show_onboarding_role_picker upfront; list_plugins, list_skills,
+   search_skills, propose_skills and share_onboarding_guide held back for tool_search.
+   Installed plugins' skills (`plugin:skill`) and saved skills join the repository's
+   for the skill tool. The cards and the sidebar's Plugins ▸ Plugins and Skills panels
+   are `public/coder-plugins.js`.
+
    **read opens pictures, PDFs and notebooks too** (owner item 1, 2026-11-08), like
    Claude Code's Read ("reads images (PNG, JPG, …) and presents them visually",
    PDFs "via the pages parameter (max 20 pages per request; required for PDFs over

@@ -159,6 +159,7 @@ import { autoModeSetting } from "../container/coder-checker.mjs";
 import { descriptionOk, DESCRIPTION_MAX } from "../container/coder-envtools.mjs";
 import { modelAccess } from "./coder-model-gate.mjs";
 import { PROJECT_ID, SETUP_SCRIPT_MAX, scrub, secretVar } from "../container/coder-checks.mjs";
+import { handlePluginRoutes, sharedGuide, ownerSkills } from "./coder-plugins.mjs";
 // (The check for a secret-looking variable is shared with Coder's machine, which tells Grok of them: coder-checks.mjs.)
 export { secretVar };
 import { okHost, okPattern, HEADER_RE, KEY_RE, PREFIXES, PATH_RE, headerValue, normSecret, normNetwork, parseEnv, toEnv, normConfig, configSecrets, SECRET_KINDS, notSentWhy, varsDropped } from "../container/coder-secrets.mjs";
@@ -1662,6 +1663,9 @@ export async function handleCoder(request, env, ctx, deps) {
     return json({ ok: true, gloopy: g, events: await getJson(bucket, keyOf(uid, GLOOPY_ID, "events.json"), []), rules: await readRules(bucket, uid), sites: await readSites(bucket, uid), logins: loginList(await readLogins(env, bucket, uid)), cards: cardList(await readCards(env, bucket, uid)), contacts: contactList(await readContacts(env, bucket, uid)), webhooks: webhooksForTurn(env, await readWebhooks(bucket, uid)), files: filesForTurn(await readFiles(bucket, uid)), keys: secretList((await readEnvData(env, bucket, uid, GLOOPY_ENV)).secrets).map((x) => ({ id: x.id, name: x.name, host: x.host, hosts: x.hosts })), browser: flyOn(env), schedules: schedulesForTurn(await readSchedules(bucket, uid)), permissions: await readPermissions(bucket, uid), permissionList: PERMISSIONS, pages: await readPages(bucket, uid) });
   }
 
+  // (Plugins and the owner's saved skills, and a shared onboarding guide: coder-plugins.mjs, 2026-11-23.)
+  { const p = await handlePluginRoutes(request, bucket, uid, parts); if (p) return p; }
+  if (parts[0] === "shared" && parts[1] && parts.length === 2 && request.method === "GET") { const g = await sharedGuide(bucket, parts[1], uid); if (g) return json(g); }
   if (parts[0] === "shared" && parts[1] && parts.length === 2 && request.method === "GET") return sharedChat(bucket, parts[1], uid);
   if (parts[0] !== "projects") return json({ error: "not found" }, 404);
   if (parts.length === 1) {
@@ -1714,7 +1718,9 @@ export async function handleCoder(request, env, ctx, deps) {
   // GLOOPY'S MACHINE (2026-11-12): its own size, suspended when idle so it is back in under a second (coder-fly.mjs).
   const box = () => deps.container(uid + "-" + id, isGloopy(meta) ? { gloopy: true } : undefined);
   const call = (path, init) => box().fetch(new Request("http://coder" + path, init));
-  const post = (path, body, more = {}) => call(path, { method: "POST", headers: { "content-type": "application/json", ...more }, body: JSON.stringify(body) });
+  const postPlain = (path, body, more = {}) => call(path, { method: "POST", headers: { "content-type": "application/json", ...more }, body: JSON.stringify(body) });
+  // (A Coder turn carries the owner's saved skills and their plugins' skills: coder-plugins.mjs, 2026-11-23.)
+  const post = async (path, body, more = {}) => postPlain(path, path === "/turn" && body && typeof body === "object" && !body.agent ? { ...body, ownerSkills: await ownerSkills(bucket, uid).catch(() => []) } : body, more);
   // (How many commits its disk holds that GitHub does not: on the machine's record, so its disk is never reclaimed with them.)
   const markUnpushed = (n) => Promise.resolve(typeof deps.markUnpushed === "function" ? deps.markUnpushed(uid + "-" + id, n) : markFlyUnpushed(env, uid + "-" + id, n)).catch(() => {});
   // A SUMMARY BY CODER'S OWN MODEL (owner items 3 and 9), on this Worker (deps.summarize in tests).

@@ -89,7 +89,7 @@ test("SK4 the owner's /name loads the skill with the message; a Skill(name) deny
 
 test("SK5 the machine passes the repository's skills, the page lists them in its / menu, and the 'no skills' remark is gone", () => {
   const server = readFileSync(new URL("../container/server.mjs", import.meta.url), "utf8");
-  assert.match(server, /skills: gloopy \|\| body\.github === true \? \[\] : \(\(\) => \{ try \{ return readSkills\(dir\)/);
+  assert.match(server, /skills: gloopy \|\| body\.github === true \? \[\] : \(\(\) => \{ try \{ return (?:withOwnerSkills\()?readSkills\(dir\)/); // (and the owner's saved and plugins' skills: plugins-tools.test.mjs)
   const page = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
   assert.match(page, /\[\.\.\.SLASH, \.\.\.skillsSlash\(\)\]/);
   assert.doesNotMatch(readFileSync(new URL("../container/coder-tools.mjs", import.meta.url), "utf8"), /as Coder has no skills/);

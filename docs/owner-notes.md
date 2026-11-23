@@ -4,6 +4,18 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-23: Plugins and skills, like Claude Code
+
+You asked for every Claude Code tool. This adds its nine plugin, skill and onboarding tools.
+
+**What's new:**
+- **Real plugins.** A plugin is a bundle (skills, commands, agents, hooks, connectors) you install or remove in one go. Coder has a small catalog of seven to start: code-review, testing, frontend, database, project-tracking, monitoring and docs-writer. Installed plugins work in all your chats. A plugin's connectors (for example Neon and Supabase) are added to your Connectors, and you sign in there with Connect.
+- **Sidebar:** Plugins ▾ now starts with **Plugins**, a panel to browse, install and remove plugins. **Skills** now lists the repository's skills, your saved skills, your plugins' skills and skills you can add.
+- **Cards in the chat:** Coder can suggest plugins (Install, Not now) and skills (Add, Not now), propose new skills it wrote for you to review and save, and show a role picker (Frontend, Backend, Full-stack, DevOps, or type your own) that installs a matching plugin.
+- **Onboarding guide:** Coder can share the repository's ONBOARDING.md as a link. It asks you first.
+
+Tested on a test copy of the page (plugins-tools.test.mjs), with screenshots. It isn't live until you say deploy, and it hasn't been tried with Grok on gofarther.dev yet.
+
 ## 2026-11-23: Plugins and More in Coder's sidebar
 
 You sent a picture of the Claude app's sidebar and asked for the same in Coder, under Repositories, but without Search and Artifacts.
