@@ -18,7 +18,10 @@ You said deploy, so all 8 batches went live (deploy 277) and I tried them on gof
 - Share: Public opens a read-only page; Private again and the link stops working.
 - Rewind "Restore code only" put the file back with no commit, and the next message's save took it to the branch.
 - /clear starts a fresh conversation: Coder no longer knew the earlier messages.
-- Queued for later and Send now both show on a waiting message and deliver it.
+- Attaching a file: Coder read the attached CSV and listed its prices.
+- Queued for later waited for a 45-second command to finish, then went out as its own message.
+- Send now: with a command running, the command went on in the background and Coder answered at once; with the command's approval card still waiting, the job stopped and the message went out next.
+- Auto's refusal of a dangerous delete could not be tried live: Grok refused both deletes itself before Coder's check was reached (the check is covered by tests).
 
 **Fixed (not live until you say deploy):**
 - **Notebook editing was broken.** Every notebook edit failed with "give a path": Coder's check before the edit only knew how to describe a write or an edit, so the notebook's path and cell never reached the machine. Fixed, with a test that runs the real tool through Coder's loop (it fails the same way without the fix).
