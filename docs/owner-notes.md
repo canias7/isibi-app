@@ -4,6 +4,15 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-23: A few more of Claude Code's tool settings in Coder
+
+Small gaps from the comparison sheet, closed so Coder's tools take the same inputs as Claude Code's:
+- **Stopping a background command** now takes Claude Code's name for it, `task_id`, and its old name `shell_id` (Coder's own `job` still works). Hooks see `task_id`.
+- **Bash** accepts Claude Code's "run outside the sandbox" switch. As in Claude Code's cloud sessions it changes nothing: commands always run on the chat's machine and are checked as usual.
+- **Notifications** accept Claude Code's `status: "proactive"`, and hooks get the same result Claude Code gives (message, sent, time sent).
+- **A stopped command** that ignores the stop is now forced to end after 1.5 seconds everywhere, as in Claude Code.
+- Not tried live on gofarther.dev yet.
+
 ## 2026-11-23: The Claude Code vs Coder sheet now knows Coder's 28 new tools
 
 The sheet ([`docs/claude-code-vs-coder.xlsx`](claude-code-vs-coder.xlsx)) still said Coder had no helper agents, workflows, scheduling, worktrees, artifacts, connector resources or plugins. Each of those rows was checked against Coder's code and corrected.

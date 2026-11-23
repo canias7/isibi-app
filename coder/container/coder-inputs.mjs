@@ -34,7 +34,21 @@ export function checkLsp(args, ctx = {}) {
   return Promise.resolve().then(() => ctx.lspFile(v.args)).then((e) => (typeof e === "string" && e ? { error: e } : v), () => v);
 }
 
-export const INPUT_CHECKS = { grep: checkGrepInput, glob: checkGlobInput, lsp: checkLsp, web_fetch: checkWebFetchInput, web_search: checkWebSearchInput, ask_user: checkAskUserInput, tool_search: checkToolSearchInput };
+/**
+ * STOP_JOB, CLAUDE CODE'S TASKSTOP (2026-11-23, the comparison sheet's "TaskStop: task_id" and "TaskStop: shell_id"): its
+ * input is `task_id`, with `shell_id` its old, deprecated name (Agent SDK typings: "shell_id?: string; // Deprecated: use
+ * task_id"). Coder's own name, `job`, still works. Whichever is given becomes `job`; with none, refused before any hook.
+ */
+export function checkStopJobInput(args) {
+  const a = args && typeof args === "object" && !Array.isArray(args) ? { ...args } : {};
+  const pick = [a.job, a.task_id, a.shell_id].find((v) => typeof v === "string" && v.trim());
+  if (!pick) return { error: "error: give task_id, the id of the background command or monitor to stop" };
+  a.job = pick.trim();
+  delete a.task_id; delete a.shell_id;
+  return { args: a };
+}
+
+export const INPUT_CHECKS = { stop_job: checkStopJobInput, grep: checkGrepInput, glob: checkGlobInput, lsp: checkLsp, web_fetch: checkWebFetchInput, web_search: checkWebSearchInput, ask_user: checkAskUserInput, tool_search: checkToolSearchInput };
 
 /** A tool's input check, when it has one (these seven tools). */
 export const inputCheckFor = (name) => (Object.prototype.hasOwnProperty.call(INPUT_CHECKS, name) && typeof INPUT_CHECKS[name] === "function" ? INPUT_CHECKS[name] : null);

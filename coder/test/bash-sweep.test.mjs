@@ -231,7 +231,7 @@ test("CD296 (docs check: Claude Code's CLAUDE_CODE_DISABLE_BACKGROUND_TASKS, \"r
   assert.equal(A.toolsFor(plain), plain, "the same list otherwise");
   const off = A.toolsFor(plain, { noBg: true });
   const bash = off.find((t) => t.function.name === "bash");
-  assert.deepEqual(Object.keys(bash.function.parameters.properties), ["command", "description", "timeout"]);
+  assert.deepEqual(Object.keys(bash.function.parameters.properties), ["command", "description", "timeout", "dangerouslyDisableSandbox"]);
   assert.doesNotMatch(bash.function.description, /run_in_background|moved to the background|keeps running after your answer/);
   assert.ok(bash.function.description.includes(A.NO_BG_TIMEOUT));
   assert.deepEqual(off.filter((t) => t.function.name !== "bash"), plain.filter((t) => t.function.name !== "bash"), "the other tools as they are");

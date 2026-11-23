@@ -1763,7 +1763,11 @@ commands, monitors and wording, from Claude Code 2.1.322's own program. Tests:
   `monitorSaid`); a monitor deadline past an hour refused ("timeout_ms must be ≤
   3600000"); the stop tool's replies (TaskStop's JSON, "Task … is not running
   (status: …)", "No task found with ID: …"); KillShell and KillBash are its
-  names in rules; the checker's reason when it can't be reached
+  names in rules (since 2026-11-23 it takes TaskStop's `task_id` and its old
+  `shell_id`, beside `job`; bash takes `dangerouslyDisableSandbox`, which changes
+  nothing, as in Claude Code's cloud sessions; notify takes `status: "proactive"`
+  and gives hooks PushNotification's result; a stop is forced after 1.5 seconds:
+  `checkStopJobInput`, `test/param-gaps.test.mjs`); the checker's reason when it can't be reached
   (`unavailableWhy`: rate-limited, overloaded, server error, timed out,
   connection failed). (A Read or Edit deny rule's refusal of a command was
   "cat from '…' was blocked by a deny rule." here; round 4 found Claude Code
