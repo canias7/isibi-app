@@ -971,7 +971,7 @@ export function parseRule(text) {
   // ToolSearch, Coder's tool_search: denied, tool search is off, as Claude Code's MCP docs say; coder-toolsearch.mjs.)
   // (NotebookEdit, Coder's notebook_edit since batch 5: a rule on the whole tool; Edit(...) path rules cover it too.)
   // (Artifact and the MCP resource tools: whole-tool rules, coder-resources.mjs, 2026-11-23.)
-  const m = /^(Bash|WebFetch|Read|Edit|Write|NotebookEdit|Grep|Glob|LSP|Monitor|WebSearch|TaskStop|KillShell|KillBash|AskUserQuestion|ExitPlanMode|EnterPlanMode|TodoWrite|TaskCreate|TaskGet|TaskList|TaskUpdate|PowerShell|ToolSearch|Skill|Artifact|ListMcpResourcesTool|ReadMcpResourceTool|WaitForMcpServers)(?:\(([\s\S]*)\))?$/.exec(String(text || "").trim());
+  const m = /^(Bash|WebFetch|Read|Edit|Write|NotebookEdit|Grep|Glob|LSP|Monitor|WebSearch|TaskStop|KillShell|KillBash|AskUserQuestion|ExitPlanMode|EnterPlanMode|TodoWrite|TaskCreate|TaskGet|TaskList|TaskUpdate|PowerShell|ToolSearch|Skill|Artifact|ListMcpResourcesTool|ReadMcpResourceTool|ReadMcpResourceDirTool|RefreshMcpTools|WaitForMcpServers)(?:\(([\s\S]*)\))?$/.exec(String(text || "").trim());
   if (!m) return null;
   // (TaskStop's old names, KillShell and KillBash, name it still: Claude Code 2.1.322 keeps them as its aliases.)
   if (m[1] === "KillShell" || m[1] === "KillBash") m[1] = "TaskStop";
@@ -1215,7 +1215,7 @@ export function ruleProblem(text) {
  * (Read, Edit …) is refused with Coder's own message; a rule naming no known tool is kept, as Claude Code keeps it, and
  * never matches (a deny or ask one with Claude Code's warning, "matches no known tool — check for typos").
  */
-const CLAUDE_TOOLS = new Set(["Agent", "Artifact", "AskUserQuestion", "Bash", "CronCreate", "CronDelete", "CronList", "Edit", "EndConversation", "EnterPlanMode", "EnterWorktree", "ExitPlanMode", "ExitWorktree", "Glob", "Grep", "ListAgents", "ListMcpResourcesTool", "LSP", "Monitor", "NotebookEdit", "PowerShell", "PushNotification", "Read", "ReadMcpResourceTool", "RemoteTrigger", "ReportFindings", "ScheduleWakeup", "SendFeedback", "SendMessage", "SendUserFile", "ShareOnboardingGuide", "Skill", "SubagentHandback", "TaskCreate", "TaskGet", "TaskList", "TaskOutput", "TaskStop", "TaskUpdate", "TodoWrite", "ToolSearch", "WaitForMcpServers", "WebFetch", "WebSearch", "Workflow", "Write", "MultiEdit", "Task", "NotebookRead"]);
+const CLAUDE_TOOLS = new Set(["Agent", "Artifact", "AskUserQuestion", "Bash", "CronCreate", "CronDelete", "CronList", "Edit", "EndConversation", "EnterPlanMode", "EnterWorktree", "ExitPlanMode", "ExitWorktree", "Glob", "Grep", "ListAgents", "ListMcpResourcesTool", "LSP", "Monitor", "NotebookEdit", "PowerShell", "PushNotification", "Read", "ReadMcpResourceDirTool", "ReadMcpResourceTool", "RefreshMcpTools", "RemoteTrigger", "ReportFindings", "ScheduleWakeup", "SendFeedback", "SendMessage", "SendUserFile", "ShareOnboardingGuide", "Skill", "SubagentHandback", "TaskCreate", "TaskGet", "TaskList", "TaskOutput", "TaskStop", "TaskUpdate", "TodoWrite", "ToolSearch", "WaitForMcpServers", "WebFetch", "WebSearch", "Workflow", "Write", "MultiEdit", "Task", "NotebookRead"]);
 /** A rule's tool name and content, as Claude Code splits it (null when its shape is not a rule's: ruleProblem). */
 function ruleParts(text) {
   const t = String(text ?? "").trim();

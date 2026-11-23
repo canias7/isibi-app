@@ -4,6 +4,15 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-23: Coder's pages and connector-resource tools now work like Claude Code's
+
+- **Pages (artifacts):** Coder can now list your pages, read one, show one to you again, and delete one. Deleting always asks you first, even if you allowed pages. Each page can have a small icon and a one-line description. Each new version can have a short label.
+- **No lost changes:** if a page changed since Coder last looked (for example, another chat updated it), Coder is stopped and shown the newest version to merge with. It only overwrites when you say so.
+- **File checks:** a page file with broken characters is refused, and Coder is told the line and column to fix, as in Claude Code.
+- **Not in Coder:** live data in pages and runtime versions. Coder's pages are fixed pages, so Coder says these are not available.
+- **Connectors:** two new tools. One lists what is inside a connector's folder. The other re-reads a connector's tools after they change; the new tools work from your next message. Files such as pictures read from a connector are now saved in the chat's files.
+- Gloopy's pages work exactly as before. Not yet tried live on gofarther.dev.
+
 ## 2026-11-23: The Claude Code vs Coder sheet now knows Coder's 28 new tools
 
 The sheet ([`docs/claude-code-vs-coder.xlsx`](claude-code-vs-coder.xlsx)) still said Coder had no helper agents, workflows, scheduling, worktrees, artifacts, connector resources or plugins. Each of those rows was checked against Coder's code and corrected.

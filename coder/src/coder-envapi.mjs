@@ -79,7 +79,7 @@ export async function handleEnvApi(request, env, { now = Date.now() } = {}) {
   if (body.action === "pr_review") return answer(await prReviewNow(env, bucket, uid, meta, body));
   // CODER'S artifact, list_mcp_resources, read_mcp_resource AND wait_for_mcp_servers (2026-11-23, Claude Code's Artifact,
   // ListMcpResourcesTool, ReadMcpResourceTool and WaitForMcpServers): kept or asked now; never from GitHub.
-  if (body.action === "artifact") return answer(await artifactNow(env, bucket, uid, meta, body, { now }));
+  if (body.action === "artifact") return answer(await artifactNow(env, bucket, uid, meta, body, { now, chat: id }));
   if ((body.action === "mcp_resources" || body.action === "mcp_wait") && (meta.jobFromGithub === true || meta.kind === "gloopy")) return answer({ error: "error: connectors are not used in a job started from GitHub" }, 403);
   if (body.action === "mcp_resources") return answer(await resourceCall(env, bucket, uid, meta, body));
   if (body.action === "mcp_wait") return answer(await connectorWait(env, bucket, uid, id, turn, meta, body));

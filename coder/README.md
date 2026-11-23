@@ -2694,6 +2694,16 @@ pages untouched), opened from the chat's page card (`/projects/:id/pages`,
 held back) ask the chat's connectors' resources/list and resources/read through the
 Worker (`resourceCall`, MCP Apps UI resources left out); `wait_for_mcp_servers`
 (WaitForMcpServers) only with tool search off. None from GitHub or in Gloopy's chats.
+Second pass, the same day: `artifact` takes Claude Code's inputs by name and limit
+(`action` publish/list/read/delete/open, `url`, `title` as the fallback for a page with
+no `<title>`, `description` ≤1000, `icon` ≤40, `label` ≤60, `force`, `limit` 1–200,
+`scope` mine/shared/all; `capabilities` other than `{}` and `contract` answer "not
+available in Coder"), decodes the file as Claude Code does (UTF-8 or UTF-16 LE by its
+BOM, U+FFFD refused with line and column), keeps each version's record and label, and
+refuses a stale publish with the live page unless `force`; delete always asks.
+`read_mcp_resource_dir` (ReadMcpResourceDirTool) and `refresh_mcp_tools`
+(RefreshMcpTools) are new, held back with search hints; a read's binary content is
+saved to `.coder-files/` (`blobSavedTo`).
 
 HOW MUCH ONE READ GIVES (batch 8, MISS-79): `CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS`
 (or `CODER_FILE_READ_MAX_OUTPUT_TOKENS`), in the environment or a repository's

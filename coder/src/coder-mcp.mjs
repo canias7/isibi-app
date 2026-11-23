@@ -1371,6 +1371,8 @@ export async function expandConnectorRefs(env, bucket, uid, text, { fetchFn = fe
 export const isUiResource = (r) => !!r && (/^ui:\/\//i.test(String(r.uri || "")) || /^text\/html\s*;\s*profile\s*=\s*"?mcp-app"?/i.test(String(r.mimeType || "")));
 /** At most this many pages of a server's resources/list, this many resources in all, and this much of a read's text. */
 export const RESOURCE_PAGES_MAX = 10, RESOURCES_LIST_MAX = 500, RESOURCE_READ_MAX = 200_000;
+/** The most binary content a read hands back for the machine to save (bytes). */
+export const RESOURCE_BLOB_MAX = 5 * 1024 * 1024;
 /** The connectors a job may use (as jobConnectors gives them): on for the chat, not switched off, signed in and working. */
 async function chatConnectors(bucket, uid, meta) {
   const allOff = (await readConnectorSettings(bucket, uid)).allOff === true;
@@ -1388,13 +1390,40 @@ const serverMatch = (c, name) => { const n = String(name || "").trim(); return !
  */
 export async function resourceCall(env, bucket, uid, meta, body, { fetchFn = fetch, now = Date.now() } = {}) {
   const op = body && body.op;
-  if (op !== "list" && op !== "read") return { error: "error: op is list or read" };
+  if (!["list", "read", "dir", "refresh"].includes(op)) return { error: "error: op is list, read, dir or refresh" };
   const { all, on } = await chatConnectors(bucket, uid, meta);
   const working = all.filter((c) => on(c) && c.status !== "auth" && c.status !== "error");
   const named = typeof body.server === "string" && body.server.trim() ? body.server.trim().slice(0, 100) : "";
   const pick = named ? working.filter((c) => serverMatch(c, named)) : working;
   if (named && !pick.length) return { error: "error: Server \"" + named + "\" not found. Available servers: " + (working.map((c) => c.name).join(", ") || "none") };
   const session = async (c, steps) => keptSession(bucket, uid, c, await tokenOf(env, bucket, uid, c, { fetchFn, now }), steps, { fetchFn });
+  if (op === "refresh") return refreshCall(env, bucket, uid, all, on, named, { fetchFn, now });
+  if (op === "dir") {
+    // CLAUDE CODE'S ReadMcpResourceDirTool: a folder resource's direct children (not recursive), from the server's
+    // resources/list; a deeper resource shows as its subfolder (mimeType inode/directory).
+    const uri = typeof body.uri === "string" ? body.uri.trim().slice(0, 2000) : "";
+    if (!named || !uri) return { error: "error: give server (the connector's name) and uri" };
+    const c = pick[0], prefix = uri.endsWith("/") ? uri : uri + "/", kids = new Map();
+    try {
+      let cursor = null;
+      for (let page = 0; page < RESOURCE_PAGES_MAX && kids.size < RESOURCES_LIST_MAX; page++) {
+        const [r] = await session(c, [["resources/list", cursor ? { cursor } : {}]]);
+        for (const x of (r && Array.isArray(r.resources) ? r.resources : [])) {
+          if (!x || typeof x.uri !== "string" || !x.uri.startsWith(prefix) || x.uri === prefix) continue;
+          const rest = x.uri.slice(prefix.length), cut = rest.indexOf("/");
+          if (cut >= 0 && cut < rest.length - 1) { const sub = prefix + rest.slice(0, cut + 1); if (!kids.has(sub)) kids.set(sub, { uri: sub, name: rest.slice(0, cut), mimeType: "inode/directory" }); continue; }
+          const mt = cut >= 0 ? "inode/directory" : String(x.mimeType || "").slice(0, 100);
+          kids.set(x.uri, { uri: x.uri.slice(0, 2000), name: String(x.name || rest.replace(/\/$/, "")).slice(0, 200), ...(mt ? { mimeType: mt } : {}), ...(x.description ? { description: String(x.description).slice(0, 1000) } : {}) });
+        }
+        cursor = r && typeof r.nextCursor === "string" && r.nextCursor ? r.nextCursor : null;
+        if (!cursor) break;
+      }
+    } catch (e) {
+      if (e && e.rpcCode === -32601) return { ok: true, server: c.name, resources: [], error: "the server " + c.name + " does not support listing resources" };
+      return { ok: true, server: c.name, resources: [], error: String((e && e.message) || e).slice(0, 300) };
+    }
+    return { ok: true, server: c.name, resources: [...kids.values()] };
+  }
   if (op === "read") {
     const uri = typeof body.uri === "string" ? body.uri.trim().slice(0, 2000) : "";
     if (!named || !uri) return { error: "error: give server (the connector's name) and uri" };
@@ -1405,7 +1434,8 @@ export async function resourceCall(env, bucket, uid, meta, body, { fetchFn = fet
       const contents = (r && Array.isArray(r.contents) ? r.contents : []).slice(0, 50).map((x) => {
         const one = { uri: String((x && x.uri) || uri).slice(0, 2000), ...(x && typeof x.mimeType === "string" ? { mimeType: x.mimeType.slice(0, 100) } : {}) };
         if (x && typeof x.text === "string") { const t = x.text.slice(0, Math.max(0, left)); left -= t.length; return { ...one, text: t, ...(t.length < x.text.length ? { cut: x.text.length } : {}) }; }
-        if (x && typeof x.blob === "string") return { ...one, blobBytes: Math.floor((x.blob.replace(/=+$/, "").length * 3) / 4) };
+        // (Binary content goes back whole, up to RESOURCE_BLOB_MAX, for the machine to save to a file: Claude Code's blobSavedTo.)
+        if (x && typeof x.blob === "string") { const bytes = Math.floor((x.blob.replace(/=+$/, "").length * 3) / 4); return { ...one, blobBytes: bytes, ...(bytes <= RESOURCE_BLOB_MAX && /^[A-Za-z0-9+/]*=*$/.test(x.blob) ? { blob: x.blob } : {}) }; }
         return one;
       });
       return { ok: true, server: c.name, contents };
@@ -1432,6 +1462,31 @@ export async function resourceCall(env, bucket, uid, meta, body, { fetchFn = fet
     }
   }
   return { ok: true, resources, ...(failed.length ? { failed } : {}) };
+}
+
+/**
+ * CLAUDE CODE'S RefreshMcpTools: each connector on for the chat (one, when `named`) has its tool list read again now. One
+ * entry per server: refreshed (the new list kept), error (the old tools kept) or not_connected (signing in), with
+ * toolCount, added and removed.
+ */
+async function refreshCall(env, bucket, uid, all, on, named, { fetchFn, now }) {
+  const mine = all.filter(on);
+  const pick = named ? mine.filter((c) => serverMatch(c, named)) : mine;
+  if (named && !pick.length) return { error: "error: Server \"" + named + "\" not found. Available servers: " + (mine.map((c) => c.name).join(", ") || "none") };
+  const servers = [];
+  const waiting = (c, n) => ({ server: c.name, status: "not_connected", toolCount: n, added: [], removed: [], error: "waiting for the owner to sign in" });
+  for (const c of pick.slice(0, CONNECTORS_MAX)) {
+    const before = (Array.isArray(c.tools) ? c.tools : []).map((t) => t && t.name).filter(Boolean);
+    if (c.status === "auth") { servers.push(waiting(c, before.length)); continue; }
+    let err = "";
+    try { await refreshTools(env, bucket, uid, { fetchFn, now, only: c.id, force: true }); } catch (e) { err = String((e && e.message) || e).slice(0, 200); }
+    const after = (await readConnectors(bucket, uid)).find((x) => x.id === c.id) || c;
+    const names = (Array.isArray(after.tools) ? after.tools : []).map((t) => t && t.name).filter(Boolean);
+    if (after.status === "auth") servers.push(waiting(c, before.length));
+    else if (err || Number(after.toolsAt) !== now || after.status !== "ok") servers.push({ server: c.name, status: "error", toolCount: before.length, added: [], removed: [], error: err || String(after.error || "its tool list could not be read; the old tools are kept").slice(0, 200) });
+    else servers.push({ server: c.name, status: "refreshed", toolCount: names.length, added: names.filter((n) => !before.includes(n)), removed: before.filter((n) => !names.includes(n)) });
+  }
+  return { ok: true, servers };
 }
 
 /**

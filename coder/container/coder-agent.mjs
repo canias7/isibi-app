@@ -78,7 +78,7 @@ import { asText, asNumber } from "./coder-text.mjs";
 import { AGENT_TOOL, LIST_AGENTS_TOOL, SEND_MESSAGE_TOOL, WORKFLOW_TOOL, SUBAGENT_HANDBACK_TOOL, AGENT_TOOL_NAMES, AGENT_TYPES, SUBAGENT_SYSTEM, SUBAGENT_ROUNDS, SUBAGENT_MS, WORKFLOW_PASS_S, subagentCaps, subagentBudget, subagentTools, agentToolCall } from "./coder-agents.mjs";
 /** A contact entry from the owner's Vault in one line (as gloopy-agent.mjs's contactWords, kept here to import nothing of it). */
 const contactWords = (x) => { const place = [x.line1, x.line2, x.city, [x.region, x.postal].filter(Boolean).join(" "), x.country].filter(Boolean).join(", "); return [x.nickname ? "“" + x.nickname + "”" : "", [x.name, place].filter(Boolean).join(", "), x.phone, x.email].filter(Boolean).join(" · "); };
-// (Claude Code's Artifact, ListMcpResourcesTool, ReadMcpResourceTool and WaitForMcpServers, 2026-11-23: coder-resources.mjs.)
+// (Claude Code's Artifact, ListMcpResourcesTool, ReadMcpResourceTool, ReadMcpResourceDirTool, RefreshMcpTools and WaitForMcpServers, 2026-11-23: coder-resources.mjs.)
 import { RESOURCE_TOOL_NAMES, RESOURCE_CC_NAMES, resourceToolsFor, resourceToolCall, WAIT_SERVERS, ARTIFACT_TOOL } from "./coder-resources.mjs";
 import { CC_TOOL as RESOURCE_CC_TOOL } from "./coder-hooks.mjs";
 Object.assign(RESOURCE_CC_TOOL, RESOURCE_CC_NAMES);
@@ -4136,6 +4136,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   let endPushed = false, endTitle = "";
   // (The artifacts the owner said yes to in this job: published again without a card. coder-resources.mjs.)
   const artifactsOk = new Set();
+  // (The version of each artifact this job published or read: a publish built on an older one is refused unless forced.)
+  const artifactsSeen = new Map();
   let pushRequest = false, prRequest = null, undoRequest = false, lastSaid = "", reviewPost = null, prExtra = [], autofixRequest = null, notified = 0;
   // GLOOPY'S CARDS (2026-11-09): a browser step waiting for the owner's OK, the owner's sign-in through the private form,
   // or a step the owner does themselves in Gloopy's browser.
@@ -7853,8 +7855,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         c.keepHead = CONNECTOR_DATA;
         reply(CONNECTOR_DATA + told);
       } else if (RESOURCE_TOOL_NAMES.includes(c.name)) {
-        // CLAUDE CODE'S Artifact, ListMcpResourcesTool, ReadMcpResourceTool AND WaitForMcpServers (coder-resources.mjs, 2026-11-23).
-        const o = await resourceToolCall(c, { emit, reply, deps, github, scrub, plain, readFile: readOwnFile, ownRules, wholeRule, canAsk, askOwner, noOneHooks, answerOutcome, saidReply, REJECTED, askedWhy, approved: artifactsOk });
+        // CLAUDE CODE'S Artifact, ListMcpResourcesTool, ReadMcpResourceTool, ReadMcpResourceDirTool, RefreshMcpTools AND WaitForMcpServers (coder-resources.mjs, 2026-11-23).
+        const o = await resourceToolCall(c, { emit, reply, deps, github, scrub, plain, readFile: readOwnFile, ownRules, wholeRule, canAsk, askOwner, noOneHooks, answerOutcome, saidReply, REJECTED, askedWhy, approved: artifactsOk, seen: artifactsSeen, saveFile: async (name, data) => { const r = await appTool(deps, "save_upload", { name, data }); return r.code === 0 ? r.output.trim() : ""; } });
         if (o && o.end === "stop") return stopNow(reply);
         if (o && o.end === "no") return noEnd(i, "stopped: the owner said no");
       } else if (AGENT_TOOL_NAMES.includes(c.name)) {
