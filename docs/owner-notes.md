@@ -5,6 +5,11 @@ The owner's running log, newest first, in plain English. Started fresh on
 log (81,000 lines) is in git history.
 
 
+## 2026-11-23: Every tool tried live on gofarther.dev
+
+I went through the Tools tab row by row and tried each tool live with Grok (Low effort) in four throwaway chats, about 30 messages in all. The new column G "Tried live (2026-11-23)" has the result for each row: 56 worked, 3 broke, 10 partly worked, 12 were not tested and 18 are n/a.
+
+What broke: entering a worktree failed because the chat's git folder is read-only, and the plugin search failed twice ("the plugin catalog did not answer"), so the plugin install card never appeared. Not tested: the connector tools (no connector in the test chats), PowerShell (off), skills (none saved), and anything that keeps running (auto-fix, cloud scheduled tasks). The test chats are deleted and the test pull request is closed.
 
 ## 2026-11-23: Tools-only comparison file
 
