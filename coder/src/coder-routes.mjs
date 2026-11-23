@@ -107,6 +107,8 @@ export function prefsOf(saved) {
     autoOff: s.autoOff === true,
     // (Prompt suggestions, Claude Code's promptSuggestionEnabled: on unless turned off.)
     suggestOff: s.suggestOff === true,
+    // (Claude Code's bashEditDiffEnabled, a user setting: show the files a command changed in every mode.)
+    bashEditDiffEnabled: s.bashEditDiffEnabled === true,
   };
 }
 /** A mode under the owner's Settings: Auto, with Auto mode turned off, is Accept edits. */
@@ -124,10 +126,11 @@ export function prefsChange(saved, body) {
   if ("denyInstead" in b && typeof b.denyInstead !== "boolean") return { error: "Refusing instead of asking is on or off." };
   if ("autoOff" in b && typeof b.autoOff !== "boolean") return { error: "Turning Auto mode off is on or off." };
   if ("suggestOff" in b && typeof b.suggestOff !== "boolean") return { error: "Prompt suggestions are on or off." };
-  return { prefs: { bgHours: "bgHours" in b ? Number(b.bgHours) : now.bgHours, endDetached: "endDetached" in b ? b.endDetached : now.endDetached, diskWarnGib: "diskWarnGib" in b ? Number(b.diskWarnGib) : now.diskWarnGib, memWarnGib: "memWarnGib" in b ? Number(b.memWarnGib) : now.memWarnGib, hooks: "hooks" in b ? String(b.hooks).trim() : now.hooks, autoMode: "autoMode" in b ? String(b.autoMode).trim() : now.autoMode, denyInstead: "denyInstead" in b ? b.denyInstead : now.denyInstead, autoOff: "autoOff" in b ? b.autoOff : now.autoOff, suggestOff: "suggestOff" in b ? b.suggestOff : now.suggestOff }, ...(warnings.length ? { warnings } : {}) };
+  if ("bashEditDiffEnabled" in b && typeof b.bashEditDiffEnabled !== "boolean") return { error: "bashEditDiffEnabled is true or false." };
+  return { prefs: { bgHours: "bgHours" in b ? Number(b.bgHours) : now.bgHours, endDetached: "endDetached" in b ? b.endDetached : now.endDetached, diskWarnGib: "diskWarnGib" in b ? Number(b.diskWarnGib) : now.diskWarnGib, memWarnGib: "memWarnGib" in b ? Number(b.memWarnGib) : now.memWarnGib, hooks: "hooks" in b ? String(b.hooks).trim() : now.hooks, autoMode: "autoMode" in b ? String(b.autoMode).trim() : now.autoMode, denyInstead: "denyInstead" in b ? b.denyInstead : now.denyInstead, autoOff: "autoOff" in b ? b.autoOff : now.autoOff, suggestOff: "suggestOff" in b ? b.suggestOff : now.suggestOff, bashEditDiffEnabled: "bashEditDiffEnabled" in b ? b.bashEditDiffEnabled : now.bashEditDiffEnabled }, ...(warnings.length ? { warnings } : {}) };
 }
 /** What Coder's machine is given of them with each message. */
-export const machinePrefs = (saved) => { const p = prefsOf(saved); return { bgMaxMs: p.bgHours * 3_600_000, endDetached: p.endDetached, diskWarnGib: p.diskWarnGib, memWarnGib: p.memWarnGib, ...(p.denyInstead ? { denyInstead: true } : {}), ...(p.autoOff ? { autoOff: true } : {}), ...(p.suggestOff ? { suggestOff: true } : {}) }; };
+export const machinePrefs = (saved) => { const p = prefsOf(saved); return { bgMaxMs: p.bgHours * 3_600_000, endDetached: p.endDetached, diskWarnGib: p.diskWarnGib, memWarnGib: p.memWarnGib, ...(p.denyInstead ? { denyInstead: true } : {}), ...(p.autoOff ? { autoOff: true } : {}), ...(p.suggestOff ? { suggestOff: true } : {}), ...(p.bashEditDiffEnabled ? { bashEditDiffEnabled: true } : {}) }; };
 /** The owner's auto mode rules as Coder's machine takes them (Claude Code's autoMode block), or null. */
 export const machineAutoMode = (saved) => { const a = autoModeSetting(prefsOf(saved).autoMode); return a.ok && a.value ? a.value : null; };
 /** The owner's hooks as Coder's machine takes them (`{ hooks, disableAllHooks }`), or null. */

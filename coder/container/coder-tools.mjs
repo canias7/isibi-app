@@ -439,12 +439,25 @@ async function fileSize(abs, rel, max) {
   return st.size;
 }
 
+// THE 128 MB LIMIT ON A PICTURE, in Claude Code's words (word for word, its "Image over 128 MB" messages): a file over it is
+// refused; a pipe or a device is read until more than 128 MB has arrived without its end, then refused.
+export const picTooLarge = (path) => "File is too large to read as an image (the limit is 128MB): " + path + ". If it is an image, resize it or export a smaller copy, then read that.";
+export const picPipeTooLarge = (path) => "Cannot read this as an image: " + path + " is a pipe or a device, not a regular file, and it sent more than 128MB without ending.";
+export async function readCapped(abs, cap) {
+  const fh = await openFile(abs, "r");
+  try {
+    const parts = []; let n = 0;
+    for (;;) { const b = Buffer.alloc(1 << 20); const { bytesRead } = await fh.read(b, 0, b.length, null); if (!bytesRead) break; parts.push(b.subarray(0, bytesRead)); n += bytesRead; if (n > cap) return null; }
+    return Buffer.concat(parts);
+  } finally { await fh.close(); }
+}
 async function readPicture(abs, rel, kind) {
   const st = await stat(abs);
   if (st.isDirectory()) fail(folderError(abs));
-  if (st.size > PIC_MAX_BYTES) fail(rel + " is " + Math.round(st.size / 1048576) + " MB, over the 128 MB a picture may be: make a smaller copy with bash (e.g. convert, or crop the part you need) and read that");
-  const size = st.size;
-  const buf = await readFile(abs);
+  if (st.isFile() && st.size > PIC_MAX_BYTES) fail(picTooLarge(rel));
+  const buf = st.isFile() ? await readFile(abs) : await readCapped(abs, PIC_MAX_BYTES);
+  if (!buf) fail(picPipeTooLarge(rel));
+  const size = buf.length;
   const p = await asPicture(buf, kind, PIC_ONE_MAX);
   if (p.why) fail(rel + " cannot be shown: " + p.why);
   // A BIG PICTURE IS SHOWN SMALLER, and Coder is told so (Claude Code's docs: "Claude may see a downscaled version of a
@@ -843,7 +856,8 @@ export async function toolRead({ path, offset, limit, pages = "", allow_large = 
   const { abs, rel } = await inside(path, { mustExist: true, output: true, tool: "read" });
   // A PIPE OR A DEVICE is refused, as Claude Code's Read does ("is a pipe or a device"): reading one could wait forever.
   const kind = await stat(abs);
-  if (!kind.isFile() && !kind.isDirectory()) fail(rel + " is a pipe or a device, not a file; it cannot be read");
+  // (A picture's name on a pipe or a device is read, up to 128 MB, as Claude Code's Read does: readPicture.)
+  if (!kind.isFile() && !kind.isDirectory() && !PIC_KINDS[extname(abs).toLowerCase()]) fail(rel + " is a pipe or a device, not a file; it cannot be read");
   const ext = extname(abs).toLowerCase();
   if (PIC_KINDS[ext]) return readPicture(abs, rel, PIC_KINDS[ext]);
   if (ext === ".pdf") return readPdf(abs, rel, pages);
@@ -872,7 +886,8 @@ export async function toolRead({ path, offset, limit, pages = "", allow_large = 
   // ITS RESULT OBJECT, FOR THE POSTTOOLUSE HOOKS, when Coder's loop asks (`facts`): Claude Code's Read output for a text file,
   // { type: "text", file: { filePath, content, numLines, startLine, totalLines } }, the lines given without their numbers.
   // (The owner, 2026-11-14: "Fix base on Claude Code docs, please".)
-  const told = (t, content, numLines, startLine, totalLines) => (facts === true && content.length <= FACTS_TEXT_MAX ? { text: t, facts: { type: "text", file: { filePath: abs, content, numLines, startLine, totalLines } } } : t);
+  // (truncatedByTokenCap: true when a whole-file read was paged because it passed the limit, as Claude Code's Read sets it.)
+  const told = (t, content, numLines, startLine, totalLines, capped = false) => (facts === true && content.length <= FACTS_TEXT_MAX ? { text: t, facts: { type: "text", file: { filePath: abs, content, numLines, startLine, totalLines, ...(capped ? { truncatedByTokenCap: true } : {}) } } } : t);
   if (!text.length) { await remember(abs, buf, { whole: false }); await clearStart(abs); return told(rel + " exists, but it is empty.", "", 0, 1, 0); }
   const lines = text.split("\n");
   if (lines.length > 1 && lines[lines.length - 1] === "") lines.pop(); // the last newline ends a line; it is not one
@@ -885,7 +900,9 @@ export async function toolRead({ path, offset, limit, pages = "", allow_large = 
   const cap = large ? Math.min(Math.max(Math.floor(Number(max_chars) || 0), usual), READ_LARGE_CHARS) : usual;
   const size = Buffer.byteLength(text);
   if (!asked && !large && size > READ_WHOLE_MAX) fail(rel + " is " + kb(size) + ", over the 256 KB a whole read takes: read a part with offset and limit, search it with grep, or set allow_large when you truly need all of it at once");
-  const want = Number(limit) > 0 ? Math.min(Math.floor(Number(limit)), READ_LINES_MAX) : READ_LINES_MAX;
+  // (No limit given: up to 2,000 lines, as Claude Code's Read: READ_DEFAULT_LINES.)
+  // (allow_large, Coder's own way to read all of a file at once, keeps its whole read.)
+  const want = Number(limit) > 0 ? Math.min(Math.floor(Number(limit)), READ_LINES_MAX) : large ? READ_LINES_MAX : READ_DEFAULT_LINES;
   const end = Math.min(total, from - 1 + want);
   // WHOLE LINES, NEVER CUT (the owner, 2026-11-08: "Yea fix those 4"; Claude Code 2.1.319, tried side by side: a
   // 20,000-character line came back whole). Coder cut every line at 2,000 characters before, so the rest of a long line
@@ -911,7 +928,7 @@ export async function toolRead({ path, offset, limit, pages = "", allow_large = 
   if (asked && last < end) fail("lines " + from + "-" + end + " of " + rel + " come to more than about " + Math.round(cap / 1000) + ",000 characters: ask for fewer lines (limit), search with grep" + (large ? "" : ", or set allow_large when you truly need them all at once"));
   await remember(abs, buf, { whole: false });
   const body = rows.join("\n");
-  const gave = (t) => told(t, lines.slice(from - 1, last).join("\n"), rows.length, from, total);
+  const gave = (t) => told(t, lines.slice(from - 1, last).join("\n"), rows.length, from, total, !asked && last < total);
   if (asked && (from > 1 || last < total)) await markPart(abs);
   if (last >= total) { if (!asked) await clearStart(abs); return gave(body + oldText); }
   const next = "offset " + (last + 1) + " and limit " + fitting(last);
@@ -950,6 +967,8 @@ async function readBigPart(abs, rel, offset, limit) {
  * WHAT A PARTIAL VIEW ADDS (the owner, 2026-11-08: "ok yes"; Claude Code's own note, tried in this session: "Do NOT
  * answer from this page alone if the answer may be further in the file"): Grok reads the rest before answering.
  */
+/** Claude Code's Read: "With no limit given, a read returns up to 2,000 lines." */
+export const READ_DEFAULT_LINES = 2000;
 export const PARTIAL_HINT = "Do not answer from this part alone if the answer may be further in the file.";
 /**
  * A FILE THAT IS NOT VALID UTF-8 (an old encoding such as Windows-1252, or binary with no zero byte): said after its
@@ -967,7 +986,12 @@ export const NOT_UTF8_NOTE = notTextNote("not_utf8");
  * name and "the owner".
  */
 export const notTextRefused = (kind) => NOT_TEXT_WHY[kind] + ". These tools write UTF-8 (or UTF-16LE behind its byte-order mark) and never convert a file's encoding on their own, so nothing was written. If the file is text, make the change with a shell command that reads and writes it in its own encoding (iconv, or PowerShell Get-Content/Set-Content -Encoding), or ask the owner whether to convert it to UTF-8 first. To replace the whole file with new UTF-8 text anyway, delete it first, then write it.";
+// (Claude Code v2.1.296+: Edit and NotebookEdit refuse a file that is not valid UTF-8 in these words, word for word, with no
+// file name before them; Write still replaces one unless the new text holds U+FFFD, the 2026-11-23 sheet rows.)
+export const CC_NOT_UTF8 = "File is not valid UTF-8. It may use a legacy encoding such as Windows-1252, Shift-JIS or GBK, or be binary. This tool saves the whole file as UTF-8, which would replace every byte it cannot decode with U+FFFD. Nothing was written. Make the change with a shell command that reads and writes the file in its own encoding, or ask the user whether to convert the file to UTF-8 first.";
 export const NOT_UTF8_REFUSED = notTextRefused("not_utf8");
+/** The refusal for a file that is not text, named: Claude Code's own words (no name) for one that is not valid UTF-8. */
+export const textRefusal = (rel, kind) => (kind === "not_utf8" ? CC_NOT_UTF8 : rel + " " + notTextRefused(kind));
 
 /**
  * WRITE, WITH CLAUDE CODE'S CHECKS (the owner, 2026-11-08: "Compare it to claude code write ones and make sure they need
@@ -1011,7 +1035,26 @@ const UTF8_HEAD = 8 * 1024 * 1024;
  * (Claude Code skips its diff past about 10 MB). The diff is the machine's own `diff -U3`.
  */
 export const WRITE_MARK = "\u0000coder-write\u0000";
-export const WRITE_SHOW_LINES = 120, WRITE_SHOW_CHARS = 8000, WRITE_DIFF_MAX = 2 * 1024 * 1024;
+export const WRITE_SHOW_LINES = 120, WRITE_SHOW_CHARS = 8000, WRITE_DIFF_MAX = 10 * 1024 * 1024; // (Claude Code: "When the old content is over about 10 MB, the diff is skipped.")
+/**
+ * CLAUDE CODE'S gitDiff ON A WRITE OR EDIT RESULT (the 2026-11-23 sheet rows): for a file in a git repository, { filename,
+ * status: "modified" or "added", additions, deletions, changes, patch, repository: the GitHub owner/repo when the remote is
+ * on GitHub }. Null outside a repository.
+ */
+export async function gitDiffOf(abs, isNew, hunks) {
+  const dir = dirname(abs);
+  const top = await runProg("git", ["-C", dir, "rev-parse", "--show-toplevel"], { timeoutMs: 5000, max: 65536 });
+  if (top.code !== 0) return null;
+  const root = String(top.out).trim();
+  const rem = await runProg("git", ["-C", root, "remote", "get-url", "origin"], { timeoutMs: 5000, max: 65536 });
+  const m = rem.code === 0 ? /github\.com[:/]([^/\s]+)\/([^/\s]+?)(?:\.git)?\s*$/.exec(String(rem.out)) : null;
+  let additions = 0, deletions = 0; const patch = [];
+  for (const h of Array.isArray(hunks) ? hunks : []) {
+    patch.push("@@ -" + h.oldStart + "," + h.oldLines + " +" + h.newStart + "," + h.newLines + " @@", ...(h.lines || []));
+    for (const l of h.lines || []) { if (l[0] === "+") additions++; else if (l[0] === "-") deletions++; }
+  }
+  return { filename: relative(root, abs), status: isNew ? "added" : "modified", additions, deletions, changes: additions + deletions, patch: patch.join("\n"), ...(m ? { repository: m[1] + "/" + m[2] } : {}) };
+}
 /**
  * A TOOL'S OWN RESULT OBJECT, FOR THE HOOKS (the owner, 2026-11-14: "start fixing and filling in gaps on those tools";
  * Claude Code's hooks reference: PostToolUse gets "the tool's structured Output object", such as Grep's mode, numFiles and
@@ -1237,8 +1280,11 @@ export async function toolWrite(args) {
     const wasAll = old.length <= WRITE_DIFF_MAX ? old : null;
     if (old.length > UTF8_HEAD) { old = old.subarray(0, UTF8_HEAD); let k = old.length; while (k > 0 && old[k - 1] >= 0x80) k--; old = old.subarray(0, k); }
     // (Not text, Claude Code 2.1.325's three kinds: refused in its words, UTF-16BE and NUL bytes too; round 4.)
+    // A file that is not valid UTF-8 is replaced (saved as UTF-8, its old encoding lost), as Claude Code's Write does, unless the
+    // new text holds U+FFFD (then it is refused in Claude Code's words: CC_NOT_UTF8).
     const notText = notTextOf(old);
-    if (notText) fail(rel + " " + notTextRefused(notText));
+    if (notText === "not_utf8") { if (content.includes("\ufffd")) fail(CC_NOT_UTF8); }
+    else if (notText) fail(rel + " " + notTextRefused(notText));
     const u = utf16Of(old);
     if (u === "le") bytes = Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(content, "utf16le")]);
     if (!u && old[0] === 0xef && old[1] === 0xbb && old[2] === 0xbf && !content.startsWith("\ufeff")) bytes = Buffer.concat([old.subarray(0, 3), bytes]);
@@ -1264,7 +1310,8 @@ export async function toolWrite(args) {
   const answer = show_change === true && change ? WRITE_MARK + JSON.stringify({ text, change }) : text;
   if (!facts) return answer;
   const before = typeof oldText === "string" && oldText.length <= FACTS_TEXT_MAX ? oldText : null;
-  return { text: answer, facts: { type: st ? "update" : "create", filePath: abs, content, structuredPatch: st && before !== null && Array.isArray(got.hunks) ? got.hunks : [], originalFile: st ? before : null } };
+  const gitDiff = await gitDiffOf(abs, !st, st && before !== null && Array.isArray(got.hunks) ? got.hunks : content.split("\n").length ? [{ oldStart: 0, oldLines: 0, newStart: 1, newLines: content.replace(/\n$/, "").split("\n").length, lines: content.replace(/\n$/, "").split("\n").map((l) => "+" + l) }] : []).catch(() => null);
+  return { text: answer, facts: { type: st ? "update" : "create", filePath: abs, content, structuredPatch: st && before !== null && Array.isArray(got.hunks) ? got.hunks : [], originalFile: st ? before : null, ...(gitDiff ? { gitDiff } : {}) } };
 }
 /** A write's or an edit's new text to its language server (coder-lsp.mjs): never costs the write. */
 async function lspAfterWrite(abs, text) {
@@ -1396,7 +1443,7 @@ async function editFirst(a, { guard = false } = {}) {
   const { at, newN, len } = editMatch(body, old_string, new_string);
   const applies = at.length === 1 || (all && at.length > 0);
   if (changed && !applies) fail(rel + " " + WRITE_CHANGED + ".");
-  if (notText) fail(rel + " " + notTextRefused(notText));
+  if (notText) fail(textRefusal(rel, notText));
   if (!at.length) fail(EDIT_NOT_FOUND + saidBack(old_string));
   if (!applies) fail(editMany(at.length) + saidBack(old_string));
   // (A Claude Code settings file left invalid by the edit, when it was valid before: Claude Code 2.1.325's check, its last
@@ -1457,7 +1504,7 @@ export async function toolEdit(args) {
   // - file already exists." first, as there. Coder's edit wrote one back with every such letter lost ("café" became "caf�"),
   // refused NUL bytes in its own words, and edited UTF-16BE (round 4).
   const notText = notTextOf(buf);
-  if (notText) fail(old_string === "" ? EDIT_EXISTS : rel + " " + notTextRefused(notText));
+  if (notText) fail(old_string === "" ? EDIT_EXISTS : textRefusal(rel, notText));
   const { u, bom, text, eol, body } = editBody(buf);
   // WHAT CODER KNEW OF IT: changed on disk since it was read (or a command changed it and its note has not shown that yet).
   const seen = await seenEntry(abs);
@@ -1572,7 +1619,7 @@ async function notebookFirst(a) {
   if (changedSince(seen, st, buf)) fail(rel + " " + WRITE_CHANGED + ".");
   // (UTF-8 only: Claude Code's NotebookEdit "refuses a notebook file that doesn't decode as UTF-8", UTF-16 too.)
   const notText = notTextOf(buf) || (buf[0] === 0xff && buf[1] === 0xfe ? "not_utf8" : "");
-  if (notText) fail(rel + " " + notTextRefused(notText));
+  if (notText) fail(textRefusal(rel, notText));
   const text = buf.toString("utf8");
   let nb = null;
   try { nb = JSON.parse(text.replace(/^﻿/, "")); } catch { fail(NB_NOT_JSON); }
@@ -1688,7 +1735,8 @@ async function editAnswer({ rel, abs, said, before, after, show_change, check, b
   // newString, originalFile, structuredPatch, userModified, replaceAll }. 2026-11-14.)
   if (!facts) return answer;
   const was = typeof before === "string" && before.length <= FACTS_TEXT_MAX ? before : null;
-  return { text: answer, facts: { filePath: abs, oldString: facts.oldString, newString: facts.newString, originalFile: was, structuredPatch: was !== null && Array.isArray(got.hunks) ? got.hunks : [], userModified: false, replaceAll: facts.replaceAll === true } };
+  const gitDiff = await gitDiffOf(abs, false, Array.isArray(got.hunks) ? got.hunks : []).catch(() => null);
+  return { text: answer, facts: { filePath: abs, oldString: facts.oldString, newString: facts.newString, originalFile: was, structuredPatch: was !== null && Array.isArray(got.hunks) ? got.hunks : [], userModified: false, replaceAll: facts.replaceAll === true, ...(gitDiff ? { gitDiff } : {}) } };
 }
 
 /**

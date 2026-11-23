@@ -19,6 +19,21 @@ log (81,000 lines) is in git history.
 - **Not done:** messages between your own Coder chats. Each message would start a paid run in another chat without you, so it needs your OK first.
 - Tests pass. Not yet tried live on gofarther.dev.
 
+## 2026-11-23: Coder's file and command tools made to match Claude Code's
+
+From the comparison sheet's tool rows (Read, Write, Edit, Bash, Monitor, stopping tasks, Grep and Glob):
+- **Files in an old encoding:** edit and notebook edits now refuse them in Claude Code's exact words; write can replace one (it saves UTF-8), as Claude Code's does.
+- **Huge pictures:** over 128 MB, Coder says so in Claude Code's exact words.
+- **Reading a file** with no line count now gives the first 2,000 lines, as Claude Code does.
+- **New setting, "Show files commands change"** (Claude Code's `bashEditDiffEnabled`): on, the files a command changed show under its step in every mode. Off (the default), only in Auto and Bypass permissions. A repository can only turn it off.
+- **Longer background commands:** BASH_MAX_TIMEOUT_MS above 2 hours now raises the limit (up to 24 hours).
+- **Safety:** a `pkill` that would hit Coder itself is refused, and a command's output file is checked so it can't be swapped for a link ("task output swap refused").
+- **Stopping:** stop can now stop a background helper agent by its ID or name.
+- **Grep and glob** come back to a chat when your rules block Bash entirely.
+- Hooks now get more of Claude Code's result details (git commits, pushes and pull requests a command made; a file's git diff).
+- Can't match on Coder's Linux machine: the Windows/PowerShell-only behaviour, and Claude Code's "on exit" behaviour (Coder chats never exit).
+- Not yet tried live on gofarther.dev.
+
 ## 2026-11-23: Five tool helpers merged, and the comparison sheet brought up to date
 
 Five helpers' work is now together on one branch (their own entries follow, below). All of Coder's tests pass (1,782 of 1,783; the one left is the known CD12 check, which fails only because of a local .claude folder).

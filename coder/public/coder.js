@@ -465,6 +465,7 @@
         '<div class="cd-set-head">Permissions</div>' +
         '<label class="cd-notify-sw"><input type="checkbox" id="cdSetDeny"' + (prefs.denyInstead ? ' checked' : '') + '><span><b>Refuse instead of asking</b><br>Anything that would ask you is refused, and Coder carries on without it.</span></label>' +
         '<label class="cd-notify-sw"><input type="checkbox" id="cdSetSuggest"' + (prefs.suggestOff ? '' : ' checked') + '><span><b>Prompt suggestions</b><br>After Coder answers, a suggested next message shows in grey in the message box. Tab or → takes it; typing hides it.</span></label>' +
+        '<label class="cd-notify-sw"><input type="checkbox" id="cdSetEditDiff"' + (prefs.bashEditDiffEnabled ? ' checked' : '') + '><span><b>Show files commands change</b> (bashEditDiffEnabled)<br>In every mode, the files a command changed show under its step. Off, only in Auto and Bypass permissions.</span></label>' +
         '<label class="cd-notify-sw"><input type="checkbox" id="cdSetAutoOff"' + (prefs.autoOff ? ' checked' : '') + '><span><b>Turn off Auto mode</b><br>Chats start in Accept edits, and Auto isn’t offered.</span></label>' +
         // ADVANCED, FOLDED (the owner, 2026-11-15, Settings "ewwwww"): hooks and Auto mode rules are written as code, so they
         // sit closed under Advanced; the rest is plain.
@@ -495,6 +496,7 @@
       $('cdSetDeny').onchange = (e) => save('denyInstead', e.currentTarget.checked);
       $('cdSetAutoOff').onchange = (e) => save('autoOff', e.currentTarget.checked);
       $('cdSetSuggest').onchange = (e) => save('suggestOff', !e.currentTarget.checked);
+      $('cdSetEditDiff').onchange = (e) => save('bashEditDiffEnabled', e.currentTarget.checked);
       $('cdSetAuto').oninput = (e) => { autoDraft = e.currentTarget.value; };
       $('cdSetAutoSave').onclick = () => save('autoMode', autoDraft);
     };

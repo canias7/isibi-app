@@ -174,6 +174,14 @@ const shellWord = (s) => "'" + String(s).replace(/'/g, "'\\''") + "'";
  * `stopAtTimeout` (a command that starts with `sleep`: Claude Code moves a command to the background at its timeout
  * "unless the command starts with sleep"): stopped at the limit, "Command timed out after Ns", exit code 143.
  */
+/** Claude Code's words when a command's output file was swapped for a link or its folder moved. */
+export const OUTPUT_SWAP_REFUSED = "task output swap refused";
+/** Whether an output file or its folder is no longer the one made (a link now, or another file or folder in its place). */
+export function outputSwapped(ids, { file, dir }) {
+  if (!ids || !file || !dir) return true;
+  if (file.isSymbolicLink() || dir.isSymbolicLink()) return true;
+  return file.dev !== ids.file.dev || file.ino !== ids.file.ino || dir.dev !== ids.dir.dev || dir.ino !== ids.dir.ino;
+}
 export const SPILL_AT = 30_000, SPILL_KEEP = 64 * 1024 * 1024, OUTPUT_KILL = 5 * 1024 ** 3, READ_BACK_KEEP = 40_000;
 /**
  * THE 5 GB STOP, IN THE FOREGROUND AND IN THE BACKGROUND (Claude Code 2.1.319: a running or backgrounded command's output
@@ -415,7 +423,9 @@ export function bashTimeouts(vars = {}, prefs = {}) {
   const maxMs = Math.max(defaultMs, Math.min(FG_CAP_MS, m || 600_000));
   // THE LONGEST A BACKGROUND COMMAND MAY RUN: 2 hours, or what the owner set in Settings (owner, 2026-11-10: "do the 2 u
   // left out optional, the setting put it in settings"; Claude Code raises its 2 hours with BASH_MAX_TIMEOUT_MS), 24 at most.
-  const bgMaxMs = prefsIn(prefs).bgMaxMs;
+  // (BASH_MAX_TIMEOUT_MS above 7,200,000 raises the 2-hour maximum, and so does BASH_DEFAULT_TIMEOUT_MS above it, as in Claude
+  // Code; neither shortens it. Up to Coder's 24-hour cap, BG_MAX_CAP_MS. The 2026-11-23 sheet rows.)
+  const bgMaxMs = Math.min(BG_MAX_CAP_MS, Math.max(prefsIn(prefs).bgMaxMs, m > BG_LIMIT_MAX_MS ? m : 0, d > BG_LIMIT_MAX_MS ? d : 0));
   return { defaultMs, maxMs, bgDefaultMs: Math.min(bgMaxMs, Math.max(BG_LIMIT_MS, d)), bgMaxMs };
 }
 /**
@@ -438,6 +448,8 @@ export function prefsIn(p) {
     denyInstead: x.denyInstead === true,
     // (Settings: Auto mode turned off, Claude Code's disableAutoMode.)
     autoOff: x.autoOff === true,
+    // (Settings: Claude Code's bashEditDiffEnabled, a user setting; a true counts only from here: bashEditDiffOn.)
+    ...(x.bashEditDiffEnabled === true ? { bashEditDiffEnabled: true } : {}),
   };
 }
 /**
@@ -617,6 +629,20 @@ export function writeTranscript(file, convo, state, { session = "", cwd = "", mo
   } catch { return ""; }
 }
 /** A yes from the environment's variables, as Claude Code reads one ("1", "true", "yes", "on"). */
+/**
+ * WHETHER A CHAT RECORDS THE FILES ITS COMMANDS CHANGE (Claude Code's bashEditDiffEnabled, the 2026-11-23 sheet rows): the
+ * environment's CODER_BASH_EDIT_DIFF (or Claude Code's CLAUDE_CODE_BASH_EDIT_DIFF) beats the key; a false in the repository's
+ * .claude/settings.json turns it off, a true there counts for nothing; a true in the owner's Settings (Claude Code's user
+ * settings) turns it on in every mode; unset, only in Auto and Bypass permissions mode.
+ */
+export function bashEditDiffOn({ vars = {}, prefs = {}, repoOff = false, mode = "" } = {}) {
+  const v = vars && (vars.CODER_BASH_EDIT_DIFF ?? vars.CLAUDE_CODE_BASH_EDIT_DIFF);
+  if (varOn(v)) return true;
+  if (varOff(v)) return false;
+  if (repoOff) return false;
+  if (prefs && prefs.bashEditDiffEnabled === true) return true;
+  return mode === "auto" || mode === "bypassPermissions";
+}
 export const varOn = (v) => /^(1|true|yes|on)$/i.test(String(v ?? "").trim());
 /** A no, the same way ("0", "false", "no", "off"). */
 /** Where PowerShell 7 is on a machine (Microsoft's package puts pwsh in /usr/bin). */
@@ -1212,7 +1238,7 @@ export function capEffort(effort, cap) {
   return at > EFFORT_ORDER.indexOf(cap) ? { effort: cap, capped: true } : { effort: e, capped: false };
 }
 export function repoSettings(root, { trust = false, github = false, several = false } = {}) {
-  const out = { deny: [], ask: [], allow: [], dirs: [], env: {}, own: {}, held: [], blockReads: false, blockWrites: false, autoOff: false, defaultMode: "", plansDir: "", mdExcludes: [], attribution: null, language: "", maxEffort: "" };
+  const out = { deny: [], ask: [], allow: [], dirs: [], env: {}, own: {}, held: [], blockReads: false, blockWrites: false, autoOff: false, defaultMode: "", plansDir: "", mdExcludes: [], attribution: null, language: "", maxEffort: "", editDiffOff: false };
   // (None from a job started from GitHub, and none in a chat with several repositories: Claude Code's cloud session then works
   // from a folder outside all of them and reads no repository's .claude/settings.json or settings.local.json. Bash docs pass 8.)
   if (github || several) return out;
@@ -1243,6 +1269,8 @@ export function repoSettings(root, { trust = false, github = false, several = fa
     if (p.blockReadsOutsideWorkingDirectories === true) out.blockReads = true;
     if (p.blockWritesOutsideWorkingDirectories === true) out.blockWrites = true;
     if (p.disableAutoMode === "disable" || j.disableAutoMode === "disable") out.autoOff = true;
+    // (Claude Code's bashEditDiffEnabled: "a false in a repository file still turns it off"; a true there doesn't count.)
+    if (j.bashEditDiffEnabled === false) out.editDiffOff = true;
     // (Claude Code's cloud sessions: "honors only acceptEdits, plan, default, and auto from this key"; auto "doesn't apply
     // from project files".)
     if (typeof p.defaultMode === "string" && ["acceptEdits", "plan", "default"].includes(p.defaultMode)) out.defaultMode = p.defaultMode;
@@ -1582,6 +1610,11 @@ function execNow(dir, command, timeoutS = 120, { uid = RUN_UID, gid = RUN_GID, k
     let lastBytes = NO_BYTES;
     // THE OUTPUT FILE: the raw bytes so far until it is needed, then everything in it.
     let early = [], earlyBytes = 0, spill = null, spillPath = "", spillBytes = 0, spillDone = Promise.resolve();
+    // THE OUTPUT FILE IS CHECKED BEFORE USE (Claude Code: "Each command's output file is checked for swapped links or moved
+    // folders; a failed check refuses the step ('task output swap refused') or kills a running command"): the file and its
+    // folder as they were made (spillIds), looked at again each second while it runs and before it is read back.
+    let spillIds = null, swapped = false, swapAt = 0;
+    const spillSwapped = () => { if (!spillIds) return false; try { const fl = lstatSync(spillPath), dl = lstatSync(spillDir); return outputSwapped(spillIds, { file: fl, dir: dl }); } catch { return true; } };
     // (The owner's and the repository's variables win over the machine's presets, its JAVA_HOME, GOPATH or DOCKER_HOST
     // too, never over its PATH and HOME: Bash docs pass 9. Root's own commands keep root's presets first, as before.)
     const pre = uid === null ? cleanEnv(null, { root: true }) : cleanEnv(home || dir);
@@ -1656,13 +1689,18 @@ function execNow(dir, command, timeoutS = 120, { uid = RUN_UID, gid = RUN_GID, k
             mkdirSync(spillDir, { recursive: true, mode: 0o755 });
             spillPath = join(spillDir, randomUUID().replace(/-/g, "").slice(0, 9) + ".txt");
             const fd = openSync(spillPath, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o644);
+            { const fs0 = fstatSync(fd), ds0 = lstatSync(spillDir); spillIds = { file: { dev: fs0.dev, ino: fs0.ino }, dir: { dev: ds0.dev, ino: ds0.ino } }; }
             spill = createWriteStream(null, { fd });
             spillDone = new Promise((ok) => spill.on("close", ok).on("error", ok));
             for (const e of early) toSpill(e);
           } catch { spillPath = "-"; spill = null; }
           early = []; earlyBytes = 0;
         }
-      } else if (spill) toSpill(b);
+      } else if (spill) {
+        toSpill(b);
+        const now = Date.now();
+        if (!swapped && now - swapAt >= 1000) { swapAt = now; if (spillSwapped()) { swapped = true; try { process.kill(-p.pid, "SIGKILL"); } catch { /* gone */ } } }
+      }
     };
     // ITS LAST LINES WHILE IT RUNS (Claude Code 1.0.48: "progress messages … based on the last 5 lines of command output"), each
     // second while they change; never the folder line.
@@ -1763,6 +1801,7 @@ function execNow(dir, command, timeoutS = 120, { uid = RUN_UID, gid = RUN_GID, k
       let file = "";
       if (spill) {
         spill.end(); await spillDone;
+        if (swapped || spillSwapped()) return answer({ code: 137, output: OUTPUT_SWAP_REFUSED + (text ? "\n" + text : ""), timedOut, size: Math.max(0, bytes - markBytes), swapRefused: true });
         file = spillPath;
         // The folder line goes from the file too.
         // (Exactly its bytes, found near the end: whatever a background child printed after it is kept. Not found: left as it is.)
@@ -6168,7 +6207,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         t.answerDone = true;
         return { status: "error", messages, crashed: true, summary: why };
       };
-      picsIn(Array.isArray(body.messages) ? body.messages : [], picsTo).then((msgsIn) => runCoder(turnDeps, { notices, lost, stalls, ...(takeUp ? { takeUp: { ...takeUp, ...(envNote ? { note: envNote } : {}) } } : {}), timeouts: t.tmo, outLimits: t.outLimits, cmdShell: t.shell, compactVars: compactVarsFor(rawVars), noBg: t.noBg, diskWarnGib: warnGibFrom(body.setup && body.setup.vars, "DISK", PREFS.diskWarnGib), memWarnGib: warnGibFrom(body.setup && body.setup.vars, "MEMORY", PREFS.memWarnGib), searchLimits: t.searchLimits, hooks: turnHooks, autoMode: autoModeIn(body.autoMode), denyInstead: PREFS.denyInstead === true, tasksOff: varOff(rawVars.CODER_ENABLE_TASKS) || !taskToolsAvailable({ cloud: true, optIn: varOn(rawVars.CLAUDE_CODE_ENABLE_TODO_TOOLS) }), mentionsOff: varOn(rawVars.CODER_DISABLE_FILE_MENTIONS), stopCap: stopCapOf(rawVars.CODER_STOP_HOOK_BLOCK_CAP), box: !!t.box, autoOff: PREFS.autoOff === true || repoSet.autoOff, suggest: !gloopy && PREFS.suggestOff !== true && process.env.CODER_ENABLE_PROMPT_SUGGESTION !== "false", fileEdits: repoSet.defaultMode === "acceptEdits", startMode: repoSet.defaultMode, resumed, lastAt: Number(body.lastAt) || 0, hostLists: hostListsFor(nn.mode), rmChecksOff: { subst: varOn(rawVars.CODER_DISABLE_SUBSTITUTION_RM_PROMPT), inline: varOn(rawVars.CODER_DISABLE_INLINE_SHELL_RM_PROMPT), mounted: varOn(rawVars.CODER_DISABLE_MOUNTED_DRIVE_RM_PROMPT), timeout: varOn(rawVars.CODER_DISABLE_DANGEROUS_RM_TIMEOUT) }, powershell: psOn ? { bypass: !varOn(rawVars.CODER_POWERSHELL_RESPECT_EXECUTION_POLICY), defaultShell: String(rawVars.CODER_DEFAULT_SHELL || "").trim().toLowerCase() === "powershell", parseMs: Number(rawVars.CODER_PWSH_PARSE_TIMEOUT_MS) > 0 ? Math.min(Number(rawVars.CODER_PWSH_PARSE_TIMEOUT_MS), 60000) : 0 } : null, planExit: body.prePlanMode === "acceptEdits" ? "acceptEdits" : "auto", respondToBash: !varOff(rawVars.CODER_RESPOND_TO_BASH_COMMANDS), promptNotify: !varOn(rawVars.CODER_DISABLE_PERMISSION_PROMPT_NOTIFY_HOOKS), readBlock: varOn(rawVars.CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockReads, writeBlock: varOn(rawVars.CODER_BLOCK_WRITES_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockWrites, connectors: mcpCall ? connectors : [], connectorNotes: mcpCall && Array.isArray(body.connectorNotes) ? body.connectorNotes.slice(0, 10) : [], connectorsWaiting: Array.isArray(body.connectorsWaiting) ? body.connectorsWaiting.map(String).slice(0, 20) : [], connectorsFailed: Array.isArray(body.connectorsFailed) ? body.connectorsFailed.slice(0, 20) : [], connectorsGone: body.connectorsGone && typeof body.connectorsGone === "object" && !Array.isArray(body.connectorsGone) ? body.connectorsGone : null, checker, checkerInPlan: !varOff(rawVars.CODER_USE_AUTO_MODE_DURING_PLAN), checkWhere: { key: project, repo: String(body.repo || ""), branch: String(body.branch || (body.repo ? "coder/" + project : "")) }, emailMark: typeof body.emailMark === "string" && /^\d{1,3}:[0-9a-f]{64}(?:,\d{1,3}:[0-9a-f]{64})?$/.test(body.emailMark) ? body.emailMark : "", editDiff: varOn(rawVars.CODER_BASH_EDIT_DIFF), checkpoints: checkpointsOn(rawVars), searchTools: body.searchTools === true, cleared: !gloopy && body.cleared === true, schedule: !gloopy && body.schedule && typeof body.schedule === "object" ? body.schedule : null, mode: t.mode, rules: withRepoRules(body.rules, repoSet), sessionRules: body.sessionRules && typeof body.sessionRules === "object" ? body.sessionRules : null, language: gloopy ? "" : repoSet.language, customTitle: !gloopy && typeof body.customTitle === "string" ? body.customTitle.slice(0, 200) : "", shell: typeof body.shell === "string" ? body.shell.slice(0, 100_000) : "", messages: msgsIn, text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), ...(body.compact && typeof body.compact === "object" ? { compact: { focus: String(body.compact.focus || "").slice(0, 300) } } : {}), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, readOnly: { main: body.readOnly === true, extra: extras.filter((x) => x.readOnly).map((x) => x.repo.toLowerCase()) }, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), replyTo: body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null, ...effortFor(body, repoSet, env, t) , skills: gloopy || body.github === true ? [] : (() => { try { return withOwnerSkills(readSkills(dir), body.ownerSkills); } catch { return []; } })(), pluginAgents: gloopy || body.github === true ? [] : pluginAgentsFrom(body.pluginAgents), ...(!gloopy && body.github !== true && Array.isArray(body.attached) ? { attached: body.attached.filter((x) => x && typeof x.id === "string").slice(0, 20), attachedLeft: Math.max(0, Math.min(1000, Number(body.attachedLeft) || 0)) } : {}), ...gloopyOpts }))
+      picsIn(Array.isArray(body.messages) ? body.messages : [], picsTo).then((msgsIn) => runCoder(turnDeps, { notices, lost, stalls, ...(takeUp ? { takeUp: { ...takeUp, ...(envNote ? { note: envNote } : {}) } } : {}), timeouts: t.tmo, outLimits: t.outLimits, cmdShell: t.shell, compactVars: compactVarsFor(rawVars), noBg: t.noBg, diskWarnGib: warnGibFrom(body.setup && body.setup.vars, "DISK", PREFS.diskWarnGib), memWarnGib: warnGibFrom(body.setup && body.setup.vars, "MEMORY", PREFS.memWarnGib), searchLimits: t.searchLimits, hooks: turnHooks, autoMode: autoModeIn(body.autoMode), denyInstead: PREFS.denyInstead === true, tasksOff: varOff(rawVars.CODER_ENABLE_TASKS) || !taskToolsAvailable({ cloud: true, optIn: varOn(rawVars.CLAUDE_CODE_ENABLE_TODO_TOOLS) }), mentionsOff: varOn(rawVars.CODER_DISABLE_FILE_MENTIONS), stopCap: stopCapOf(rawVars.CODER_STOP_HOOK_BLOCK_CAP), box: !!t.box, autoOff: PREFS.autoOff === true || repoSet.autoOff, suggest: !gloopy && PREFS.suggestOff !== true && process.env.CODER_ENABLE_PROMPT_SUGGESTION !== "false", fileEdits: repoSet.defaultMode === "acceptEdits", startMode: repoSet.defaultMode, resumed, lastAt: Number(body.lastAt) || 0, hostLists: hostListsFor(nn.mode), rmChecksOff: { subst: varOn(rawVars.CODER_DISABLE_SUBSTITUTION_RM_PROMPT), inline: varOn(rawVars.CODER_DISABLE_INLINE_SHELL_RM_PROMPT), mounted: varOn(rawVars.CODER_DISABLE_MOUNTED_DRIVE_RM_PROMPT), timeout: varOn(rawVars.CODER_DISABLE_DANGEROUS_RM_TIMEOUT) }, powershell: psOn ? { bypass: !varOn(rawVars.CODER_POWERSHELL_RESPECT_EXECUTION_POLICY), defaultShell: String(rawVars.CODER_DEFAULT_SHELL || "").trim().toLowerCase() === "powershell", parseMs: Number(rawVars.CODER_PWSH_PARSE_TIMEOUT_MS) > 0 ? Math.min(Number(rawVars.CODER_PWSH_PARSE_TIMEOUT_MS), 60000) : 0 } : null, planExit: body.prePlanMode === "acceptEdits" ? "acceptEdits" : "auto", respondToBash: !varOff(rawVars.CODER_RESPOND_TO_BASH_COMMANDS), promptNotify: !varOn(rawVars.CODER_DISABLE_PERMISSION_PROMPT_NOTIFY_HOOKS), readBlock: varOn(rawVars.CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockReads, writeBlock: varOn(rawVars.CODER_BLOCK_WRITES_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockWrites, connectors: mcpCall ? connectors : [], connectorNotes: mcpCall && Array.isArray(body.connectorNotes) ? body.connectorNotes.slice(0, 10) : [], connectorsWaiting: Array.isArray(body.connectorsWaiting) ? body.connectorsWaiting.map(String).slice(0, 20) : [], connectorsFailed: Array.isArray(body.connectorsFailed) ? body.connectorsFailed.slice(0, 20) : [], connectorsGone: body.connectorsGone && typeof body.connectorsGone === "object" && !Array.isArray(body.connectorsGone) ? body.connectorsGone : null, checker, checkerInPlan: !varOff(rawVars.CODER_USE_AUTO_MODE_DURING_PLAN), checkWhere: { key: project, repo: String(body.repo || ""), branch: String(body.branch || (body.repo ? "coder/" + project : "")) }, emailMark: typeof body.emailMark === "string" && /^\d{1,3}:[0-9a-f]{64}(?:,\d{1,3}:[0-9a-f]{64})?$/.test(body.emailMark) ? body.emailMark : "", editDiff: bashEditDiffOn({ vars: rawVars, prefs: PREFS, repoOff: repoSet.editDiffOff, mode: t.mode }), checkpoints: checkpointsOn(rawVars), searchTools: body.searchTools === true, cleared: !gloopy && body.cleared === true, schedule: !gloopy && body.schedule && typeof body.schedule === "object" ? body.schedule : null, mode: t.mode, rules: withRepoRules(body.rules, repoSet), sessionRules: body.sessionRules && typeof body.sessionRules === "object" ? body.sessionRules : null, language: gloopy ? "" : repoSet.language, customTitle: !gloopy && typeof body.customTitle === "string" ? body.customTitle.slice(0, 200) : "", shell: typeof body.shell === "string" ? body.shell.slice(0, 100_000) : "", messages: msgsIn, text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), ...(body.compact && typeof body.compact === "object" ? { compact: { focus: String(body.compact.focus || "").slice(0, 300) } } : {}), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, readOnly: { main: body.readOnly === true, extra: extras.filter((x) => x.readOnly).map((x) => x.repo.toLowerCase()) }, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), replyTo: body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null, ...effortFor(body, repoSet, env, t) , skills: gloopy || body.github === true ? [] : (() => { try { return withOwnerSkills(readSkills(dir), body.ownerSkills); } catch { return []; } })(), pluginAgents: gloopy || body.github === true ? [] : pluginAgentsFrom(body.pluginAgents), ...(!gloopy && body.github !== true && Array.isArray(body.attached) ? { attached: body.attached.filter((x) => x && typeof x.id === "string").slice(0, 20), attachedLeft: Math.max(0, Math.min(1000, Number(body.attachedLeft) || 0)) } : {}), ...gloopyOpts }))
         // (Its job is over: a connector's question still waiting closes, coder-elicit.mjs.)
         .finally(() => { t.over = true; })
         // The last steps are sent BEFORE the end is handed out, so the Worker never saves the job while some are on their way.

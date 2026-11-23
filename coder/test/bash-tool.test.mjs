@@ -387,7 +387,7 @@ test("CD284 (tool 4, docs pass 2) the environment's BASH_DEFAULT_TIMEOUT_MS and 
   assert.deepEqual(S.bashTimeouts({ BASH_DEFAULT_TIMEOUT_MS: "300000" }), { defaultMs: 300000, maxMs: 600000, bgDefaultMs: 1800000, bgMaxMs: 7200000 }, "a lower one never shortens the background's");
   assert.deepEqual(S.bashTimeouts({ BASH_DEFAULT_TIMEOUT_MS: "3600000" }), { defaultMs: 2400000, maxMs: 2400000, bgDefaultMs: 3600000, bgMaxMs: 7200000 }, "over 30 minutes: the background's default too");
   assert.deepEqual(S.bashTimeouts({ BASH_MAX_TIMEOUT_MS: "1200000" }), { defaultMs: 120000, maxMs: 1200000, bgDefaultMs: 1800000, bgMaxMs: 7200000 });
-  assert.deepEqual(S.bashTimeouts({ BASH_DEFAULT_TIMEOUT_MS: "9e99", BASH_MAX_TIMEOUT_MS: "x" }), { defaultMs: 2400000, maxMs: 2400000, bgDefaultMs: 7200000, bgMaxMs: 7200000 });
+  assert.deepEqual(S.bashTimeouts({ BASH_DEFAULT_TIMEOUT_MS: "9e99", BASH_MAX_TIMEOUT_MS: "x" }), { defaultMs: 2400000, maxMs: 2400000, bgDefaultMs: 86400000, bgMaxMs: 86400000 }, "a default above 2 hours raises the background maximum too (Claude Code), up to Coder's 24 hours");
   assert.equal(S.bgLimitMs(5400000), 5400000);
   assert.equal(S.bgLimitMs(9e6), 7200000, "2 hours at most");
   assert.equal(S.bgLimitMs(0, S.bashTimeouts({ BASH_DEFAULT_TIMEOUT_MS: "3600000" })), 3600000);

@@ -25,6 +25,7 @@ import { recordedSystem, summaryRequest, summaryMessage, cutPoint, isSummary, vi
 // A command that views one file counts as reading it (moved to coder-compact.mjs, which the Worker uses too).
 export { viewedFile };
 import { retryLine, apiErrorText, modelWindow, CUT_OFF_ERROR } from "./coder-model.mjs";
+import { gitOperationOf, noOutputExpected } from "./coder-bashfacts.mjs";
 import { commandProblem, capOutput, capText, readTimeout, scrub, splitSetup, MAX_OUTPUT_CHARS, MAX_COMMAND_CHARS, MAX_TIMEOUT_S, DEFAULT_TIMEOUT_S, bashResultText, BASH_INLINE_MAX, BASH_READ_BACK, ccDuration, secretVar } from "./coder-checks.mjs";
 import { SLEEP_BLOCK_S, exitMeaning, sleepBlocked, leadsWithSleep, writeTargets, dangerousRm, realPath, leadsTo, pathExists, RM_UNCHECKED, RM_UNCHECKED_NO_RM, rmCardReason } from "./coder-bashcheck.mjs";
 import { textReasons } from "./coder-shell.mjs";
@@ -1717,6 +1718,8 @@ export function findConnectorTools(tools, query) {
 export const CONNECTOR_WAIT_MS = 31 * 60_000;
 /** A connector's answer longer than this is saved to a file in the scratch folder (Claude Code: over 50,000 characters). */
 export const CONNECTOR_INLINE_MAX = 50_000;
+/** A large tool result saved to disk is capped at 1 GB, and its preview says when the saved file was cut short (Claude Code v2.1.265). */
+export const SAVED_RESULT_MAX = 1024 ** 3;
 /** A tool's own threshold (`_meta["anthropic/maxResultSizeChars"]`), at most this. */
 export const CONNECTOR_FILE_CEILING = 500_000;
 export const CONNECTOR_PREVIEW = 2_000;
@@ -3231,7 +3234,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     // { taskId, timeoutMs }; another tool's, its result object; one with none (a connector's, as an MCP tool's answer, and
     // Coder's own tools'), its answer as text.
     const facts = toolFacts.get(c.id);
-    const response = c.name === "bash" && c.monitor ? { taskId: String((bashFacts.get(c.id) || {}).backgroundTaskId || ""), timeoutMs: Number(c.args && c.args.timeout) || 0 }
+    const response = c.name === "bash" && c.monitor ? { taskId: String((bashFacts.get(c.id) || {}).backgroundTaskId || ""), timeoutMs: Number(c.args && c.args.timeout) || 0, persistent: !!(c.args && c.args.persistent === true), keptInSandboxByCheck: false }
       : c.name === "bash" ? { output: content, ...(Number.isInteger(res.code) ? { code: res.code } : {}), stdout: content, stderr: "", interrupted: false, isImage: false, ...(bashFacts.get(c.id) || {}), ...(c.args && c.args.dangerouslyDisableSandbox === true ? { dangerouslyDisableSandbox: true } : {}), ...(diff ? { bashEditDiff: diff } : {}) }
       : facts && typeof facts === "object" ? facts : typeof c.keepHead === "string" && content.startsWith(c.keepHead) ? content.slice(c.keepHead.length) : content;
     // (A hook's new output, checked against the tool's output shape and shown through the tool's own text: coder-hookcheck.mjs.)
@@ -3505,7 +3508,12 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   // (CLAUDE CODE'S EndConversation can't be blocked while any other tool remains: deny rules naming it have no effect. Only
   // when the deny rules remove every other tool and also match it, as "*" does, is it removed too, unless an allow rule names
   // EndConversation. "Every other tool": the core tools are all denied. coder-worktree.mjs endConversationDenied.)
-  const toolDenied = (name) => !github && !!(name && (name === "end_conversation" ? endConversationDenied(ownRules, (n) => !!wholeRule(ownRules, "deny", n), !!wholeRule(ownRules, "allow", "EndConversation")) : wholeRule(ownRules, "deny", ccTool(name)) || (name === "monitor" && wholeRule(ownRules, "deny", "Bash"))));
+  // GREP AND GLOB COME BACK when a deny rule removes Bash (Claude Code on Linux: "a deny rule or --disallowedTools removing
+  // Bash brings them back"); an allow rule doesn't. The 2026-11-23 sheet rows.
+  // (Decided at the chat's first request, as Claude Code keeps its tool list: a later rule doesn't add or drop them.)
+  const declaredBefore = (Array.isArray(messages) ? messages : []).find((m) => m && Array.isArray(m.toolsDeclared));
+  const searchBack = declaredBefore ? declaredBefore.toolsDeclared.includes("grep") : !github && !!wholeRule(ownRules, "deny", "Bash");
+  const toolDenied = (name) =>!github && !!(name && (name === "end_conversation" ? endConversationDenied(ownRules, (n) => !!wholeRule(ownRules, "deny", n), !!wholeRule(ownRules, "allow", "EndConversation")) : wholeRule(ownRules, "deny", ccTool(name)) || (name === "monitor" && wholeRule(ownRules, "deny", "Bash"))));
   // (Where Coder's gate can open hosts for one command, bash and monitor take allowed_domains: HOSTS_DESC.)
   const withHosts = (t) => {
     if (hostLists !== "on" || github || !t || !t.function || !["bash", "monitor", "powershell"].includes(t.function.name)) return t;
@@ -3571,7 +3579,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   // or the machine's zsh), as Claude Code's Bash description names the user's shell; `shell` is the owner's own `!` command,
   // which it had been given by mistake, so it never said zsh. The cache fix's follow-up, 2026-11-14.)
   const ownOffered = (t) => { if (t && t.function) tsCatalog.set(t.function.name, t); return !(t && t.function && (toolDenied(t.function.name) || (denyInstead === true && PROMPT_TOOLS.includes(t.function.name)))); };
-  const chatTools = [...withPs(toolsFor(github ? GITHUB_TOOLS : CODER_TOOLS, { noBg: noBg === true, inlineMax: Math.min(lim.inlineMax, lim.readBack), bgMaxMs: timeouts && timeouts.bgMaxMs, defaultMs: timeouts && timeouts.defaultMs, maxMs: timeouts && timeouts.maxMs, bgDefaultMs: timeouts && timeouts.bgDefaultMs, shell: cmdShell })).map((t) => (t && t.function && t.function.name === "agent" && pluginAgents ? agentToolFor(pluginAgents) : t)).map(withHosts).filter((t) => searchTools === true || !(t && t.function && SEARCH_NAMES.has(t.function.name))).filter(ownOffered),...(mcpDeferred ? [searchTool(mcpTools)] : []), ...mcpUpfront.map((t) => asFn(t)), ...(skillList.length && !github && !offered && !toolDenied("skill") && skillsListing(skillList) ? [SKILL_TOOL] : [])];
+  const chatTools = [...withPs(toolsFor(github ? GITHUB_TOOLS : CODER_TOOLS, { noBg: noBg === true, inlineMax: Math.min(lim.inlineMax, lim.readBack), bgMaxMs: timeouts && timeouts.bgMaxMs, defaultMs: timeouts && timeouts.defaultMs, maxMs: timeouts && timeouts.maxMs, bgDefaultMs: timeouts && timeouts.bgDefaultMs, shell: cmdShell })).map((t) => (t && t.function && t.function.name === "agent" && pluginAgents ? agentToolFor(pluginAgents) : t)).map(withHosts).filter((t) => searchTools === true || searchBack || !(t && t.function && SEARCH_NAMES.has(t.function.name))).filter(ownOffered),...(mcpDeferred ? [searchTool(mcpTools)] : []), ...mcpUpfront.map((t) => asFn(t)), ...(skillList.length && !github && !offered && !toolDenied("skill") && skillsListing(skillList) ? [SKILL_TOOL] : [])];
   // (WebFetch turned off, or its cache's own time: webFetchTools. 2026-11-14.)
   chatTools.splice(0, chatTools.length, ...webFetchTools(chatTools, webFetch));
   /** Whether the chat's tools include `name` (grep and glob are no longer among them: SEARCH_TOOLS). */
@@ -5985,7 +5993,13 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // CONNECTIONS THAT FAILED WHILE IT RAN, for a reason other than a block (Bash docs pass 9; Claude Code adds its
         // agent proxy's note only to a command that failed, after a blank line: "[agent-proxy] While this command ran, …").
         if (isError && r && typeof r.failNote === "string" && r.failNote) text = text.trimEnd() + "\n\n" + r.failNote;
-        bashFacts.set(c.id, { ...(bg && job ? { backgroundTaskId: job } : {}), ...(bg && r && r.byUser ? { backgroundedByUser: true } : {}), ...(bg && r && r.byTurnEnd ? { backgroundedByTurnAbort: true } : {}), ...(bg && !inBg && !(r && r.byUser) && !(r && r.byTurnEnd) ? { timedOutAfterMs: timeoutS * 1000 } : {}), ...(interp ? { returnCodeInterpretation: interp } : {}) });
+        bashFacts.set(c.id, { ...(bg && job ? { backgroundTaskId: job } : {}), ...(bg && r && r.byUser ? { backgroundedByUser: true } : {}), ...(bg && r && r.byTurnEnd ? { backgroundedByTurnAbort: true } : {}), ...(bg && !inBg && !(r && r.byUser) && !(r && r.byTurnEnd) ? { timedOutAfterMs: timeoutS * 1000 } : {}), ...(interp ? { returnCodeInterpretation: interp } : {}),
+          // (Claude Code's other fields, the 2026-11-23 sheet rows: backgroundCwdHint for a backgrounded command that held cd,
+          // pushd, popd or chdir; noOutputExpected; rawOutputPath, the file that keeps the whole output; gitOperation.)
+          ...(bg && CWD_WORDS.test(command) ? { backgroundCwdHint: "The backgrounded command changes directory; the session's working folder didn't change." } : {}),
+          ...(!bg && noOutputExpected(command) ? { noOutputExpected: true } : {}),
+          ...(r && typeof r.file === "string" && r.file ? { rawOutputPath: r.file } : {}),
+          ...(() => { const g = !bg ? gitOperationOf(command, r && r.output, code) : null; return g ? { gitOperation: g } : {}; })() });
         emit({ type: "result", id: c.id, code, output: capOutput(text), ...(bg ? { background: true, ...(job ? { job } : {}) } : r && r.timedOut ? { timedOut: true } : {}), ...(r && r.notStarted ? { notStarted: true } : {}), ...(!bg && !isError && code !== 0 ? { ok: true } : {}), ...(thumbs.length ? { thumbs } : {}), ...(files ? { files } : {}) });
         // A COMMAND THAT VIEWED ONE FILE counts as reading it (like Claude Code's): that file's folder instructions load.
         // Its path counts from where the command ran (such a command never changes folders).
@@ -7957,8 +7971,9 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         else if (out.length > inlineMax) {
           const file = SCRATCH + "/connector-" + String(c.id).replace(/[^\w-]/g, "").slice(0, 40) + ".txt";
           let saved = false;
-          try { const w = await deps.exec({ command: "node --no-warnings " + TOOLS_SCRIPT + " @REQUEST", timeoutS: 60, tool: true, payload: JSON.stringify({ tool: "write", args: { path: file, content: out } }) }); saved = !!w && w.code === 0; } catch { saved = false; }
-          told = saved ? out.slice(0, CONNECTOR_PREVIEW) + "\n…(the whole answer, " + out.length.toLocaleString("en-US") + " characters, is saved in " + file + ": read or grep it for the rest)"
+          try { const w = await deps.exec({ command: "node --no-warnings " + TOOLS_SCRIPT + " @REQUEST", timeoutS: 60, tool: true, payload: JSON.stringify({ tool: "write", args: { path: file, content: out.slice(0, SAVED_RESULT_MAX) } }) }); saved = !!w && w.code === 0; } catch { saved = false; }
+          const cutShort = out.length > SAVED_RESULT_MAX;
+          told = saved ? out.slice(0, CONNECTOR_PREVIEW) + (cutShort ? "\n…(the answer, " + out.length.toLocaleString("en-US") + " characters, passed the 1 GB a saved result may be: the saved file was cut short at 1 GB, in " + file + ")" : "\n…(the whole answer, " + out.length.toLocaleString("en-US") + " characters, is saved in " + file + ": read or grep it for the rest)")
             : out.slice(0, inlineMax) + "\n…(cut: the answer was " + out.length.toLocaleString("en-US") + " characters)";
         }
         // (Coder's line before a connector's answer stays before a PostToolUse hook's new one; the hooks get the answer without it,
