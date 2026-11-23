@@ -78,6 +78,10 @@ import { asText, asNumber } from "./coder-text.mjs";
 import { AGENT_TOOL, LIST_AGENTS_TOOL, SEND_MESSAGE_TOOL, WORKFLOW_TOOL, SUBAGENT_HANDBACK_TOOL, AGENT_TOOL_NAMES, AGENT_TYPES, SUBAGENT_SYSTEM, SUBAGENT_ROUNDS, SUBAGENT_MS, WORKFLOW_PASS_S, subagentCaps, subagentBudget, subagentTools, agentToolCall } from "./coder-agents.mjs";
 /** A contact entry from the owner's Vault in one line (as gloopy-agent.mjs's contactWords, kept here to import nothing of it). */
 const contactWords = (x) => { const place = [x.line1, x.line2, x.city, [x.region, x.postal].filter(Boolean).join(" "), x.country].filter(Boolean).join(", "); return [x.nickname ? "“" + x.nickname + "”" : "", [x.name, place].filter(Boolean).join(", "), x.phone, x.email].filter(Boolean).join(" · "); };
+// (Claude Code's Artifact, ListMcpResourcesTool, ReadMcpResourceTool and WaitForMcpServers, 2026-11-23: coder-resources.mjs.)
+import { RESOURCE_TOOL_NAMES, RESOURCE_CC_NAMES, resourceToolsFor, resourceToolCall, WAIT_SERVERS, ARTIFACT_TOOL } from "./coder-resources.mjs";
+import { CC_TOOL as RESOURCE_CC_TOOL } from "./coder-hooks.mjs";
+Object.assign(RESOURCE_CC_TOOL, RESOURCE_CC_NAMES);
 import { checkSchedule, nextRun, whenWords, whenLocal, scheduleLine, SCHEDULES_MAX, WAKEUPS_MAX, WAKE_MIN_MINUTES, cleanWebhook, webhookLine, WEBHOOKS_MAX, HOOK_ID } from "./gloopy-schedule.mjs";
 
 // THE TOOLS (owner, 2026-11-05: "you can add all of this"): besides bash, the
@@ -1495,6 +1499,8 @@ export const CODER_TOOLS = Object.freeze([
     description: SEND_USER_FILE_DESCRIPTION,
     parameters: { type: "object", properties: { files: { type: "array", items: { type: "string" }, minItems: 1, description: "File paths (absolute or relative to the current working directory) to send to the owner. Always pass an array, even for a single file." }, caption: { type: "string", description: "Optional short caption for the file(s)." }, status: { type: "string", enum: ["normal", "proactive"], description: "Use 'proactive' when you're surfacing a file the owner hasn't asked for and needs to see now — a generated artifact, a completed report. Use 'normal' when replying to something the owner just said." }, display: { type: "string", enum: ["render", "attach"], description: "How the page should present the file. 'render' shows it in the chat's preview (for pictures and PDFs — anything the owner wants to look at now). 'attach' shows a download card only, no preview (for deliverables the owner will save and open elsewhere). Omit to let the page decide by file type." } }, required: ["files", "status"] },
   } },
+  // CLAUDE CODE'S ARTIFACT (2026-11-23): a page published from the chat, asked first (coder-resources.mjs).
+  ARTIFACT_TOOL,
   // AUTO-FIX, LIKE CLAUDE CODE'S (owner item 2; its docs: "paste the PR URL into a session and tell Claude
   // to auto-fix it", "tell Claude to stop watching the PR").
   { type: "function", function: {
@@ -1762,7 +1768,7 @@ export function modeChangeNote(from, to, { planExited = PLAN_EXITED, autoExit = 
 // mode, which offers only the tools it allows. Each of these still refuses in such a job if called anyway.
 // (Nor enter_plan_mode: Claude Code offers EnterPlanMode only where someone can be asked, never in a non-interactive run, and
 // a job from GitHub is always Auto. 2026-11-14.)
-export const NOT_FROM_GITHUB = Object.freeze(["request_secret", ...ENV_TOOL_NAMES, "pr_comments", "pr_read", "pr_update", "suggest_connectors", "undo_last_job", "auto_fix", "enter_plan_mode", "rename_chat", "enter_worktree", "exit_worktree", "end_conversation", "send_feedback", "agent", "subagent_handback", "list_agents", "send_message", "workflow", ...CRON_TOOL_NAMES, ...PLUGIN_TOOL_NAMES]);
+export const NOT_FROM_GITHUB = Object.freeze(["request_secret", ...ENV_TOOL_NAMES, "pr_comments", "pr_read", "pr_update", "suggest_connectors", "undo_last_job", "auto_fix", "enter_plan_mode", "rename_chat", "enter_worktree", "exit_worktree", "end_conversation", "send_feedback", "agent", "subagent_handback", "list_agents", "send_message", "workflow", "artifact", ...CRON_TOOL_NAMES, ...PLUGIN_TOOL_NAMES]);
 export const GITHUB_TOOLS = Object.freeze(CODER_TOOLS.filter((t) => !NOT_FROM_GITHUB.includes(t.function.name)));
 /**
  * THIS CHAT'S TOOL LIST, bash as its environment sets it: with background commands off (CODER_DISABLE_BACKGROUND_TASKS,
@@ -3542,6 +3548,10 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   // (WebFetch turned off, or its cache's own time: webFetchTools. 2026-11-14.)
   chatTools.splice(0, chatTools.length, ...webFetchTools(chatTools, webFetch));
   /** Whether the chat's tools include `name` (grep and glob are no longer among them: SEARCH_TOOLS). */
+  // (Claude Code's Artifact and its MCP resource tools, before the connectors' own, where the chat can use connectors (deps.mcp): coder-resources.mjs. 2026-11-23.)
+  { const mine = resourceToolsFor({ github, offered: !!offered, hasConnectors: !github && typeof deps.mcp === "function" }).filter(ownOffered);
+    const at = chatTools.findIndex((t) => t && t.function && (mcpByName.has(t.function.name) || t.function.name === "connector_search" || t.function.name === "skill"));
+    chatTools.splice(at < 0 ? chatTools.length : at, 0, ...mine); }
   const chatHas = (name) => chatTools.some((t) => t && t.function && t.function.name === name);
   // (web_search with Claude Code's `mode`, and its note as its own part of the system prompt while the tool is offered,
   // coder-websearch.mjs: Coder's own chats and jobs, not Gloopy's. The owner, 2026-11-14, chose to add it.)
@@ -3572,6 +3582,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     const own = at < 0 ? chatTools.slice() : chatTools.slice(0, at), theirs = at < 0 ? [] : chatTools.slice(at);
     chatTools.splice(0, chatTools.length, ...own, TOOL_SEARCH_TOOL, ...theirs.map((f) => (mcpByName.has(f.function.name) && !tsUpfront.has(f.function.name) ? asFn(mcpByName.get(f.function.name), true) : f)));
   }
+  // (WaitForMcpServers only with tool search off: "ToolSearch handles the wait when it's enabled". 2026-11-23.)
+  if (tsOn) { const w = chatTools.findIndex((t) => t && t.function && t.function.name === WAIT_SERVERS); if (w >= 0) chatTools.splice(w, 1); }
   // (Tool search off: every tool upfront, at most xAI's 350 a request, room kept for exit_plan_mode in plan mode; the
   // connectors' come last. 2026-11-14.)
   if (!tsOn && !offered && chatTools.length > XAI_TOOLS_MAX - 1) chatTools.splice(XAI_TOOLS_MAX - 1);
@@ -4122,6 +4134,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   let lastTools = null;
   // (The turn's own push before its answer is made once.)
   let endPushed = false, endTitle = "";
+  // (The artifacts the owner said yes to in this job: published again without a card. coder-resources.mjs.)
+  const artifactsOk = new Set();
   let pushRequest = false, prRequest = null, undoRequest = false, lastSaid = "", reviewPost = null, prExtra = [], autofixRequest = null, notified = 0;
   // GLOOPY'S CARDS (2026-11-09): a browser step waiting for the owner's OK, the owner's sign-in through the private form,
   // or a step the owner does themselves in Gloopy's browser.
@@ -7838,6 +7852,11 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // as Claude Code's get an MCP tool's: c.keepHead.)
         c.keepHead = CONNECTOR_DATA;
         reply(CONNECTOR_DATA + told);
+      } else if (RESOURCE_TOOL_NAMES.includes(c.name)) {
+        // CLAUDE CODE'S Artifact, ListMcpResourcesTool, ReadMcpResourceTool AND WaitForMcpServers (coder-resources.mjs, 2026-11-23).
+        const o = await resourceToolCall(c, { emit, reply, deps, github, scrub, plain, readFile: readOwnFile, ownRules, wholeRule, canAsk, askOwner, noOneHooks, answerOutcome, saidReply, REJECTED, askedWhy, approved: artifactsOk });
+        if (o && o.end === "stop") return stopNow(reply);
+        if (o && o.end === "no") return noEnd(i, "stopped: the owner said no");
       } else if (AGENT_TOOL_NAMES.includes(c.name)) {
         // CLAUDE CODE'S AGENT, SUBAGENTHANDBACK, LISTAGENTS, SENDMESSAGE AND WORKFLOW (2026-11-23; coder-agents.mjs): each
         // subagent runs on this same loop with the chat's model and effort, refused what would need the owner's card.

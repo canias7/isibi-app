@@ -17,6 +17,8 @@ import { chatLinkFor, madeWith, prStillOpen, noPrNote } from "./coder-routes.mjs
 import { listEnvs, saveEnvList, readEnvData, writeEnvData, envIdFor, envIdOf, markUsed, envListOut } from "./coder-environments.mjs";
 import { egressPass, machineKeyRules, EGRESS_PATH } from "./coder-egress.mjs";
 import { pluginsApi } from "./coder-plugins.mjs";
+import { artifactNow } from "./coder-artifacts.mjs";
+import { resourceCall, connectorWait } from "./coder-mcp.mjs";
 import { envAnswer, envCard, sameCard, ENV_INPUT_CHECKS, ENV_CARD_TOOLS, planUpdate, planCreate, planSwitch, approvedText, envResultText } from "../container/coder-envtools.mjs";
 
 export const ENV_PATH = "/api/coder/environment";
@@ -64,7 +66,8 @@ export async function handleEnvApi(request, env, { now = Date.now() } = {}) {
   const meta = await getJson(bucket, metaKey(uid, id), null);
   if (!meta || String(meta.turn) !== turn) return answer({ error: "that chat has moved on" }, 403);
   let body = null;
-  try { body = JSON.parse((await request.text()).slice(0, 300_000)); } catch { body = null; }
+  // (Up to 2 MB: an artifact's page, up to 512 KB, comes this way.)
+  try { body = JSON.parse((await request.text()).slice(0, 2_000_000)); } catch { body = null; }
   if (!body || typeof body !== "object") return answer({ error: "error: Coder's server could not read that" }, 400);
   // CODER'S pr_read (2026-11-16): a pull request's comments, read here with the owner's GitHub token (never sent to the machine).
   if (body.action === "pr_read") return answer(await prRead(env, bucket, uid, meta, body));
@@ -74,6 +77,12 @@ export async function handleEnvApi(request, env, { now = Date.now() } = {}) {
   // CODER'S pr_update and pr_comments, NOW (2026-11-17, like Claude Code: ready, draft, resolve, reply and comments posted at once).
   if (body.action === "pr_update") return answer(await prUpdateNow(env, bucket, uid, meta, body));
   if (body.action === "pr_review") return answer(await prReviewNow(env, bucket, uid, meta, body));
+  // CODER'S artifact, list_mcp_resources, read_mcp_resource AND wait_for_mcp_servers (2026-11-23, Claude Code's Artifact,
+  // ListMcpResourcesTool, ReadMcpResourceTool and WaitForMcpServers): kept or asked now; never from GitHub.
+  if (body.action === "artifact") return answer(await artifactNow(env, bucket, uid, meta, body, { now }));
+  if ((body.action === "mcp_resources" || body.action === "mcp_wait") && (meta.jobFromGithub === true || meta.kind === "gloopy")) return answer({ error: "error: connectors are not used in a job started from GitHub" }, 403);
+  if (body.action === "mcp_resources") return answer(await resourceCall(env, bucket, uid, meta, body));
+  if (body.action === "mcp_wait") return answer(await connectorWait(env, bucket, uid, id, turn, meta, body));
   // (Never in a job started from GitHub, whose text strangers can write: the tools are not offered there either.)
   if (meta.jobFromGithub === true || meta.kind === "gloopy") return answer({ error: "error: the environment cannot be looked up or changed in a job started from GitHub" }, 403);
   // (Plugins, saved skills and onboarding guides: coder-plugins.mjs, 2026-11-23.)

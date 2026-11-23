@@ -2682,6 +2682,19 @@ subagents in between; `resumeFromRunId` reuses the calls already done. Cost caps
 most 3 subagents at once and 10 per job, workflows included
 (`CODER_MAX_SUBAGENTS_AT_ONCE`, `CODER_MAX_SUBAGENTS_TOTAL`). Not offered from GitHub.
 
+ARTIFACTS AND MCP RESOURCES (2026-11-23, `container/coder-resources.mjs`): `artifact`
+is Claude Code's Artifact (upfront): an .html or .md file from the chat (Markdown made
+into a page) published as a private page, asked on a card first (an `Artifact` allow
+rule skips it for a private page, never for a public link; a deny rule takes the tool
+out); `public` gives or takes away a public link. Kept by `src/coder-artifacts.mjs`
+with Gloopy's page machinery in its own folder (`coder/<uid>/artifacts/`, Gloopy's
+pages untouched), opened from the chat's page card (`/projects/:id/pages`,
+`/api/coder/artifact-page/…`), shared at `/api/coder/artifact/…?k=` while public.
+`list_mcp_resources` and `read_mcp_resource` (ListMcpResourcesTool, ReadMcpResourceTool,
+held back) ask the chat's connectors' resources/list and resources/read through the
+Worker (`resourceCall`, MCP Apps UI resources left out); `wait_for_mcp_servers`
+(WaitForMcpServers) only with tool search off. None from GitHub or in Gloopy's chats.
+
 HOW MUCH ONE READ GIVES (batch 8, MISS-79): `CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS`
 (or `CODER_FILE_READ_MAX_OUTPUT_TOKENS`), in the environment or a repository's
 settings `env`, sets it, its tokens at 4 characters each (`readTokensChars`); unset,

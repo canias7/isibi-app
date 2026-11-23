@@ -4,6 +4,15 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-23: Coder can publish pages (artifacts) and read connectors' resources
+
+Four more Claude Code tools in Coder's chats:
+- **Artifact**: Coder can turn an HTML or Markdown file into a private page. It asks you on a card first. The chat then shows a card with Open. If you want to share it, Coder can add a public link that anyone can open, and take it away again. Gloopy's pages work exactly as before; Coder's are kept separately.
+- **List and read connector resources**: some connectors offer documents or data ("resources") besides their tools. Coder can now list them and read one. Pages meant for an app to draw are left out of the list, as in Claude Code.
+- **Wait for connectors**: when a connector is still connecting or waiting for you to sign in, Coder can wait for it (only when tool search is off, as in Claude Code).
+
+None of these work in jobs started from GitHub. Not yet tried live on gofarther.dev.
+
 ## 2026-11-23: Plugins and skills, like Claude Code
 
 You asked for every Claude Code tool. This adds its nine plugin, skill and onboarding tools.
