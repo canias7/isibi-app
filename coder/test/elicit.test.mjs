@@ -563,7 +563,7 @@ test("EL13 Coder's machine: the call's questions are cards of this turn (two can
 
 test("EL14 Coder's Worker: the card's answer route passes the form's values to the machine; an environment card's check accepts one of several waiting cards; a question is pushed as Claude Code's cloud says it (\"needs your input\", \"Answer the MCP server's question to continue\") with the connector's name", async () => {
   const routes = readFileSync(new URL("../src/coder-routes.mjs", import.meta.url), "utf8");
-  assert.match(routes, /\.\.\.\(body\.content && typeof body\.content === "object" && !Array\.isArray\(body\.content\) \? \{ content: body\.content \} : \{\}\), \.\.\.\(typeof body\.plan === "string" \? \{ plan: body\.plan\.slice\(0, 200_000\) \} : \{\}\) \}\)\.then\(\(r\) => r\.json\(\)\)/);
+  assert.match(routes, /\.\.\.\(body\.content && typeof body\.content === "object" && !Array\.isArray\(body\.content\) \? \{ content: body\.content \} : \{\}\), \.\.\.\(typeof body\.plan === "string" \? \{ plan: body\.plan\.slice\(0, 200_000\) \} : \{\}\), \.\.\.\(\[60_000, 300_000, 600_000\]\.includes\(Number\(body\.afk\)\) \? \{ afk: Number\(body\.afk\) \} : \{\}\) \}\)\.then\(\(r\) => r\.json\(\)\)/);
   assert.match(routes, /if \(st\.asking !== pid && !\(Array\.isArray\(st\.askingAll\) && st\.askingAll\.includes\(pid\)\) && !\(st\.result && st\.result\.parked && st\.result\.parked\.pid === pid\)\)/);
   const { pushesFor } = await import("../src/coder-push.mjs");
   assert.deepEqual(pushesFor([{ type: "elicit", pid: "p1abcdef", connector: "Linear", mode: "form", message: "Which project?" }], { title: "shop" }), [{ kind: "actions", title: "Coder needs your input · shop", body: "Answer the MCP server's question to continue (Linear)" }]);

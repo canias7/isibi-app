@@ -43,7 +43,50 @@
       S.autoOff = !!(r.data.prefs && r.data.prefs.autoOff === true);
       // (Prompt suggestions turned off in Settings, Claude Code's promptSuggestionEnabled: false.)
       S.suggestOff = !!(r.data.prefs && r.data.prefs.suggestOff === true);
+      // (Question auto-continue, Claude Code's askUserQuestionTimeout: "never" waits for an answer.)
+      S.askTimeout = ASK_TIMEOUT_MS[r.data.prefs && r.data.prefs.askTimeout] || 0;
     }
+  }
+  // QUESTION AUTO-CONTINUE (Claude Code's askUserQuestionTimeout, 2026-11-23): an unanswered question card that Coder waits on
+  // closes on its own after this much idle time, sending the options already picked, and Coder is told the owner may be away.
+  // As in Claude Code: a countdown for the last 20 seconds, any key (or click) restarts the timer, and it does not count down
+  // while this window has focus. Only question cards time out: permission and plan cards never do.
+  const ASK_TIMEOUT_MS = { never: 0, '60s': 60000, '5m': 300000, '10m': 600000 };
+  const ASK_COUNTDOWN_MS = 20000;
+  /** Where the idle timer of the card `pid` stands: `{ left }` in ms, or null when it does not run. */
+  function askIdle(now, focused) {
+    const ms = S.askTimeout || 0;
+    const x = S.ask && S.events ? S.events[S.ask.at] : null;
+    if (!ms || GLOOPY || !x || x.type !== 'question' || !x.pid || !S.running || (S.permSent && S.permSent[x.pid]) || S.events.some((y) => y.type === 'permanswer' && y.pid === x.pid)) { S.askIdleAt = null; return null; }
+    if (!S.askIdleAt || S.askIdleAt.pid !== x.pid || focused) S.askIdleAt = { pid: x.pid, at: now };
+    return { pid: x.pid, left: Math.max(0, ms - (now - S.askIdleAt.at)), ms };
+  }
+  /** The card's "Needs your input" line, or its countdown in the last 20 seconds (kept across redraws). */
+  function askWaitLabel(pid) {
+    const ms = S.askTimeout || 0, a = S.askIdleAt;
+    if (!ms || !a || !pid || a.pid !== pid) return '';
+    const left = Math.max(0, ms - (Date.now() - a.at));
+    return left <= ASK_COUNTDOWN_MS ? 'Continuing without you in ' + Math.ceil(left / 1000) + 's · press any key to wait' : '';
+  }
+  const askWaitHTML = (pid) => { const c = askWaitLabel(pid); return '<div class="cd-ask-wait' + (c ? ' is-counting' : '') + '">' + (c || 'Needs your input') + '</div>'; };
+  function askTick() {
+    if (GLOOPY) return;
+    const t = askIdle(Date.now(), typeof document.hasFocus === 'function' && document.hasFocus() && !document.hidden);
+    const el = (S.root || document).querySelector('.cd-ask.is-live .cd-ask-wait');
+    if (!t) { if (el) el.textContent = 'Needs your input'; return; }
+    if (el) el.textContent = askWaitLabel(t.pid) || 'Needs your input';
+    if (el) el.classList.toggle('is-counting', t.left <= ASK_COUNTDOWN_MS);
+    if (t.left > 0) return;
+    S.askIdleAt = null;
+    const picks = S.ask ? askPicks(S.ask) : [];
+    askAnswer(t.pid, picks.some((p) => p.options.length || p.other || p.notes) ? 'answers' : 'skip', t.ms);
+  }
+  // (Each tab's copy of this code keeps its own timer: Coder's tab and Gloopy's run the same file; Gloopy's never counts.)
+  if (typeof window !== 'undefined' && typeof document !== 'undefined') {
+    setInterval(askTick, 1000);
+    const restart = () => { if (S.askIdleAt) S.askIdleAt.at = Date.now(); };
+    window.addEventListener('keydown', restart, true);
+    window.addEventListener('pointerdown', restart, true);
   }
   // (pickV 2: a pick made on this page counts as chosen; one saved before Low became the default does not. The owner,
   // 2026-11-10: "can you do the effort level on low and make sure it's actually on low".)
@@ -150,7 +193,7 @@
   const askPreviewHTML = (q, picked) => { const pv = askPreview(q, picked); return '<pre class="cd-ask-pv"' + (pv === undefined ? ' hidden' : '') + '>' + (pv === null ? '<span class="cd-ask-pv-none">No preview available</span>' : pv && pv.line ? '<span class="cd-ask-pv-none">' + esc(pv.line) + '</span>' : esc(pv || '')) + '</pre>'; };
   /** How a waiting card ended, under it: answered (on the card, or by a message in the chat), skipped, stopped, or no answer. */
   // (Answered by one of your PermissionRequest hooks before you did: fix round 4, 2026-11-14.)
-  const askDone = (ans) => (ans.hook === true ? (ans.choice === 'yes' ? '<span class="cd-perm-ok">✓ Answered</span>' : '<span class="cd-perm-no">' + (ans.choice === 'stop' ? 'Stopped' : '✕ Not answered') + '</span>') + ' · by your PermissionRequest hook' : ans.choice === 'answers' ? '<span class="cd-perm-ok">✓ Answered</span>' : ans.choice === 'chat' ? '<span class="cd-perm-ok">✓ Answered in the chat</span>' : ans.choice === 'skip' ? '<span class="cd-perm-no">Skipped</span>' : '<span class="cd-perm-no">' + (ans.choice === 'stop' ? 'Stopped' : 'No answer') + '</span>');
+  const askDone = (ans) => (ans.hook === true ? (ans.choice === 'yes' ? '<span class="cd-perm-ok">✓ Answered</span>' : '<span class="cd-perm-no">' + (ans.choice === 'stop' ? 'Stopped' : '✕ Not answered') + '</span>') + ' · by your PermissionRequest hook' : ans.afk ? '<span class="cd-perm-no">Continued without you</span> · no answer for ' + (ans.afk >= 60000 ? ans.afk / 60000 + ' min' : ans.afk / 1000 + 's') + (ans.choice === 'answers' ? ', your picks were sent' : '') : ans.choice === 'answers' ? '<span class="cd-perm-ok">✓ Answered</span>' : ans.choice === 'chat' ? '<span class="cd-perm-ok">✓ Answered in the chat</span>' : ans.choice === 'skip' ? '<span class="cd-perm-no">Skipped</span>' : '<span class="cd-perm-no">' + (ans.choice === 'stop' ? 'Stopped' : 'No answer') + '</span>');
 
   // THE SIGN-IN PROOF goes with the token on every call (the audit, 2026-11-06).
   // A call refused because the session is over (signed out here or on another
@@ -443,7 +486,7 @@
     let autoDraft = typeof prefs.autoMode === 'string' ? prefs.autoMode : '', warns = [];
     const save = async (field, value) => {
       const x = await call('/settings', { method: 'POST', body: JSON.stringify({ prefs: { [field]: value } }) });
-      if (x.status === 200 && x.data && x.data.prefs) { Object.assign(prefs, x.data.prefs); note = 'Saved. New messages use it.'; err = ''; warns = Array.isArray(x.data.warnings) ? x.data.warnings : []; S.autoOff = prefs.autoOff === true; S.suggestOff = prefs.suggestOff === true; if (S.autoOff && S.pick && S.pick.mode === 'auto') S.pick.mode = 'acceptEdits'; }
+      if (x.status === 200 && x.data && x.data.prefs) { Object.assign(prefs, x.data.prefs); note = 'Saved. New messages use it.'; err = ''; warns = Array.isArray(x.data.warnings) ? x.data.warnings : []; S.autoOff = prefs.autoOff === true; S.suggestOff = prefs.suggestOff === true; S.askTimeout = ASK_TIMEOUT_MS[prefs.askTimeout] || 0; if (S.autoOff && S.pick && S.pick.mode === 'auto') S.pick.mode = 'acceptEdits'; }
       else { err = (x.data && x.data.error) || 'Not saved. Try again.'; note = ''; }
       paint();
     };
@@ -466,6 +509,8 @@
         '<label class="cd-notify-sw"><input type="checkbox" id="cdSetDeny"' + (prefs.denyInstead ? ' checked' : '') + '><span><b>Refuse instead of asking</b><br>Anything that would ask you is refused, and Coder carries on without it.</span></label>' +
         '<label class="cd-notify-sw"><input type="checkbox" id="cdSetSuggest"' + (prefs.suggestOff ? '' : ' checked') + '><span><b>Prompt suggestions</b><br>After Coder answers, a suggested next message shows in grey in the message box. Tab or → takes it; typing hides it.</span></label>' +
         '<label class="cd-notify-sw"><input type="checkbox" id="cdSetEditDiff"' + (prefs.bashEditDiffEnabled ? ' checked' : '') + '><span><b>Show files commands change</b> (bashEditDiffEnabled)<br>In every mode, the files a command changed show under its step. Off, only in Auto and Bypass permissions.</span></label>' +
+        '<label class="cd-set-row"><span><b>Question auto-continue</b><br>An unanswered question card goes on with what you picked after this long away (Claude Code’s askUserQuestionTimeout).</span>' +
+          '<select id="cdSetAskTo" aria-label="Question auto-continue timeout">' + [['never', 'Never (default)'], ['60s', '60 seconds'], ['5m', '5 minutes'], ['10m', '10 minutes']].map(([v, l]) => opt(v, l, (prefs.askTimeout || 'never') === v)).join('') + '</select></label>' +
         '<label class="cd-notify-sw"><input type="checkbox" id="cdSetAutoOff"' + (prefs.autoOff ? ' checked' : '') + '><span><b>Turn off Auto mode</b><br>Chats start in Accept edits, and Auto isn’t offered.</span></label>' +
         // ADVANCED, FOLDED (the owner, 2026-11-15, Settings "ewwwww"): hooks and Auto mode rules are written as code, so they
         // sit closed under Advanced; the rest is plain.
@@ -497,6 +542,7 @@
       $('cdSetAutoOff').onchange = (e) => save('autoOff', e.currentTarget.checked);
       $('cdSetSuggest').onchange = (e) => save('suggestOff', !e.currentTarget.checked);
       $('cdSetEditDiff').onchange = (e) => save('bashEditDiffEnabled', e.currentTarget.checked);
+      $('cdSetAskTo').onchange = (e) => save('askTimeout', e.currentTarget.value);
       $('cdSetAuto').oninput = (e) => { autoDraft = e.currentTarget.value; };
       $('cdSetAutoSave').onclick = () => save('autoMode', autoDraft);
     };
@@ -1810,6 +1856,9 @@
     // /scheduled (2026-11-23): this chat's scheduled prompts (cron_create, schedule_wakeup) and the owner's cloud scheduled
     // tasks (remote_trigger), to see and cancel; a task's web address token is made here. No AI call.
     if (!GLOOPY && /^\/scheduled$/i.test(text)) { boxEmpty(); scheduledCmd(); return; }
+    // /goal [condition|clear], CLAUDE CODE'S (2026-11-23; container/coder-goal.mjs): sets the chat's goal and starts a turn with
+    // the condition as the message; alone, its status; clear (stop, off, reset, none, cancel) clears it. Checked after each turn.
+    if (!GLOOPY && /^\/goal(?:\s|$)/i.test(text)) { boxEmpty(); goalCmd(text.replace(/^\/goal\s*/i, '')); return; }
     // /export [filename], CLAUDE CODE'S ("Export the current conversation as plain text. With a filename, writes directly to that
     // file"; batch 8 of "Go Claude Code way", MISS-63): the chat as plain text, saved as a file from this page. No AI call.
     if (!GLOOPY && /^\/export(?:\s|$)/i.test(text)) { boxEmpty(); exportCmd(text.replace(/^\/export\s*/i, '')); return; }
@@ -2856,7 +2905,7 @@
             (q.previews ? askPreviewHTML(q, a.picked) + (live ? '<label class="cd-ask-notes"><span>Notes:</span><input type="text" class="cd-ask-note" placeholder="Add notes on this design" value="' + esc(a.notes || '') + '" maxlength="8192" autocomplete="off"' + (sent ? ' disabled' : '') + '></label>' : a.notes ? '<p class="cd-ask-notes-said">Notes: ' + esc(a.notes) + '</p>' : '') : '') +
             '</div>';
         }).join('') + (live ? (S.permErr && e.pid && S.permErr.pid === e.pid ? '<p class="cd-secret-err">' + esc(S.permErr.text) + '</p>' : '') + '<div class="cd-ask-btns"><button type="button" class="cd-ask-skip" data-ask-skip="' + i + '"' + (sent ? ' disabled' : '') + '>Skip</button><button type="button" class="cd-ask-go" data-ask-go="' + i + '"' + (sent ? ' disabled' : '') + '>Submit' + (many ? ' answers' : '') + ' <kbd>Ctrl ↵</kbd></button></div>' : '') + '</div>' +
-          (live ? '<div class="cd-ask-wait">Needs your input</div>' : ans ? '<div class="cd-perm-done">' + askDone(ans) + '</div>' : ''));
+          (live ? (typeof askWaitHTML === 'function' ? askWaitHTML(e.pid) : '<div class="cd-ask-wait">Needs your input</div>') : ans ? '<div class="cd-perm-done">' + askDone(ans) + '</div>' : ''));
       }
       else if (e.type === 'writeask') {
         // A PROTECTED FILE CODER WANTS TO WRITE (the owner, 2026-11-09: "do that"; like Claude Code's prompt for them): the
@@ -3150,6 +3199,8 @@
       // WHAT THE LANGUAGE SERVERS REPORTED, as Claude Code's row (diagnosticsHTML).
       else if (e.type === 'diagnostics') out.push(diagnosticsHTML(e, i));
       else if (e.type === 'notify') out.push('<div class="cd-localnote">Notified you: ' + esc(e.text) + '</div>');
+      // /goal's verdicts after each turn (container/coder-goal.mjs): not yet met, achieved, impossible, or the loop stopped.
+      else if (e.type === 'goal') out.push('<div class="cd-goalline is-' + esc(String(e.state || '')) + '">' + (e.state === 'met' ? '◎ Goal achieved: ' + esc(e.condition || '') : e.state === 'impossible' ? '◎ Goal failed: judged impossible' : e.state === 'stalled' ? '◎ Goal loop stopped' : e.state === 'paused' ? '◎ Goal paused' : '◎ Goal not yet met · check ' + (Number(e.turns) || 1)) + (e.reason ? '<small>' + esc(e.reason) + '</small>' : '') + '</div>');
       // CLAUDE CODE'S ReportFindings, SendFeedback AND EndConversation (2026-11-23, coder-worktree.mjs): findingsHTML, a feedback
       // draft with Copy (nothing is sent), and the line that says the chat ended.
       else if (e.type === 'findings') out.push(findingsHTML(e, i));
@@ -4114,7 +4165,7 @@
   // start of the box lists Coder's commands with a line each; ↑↓ to move, Enter or Tab or a click to pick, Esc to close.
   // (/btw, /init and /review: Claude Code's, round 6, 2026-11-21. /autocompact: Claude Code's, 2026-11-21, per chat here.
   // /clear with its other names /reset and /new: Claude Code's, batch 6, MISS-61; the Worker empties what Coder reads.)
-  const SLASH = [['/autocompact', 'Set the auto-compact window: auto, or a size such as 500k'], ['/autofix-pr', "Watch this chat's pull request and fix CI failures and review comments (off to stop)"], ['/btw', 'Ask a side question without adding to the conversation'], ['/clear', 'Start a new conversation with empty context', ['reset', 'new']], ['/compact', 'Shrink this chat into a short summary (add what to keep after it)'], ['/context', 'Visualize current context usage as a colored grid'], ['/effort', 'Set the effort level for the model'], ['/export', 'Export the current conversation as plain text'], ['/init', 'Create or update CLAUDE.md for this repository'], ['/model', 'Set the AI model for this chat'], ['/permissions', 'Choose the mode: Auto, Accept edits or Plan', ['allowed-tools']], ['/rename', 'Rename the current conversation'], ['/review', 'Review the changes on this branch (--comment posts the findings on the pull request)', ['code-review']], ['/rewind', 'Go back to an earlier message', ['checkpoint', 'undo']], ['/scheduled', 'See and cancel scheduled tasks', ['crons', 'loop', 'routines']], ['/security-review', 'Complete a security review of the changes on this branch'], ['/team-onboarding', 'Write ONBOARDING.md for teammates and share it as a link']];
+  const SLASH = [['/autocompact', 'Set the auto-compact window: auto, or a size such as 500k'], ['/autofix-pr', "Watch this chat's pull request and fix CI failures and review comments (off to stop)"], ['/btw', 'Ask a side question without adding to the conversation'], ['/clear', 'Start a new conversation with empty context', ['reset', 'new']], ['/compact', 'Shrink this chat into a short summary (add what to keep after it)'], ['/context', 'Visualize current context usage as a colored grid'], ['/effort', 'Set the effort level for the model'], ['/export', 'Export the current conversation as plain text'], ['/goal', 'Set a completion condition; Coder keeps working until it is met'], ['/init', 'Create or update CLAUDE.md for this repository'], ['/model', 'Set the AI model for this chat'], ['/permissions', 'Choose the mode: Auto, Accept edits or Plan', ['allowed-tools']], ['/rename', 'Rename the current conversation'], ['/review', 'Review the changes on this branch (--comment posts the findings on the pull request)', ['code-review']], ['/rewind', 'Go back to an earlier message', ['checkpoint', 'undo']], ['/scheduled', 'See and cancel scheduled tasks', ['crons', 'loop', 'routines']], ['/security-review', 'Complete a security review of the changes on this branch'], ['/team-onboarding', 'Write ONBOARDING.md for teammates and share it as a link']];
   // As Claude Code's / list: from the start of a name, of a word inside it, or of one of its other names; '-', '_' and ':' ignored.
   // THE REPOSITORY'S SKILLS (Claude Code's "/skill-name"; the machine names them at each message): after Coder's own commands.
   function skillsSlash() {
@@ -4284,7 +4335,7 @@
   function cronViewHTML(v, i) {
     const crons = (v.crons || []).map((c) => '<li><b>' + esc(c.humanSchedule) + '</b>' + (c.recurring ? '' : ' (once)') + (c.durable ? ' · durable' : '') + ' · next ' + esc(c.next || whenOf(c.nextFireAt)) + '<br><span>' + esc(String(c.prompt).slice(0, 160)) + '</span> <button type="button" class="cd-sched-btn" data-cron-cancel="' + esc(c.id) + '" data-sched-ev="' + i + '">Cancel</button></li>').join('');
     const wake = v.wake ? '<li><b>Loop wake-up</b> · ' + esc(whenOf(v.wake.at)) + '<br><span>' + esc(v.wake.reason || '') + '</span> <button type="button" class="cd-sched-btn" data-wake-stop="1" data-sched-ev="' + i + '">Stop</button></li>' : '';
-    const trig = (v.triggers || []).map((t) => '<li><b>' + esc(t.name) + '</b> · ' + esc(t.schedule) + ' · ' + esc(t.repo) + (t.enabled ? '' : ' · off') + '<br><span>' + esc(String(t.prompt).slice(0, 160)) + '</span> <button type="button" class="cd-sched-btn" data-trig-toggle="' + esc(t.id) + '" data-on="' + (t.enabled ? '1' : '') + '" data-sched-ev="' + i + '">' + (t.enabled ? 'Turn off' : 'Turn on') + '</button> <button type="button" class="cd-sched-btn" data-trig-del="' + esc(t.id) + '" data-sched-ev="' + i + '">Delete</button>' + (t.hooks || []).map((h) => '<div class="cd-sched-hook">Web address: <code>' + esc(h.url) + '</code> ' + (h.hasToken ? '(token made)' : '(no token yet)') + ' <button type="button" class="cd-sched-btn" data-hook-token="' + esc(t.id + ' ' + h.id) + '" data-sched-ev="' + i + '">' + (h.hasToken ? 'New token' : 'Make token') + '</button></div>').join('') + '</li>').join('');
+    const trig = (v.triggers || []).map((t) => '<li><b>' + esc(t.name) + '</b> · ' + esc(t.schedule) + ' · ' + esc(t.repo) + (t.enabled ? '' : ' · off') + '<br><span>' + esc(String(t.prompt).slice(0, 160)) + '</span> <button type="button" class="cd-sched-btn" data-trig-toggle="' + esc(t.id) + '" data-on="' + (t.enabled ? '1' : '') + '" data-sched-ev="' + i + '">' + (t.enabled ? 'Turn off' : 'Turn on') + '</button> <button type="button" class="cd-sched-btn" data-trig-del="' + esc(t.id) + '" data-sched-ev="' + i + '">Delete</button>' + (t.hooks || []).map((h) => h.source === 'github' ? '<div class="cd-sched-hook">GitHub events on <code>' + esc(h.repo) + '</code>: ' + esc((h.events || []).join(', ')) + (h.calls ? ' · ' + h.calls + ' run' + (h.calls === 1 ? '' : 's') : '') + ' <button type="button" class="cd-sched-btn" data-hook-del="' + esc(t.id + ' ' + h.id) + '" data-sched-ev="' + i + '">Remove</button></div>' : '<div class="cd-sched-hook">Web address: <code>' + esc(h.url) + '</code> ' + (h.hasToken ? '(token made)' : '(no token yet)') + ' <button type="button" class="cd-sched-btn" data-hook-token="' + esc(t.id + ' ' + h.id) + '" data-sched-ev="' + i + '">' + (h.hasToken ? 'New token' : 'Make token') + '</button></div>').join('') + '</li>').join('');
     const token = v.token ? '<p class="cd-sched-token">Token (shown once; send it as Authorization: Bearer): <code>' + esc(v.token) + '</code></p>' : '';
     return '<div class="cd-sched" role="group" aria-label="Scheduled tasks"><p class="cd-sched-h">This chat\'s scheduled tasks</p>' + (crons || wake ? '<ul>' + crons + wake + '</ul>' : '<p class="cd-sched-none">None.</p>') + '<p class="cd-sched-h">Cloud scheduled tasks</p>' + (trig ? '<ul>' + trig + '</ul>' : '<p class="cd-sched-none">None.</p>') + token + '</div>';
   }
@@ -4302,6 +4353,33 @@
     S.events.push({ type: 'note', text: contextText(c), ctxUsage: c, at: Date.now(), local: true });
     draw(true);
   }
+  // /goal: the condition is at most 4,000 characters, as Claude Code's.
+  const GOAL_MAX = 4000, GOAL_CLEAR = ['clear', 'stop', 'off', 'reset', 'none', 'cancel'];
+  const goalAge = (ms) => { const s = Math.max(0, Math.round(ms / 1000)); return s < 60 ? s + 's' : s < 3600 ? Math.floor(s / 60) + 'm' : Math.floor(s / 3600) + 'h ' + Math.floor((s % 3600) / 60) + 'm'; };
+  function goalStatusText(p) {
+    const g = p && p.goal, d = p && p.goalDone;
+    if (g && typeof g.condition === 'string') return ['◎ /goal active · ' + goalAge(Date.now() - Number(g.at || Date.now())), 'Condition: ' + g.condition].concat(Number(g.turns) > 0 ? ['Turns evaluated: ' + g.turns, 'Tokens: ' + (Number(g.tokens) || 0).toLocaleString('en-US')] : []).concat(g.reason ? ['Last check: ' + g.reason] : []).join('\n');
+    if (d && d.state === 'met') return 'No goal set. Achieved earlier: ' + d.condition + '\n' + goalAge(Number(d.ms) || 0) + ' · ' + (Number(d.turns) || 0) + ' turns · ' + (Number(d.tokens) || 0).toLocaleString('en-US') + ' tokens';
+    return 'No goal set';
+  }
+  async function goalCmd(arg) {
+    if (!S.project) return;
+    const id = S.project.id, a = arg.trim();
+    if (!a) return note(goalStatusText(S.project));
+    if (GOAL_CLEAR.includes(a.toLowerCase())) {
+      const r = await call('/projects/' + encodeURIComponent(id) + '/goal', { method: 'POST', body: JSON.stringify({ clear: true }) });
+      if (r.status !== 200) return note((r.data && r.data.error) || 'The goal could not be cleared.');
+      if (S.project && S.project.id === id && r.data.project) S.project = r.data.project;
+      return note(r.data.cleared ? 'Goal cleared: ' + r.data.cleared : 'No goal set');
+    }
+    if (a.length > GOAL_MAX) return note('A goal condition can be up to 4,000 characters (this one has ' + a.length.toLocaleString('en-US') + ').');
+    const r = await call('/projects/' + encodeURIComponent(id) + '/goal', { method: 'POST', body: JSON.stringify({ condition: a }) });
+    if (r.status !== 200) return note((r.data && r.data.error) || 'The goal could not be set.');
+    if (S.project && S.project.id === id && r.data.project) S.project = r.data.project;
+    // (Setting a goal starts a turn at once, with the condition itself as the message.)
+    send(a);
+  }
+  const goalBarHTML = () => (!GLOOPY && S.project && S.project.goal && typeof S.project.goal.condition === 'string' ? '<div class="cd-goalbar" title="' + esc(S.project.goal.condition) + '">◎ /goal active · ' + goalAge(Date.now() - Number(S.project.goal.at || Date.now())) + '</div>' : '');
   async function autoCompactCmd(arg) {
     if (!S.project) return;
     const id = S.project.id;
@@ -4918,14 +4996,14 @@
   // A QUESTION CARD CODER WAITS ON (Claude Code's AskUserQuestion; the owner, 2026-11-14: "Do all the talk to you tools
   // execpt for the notify one"): Submit sends the owner's picks (nothing when nothing is chosen), Skip sends none; the step
   // that waits takes them (/answer), as a permission card's answer.
-  async function askAnswer(pid, choice) {
+  async function askAnswer(pid, choice, afk = 0) {
     if (!S.project || !S.ask || (S.permSent && S.permSent[pid])) return;
     const answers = choice === 'answers' ? askPicks(S.ask) : null;
     if (answers && !answers.some((p) => p.options.length || p.other || p.notes)) return;
     S.permSent = { ...(S.permSent || {}), [pid]: choice };
     S.permErr = null;
     draw();
-    const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/answer', { method: 'POST', body: JSON.stringify({ pid, choice, ...(answers ? { answers } : {}) }) });
+    const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/answer', { method: 'POST', body: JSON.stringify({ pid, choice, ...(answers ? { answers } : {}), ...(afk ? { afk } : {}) }) });
     if (r.status !== 200) { delete S.permSent[pid]; S.permErr = { pid, text: (r.data && r.data.error) || 'Your answer could not be sent. Try again.' }; }
     if (followTakenUp(r)) return;
     draw();
@@ -4995,7 +5073,7 @@
   function composerHTML() {
     const busy = (S.running && !S.ending) || S.sending;
     const m = MODELS.find((x) => x.id === S.pick.model) || MODELS[0];
-    return '<div class="cd-composewrap">' + btwHTML() + bgHTML() + slashHTML() + bangHTML() + mentionHTML() + commentsHTML() + picsHTML() + attachHTML() +
+    return '<div class="cd-composewrap">' + goalBarHTML() + btwHTML() + bgHTML() + slashHTML() + bangHTML() + mentionHTML() + commentsHTML() + picsHTML() + attachHTML() +
       '<form class="cd-compose' + (/^!/.test(S.draft || '') ? ' is-shell' : '') + '" id="cdForm">' +
         '<textarea id="cdIn" rows="1"' + (suggestNow() ? ' class="has-suggest" data-suggest="' + esc(suggestNow()) + '"' : '') + ' placeholder="' + (suggestNow() ? esc(suggestNow()) : S.ending && !S.sending && !GLOOPY ? 'Saving to the branch… a message now goes out right after' : busy ? (GLOOPY ? 'Gloopy is working… you can close this tab' : 'Enter to send, Ctrl+Enter to queue for later') : GLOOPY ? 'Ask Gloopy anything' : 'Ask Coder to build, fix or explain something · @ for a file') + '">' + esc(S.draft) + '</textarea>' +
         '<button type="button" class="cd-attach" id="cdAttach" aria-label="' + (GLOOPY ? 'Attach a file' : 'Attach files') + '" title="' + (GLOOPY ? 'Attach a file or a picture' : 'Attach files or pictures (or paste them)') + '">' + ICON.clip + '</button><input type="file" id="cdFile" accept="' + (GLOOPY ? 'image/png,image/jpeg,image/webp,image/gif,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.odt,.ods,.odp,.rtf,.txt,.md,.csv,.tsv,.json,.xml,.yaml,.yml,.html,.htm,.ics,.vcf,.eml,.ipynb,.log,.zip,.mp3,.m4a,.wav,.mp4,.mov,.webm,.heic,.svg' : '') + '" multiple hidden>' +
@@ -5272,6 +5350,7 @@
     on('[data-trig-toggle]', 'click', (e) => scheduledCmd({ trigger: e.currentTarget.dataset.trigToggle, enabled: !e.currentTarget.dataset.on }, schedAt(e)));
     on('[data-trig-del]', 'click', (e) => scheduledCmd({ trigger: e.currentTarget.dataset.trigDel, remove: true }, schedAt(e)));
     on('[data-hook-token]', 'click', (e) => { const [trigger, hook] = e.currentTarget.dataset.hookToken.split(' '); scheduledCmd({ trigger, hook, token: true }, schedAt(e)); });
+    on('[data-hook-del]', 'click', (e) => { const [trigger, hook] = e.currentTarget.dataset.hookDel.split(' '); scheduledCmd({ trigger, hook, remove: true }, schedAt(e)); });
     on('[data-ask-skip]', 'click', () => { const w = askWaiting(); if (w) { askAnswer(w.pid, 'skip'); return; } const many = S.ask && S.ask.qs && S.ask.qs.length > 1; S.ask = null; send(many ? 'I skipped your questions. Decide for yourself and go on.' : 'I skipped your question. Decide for yourself and go on.'); });
     on('[data-envchange-no]', 'click', async (e) => {
       const x = S.events[Number(e.currentTarget.dataset.envchangeNo)];

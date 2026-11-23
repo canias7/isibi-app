@@ -329,3 +329,14 @@ export function askUserForChecker(input) {
     return out.length ? out.join(" | ") : "[malformed AskUserQuestion input]";
   } catch { return "[malformed AskUserQuestion input]"; }
 }
+
+// ── QUESTION AUTO-CONTINUE (Claude Code's askUserQuestionTimeout: "60s", "5m", "10m" or "never") ──────────────────────
+/** The setting's values and their milliseconds ("never", the default, waits for an answer). */
+export const ASK_TIMEOUTS = Object.freeze({ never: 0, "60s": 60_000, "5m": 300_000, "10m": 600_000 });
+/** The idle times a card may close itself after (what the page sends as `afk`). */
+export const AFK_MS = Object.freeze([60_000, 300_000, 600_000]);
+/**
+ * What Grok is told when the card closed on its own (Claude Code: "it submits any options you'd already selected and tells
+ * Claude you may be away from your keyboard, so Claude proceeds on its own judgment and can re-ask later").
+ */
+export const afkNote = (ms) => "The owner did not respond to the question card within " + (ms >= 60_000 ? Math.round(ms / 60_000) + " minute" + (ms >= 120_000 ? "s" : "") : Math.round(ms / 1000) + " seconds") + " and may be away from their keyboard. Proceed using your own best judgment; you can ask again later if it still matters.";

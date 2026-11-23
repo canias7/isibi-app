@@ -287,7 +287,7 @@ test("PM8 hooks see Claude Code's ExitPlanMode input (the plan file's text and p
   assert.equal(pre.tool_name, "ExitPlanMode");
   const post = t.hookCalls.find((h) => h.hook_event_name === "PostToolUse");
   assert.deepEqual(post.tool_input, { plan: PLAN, planFilePath: f });
-  assert.deepEqual(post.tool_response, { plan: PLAN, isAgent: false, filePath: f });
+  assert.deepEqual(post.tool_response, { plan: PLAN, isAgent: false, hasTaskTool: true, filePath: f });
   assert.equal(t.cards[0].plan, PLAN, "the card shows the file, not Coder's own words");
   // Declined with what to change: plan mode stays, and no PostToolUse hook runs (Claude Code: a permission denial).
   t = await loop([say("", [call("exit_plan_mode", {}, "x1")]), say("Revising.")], { plan: await (async () => { const b = await newStore(); await writeFile(await fileOf(b), PLAN); return b; })(), hooks, answers: [{ choice: "no", comment: "only the cart, not the coupon" }] });
@@ -514,7 +514,7 @@ test("PM15 Coder's machine: each chat's plan folder beside its memory (never in 
 
 test("PM16 the Worker hands the owner's plan edit to the machine; the page: the plan's card has Edit plan (kept through redraws, its number keys off while typing), says Coder wants to exit plan mode with no plan, withholds approval for one too long, and shows the plan as approved", () => {
   const routes = read("src/coder-routes.mjs");
-  assert.match(routes, /post\("\/answer", \{ project: id, pid: String\(body\.pid \|\| ""\), choice: String\(body\.choice \|\| ""\), comment: [^\n]*\.\.\.\(typeof body\.plan === "string" \? \{ plan: body\.plan\.slice\(0, 200_000\) \} : \{\}\) \}\)/);
+  assert.match(routes, /post\("\/answer", \{ project: id, pid: String\(body\.pid \|\| ""\), choice: String\(body\.choice \|\| ""\), comment: [^\n]*\.\.\.\(typeof body\.plan === "string" \? \{ plan: body\.plan\.slice\(0, 200_000\) \} : \{\}\), \.\.\.\(\[60_000, 300_000, 600_000\]\.includes\(Number\(body\.afk\)\) \? \{ afk: Number\(body\.afk\) \} : \{\}\) \}\)/);
   const server = read("container/server.mjs");
   assert.match(server, /\.\.\.\(typeof body\.plan === "string" && \(choice === "auto" \|\| choice === "acceptEdits"\) \? \{ plan: body\.plan\.slice\(0, 200_000\) \} : \{\}\)/);
   assert.match(server, /CODER_MEMORY_FILE: memOn \? memFile : "", \.\.\.\(planBox && planBox\.current\(\) \? \{ CODER_PLAN_FILE: planBox\.current\(\) \} : \{\}\), CODER_SEEN_DIR/);

@@ -11,9 +11,12 @@
 // scheduled task opens a new chat on its repository and sends its prompt there. Every run is at the caps' effort (Low by
 // default), and at most `runsPerDay` start a day (UTC) per chat, and as many across the cloud scheduled tasks.
 
+import { ghEventMatches, ghSourceOf } from "../container/coder-schedule.mjs";
 import { cleanCron, cleanWake, cleanTrigger, nextCron, cronLimits, cronRunText, zoneOf, triggerView, cronJob, cronWords, iso, CRON_ID, TRIGGER_ID, HOOK_RX, HOOKS_PER_TRIGGER } from "../container/coder-schedule.mjs";
 
-export const CRON_DUE = "coder/cron-due/", TRIGGER_DUE = "coder/trigger-due/", TRIGGER_HOOKS = "coder/trigger-hooks/";
+export const CRON_DUE = "coder/cron-due/", TRIGGER_DUE = "coder/trigger-due/", TRIGGER_HOOKS = "coder/trigger-hooks/", TRIGGER_GH = "coder/trigger-gh/";
+/** Where a repository's GitHub event sources are listed. */
+export const ghIndexKey = (repo) => TRIGGER_GH + String(repo).toLowerCase().replace("/", "__") + ".json";
 /** A webhook trigger's call: its body at most this big; and at most one call a minute per task. */
 export const TRIGGER_HOOK_BODY_MAX = 64 * 1024, TRIGGER_HOOK_GAP_MS = 60 * 1000;
 /** A run that has not started this long after its time (the chat busy all along) is skipped, as Gloopy's are. */
@@ -136,8 +139,13 @@ export async function applyCronTurn(env, bucket, uid, email, chat, result, repo 
         // A WEBHOOK TRIGGER (create_webhook_trigger): an inbound address; its secret is made by the owner on the page.
         const it = t.items.find((x) => x.id === id), hook = String(o.hook || "");
         if (!it || !HOOK_RX.test(hook) || it.hooks.length >= HOOKS_PER_TRIGGER || it.hooks.some((h) => h.id === hook)) continue;
-        it.hooks.push({ id: hook, at: now });
-        await putJson(bucket, TRIGGER_HOOKS + hook + ".json", { uid, email: String(email || ""), trigger: id, hash: "" });
+        const gh = o.source === "github" ? ghSourceOf(o) : null;
+        const src = gh && gh.source === "github" ? { id: hook, at: now, ...gh } : null;
+        if (o.source === "github" && !src) continue;
+        it.hooks.push(src || { id: hook, at: now });
+        await putJson(bucket, TRIGGER_HOOKS + hook + ".json", { uid, email: String(email || ""), trigger: id, hash: "", ...(src ? { source: "github", repo: src.repo } : {}) });
+        // (A GitHub event source: listed under its repository, for Coder's GitHub App webhook to find: githubTriggerEvent.)
+        if (src) { const k = ghIndexKey(src.repo); const list = await getJson(bucket, k, []); await putJson(bucket, k, [...(Array.isArray(list) ? list : []).filter((x) => x && x.hook !== hook), { uid, email: String(email || ""), trigger: id, hook }].slice(-200)); }
         out.triggers++;
       } else if (o.op === "run" && t.items.some((x) => x.id === id)) out.runs.push({ id, text: typeof o.text === "string" ? o.text.slice(0, 4000) : "" });
     }
@@ -217,6 +225,7 @@ async function runCronDue(env, bucket, deps, rec, L, now) {
 /** A cloud scheduled task's run: a new chat on its repository, its prompt sent there (one late run, then the next from now). */
 export async function startTrigger(env, bucket, deps, rec, t, due, L = cronLimits(env), now = Date.now(), manual = false, given = null) {
   const via = given && given.via ? given.via : manual ? "run" : "schedule";
+  const viaWords = via === "webhook" ? "a call to its web address" : via === "github" ? "a GitHub event" + (given && given.event ? " (" + given.event + ")" : "") : "started by hand";
   const log = (result, extra = {}) => { due.runs = [...(due.runs || []), { at: now, result, via, ...extra }].slice(-50); };
   if (!manual) due.next = nextCron(due.cron, now, due.tz);
   dayCount(t, now);
@@ -226,7 +235,7 @@ export async function startTrigger(env, bucket, deps, rec, t, due, L = cronLimit
   const made = await call("projects", { repo: due.repo }).catch(() => ({ status: 0, data: {} }));
   const chat = made.status === 200 && made.data && made.data.project ? String(made.data.project.id || "") : "";
   if (!chat) { log("failed", { why: String((made.data && made.data.error) || "the chat could not be opened").slice(0, 200) }); await writeTriggers(bucket, rec.uid, rec.email, t); return null; }
-  const sent = await call("projects/" + chat + "/message", { text: cronRunText("trigger", due, via === "schedule" ? "" : { via: via === "webhook" ? "a call to its web address" : "started by hand", text: (given && given.text) || "" }), effort: due.effort || L.effort }).catch(() => ({ status: 0 }));
+  const sent = await call("projects/" + chat + "/message", { text: cronRunText("trigger", due, via === "schedule" ? "" : { via: viaWords, text: (given && given.text) || "" }), effort: due.effort || L.effort }).catch(() => ({ status: 0 }));
   t.runs++;
   log(sent.status === 200 ? "started" : "failed", { chat });
   await writeTriggers(bucket, rec.uid, rec.email, t);
@@ -289,7 +298,7 @@ export async function schedulesRoute(request, env, uid, email, url, now = Date.n
   const view = async () => {
     const c = CHAT.test(chat) ? await readCrons(bucket, uid, chat) : { items: [], wake: null };
     const t = await readTriggers(bucket, uid);
-    return { ok: true, crons: c.items.map((x) => ({ ...cronJob(x, now), tz: x.tz, next: iso(Math.max(now, x.fire ?? x.next), x.tz) })), wake: c.wake ? { at: c.wake.at, reason: c.wake.reason } : null, triggers: t.items.map((x) => ({ ...triggerView(x, publicBase(env)), runs: x.runs.slice(-5).reverse().map((r) => ({ at: r.at, result: r.result, via: r.via || "", chat: r.chat || "" })), hooks: x.hooks.map((h) => ({ id: h.id, url: publicBase(env) + "/api/coder/trigger-hook/" + h.id, hasToken: !!h.tokenAt, calls: h.calls || 0 })) })) };
+    return { ok: true, crons: c.items.map((x) => ({ ...cronJob(x, now), tz: x.tz, next: iso(Math.max(now, x.fire ?? x.next), x.tz) })), wake: c.wake ? { at: c.wake.at, reason: c.wake.reason } : null, triggers: t.items.map((x) => ({ ...triggerView(x, publicBase(env)), runs: x.runs.slice(-5).reverse().map((r) => ({ at: r.at, result: r.result, via: r.via || "", chat: r.chat || "" })), hooks: x.hooks.map((h) => (h.source === "github" ? { id: h.id, source: "github", repo: h.repo, events: h.events, calls: h.calls || 0 } : { id: h.id, url: publicBase(env) + "/api/coder/trigger-hook/" + h.id, hasToken: !!h.tokenAt, calls: h.calls || 0 })) })) };
   };
   if (request.method === "GET") return reply(await view());
   if (request.method !== "POST") return reply({ error: "method" }, 405);
@@ -325,3 +334,53 @@ export async function schedulesRoute(request, env, uid, email, url, now = Date.n
 }
 
 export { CRON_ID };
+
+/** A GitHub event, said for the run it starts (data, not instructions): repository, event, action, number, title, who, link. */
+export function ghEventText(event, p) {
+  const x = p && typeof p === "object" ? p : {};
+  const item = x.pull_request || x.issue || x.release || x.workflow_run || x.check_run || x.discussion || null;
+  const lines = ["repository: " + String((x.repository && x.repository.full_name) || ""), "event: " + event + (x.action ? "." + x.action : "")];
+  if (item && item.number) lines.push("number: " + item.number);
+  if (item && (item.title || item.name)) lines.push("title: " + String(item.title || item.name).slice(0, 300));
+  if (event === "push") lines.push("ref: " + String(x.ref || ""), "commits: " + (Array.isArray(x.commits) ? x.commits.length : 0), "head: " + String((x.head_commit && x.head_commit.message) || "").split("\n")[0].slice(0, 200));
+  if (x.sender && x.sender.login) lines.push("by: " + x.sender.login);
+  const link = (item && item.html_url) || (x.compare) || "";
+  if (link) lines.push("link: " + String(link).slice(0, 300));
+  if (x.comment && x.comment.body) lines.push("comment: " + String(x.comment.body).slice(0, 2000));
+  return lines.join("\n").slice(0, 4000);
+}
+
+/**
+ * A GITHUB EVENT FOR CLOUD SCHEDULED TASKS (create_webhook_trigger with source "github"; called from Coder's GitHub App webhook,
+ * src/coder-mentions.mjs, once its signature is checked): each task listed for the repository whose events match starts one
+ * run, as a scheduled one does (a new chat, the task's effort, the same runs a day; at most one a minute a task). Returns the
+ * chats started.
+ */
+export async function githubTriggerEvent(env, deps, event, p, now = Date.now()) {
+  const bucket = env.CODER_BUCKET;
+  const repo = p && p.repository && typeof p.repository.full_name === "string" ? p.repository.full_name : "";
+  if (!bucket || !repo || !event || event === "ping") return [];
+  const k = ghIndexKey(repo);
+  const list = await getJson(bucket, k, []);
+  if (!Array.isArray(list) || !list.length) return [];
+  const action = typeof p.action === "string" ? p.action : "";
+  const keep = [], started = [];
+  for (const rec of list.slice(0, 200)) {
+    if (!rec || typeof rec.uid !== "string" || !/^[\w-]{1,100}$/.test(rec.uid)) continue;
+    const t = await readTriggers(bucket, rec.uid);
+    const it = t.items.find((x) => x.id === rec.trigger);
+    const h = it && it.hooks.find((x) => x.id === rec.hook && x.source === "github");
+    if (!it || !h || String(h.repo).toLowerCase() !== repo.toLowerCase()) continue;
+    keep.push(rec);
+    if (!it.enabled || !ghEventMatches(h.events, event, action)) continue;
+    const last = (it.runs || []).filter((r) => r.via === "github").at(-1);
+    if (last && now - last.at < TRIGGER_HOOK_GAP_MS) continue;
+    dayCount(t, now);
+    if (t.runs >= cronLimits(env).runsPerDay) continue;
+    h.calls = (h.calls || 0) + 1;
+    const chat = await startTrigger(env, bucket, deps, rec, t, it, cronLimits(env), now, true, { via: "github", event: event + (action ? "." + action : ""), text: ghEventText(event, p) }).catch(() => null);
+    if (chat) started.push(chat);
+  }
+  if (keep.length !== list.length) await putJson(bucket, k, keep);
+  return started;
+}
