@@ -89,7 +89,9 @@ test("WS2 its input as Claude Code takes it, before any hook: its schema's refus
   assert.deepEqual(V({ query: 7, allowed_domains: "nodejs.org", engine: "bing" }), { error: "error: InputValidationError: web_search failed due to the following issues:\nAn unexpected parameter `engine` was provided\nThe parameter `query` type is expected as `string` but provided as `number`\nThe parameter `allowed_domains` type is expected as `array` but provided as `string`" });
   assert.deepEqual(V({ query: "q2", blocked_domains: ["a.com", 3] }), { error: "error: InputValidationError: web_search failed due to the following issue:\nThe parameter `blocked_domains[1]` type is expected as `string` but provided as `number`" });
   assert.deepEqual(V({ query: "q2", allowed_domains: ["a.com"], blocked_domains: ["b.com"] }), { error: "error: Cannot specify both allowed_domains and blocked_domains in the same request" });
-  assert.deepEqual(V({ query: "q2", allowed_domains: ["a.com", "b.com", "c.com", "d.com", "e.com", "f.com"] }), { error: "error: Grok's web search takes at most 5 domains in allowed_domains (6 were given): name 5 or fewer, or search more than once" });
+  // (Coder's own chats since 2026-11-23: any number, as Claude Code's; Gloopy's keeps Grok's 5.)
+  assert.deepEqual(V({ query: "q2", allowed_domains: ["a.com", "b.com", "c.com", "d.com", "e.com", "f.com"] }).args.allowed_domains.length, 6);
+  assert.deepEqual(V({ query: "q2", allowed_domains: ["a.com", "b.com", "c.com", "d.com", "e.com", "f.com"] }, { searchModes: false }), { error: "error: Grok's web search takes at most 5 domains in allowed_domains (6 were given): name 5 or fewer, or search more than once" });
   assert.ok(V({ query: "q2", blocked_domains: ["a.com", "b.com", "c.com", "d.com", "e.com"] }).args, "5 is fine");
   // A mode that is neither: zod's own issue (checked against zod 4.6: "invalid_value", after the query's, before stray keys).
   const MODE = { code: "invalid_value", values: ["standard", "extended"], path: ["mode"], message: "Invalid option: expected one of \"standard\"|\"extended\"" };
@@ -281,11 +283,11 @@ test("WS8 the search budget, Claude Code's: 200 searches shared by every agent, 
   assert.equal(W.usedUpText({ max: 200, refills: 100 }), "Web search was not performed: this chat's web search budget is used up (limit: 200 web_search calls shared by every agent in this chat; the budget refills at about 100 calls per hour, so searching becomes possible again later in the chat). Do not pause or wait for the refill: continue with the information already gathered and say so in your answer; do not work around the limit by querying search engines with curl or wget from bash, by querying them in a browser or through a computer-use tool, or by searching or fetching through a third-party reader, proxy or archive service. If more searches are genuinely needed, ask the owner to raise CODER_MAX_WEB_SEARCHES_PER_SESSION.");
   assert.equal(W.usedUpText({ max: 1, refills: 0 }), "Web search was not performed: this chat's web search budget is used up (limit: 1 web_search call, shared by every agent in this chat; it does not refill). Continue with the information already gathered instead of searching again, and say so in your answer; do not work around the limit by querying search engines with curl or wget from bash, by querying them in a browser or through a computer-use tool, or by searching or fetching through a third-party reader, proxy or archive service. If more searches are genuinely needed, ask the owner to raise CODER_MAX_WEB_SEARCHES_PER_SESSION.");
   // In the loop: the chat's settings (CODER_MAX_WEB_SEARCHES_PER_SESSION, CODER_WEB_SEARCH_REFILLS_PER_HOUR) and its kept count
-  // (Coder's chat: the turn's, in Claude Code's words for one).
+  // (Coder's chat: the chat's, since 2026-11-23, in Claude Code's words for a session).
   let kept = null;
   const t = await job([say("", [call("web_search", { query: "node latest" }, "w1"), call("web_search", { query: "node lts" }, "w2")]), say("ok")], { opts: { searchLimits: { max: "1", refills: "0" } }, deps: { searchKeep: { load: () => kept, save: (o) => { kept = o; } } }, hooks: { settings: { PostToolUse: [{ matcher: "WebSearch", hooks: [{ type: "command", command: "post.sh" }] }] } } });
   assert.equal(t.searches.length, 1);
-  const notice = W.usedUpText({ max: 1, refills: 0, perTurn: true });
+  const notice = W.usedUpText({ max: 1, refills: 0 });
   assert.equal(t.told("w2"), 'Web search results for query: "node lts"\n\n' + notice + "\n\n\n" + REMINDER);
   assert.deepEqual([t.events.find((e) => e.type === "result" && e.id === "w2").code, t.events.find((e) => e.type === "result" && e.id === "w2").output], [0, notice]);
   const post = t.hookCalls.filter((x) => x.hook_event_name === "PostToolUse").at(-1);
@@ -400,10 +402,10 @@ test("WEB3 a job started from GitHub counts its own searches, from none, with no
   assert.equal(t.searches.length, 1);
   assert.equal(t.told("w2"), 'Web search results for query: "node lts"\n\n' + W.usedUpText({ max: 1, refills: 0, perTurn: true }) + "\n\n\n" + REMINDER);
   assert.equal(kept.used, 5, "the chat's count untouched");
-  // The chat's own job is a turn of its own too since 2026-11-14 (WEB9): it starts from none, whatever was kept.
-  const c = await job(steps, { mode: "auto", opts: { searchLimits: { max: "5" } }, deps: { searchKeep: { load: () => kept, save: (o) => { kept = o; } } } });
+  // The chat's own job goes on from the chat's count since 2026-11-23 (WEB9): 5 kept, 2 more.
+  const c = await job(steps, { mode: "auto", opts: { searchLimits: { max: "7" } }, deps: { searchKeep: { load: () => kept, save: (o) => { kept = o; } } } });
   assert.equal(c.searches.length, 2);
-  assert.equal(kept.used, 2);
+  assert.equal(kept.used, 7);
 });
 
 test("WEB4 an input whose only fault is a value is refused with zod's own issues, as Claude Code gives them (\"InputValidationError: [ … ]\", its w0); beside a missing, stray or wrongly typed field, each is listed in its words (checked against Claude Code 2.1.325's own zod)", () => {
@@ -440,28 +442,29 @@ async function gloopyJob(steps, { opts = {}, deps = {} } = {}) {
   return { r, seen, searches, told };
 }
 
-test("WEB9 Coder's chats count web searches per turn, as Claude Code's cloud sessions (non-interactive: \"the limit applies per turn, not per session … The limit resets when you send the next message\"): each message starts from none, with no refill unless the setting gives one, told in Claude Code's words for a turn; a paused card's answer goes on with its turn's count; Gloopy's chat keeps one count", async () => {
+test("WEB9 Coder's chats count web searches per chat, as Claude Code's interactive session (200 searches, main conversation and subagents together, refilling about 100 an hour; /clear resets the count); a paused card's answer goes on with the count; Gloopy's chat keeps one count", async () => {
   let kept = null;
   const keep = { load: () => kept, save: (o) => { kept = o; } };
   const two = [say("", [call("web_search", { query: "node latest", mode: "standard" }, "w1"), call("web_search", { query: "node lts", mode: "standard" }, "w2")]), say("ok")];
-  const turnNotice = (max, refills = 0) => W.usedUpText({ max, refills, perTurn: true });
-  // A message: its own count (here 1), then Claude Code's notice for a turn (no refill: its non-interactive default of 0).
+  const chatNotice = (max, refills = 100) => W.usedUpText({ max, refills });
+  // A message: the chat's count (here 1), then Claude Code's notice for a session that refills about 100 an hour.
   let t = await job(two, { opts: { searchLimits: { max: "1" } }, deps: { searchKeep: keep } });
   assert.equal(t.searches.length, 1);
-  assert.equal(t.told("w2"), 'Web search results for query: "node lts"\n\n' + turnNotice(1) + "\n\n\n" + REMINDER);
-  assert.equal(turnNotice(1), "Web search was not performed: this turn's web search budget is used up (limit: 1 web_search call per turn, shared by every agent in it). Continue with the information already gathered instead of searching again, and say so in your answer; do not work around the limit by querying search engines with curl or wget from bash, by querying them in a browser or through a computer-use tool, or by searching or fetching through a third-party reader, proxy or archive service. If more searches are genuinely needed, tell the owner they can send a follow-up message after this reply to continue the search, or ask them to raise CODER_MAX_WEB_SEARCHES_PER_SESSION.");
+  assert.equal(t.told("w2"), 'Web search results for query: "node lts"\n\n' + chatNotice(1) + "\n\n\n" + REMINDER);
   assert.equal(kept.used, 1);
-  // The next message: from none again (and kept at once, so a turn with no search leaves none counted).
-  t = await job(two, { opts: { searchLimits: { max: "1" } }, deps: { searchKeep: keep } });
+  // The next message: the same count goes on, as a session's.
+  t = await job(two, { opts: { searchLimits: { max: "1" }, messages: [{ role: "user", content: "before" }, { role: "assistant", content: "ok" }] }, deps: { searchKeep: keep } });
+  assert.equal(t.searches.length, 0);
+  assert.equal(kept.used, 1);
+  // The owner's /clear: the first job of the new conversation starts from none.
+  t = await job(two, { opts: { searchLimits: { max: "1" }, cleared: true }, deps: { searchKeep: keep } });
   assert.equal(t.searches.length, 1);
-  await job([say("ok")], { deps: { searchKeep: keep } });
-  assert.equal(kept.used, 0);
-  // 200 by default; CODER_WEB_SEARCH_REFILLS_PER_HOUR gives a refill, said in Claude Code's words for one.
+  // 200 by default; CODER_WEB_SEARCH_REFILLS_PER_HOUR changes the refill, 0 turning it off.
   assert.equal(W.searchMaxOf(undefined), 200);
-  t = await job(two, { opts: { searchLimits: { max: "1", refills: "50" } }, deps: { searchKeep: keep } });
-  assert.equal(t.told("w2"), 'Web search results for query: "node lts"\n\n' + turnNotice(1, 50) + "\n\n\n" + REMINDER);
-  assert.match(turnNotice(1, 50), /the budget refills at about 50 calls per hour, so searching becomes possible again later in the turn\)\. Do not pause or wait for the refill/);
-  // The budget's own rule: a new turn starts from none, whatever was kept, and keeps that at once; a turn taken up goes on.
+  kept = null;
+  t = await job(two, { opts: { searchLimits: { max: "1", refills: "0" } }, deps: { searchKeep: keep } });
+  assert.equal(t.told("w2"), 'Web search results for query: "node lts"\n\n' + chatNotice(1, 0) + "\n\n\n" + REMINDER);
+  // The budget's own rule: a fresh one starts from none, whatever was kept, and keeps that at once; one taken up goes on.
   let clock = 0;
   kept = { used: 7, carry: 0, at: 0, rate: 0 };
   const fresh = W.searchBudget({ keep, fresh: true, max: 8, refills: 0, now: () => clock });
@@ -479,7 +482,7 @@ test("WEB9 Coder's chats count web searches per turn, as Claude Code's cloud ses
   const later = await job([say("", [call("web_search", { query: "third one", mode: "standard" }, "w3")]), say("ok")], { mode: "acceptEdits", rules, opts: { text: "", messages: first.r.messages, takeUp: { ...first.r.parked, answer: { choice: "yes" } }, searchLimits: { max: "2" } }, deps: { searchKeep: keep, ask: async () => { throw new Error("no card asked again"); } } });
   assert.equal(later.searches.length, 1, "the answered search ran");
   assert.equal(kept.used, 2);
-  assert.equal(later.told("w3"), 'Web search results for query: "third one"\n\n' + turnNotice(2) + "\n\n\n" + REMINDER, "the turn's count went on");
+  assert.equal(later.told("w3"), 'Web search results for query: "third one"\n\n' + chatNotice(2) + "\n\n\n" + REMINDER, "the chat's count went on");
 
   // GLOOPY'S CHAT, as before: one count for the chat, kept across its messages, refilling about 100 an hour, "this chat's".
   let gk = null;

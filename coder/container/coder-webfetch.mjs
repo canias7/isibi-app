@@ -41,9 +41,47 @@ export const WEBFETCH_CACHE_TTL_MS = 900_000;
 export const WEBFETCH_CACHE_BYTES = 52_428_800;
 /** How much of a page's text Coder's tools script hands back (its answers travel up to 8 MB). */
 export const WEBFETCH_CARRY_CHARS = 7_000_000;
-/** Claude Code's headers: "an `Accept` header that prefers Markdown over HTML"; Coder keeps its own User-Agent. */
+/**
+ * Claude Code's headers: "an `Accept` header that prefers Markdown over HTML", and "a `User-Agent` header beginning with
+ * `Claude-User`" (its "Claude-User (claude-code/<version>; +https://support.anthropic.com/)"): Coder's in the same shape since
+ * 2026-11-23, beginning with Coder-User, so a site can recognize and allowlist Coder's fetches in its robots.txt.
+ */
 export const WEBFETCH_ACCEPT = "text/markdown, text/html, */*";
-export const WEBFETCH_USER_AGENT = "Coder (gofarther.dev)";
+export const WEBFETCH_USER_AGENT = "Coder-User (gofarther.dev; +https://gofarther.dev/)";
+/**
+ * A PAGE THAT FAILED MOMENTS AGO (Claude Code 2.1.300: "Improved WebFetch in Cowork cloud sessions to tell Claude that a page
+ * failed moments ago instead of fetching it again"; Coder's chats are cloud sessions): a fetch of the same address in the same
+ * chat within this long is answered with the earlier failure, not fetched again.
+ */
+export const WEBFETCH_FAILED_MS = 60_000;
+export const failedMomentsAgo = (url, error) => "error: " + url + " failed moments ago, so it was not fetched again. The earlier failure: " + String(error || "").replace(/^error:\s*/, "").slice(0, 1500);
+export function failureMemory({ ms = WEBFETCH_FAILED_MS, max = 200 } = {}) {
+  const m = new Map();
+  return {
+    get(key, now) { const e = m.get(key); if (!e) return null; if (now - e.at > ms) { m.delete(key); return null; } return e.error; },
+    set(key, error, now) { m.delete(key); m.set(key, { at: now, error: String(error || "") }); while (m.size > max) m.delete(m.keys().next().value); },
+    forget(key) { m.delete(key); },
+  };
+}
+/**
+ * CLAUDE CODE'S artifactRead (its WebFetch result: "appears only when Claude fetched an artifact the session can publish to
+ * … slug names the artifact, ver is the version the read recorded (absent when it recorded none), and seeded: false marks a
+ * read whose full source didn't reach Claude"): a public link of one of the owner's artifacts on Coder's own site
+ * (/api/coder/artifact/<owner>/<id>, gofarther.dev or one of its copies), the owner being this chat's (`uid`, when known).
+ * A web_fetch read goes through the page reader, so the full source never reaches Coder: seeded is always false.
+ */
+export function artifactReadOf(url, { uid = "", version = 0, hosts = ["gofarther.dev"] } = {}) {
+  let u;
+  try { u = new URL(String(url)); } catch { return null; }
+  const host = u.hostname.toLowerCase().replace(/\.$/, "");
+  if (u.protocol !== "https:" || !hosts.some((h) => host === h || host.endsWith("." + h))) return null;
+  const m = /^\/api\/coder\/artifact\/([\w-]{1,80})\/(p[a-z0-9]{10})\/?$/.exec(u.pathname);
+  if (!m) return null;
+  if (uid && decodeURIComponent(m[1]) !== uid) return null;
+  return { slug: m[2], ...(Number.isSafeInteger(version) && version > 0 ? { ver: version } : {}), seeded: false };
+}
+/** THE web-fetch AGENT'S READ (Claude Code: "The web-fetch subagent reads pages of up to about 48,000 characters in full"). */
+export const WEB_FETCH_AGENT_CHARS = 48_000;
 
 // ── CLAUDE CODE'S TEXTS (word for word; where one tells the model to use a tool, Coder's tool's name) ──────────────────
 export const CONTENT_TRUNCATED = "\n\n[Content truncated due to length...]";

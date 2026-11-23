@@ -142,7 +142,7 @@ test("MC5 (2026-11-10) the gate: only the chat's current job with its pass, only
   assert.equal((await handleMcp(req("mcp__linear__delete_all"), e2, { fetchFn: s.fetchFn })).status, 403);
   const ok = await handleMcp(req("mcp__linear__create_issue"), e2, { fetchFn: s.fetchFn });
   assert.equal(ok.status, 200);
-  assert.deepEqual(await ok.json(), { text: 'made create_issue {"title":"Bug"}', isError: false });
+  assert.deepEqual(await ok.json(), { text: 'made create_issue {"title":"Bug"}', isError: false, content: [{ type: "text", text: 'made create_issue {"title":"Bug"}' }] });
   assert.equal(s.seen.at(-1).headers.authorization, "Bearer good");
   // The chat moved on: the old job's pass no longer works.
   await b.put("coder/u1/chat-1/meta.json", JSON.stringify({ turn: 5 }));

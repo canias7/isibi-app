@@ -46,7 +46,7 @@ import { WEB_SEARCH_TOOL, WEB_SEARCH_MODE_TOOL, WEB_SEARCH_NAME, SEARCH_UNGRANTE
 import { CRON_TOOLS, CRON_TOOL_NAMES, cronState, cronResult, cronTool } from "./coder-schedule.mjs";
 import { TASK_TOOLS, isTaskTool, checkTaskInput, readTasks, emptyTasks, createTask, findTask, deleteTask, updateTask, listTasks, createdText, createdFacts, getText, getFacts, updateText, listText, taskReminderDue, taskReminderNote, pageItems, TODO_WRITE_TOOL, TODO_WRITE_RESULT, checkTodoInput, readTodos, todoItems, todoReminderDue, todoReminderNote } from "./coder-tasks.mjs";
 import { ASK_USER_DESCRIPTION, ASK_USER_PROPERTIES, shownInput, answerKeys, cardAnswers, allUnanswered, checkHookRewrite, previewOf, previewKind, PREVIEW_WITHHELD, hasPreviews } from "./coder-askuser.mjs";
-import { sharedChat, sharedChatText, NOT_FETCHED, webFetchDescription, WEBFETCH_PARAMS, WEBFETCH_DEADLINE_MS, WEBFETCH_CACHE_TTL_MS, WEBFETCH_READ_CHARS, WEBFETCH_RESULT_MAX, NO_ANSWER, pageCache, docSite, readerMessage, redirectText, httpErrorText, pastEndText, leadText, readOnNote, binaryNote, fromOffset, firstChars, statusText, persistedText } from "./coder-webfetch.mjs";
+import { sharedChat, sharedChatText, NOT_FETCHED, webFetchDescription, WEBFETCH_PARAMS, WEBFETCH_DEADLINE_MS, WEBFETCH_CACHE_TTL_MS, WEBFETCH_READ_CHARS, WEBFETCH_RESULT_MAX, NO_ANSWER, pageCache, docSite, readerMessage, redirectText, httpErrorText, pastEndText, leadText, readOnNote, binaryNote, fromOffset, firstChars, statusText, persistedText, failureMemory, failedMomentsAgo, artifactReadOf, WEB_FETCH_AGENT_CHARS } from "./coder-webfetch.mjs";
 import { ENV_TOOLS, ENV_TOOL_NAMES, ENV_INPUT_CHECKS, envTable } from "./coder-envtools.mjs";
 import { withMcpServer } from "./coder-hooks.mjs";
 // (Claude Code's tool search in Coder's chats, its ToolSearch as tool_search: coder-toolsearch.mjs. 2026-11-14.)
@@ -79,6 +79,7 @@ import { AGENT_TOOL, LIST_AGENTS_TOOL, SEND_MESSAGE_TOOL, WORKFLOW_TOOL, SUBAGEN
 /** A contact entry from the owner's Vault in one line (as gloopy-agent.mjs's contactWords, kept here to import nothing of it). */
 const contactWords = (x) => { const place = [x.line1, x.line2, x.city, [x.region, x.postal].filter(Boolean).join(" "), x.country].filter(Boolean).join(", "); return [x.nickname ? "“" + x.nickname + "”" : "", [x.name, place].filter(Boolean).join(", "), x.phone, x.email].filter(Boolean).join(" · "); };
 // (Claude Code's Artifact, ListMcpResourcesTool, ReadMcpResourceTool, ReadMcpResourceDirTool, RefreshMcpTools and WaitForMcpServers, 2026-11-23: coder-resources.mjs.)
+import { headersHelperFor, withHeadersHelper } from "./coder-mcphelper.mjs";
 import { RESOURCE_TOOL_NAMES, RESOURCE_CC_NAMES, resourceToolsFor, resourceToolCall, WAIT_SERVERS, ARTIFACT_TOOL } from "./coder-resources.mjs";
 import { CC_TOOL as RESOURCE_CC_TOOL } from "./coder-hooks.mjs";
 Object.assign(RESOURCE_CC_TOOL, RESOURCE_CC_NAMES);
@@ -1639,15 +1640,25 @@ export function connectorCaller(via, fetchFn = fetch, { roots = [] } = {}) {
     const ask = opts && opts.ask && typeof opts.ask.elicit === "function" ? opts.ask : null;
     const gave = (e) => ({ text: e && e.name === "TimeoutError" ? "error: the connector did not finish within " + Math.round(CONNECTOR_WAIT_MS / 60000) + " minutes" : "error: Coder's server could not be reached", isError: true });
     let r;
-    try { r = await fetchFn(url, { method: "POST", headers: { ...via.headers, "content-type": "application/json" }, body: JSON.stringify({ tool, args, ...(ask ? { ask: true } : {}), ...(folders.length ? { roots: folders } : {}) }), signal: AbortSignal.timeout(CONNECTOR_WAIT_MS) }); }
+    try { r = await fetchFn(url, { method: "POST", headers: { ...via.headers, "content-type": "application/json" }, body: JSON.stringify({ tool, args, ...(ask ? { ask: true } : {}), ...(folders.length ? { roots: folders } : {}), ...(opts && opts.headers && typeof opts.headers === "object" && Object.keys(opts.headers).length ? { headers: opts.headers } : {}) }), signal: AbortSignal.timeout(CONNECTOR_WAIT_MS) }); }
     catch (e) { return gave(e); }
     let j;
     if (ask && r.ok && /ndjson/i.test(String(r.headers.get("content-type") || ""))) { try { j = await askedCall(r, ask, post); } catch (e) { return gave(e); } }
     else j = await r.json().catch(() => null);
     if (!r.ok || !j) return { text: "error: " + String((j && j.error) || "the connector call failed (" + r.status + ")").slice(0, 300), isError: true };
     const images = (Array.isArray(j.images) ? j.images : []).filter((x) => x && /^image\/(png|jpeg)$/.test(x.type) && typeof x.data === "string" && /^[A-Za-z0-9+/=]+$/.test(x.data)).slice(0, 4);
-    return { text: String(j.text || ""), isError: j.isError === true, ...(images.length ? { images } : {}) };
+    // (The server's own content blocks, for the PostToolUse hooks: mcpBlocks.)
+    const content = Array.isArray(j.content) ? j.content.filter((b) => b && typeof b === "object" && typeof b.type === "string").slice(0, 200) : null;
+    return { text: String(j.text || ""), isError: j.isError === true, ...(images.length ? { images } : {}), ...(content ? { content } : {}) };
   };
+}
+/**
+ * WHAT A CONNECTOR TOOL'S PostToolUse HOOKS GET (Claude Code's MCP tool result: "text or a list of content blocks, depending
+ * on the server"; 2026-11-23): the server's blocks, each text block's text scrubbed as the answer is; none given, its text.
+ */
+export function mcpBlocks(r, scrub = (s) => s) {
+  if (!r || !Array.isArray(r.content) || !r.content.length) return null;
+  return r.content.map((b) => (b.type === "text" && typeof b.text === "string" ? { ...b, text: scrub(b.text) } : b));
 }
 /**
  * AN MCP_TOOL HOOK'S CALL THROUGH THE WORKER (fix round 4, CL4; coder-hooks.mjs runMcpToolHook): `{ server, tool, args,
@@ -2061,7 +2072,9 @@ export async function readPage(deps, { model = "", effort = "", prompt = "", con
  * `facts` is Claude Code's result object for the PostToolUse hooks ({ bytes, code, codeText, result, durationMs, url }).
  * `settings`: the chat's CODER_WEBFETCH_… values (coder-webfetch.mjs's webFetchSettings); `chat`: whose page cache.
  */
-export async function webFetchRun(deps, { model = "", effort = "", args = {}, chat = "", settings = {}, execS = 0, now = Date.now } = {}) {
+/** (The chat's pages that failed moments ago, Claude Code 2.1.300's; coder-webfetch.mjs failureMemory.) */
+export const fetchFailures = failureMemory();
+export async function webFetchRun(deps, { model = "", effort = "", args = {}, chat = "", settings = {}, execS = 0, now = Date.now, rawChars = 0, artifactVersion = null } = {}) {
   const t0 = now();
   const url = String(args.url ?? ""), prompt = String(args.prompt ?? ""), offset = Number.isSafeInteger(args.offset) && args.offset > 0 ? args.offset : 0;
   // A CLAUDE.AI SHARED CHAT: answered without fetching, in Claude Code's words (coder-webfetch.mjs's sharedChat).
@@ -2071,6 +2084,9 @@ export async function webFetchRun(deps, { model = "", effort = "", args = {}, ch
   const ttl = Number.isFinite(settings.cacheTtlMs) && settings.cacheTtlMs > 0 ? settings.cacheTtlMs : WEBFETCH_CACHE_TTL_MS;
   const key = String(chat) + "\n" + url;
   let page = pageCache.get(key, t0);
+  // (A page that failed moments ago in this chat: said so, not fetched again. Claude Code 2.1.300.)
+  const failedBefore = page ? null : fetchFailures.get(key, t0);
+  if (failedBefore) return { code: 1, out: failedMomentsAgo(url, failedBefore) };
   if (!page) {
     const b64 = Buffer.from(JSON.stringify({ tool: "web_fetch", args: { url, deadline_ms: deadlineMs } })).toString("base64");
     let r;
@@ -2078,7 +2094,8 @@ export async function webFetchRun(deps, { model = "", effort = "", args = {}, ch
     catch (e) { r = { code: -1, output: "error: the tool could not be run: " + String((e && e.message) || e).slice(0, 200) }; }
     const code = r && Number.isInteger(r.code) ? r.code : -1;
     const raw = String((r && r.output) || "");
-    if (code !== 0) return { code: code === -1 ? -1 : code || 1, out: raw.startsWith("error: ") ? raw : "error: " + (raw || "the tool could not be run") };
+    if (code !== 0) { const out = raw.startsWith("error: ") ? raw : "error: " + (raw || "the tool could not be run"); fetchFailures.set(key, out, now()); return { code: code === -1 ? -1 : code || 1, out }; }
+    fetchFailures.forget(key);
     const fa = factsAnswer(raw);
     const f = fa.facts || { kind: "page", bytes: Buffer.byteLength(fa.text), code: 200, codeText: "OK", contentType: "", cacheBytes: Buffer.byteLength(fa.text) };
     if (f.kind === "redirect") {
@@ -2096,6 +2113,13 @@ export async function webFetchRun(deps, { model = "", effort = "", args = {}, ch
   const rest = fromOffset(page.content, offset);
   let text, usage = null;
   if (offset > 0 && rest === "") text = pastEndText(offset, total);
+  // (The web-fetch agent's own read, Claude Code's: the page's text itself, up to about 48,000 characters, with the note when
+  // the page goes on; its subagent answers the question. coder-agents.mjs.)
+  else if (rawChars > 0) {
+    text = firstChars(rest, rawChars);
+    const from = total - rest.length, to = from + text.length;
+    if (to < total && !page.binary) text += readOnNote(from, to, total);
+  }
   else if (docSite(url) && page.contentType.includes("text/markdown") && rest.length < WEBFETCH_READ_CHARS) text = rest;
   else {
     const rd = await readPage(deps, { model, effort, prompt, content: rest, preapproved: docSite(url), lead: offset > 0 ? leadText(offset, total) : "" });
@@ -2106,7 +2130,11 @@ export async function webFetchRun(deps, { model = "", effort = "", args = {}, ch
     if (to < total && !page.binary) text += readOnNote(from, to, total);
   }
   if (page.persistedPath) text += binaryNote(page.contentType, page.persistedSize || page.bytes, page.persistedPath);
-  const facts = { bytes: page.bytes, code: page.code, codeText: page.codeText, result: text, durationMs: now() - t0, url };
+  // (Claude Code's artifactRead: a read of one of the owner's artifacts, its version when this job recorded one.)
+  let art = null;
+  try { art = artifactReadOf(url, { uid: String(deps.uid || ""), hosts: Array.isArray(deps.artifactHosts) ? deps.artifactHosts : undefined }); } catch { art = null; }
+  if (art && typeof artifactVersion === "function") { const v = Number(artifactVersion(art.slug)); if (Number.isSafeInteger(v) && v > 0) art = { slug: art.slug, ver: v, seeded: false }; }
+  const facts = { bytes: page.bytes, code: page.code, codeText: page.codeText, result: text, durationMs: now() - t0, url, ...(art ? { artifactRead: art } : {}) };
   let out = text;
   if (out.length > WEBFETCH_RESULT_MAX && typeof deps.saveText === "function") { try { out = persistedText(out, deps.saveText(out)); } catch { out = text; } }
   return { code: 0, out, facts, usage };
@@ -2199,7 +2227,10 @@ export function ruleHoldsSecret(rule) {
   }
   return false;
 }
-export async function runCoder(deps, { notices = [], lost = [], stalls = [], promptNotify = true, timeouts = null, outLimits = null, noBg = false, respondToBash = true, shell = "", cmdShell = "", compactVars = null, messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, mode = "auto", rules = null, editDiff = false, readBlock = false, writeBlock = false, checker = false, checkerInPlan = true, checkWhere = null, emailMark = "", diskWarnGib = 0, memWarnGib = 0, hooks = null, autoMode = null, denyInstead = false, autoOff = false, planExit = "auto", hostLists = null, powershell = null, connectors = [], connectorNotes = [], connectorsWaiting = [], connectorsFailed = [], connectorsGone = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS , rmChecksOff = null, fileEdits = true, startMode = "", resumed = false, lastAt = 0, sessionRules = null, language = "", customTitle = "", compact = null, system = CODER_SYSTEM, tools = null, nudges = true, who = "Coder", browserRules: rulesIn = [], granted: grantedIn = [], schedules = [], opening = "user", permissions: permsIn = null, sites: sitesIn = [], monitor = false, ownerSaid: ownerSaidList = null, asHelper = false, helper = null, pages = [], savedLogins = [], savedCards = [], contacts = [], webhooks = [], hookBase = "/api/coder/gloopy-hook/", attached = [], attachedLeft = 0, workNote = "", marked = null, taught = null, files: keptFiles = [], background = false, checkWrites = false, denied: deniedIn = [], zone = "", searchLimits = null, takeUp = null, tasksOff = false, mentionsOff = false, holdBack = null, suggest = false, stopCap = STOP_BLOCK_CAP, box = false, skills = [], pluginAgents = null, checkpoints = true, searchTools = false, cleared = false, schedule = null, subagent = null } = {}) {
+export async function runCoder(deps, { notices = [], lost = [], stalls = [], promptNotify = true, timeouts = null, outLimits = null, noBg = false, respondToBash = true, shell = "", cmdShell = "", compactVars = null, messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, mode = "auto", rules = null, editDiff = false, readBlock = false, writeBlock = false, checker = false, checkerInPlan = true, checkWhere = null, emailMark = "", diskWarnGib = 0, memWarnGib = 0, hooks = null, autoMode = null, denyInstead = false, autoOff = false, planExit = "auto", hostLists = null, powershell = null, connectors = [], connectorNotes = [], connectorsWaiting = [], connectorsFailed = [], connectorsGone = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS , rmChecksOff = null, fileEdits = true, startMode = "", resumed = false, lastAt = 0, sessionRules = null, language = "", customTitle = "", compact = null, system = CODER_SYSTEM, tools = null, nudges = true, who = "Coder", browserRules: rulesIn = [], granted: grantedIn = [], schedules = [], opening = "user", permissions: permsIn = null, sites: sitesIn = [], monitor = false, ownerSaid: ownerSaidList = null, asHelper = false, helper = null, pages = [], savedLogins = [], savedCards = [], contacts = [], webhooks = [], hookBase = "/api/coder/gloopy-hook/", attached = [], attachedLeft = 0, workNote = "", marked = null, taught = null, files: keptFiles = [], background = false, checkWrites = false, denied: deniedIn = [], zone = "", searchLimits = null, takeUp = null, tasksOff = false, mentionsOff = false, holdBack = null, suggest = false, stopCap = STOP_BLOCK_CAP, box = false, skills = [], pluginAgents = null, checkpoints = true, searchTools = false, cleared = false, schedule = null, subagent = null, refreshTools = false, mcpHeadersHelper = "" } = {}) {
+  // (A connector's headersHelper, the environment's CODER_MCP_HEADERS_HELPER: its headers go with each connector call, and a
+  // helper that fails stops the call. coder-mcphelper.mjs; 2026-11-23.)
+  if (mcpHeadersHelper && typeof deps.mcp === "function" && typeof deps.exec === "function") deps = { ...deps, mcp: withHeadersHelper(deps.mcp, headersHelperFor(mcpHeadersHelper, deps.exec)) };
   // ANOTHER AGENT ON THE SAME ENGINE (owner, 2026-11-09: Gloopy, container/gloopy-agent.mjs): its own instructions
   // (`system`), the tools it is offered (`tools`; a call to any other is refused), no reminders about Coder's setup script
   // (`nudges`), and its name in the chat's own lines (`who`). Coder's defaults are unchanged.
@@ -2281,8 +2312,25 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   // (deps.searchKeep), so the job that takes up a paused card's answer goes on with its turn's count (`takeUp`). A job started
   // from GitHub counts its own. GLOOPY'S, as before: one count for its chat, refilling about 100 an hour; a helper uses the one
   // of the run that started it (deps.searchBudget).
-  const searchPerTurn = !offered;
-  const webBudget = deps.searchBudget && typeof deps.searchBudget.tryConsume === "function" ? deps.searchBudget : searchBudget({ keep: github ? null : deps.searchKeep || null, fresh: searchPerTurn && !github && !takeUp, max: searchMaxOf(searchLimits && searchLimits.max), refills: searchRefillsOf(searchLimits && searchLimits.refills, searchPerTurn ? 0 : undefined), now });
+  // CODER'S CHATS SINCE 2026-11-23 (the owner: "make Coder match Claude Code"): Claude Code's interactive session, one count
+  // for the whole chat (main conversation and agents together) refilling about 100 an hour, started again by the owner's
+  // /clear ("/clear resets the count"); a job from GitHub is Claude Code's -p run, its count per turn with no refill.
+  const searchPerTurn = github && !offered;
+  // A PAGE FETCH IN A JOB FROM GITHUB (Claude Code's claude -p: "These runs start in Manual mode, so a fetch that needs approval
+  // is denied: add an allow rule or start in auto mode"; 2026-11-23): with the checker on, the job is in auto mode and the
+  // checker judges it (null here); with it off, Manual mode with no one to ask: a fetch no pre-approved documentation site
+  // covers asks, and its card, which no one can answer, denies it in Claude Code's words.
+  const githubFetch = (url) => (checker ? null : fetchDecision(url, { mode: "acceptEdits", rules: {} }));
+  // (Claude Code's titles for each link, Coder's chats only: Gloopy's stays as it was. coder-websearch.mjs withTitles.)
+  const searchTitles = offered && !subagent ? null : async (urls) => {
+    try {
+      const r = await deps.exec({ command: "node --no-warnings " + TOOLS_SCRIPT + " " + Buffer.from(JSON.stringify({ tool: "page_titles", args: { urls } })).toString("base64"), timeoutS: 30, tool: true, here: true });
+      const o = r && r.code === 0 ? JSON.parse(String(r.output || "").trim() || "{}") : {};
+      return o && typeof o === "object" && !Array.isArray(o) ? o : {};
+    } catch { return {}; }
+  };
+  const searchFresh = !offered && !github && cleared === true && !(Array.isArray(messages) && messages.length > 0) && !takeUp;
+  const webBudget = deps.searchBudget && typeof deps.searchBudget.tryConsume === "function" ? deps.searchBudget : searchBudget({ keep: github ? null : deps.searchKeep || null, fresh: searchFresh, max: searchMaxOf(searchLimits && searchLimits.max), refills: searchRefillsOf(searchLimits && searchLimits.refills, searchPerTurn ? 0 : undefined), now });
   // THE CHAT'S TASK LIST (Claude Code's TaskCreate, TaskGet, TaskList and TaskUpdate; the owner, 2026-11-14: "Do all the talk
   // to you tools execpt for the notify one"; coder-tasks.mjs): read once a job, when first needed, from the chat's own file
   // (deps.tasks), and written back after each change, as Claude Code keeps a session's list between turns; a job with no file
@@ -3571,7 +3619,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   chatTools.splice(0, chatTools.length, ...webFetchTools(chatTools, webFetch));
   /** Whether the chat's tools include `name` (grep and glob are no longer among them: SEARCH_TOOLS). */
   // (Claude Code's Artifact and its MCP resource tools, before the connectors' own, where the chat can use connectors (deps.mcp): coder-resources.mjs. 2026-11-23.)
-  { const mine = resourceToolsFor({ github, offered: !!offered, hasConnectors: !github && typeof deps.mcp === "function" }).filter(ownOffered);
+  { const mine = resourceToolsFor({ github, offered: !!offered, hasConnectors: !github && typeof deps.mcp === "function", refresh: refreshTools === true }).filter(ownOffered);
     const at = chatTools.findIndex((t) => t && t.function && (mcpByName.has(t.function.name) || t.function.name === "connector_search" || t.function.name === "skill"));
     chatTools.splice(at < 0 ? chatTools.length : at, 0, ...mine); }
   const chatHas = (name) => chatTools.some((t) => t && t.function && t.function.name === name);
@@ -5147,7 +5195,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     };
     // (A page fetch, Claude Code's WebFetch its own way: webFetchRun; the tools script's time: the fetch's deadline and a little
     // more; with no deadline, the job's time left.)
-    const fetchRun = (args) => webFetchRun(deps, { model, effort, args, chat: webCacheKey, settings: webFetch, execS: webFetch.deadlineMs > 0 ? Math.ceil(webFetch.deadlineMs / 1000) + 30 : Math.max(60, Math.ceil((maxMs - (now() - started)) / 1000)) });
+    const fetchRun = (args) => webFetchRun(deps, { model, effort, args, chat: webCacheKey, settings: webFetch, ...(subagent && subagent.type === "web-fetch" ? { rawChars: WEB_FETCH_AGENT_CHARS } : {}), artifactVersion: (id) => artifactsSeen.get(id), execS: webFetch.deadlineMs > 0 ? Math.ceil(webFetch.deadlineMs / 1000) + 30 : Math.max(60, Math.ceil((maxMs - (now() - started)) / 1000)) });
     // A REPLY'S CALLS IN CLAUDE CODE'S GROUPS (coder-parallel.mjs; recheck 2's S3 and W3, the owner, 2026-11-14: "yes pls all
     // of that"): Coder's consecutive calls of Claude Code's concurrency-safe tools (read, grep, glob, lsp, web_fetch,
     // web_search, a command that only reads, a connector's read-only tool, and the others it marks so) go together, and any
@@ -5307,7 +5355,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         if (emailMark && await emailRefused("WebFetch", args, emailMark)) return;
         const url = String(args.url || "");
         if (sites.length) { const never = siteFor(sites, (() => { try { return new URL(url).hostname; } catch { return ""; } })()); if (never && never.mode === "deny") return; }
-        const d = github ? null : fetchDecision(url, { mode: mode0, rules: ownRules });
+        const d = github ? githubFetch(url) : fetchDecision(url, { mode: mode0, rules: ownRules });
         if (d && d.verdict === "deny") { early.refused(x.id); return; }
         const key = "web_fetch\n" + JSON.stringify(args);
         // (A hook's allow: its turn asks neither the checker nor the mode's question, only a rule's. Round 5.)
@@ -5322,7 +5370,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         if (chk.error) return;
         const sDec = github ? { verdict: checker ? "check" : "allow" } : searchDecision({ mode: mode0, rules: ownRules, planChecks, input: args });
         const key = "web_search\n" + JSON.stringify(chk.args);
-        const run = () => (webBudget.tryConsume() ? runWebSearch(deps.send, { model, effort, args: chk.args, now }) : null);
+        const run = () => (webBudget.tryConsume() ? runWebSearch(deps.send, { model, effort, args: chk.args, now, titles: searchTitles }) : null);
         if (sDec.verdict === "deny") { early.refused(x.id); return; }
         // (A hook's allow: as for a page fetch, only a deny or ask rule stops it. Round 5.)
         if (hookAllow) { if (sDec.verdict !== "deny" && !(sDec.verdict === "ask" && sDec.byRule)) early.start(x.id, key, run); return; }
@@ -6122,7 +6170,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           continue;
         }
         if (!searched) ranAt.set(c.id, now());
-        const sr = searched || await runWebSearch(deps.send, { model, effort, args: chk.args, now });
+        const sr = searched || await runWebSearch(deps.send, { model, effort, args: chk.args, now, titles: searchTitles });
         // (The search's own call is counted with the others: what it used, its searches and its cost.)
         if (sr.usage) usage.push(sr.usage);
         // (The owner's Stop while it ran: as for a page fetch.)
@@ -7207,7 +7255,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         if (fileDec && fileDec.verdict === "deny") { emit({ type: "result", id: c.id, code: 1, ran: false, output: fileDec.why }); reply(fileDec.why); continue; }
         const ruleAsk = !!(fileDec && fileDec.verdict === "ask") || !!(c.hook && c.hook.decision === "ask" && !github && !c.rerun);
         const modeT = modeNow();
-        const fetchDec = c.name === "web_fetch" && !github ? fetchDecision(String(args.url || ""), { mode: modeT, rules: ownRules }) : null;
+        const fetchDec = c.name === "web_fetch" ? (github ? githubFetch(String(args.url || "")) : fetchDecision(String(args.url || ""), { mode: modeT, rules: ownRules })) : null;
         if (fetchDec && fetchDec.verdict === "deny") { emit({ type: "result", id: c.id, code: -1, ran: false, output: fetchDec.why }); reply(fetchDec.why); continue; }
         if (emailNo) { const m = accountEmailRefused(emailTool); emit({ type: "result", id: c.id, code: -1, ran: false, output: m }); reply(m); continue; }
         // THE AUTO MODE CHECKER FOR A PAGE FETCH (coder-checker.mjs): in Auto, or a job from GitHub, a fetch that no allow rule
@@ -7914,6 +7962,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           continue;
         }
         r = later.x;
+        // (Its content blocks for the PostToolUse hooks, Coder's own chats: mcpBlocks.)
+        if (!offered) { const blocks = mcpBlocks(r, scrub); if (blocks) toolFacts.set(c.id, blocks); }
         // (The owner's Stop while it ran, in Coder's own runs: as for a page fetch. Round 5.)
         if (await ranIntoStop(c.id)) { emit({ type: "result", id: c.id, code: -1, output: "(stopped by the owner while it ran)" }); postFor = null; return stopNow(reply, STOPPED_RUNNING); }
         const out = scrub(String(r.text || ""));

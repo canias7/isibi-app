@@ -249,7 +249,7 @@ test("WF7 the fetch, against a local server: Claude Code's Accept header and Cod
     assert.equal(asked[0], "https://docs.example:" + s.port + "/page", "http upgraded to https");
     assert.deepEqual(got, { text: "Hi\n==\n\nthere", facts: { kind: "page", bytes: 23, code: 200, codeText: "OK", contentType: "text/html; charset=utf-8", cacheBytes: 12, binary: false } });
     assert.equal(s.seen[0].headers.accept, "text/markdown, text/html, */*");
-    assert.equal(s.seen[0].headers["user-agent"], "Coder (gofarther.dev)");
+    assert.equal(s.seen[0].headers["user-agent"], "Coder-User (gofarther.dev; +https://gofarther.dev/)");
     assert.equal(s.seen[0].headers["accept-encoding"], "gzip, deflate, br");
     // Redirects on the same host (a leading www. aside) followed; the page is the last one's.
     asked.length = 0;

@@ -89,7 +89,7 @@ test("a custom agent runs with its own instructions, tools, effort and step limi
   assert.deepEqual(subs[0].tools.sort(), ["grep", "read", "subagent_handback"]);
   assert.equal(subs[0].effort, "high");
   assert.match(toolAnswer(r, "a1"), /^Looks fine\./);
-  assert.match(toolAnswer(r, "a2"), /Agent type 'ghost' not found\. Available agents: general-purpose, Explore, Plan, reviewer/);
+  assert.match(toolAnswer(r, "a2"), /Agent type 'ghost' not found\. Available agents: general-purpose, Explore, Plan, web-fetch, reviewer/);
 });
 
 test("a message's agent calls run side by side, at most 3 at once; with CODER_MAX_SUBAGENTS_AT_ONCE 1, one at a time", async () => {
