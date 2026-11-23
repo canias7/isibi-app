@@ -71,7 +71,7 @@ export const TOOL_SEARCH = "tool_search";
 // and request_secret, about 8,400 tokens a call, used only when the network or a key is the problem, are held back too and
 // loaded by tool_search when needed. Claude Code's cloud sends its remote tools on every call; Coder holds them back to save
 // that cost. A chat whose requests already carried them keeps them, as upfrontTools keeps tools that leave.)
-export const DEFERRED_TOOLS = Object.freeze(["lsp", "web_fetch", "web_search", "monitor", "stop_job", "todo_write", "task_create", "task_get", "task_list", "task_update", "enter_plan_mode", "exit_plan_mode", "request_secret", "get_environment", "list_environments", "update_environment", "create_environment", "switch_environment", "notebook_edit", "send_user_file", "cron_create", "cron_delete", "cron_list", "remote_trigger", "enter_worktree", "exit_worktree", "send_feedback", "end_conversation"]);
+export const DEFERRED_TOOLS = Object.freeze(["lsp", "web_fetch", "web_search", "monitor", "stop_job", "todo_write", "task_create", "task_get", "task_list", "task_update", "enter_plan_mode", "exit_plan_mode", "request_secret", "get_environment", "list_environments", "update_environment", "create_environment", "switch_environment", "notebook_edit", "send_user_file", "cron_create", "cron_delete", "cron_list", "remote_trigger", "enter_worktree", "exit_worktree", "send_feedback", "end_conversation", "send_message"]);
 
 /** Their search hints, Claude Code's own (its `searchHint`, matched by a keyword search), with Coder's swaps. */
 export const SEARCH_HINTS = Object.freeze({
@@ -108,6 +108,8 @@ export const SEARCH_HINTS = Object.freeze({
   exit_worktree: "leave the worktree, keeping or removing it",
   send_feedback: "draft a feedback report about Coder for the owner",
   end_conversation: "end this conversation (abuse, or the owner asked and confirmed)",
+  // (Claude Code's SendMessage, held back as it is: coder-agents.mjs, 2026-11-23.)
+  send_message: "send a message to an agent this job started, resuming it",
   // (Gloopy's own tools held back until needed, 2026-11-15, the owner: "yes fix it too": Coder's words, as above. Its
   // monitor, stop_job and request_secret have theirs.)
   pay: "pay at a checkout: fill in the owner's payment card",

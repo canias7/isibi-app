@@ -4,6 +4,18 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-23: Coder can hand work to helper agents, and run workflows
+
+Coder now has Claude Code's agent tools:
+- **Agent**: Coder starts a helper agent for a big or separate task (a general helper, a read-only searcher, or a read-only planner). It works in its own conversation and comes back with one report. You see its steps in the chat under its name.
+- **SubagentHandback**: how a helper gives its final report back.
+- **ListAgents** and **SendMessage**: Coder can see the helpers it started and send one a follow-up; the helper carries on with everything it already knew.
+- **Workflow**: a small script that runs many helpers (side by side where it can) and gives one combined result, for jobs like checking many files.
+
+**Cost limits:** at most 3 helpers at the same time and 10 in one job, workflows included. Helpers use the chat's own model and effort (Low unless you set it). The limits can be changed on the machine (`CODER_MAX_SUBAGENTS_AT_ONCE`, `CODER_MAX_SUBAGENTS_TOTAL`). Helpers can't ask you anything: a step that would need your OK is refused. Not available from GitHub.
+
+Not yet tried live in the browser.
+
 ## 2026-11-23: Five more Claude Code tools in Coder: worktrees, feedback, ending a chat, review findings
 
 - **Worktrees:** Coder can now make a separate working copy of the repository (a "worktree") when you ask it to, work there, and leave it, keeping it or deleting it. Before deleting one that has work not saved to GitHub, it stops and asks you on a card.
@@ -11,6 +23,7 @@ log (81,000 lines) is in git history.
 - **Ending a chat:** Coder can end a chat only if someone keeps being abusive after a warning, or if you ask it to and confirm. After that the chat takes no new messages; start a new chat to go on.
 - **Review findings:** `/code-review` now shows its findings as a tidy list card (file, line, what is wrong, how it goes wrong, how serious).
 - Not yet tried live in the browser on gofarther.dev; that needs a deploy.
+
 ## 2026-11-23: Coder can schedule work (Claude Code's scheduling tools)
 
 Coder now has Claude Code's five scheduling tools:
@@ -19,6 +32,7 @@ Coder now has Claude Code's five scheduling tools:
 - **Cloud scheduled tasks** (RemoteTrigger, for /schedule): "every weekday at 9, review open pull requests". Each run starts a new chat on the repository.
 
 **Cost limits** (every run is a paid Grok call): at most 10 scheduled prompts per chat, at most once a minute; cloud tasks at most once an hour (10 of them); at most 24 scheduled runs a day per chat, and 24 a day across cloud tasks; every run uses Low effort. Each limit can be changed with a Worker setting. Not yet tried live in the browser.
+
 ## 2026-11-23: Plugins and More in Coder's sidebar
 
 You sent a picture of the Claude app's sidebar and asked for the same in Coder, under Repositories, but without Search and Artifacts.
@@ -943,6 +957,7 @@ Found in the side-by-side test. Not the GitHub app's permissions: Coder's own ga
 ## 2026-11-17: Suggested next message in Coder's box
 
 After Coder answers, a suggested next message now shows in grey in the empty message box (like Claude Code's prompt suggestions, e.g. "now run the tests"). Tab, or the right arrow, puts it in the box; Enter sends it; typing anything hides it. None while Coder works, while a card waits, in plan mode or in Gloopy's tab. Settings has a "Prompt suggestions" switch to turn it off. It costs no extra Grok call: Coder's last answer adds one hidden line with the suggestion, which the page never shows. Tests: prompt-suggest.test.mjs.
+
 ## 2026-11-17: Undo lines say what was undone; test results come in a code block
 
 From the side-by-side with Claude Code on the web:
@@ -950,6 +965,7 @@ From the side-by-side with Claude Code on the web:
 - The Undo button in the changed-files box now reads like an undo: "Undid this turn's changes: b.txt is back as it was. Saved to the branch …". Rewind keeps its own "Rewound to before an earlier message" wording.
 - Coder's instructions now say: when reporting a test or build run, show the short relevant output (the summary lines) in a code block, as Claude Code does. The page already draws code blocks.
 Tests: rewind-restore.test.mjs, coder.test.mjs (CD43), files-box.test.mjs.
+
 ## 2026-11-17: Coder pushes after every answer that changed files
 
 Like Claude Code on the web: in your recording, after each answer that changed files Claude commits and pushes to its branch by itself, so a later "push the branch" finds nothing to push. Coder now does the same. When a turn changed files, its work is committed and pushed to the chat's branch, and the chat says "Pushed to the branch …". The push happens in the background after the answer is shown, so answers are not slower and the message box is free at once. A turn that changed nothing does not push. Read-only chats still keep their work on Coder's machine. The Push button now only shows if a push failed and work is waiting. Tests: push-later.test.mjs (PL2, PL3), save-speed.test.mjs (SV3), claude-parity.test.mjs.
@@ -973,9 +989,11 @@ From the one-message live test: (1) Grok skipped "Undo the last job" and "Rename
 ## 2026-11-16: Coder pushes and opens pull requests right away, mid-turn
 
 In the live test, when your list said "commit and push, open a draft pull request, read its comments", Coder said the push and the PR were "queued for the end of this turn", so it could not read the PR's comments. Claude Code on the web pushes and opens the PR right away (its git push goes through its GitHub proxy at any time). Now Coder does the same: "push" commits and pushes at once (your GitHub login still never goes to Coder's machine), and "pull request" pushes, opens it (draft if asked) and gives Coder its number, so it can read its comments in the same turn. The chat still says "Pushed to the branch …" and "Draft pull request #N opened …" once. A mid-turn push is its own commit, so Undo takes a job's commits back one at a time. Jobs started from GitHub and read-only chats work as before. Tests added (push-now.test.mjs).
+
 ## 2026-11-16: The "Suggested connectors" card now shows whenever you ask about connectors
 
 In a live test, "Search connector tools" showed no card: Coder's tool search found the secret tool, which isn't about connectors. Claude Code shows its Suggested connectors card whenever connectors are relevant (its docs: "in-chat recommendations shown when relevant to the user's task"). Coder now has its own small tool for it, suggest_connectors, and is told to use it when you ask about connectors, integrations or MCP ("search connector tools", "what connectors do I have", "connect Linear") or want a service it has no tools for. The card is the same as before. Coder's chat only (not Gloopy, not jobs started from GitHub). Tests added (conn-suggest.test.mjs).
+
 ## 2026-11-16: Enter always sends in a new chat; card buttons work while Coder redraws
 
 Two fixes from the live test. (1) In a brand-new chat, just after picking a repository, the page was still loading the chat when you pressed Enter, and the message was silently dropped (it stayed in the box). Now a message sent while the chat loads goes out as soon as it has loaded. (2) While Coder works the page redraws the chat several times a second; if that happened between pressing and releasing a card's button (Yes/No on a permission card, a plan, a question, a key or environment card), the browser lost the click. Now, when the button you pressed was redrawn and you release on its new copy, the page clicks it for you. Tests added (cc-page-races.test.mjs).
@@ -983,12 +1001,15 @@ Two fixes from the live test. (1) In a brand-new chat, just after picking a repo
 ## 2026-11-16: A "changed files" box under Coder's answer
 
 Like Claude Code on the web: after a turn that changed files, a small box under Coder's answer says "Created 2 files" (or "Edited 1 file" / "Changed N files"), with a row per file (its name, and +added −removed lines). More than three files: the first two and "See all", which opens See changes. "Undo" on the latest turn puts the files back as they were before your message (the same as Rewind's "Restore code only"), without asking; it is hidden when there is nothing to undo or a newer turn exists. Only in Coder's chat, not Gloopy's. Tests added (files-box.test.mjs).
+
 ## 2026-11-16: Coder can read a pull request's comments; long task lists end with a table
 
 From the side-by-side with Claude Code: (1) Coder has a new tool, pr_read, that reads a pull request's reviews, its comments on lines (file:line, who, what) and its conversation, like Claude Code's GitHub tool. It is read on Coder's server with your GitHub login, which never goes to Coder's machine; not offered in jobs started from GitHub. Before, Coder fell back to gh commands. (2) Coder is told: when your message is a list of several separate tasks, end with a short "Check | Result" table (the chat already draws tables). (3) Checked notify: it sends a real Web Push to every browser or installed web app where you turned notifications on (Settings), skipped if you are looking at that chat. It does not send email, and the phone app from the app stores (Capacitor) has no push yet; on iPhone, push works from gofarther.dev added to the Home Screen. Tests added.
+
 ## 2026-11-16: "Suggested connectors" card, like Claude Code's
 
 When Coder searches for connector tools (for example you ask "search your connector tools for anything about issues"), or its search finds nothing, the chat now shows a "Suggested connectors" card (with a small Beta tag): each of your connectors with its logo, its name and one button. Connect for one not signed in yet, Use for one that works but is off in this chat (pressing it turns it on for this chat: "Zapier is on for this session."), Reconnect for one that can't be reached, with a red line "Can't reach Neon right now. It may need to be reconnected." One already on just says On. "Browse more connectors" opens the Connectors page. Coder's tab only. Tests added.
+
 ## 2026-11-16: A chat no longer stays busy for minutes after Coder answers
 
 In the all-tools test, the web search answered in about 15 seconds, but the chat stayed busy for 6 more minutes. The cause: after Coder answers, one save of the turn is allowed, and if that save got cut off, nothing else could save it until the once-a-minute cleanup. Now the save can be taken again after 45 seconds, so the next look of the page finishes it. Tested in claim-lease.test.mjs.
@@ -1122,6 +1143,7 @@ On the branch, not live yet. Live after "merge and deploy". Not tried on Fly.io 
 ## 2026-11-15: Coder can rename a chat, and so can you
 
 In the live test you told Coder "hey, name this chat testing" and it had no way to. Now it does, like Claude Code renaming its session: Coder has a rename tool, the chat shows a "Renamed chat" step ("This chat is now named “testing”."), and the new name shows in the sidebar and the top bar. You can rename it yourself too: the small ▾ next to the chat's name in the top bar has Rename; type the new name, Enter saves, Esc cancels. Names are 1 to 80 characters. A job started from GitHub can't rename the chat. Not yet tried live in the browser; not deployed.
+
 ## 2026-11-15: A faster first message, and a message is never lost (your word: "a")
 
 On the branch, not live yet. Live after "merge and deploy". Not tried on Fly.io yet: it needs your test in the browser.
@@ -1140,6 +1162,7 @@ On the branch, not live yet. Live after "merge and deploy". Not tried on Fly.io 
 - **Step times.** Each message now records how long each step took (machine start, clone, setup, Grok's answer, the
   save), so we can see where the seconds go.
 - Tests: FS1 to FS6, and CD152, CD153, CD192 updated.
+
 ## 2026-11-15: The typewriter plays on the new-chat page (your words: "put the writer there too, doing funny stuff", "instead of fix bug put funny words")
 
 - On the "New chat: pick a repository" page, Coder's typewriter now sits above the title and types all the time.
@@ -5284,7 +5307,6 @@ Copied from Claude Code's docs, from Claude Code itself (its own program text, a
 - **It grows tool by tool:** as each tool passes its live test, its section is written and its badge turns to Tested.
 - **Every number on it comes from Coder's code** (100,000 characters a read, 256 KB, 2,000-pixel pictures, 20 PDF pages, and so on). Test CD248 checks them, so the page can't drift from what Coder really does. It also checks the page has no script and every link in its list goes somewhere. All 257 tests pass.
 - Live with the next merge and deploy, on your word; then tried in the browser.
-
 
 ## 2026-11-08: Read: the two small display points (your word: "Do this pls")
 

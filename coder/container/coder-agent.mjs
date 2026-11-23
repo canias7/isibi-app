@@ -74,6 +74,7 @@ import { fileNameOf } from "./gloopy-browser.mjs";
 import { needsCheck, stepWords, stepSends, gloopyCheck, gloopyMonitor, MONITOR_EVERY, MONITOR_MAX, ownerWords, cleanRules, cleanSites, siteFor, plain, decide, formWords, markedNote, taughtNote, requestWords, bodyPreview, CARD_TTL_MS, signinCheck, signinWarning, WARNINGS, readsInFull } from "./gloopy-check.mjs";
 import { cleanPermissions, permissionLabel } from "./gloopy-permissions.mjs";
 import { asText, asNumber } from "./coder-text.mjs";
+import { AGENT_TOOL, LIST_AGENTS_TOOL, SEND_MESSAGE_TOOL, WORKFLOW_TOOL, SUBAGENT_HANDBACK_TOOL, AGENT_TOOL_NAMES, AGENT_TYPES, SUBAGENT_SYSTEM, SUBAGENT_ROUNDS, SUBAGENT_MS, WORKFLOW_PASS_S, subagentCaps, subagentBudget, subagentTools, agentToolCall } from "./coder-agents.mjs";
 /** A contact entry from the owner's Vault in one line (as gloopy-agent.mjs's contactWords, kept here to import nothing of it). */
 const contactWords = (x) => { const place = [x.line1, x.line2, x.city, [x.region, x.postal].filter(Boolean).join(" "), x.country].filter(Boolean).join(", "); return [x.nickname ? "“" + x.nickname + "”" : "", [x.name, place].filter(Boolean).join(", "), x.phone, x.email].filter(Boolean).join(" · "); };
 import { checkSchedule, nextRun, whenWords, whenLocal, scheduleLine, SCHEDULES_MAX, WAKEUPS_MAX, WAKE_MIN_MINUTES, cleanWebhook, webhookLine, WEBHOOKS_MAX, HOOK_ID } from "./gloopy-schedule.mjs";
@@ -1518,6 +1519,13 @@ export const CODER_TOOLS = Object.freeze([
   // CLAUDE CODE'S ReportFindings (upfront, as in Claude Code), EnterWorktree, ExitWorktree, SendFeedback and EndConversation
   // (held back until tool_search loads them, as Claude Code defers them): coder-worktree.mjs, 2026-11-23.
   ...CC_EXTRA_TOOLS,
+  // CLAUDE CODE'S AGENT, SUBAGENTHANDBACK, LISTAGENTS, SENDMESSAGE AND WORKFLOW (2026-11-23; coder-agents.mjs): subagents on
+  // Coder's own loop, as Gloopy's helpers run, within the owner's cost caps. send_message is held back (coder-toolsearch.mjs).
+  AGENT_TOOL,
+  SUBAGENT_HANDBACK_TOOL,
+  LIST_AGENTS_TOOL,
+  SEND_MESSAGE_TOOL,
+  WORKFLOW_TOOL,
 ]);
 /** A chat's title from an approved plan (Claude Code titles the session after the plan): its first Markdown heading, else its
  * first non-empty line, as plain text on one line, at most 80 characters; "" when there is none. */
@@ -1751,7 +1759,7 @@ export function modeChangeNote(from, to, { planExited = PLAN_EXITED, autoExit = 
 // mode, which offers only the tools it allows. Each of these still refuses in such a job if called anyway.
 // (Nor enter_plan_mode: Claude Code offers EnterPlanMode only where someone can be asked, never in a non-interactive run, and
 // a job from GitHub is always Auto. 2026-11-14.)
-export const NOT_FROM_GITHUB = Object.freeze(["request_secret", ...ENV_TOOL_NAMES, "pr_comments", "pr_read", "pr_update", "suggest_connectors", "undo_last_job", "auto_fix", "enter_plan_mode", "rename_chat", "enter_worktree", "exit_worktree", "end_conversation", "send_feedback", ...CRON_TOOL_NAMES]);
+export const NOT_FROM_GITHUB = Object.freeze(["request_secret", ...ENV_TOOL_NAMES, "pr_comments", "pr_read", "pr_update", "suggest_connectors", "undo_last_job", "auto_fix", "enter_plan_mode", "rename_chat", "enter_worktree", "exit_worktree", "end_conversation", "send_feedback", "agent", "subagent_handback", "list_agents", "send_message", "workflow", ...CRON_TOOL_NAMES]);
 export const GITHUB_TOOLS = Object.freeze(CODER_TOOLS.filter((t) => !NOT_FROM_GITHUB.includes(t.function.name)));
 /**
  * THIS CHAT'S TOOL LIST, bash as its environment sets it: with background commands off (CODER_DISABLE_BACKGROUND_TASKS,
@@ -4117,6 +4125,10 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   let approvalRequest = null, signinRequest = null, handoffRequest = null, cardRequest = null, keyRequest = null;
   // GLOOPY'S HELPERS (2026-11-09): how many this message has started.
   let helpersUsed = 0;
+  // CODER'S SUBAGENTS (2026-11-23; coder-agents.mjs): the job's budget (the cost caps; a subagent shares its parent's), the
+  // agents it started and its workflow runs.
+  const agentBudget = deps.subagentBudget && typeof deps.subagentBudget.take === "function" ? deps.subagentBudget : subagentBudget(subagentCaps(deps.subagentEnv || process.env));
+  const agentsStarted = new Map(), workflowRuns = new Map();
   // GLOOPY'S PAGES published in this turn (the Worker keeps them when the turn ends).
   const pageRequests = [];
   // Gloopy's schedules it stopped in this turn, and the wake-ups it set (the Worker keeps the schedules; it applies these
@@ -7818,6 +7830,21 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // as Claude Code's get an MCP tool's: c.keepHead.)
         c.keepHead = CONNECTOR_DATA;
         reply(CONNECTOR_DATA + told);
+      } else if (AGENT_TOOL_NAMES.includes(c.name)) {
+        // CLAUDE CODE'S AGENT, SUBAGENTHANDBACK, LISTAGENTS, SENDMESSAGE AND WORKFLOW (2026-11-23; coder-agents.mjs): each
+        // subagent runs on this same loop with the chat's model and effort, refused what would need the owner's card.
+        const left = Math.max(30_000, maxMs - (now() - started) - 30_000);
+        const subTools = [...chatTools, ...STOCK_TOOLS.values()];
+        const got = await agentToolCall(c, {
+          emit, reply, budget: agentBudget, agents: agentsStarted, runs: workflowRuns, isSub: !!(offered && offered.has("subagent_handback")),
+          stopped,
+          startSub: ({ type, prompt, messages: past, label, emit: subEmit }) => runCoder({ ...deps, emit: subEmit, subagentBudget: agentBudget }, { text: prompt, messages: past || [], system: SUBAGENT_SYSTEM + (AGENT_TYPES[type].note ? "\n\n" + AGENT_TYPES[type].note : ""), tools: subagentTools(subTools, type), context, base, model, effort, mode: modeNow(), rules, hooks, denyInstead: true, nudges: false, who: "Coder's agent “" + label + "”", asHelper: true, github: false, tasksOff: true, maxRounds: SUBAGENT_ROUNDS, maxMs: Math.min(SUBAGENT_MS, left) }),
+          step: typeof deps.workflowStep === "function" ? deps.workflowStep : async (a) => { const r = await appTool(deps, "workflow_step", a, { timeoutS: WORKFLOW_PASS_S }); try { return JSON.parse(r.output); } catch { return { status: "error", error: r.output.trim().slice(0, 400) || "the script's pass failed" }; } },
+          readText: async (p) => { try { const r = await deps.exec({ command: "cat -- '" + String(p).replace(/'/g, "'\\''") + "'", timeoutS: 15, tool: true }); return r && r.code === 0 ? { text: String(r.output || "") } : { error: "could not read " + p }; } catch { return { error: "could not read " + p }; } },
+        });
+        for (const u of got.usage || []) usage.push(u);
+        if (got.handback !== undefined) return end("done", { handback: got.handback });
+        if (got.stop) { emit({ type: "stopped" }); return end("stopped"); }
       } else reply("Error: No such tool available: " + c.name.slice(0, 40) + " (the tools are bash, read, edit, write, notebook_edit, lsp, web_fetch, web_search, monitor, stop_job, ask_user, enter_plan_mode, request_secret, get_environment, update_environment, create_environment, switch_environment, list_environments, review, pr_comments, pr_read, pr_update, suggest_connectors, undo_last_job, task_create, task_get, task_list, task_update, notify, rename_chat, report_findings, enter_worktree, exit_worktree, send_feedback, end_conversation, push_branch and pull_request; to finish, answer in words)");
       } catch (e) {
         // (ROUND 5: a round that ends early in Coder's own runs. The call whose turn ended it has its answer (one its turn could

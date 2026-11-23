@@ -2646,6 +2646,7 @@ a new chat on its repository. Caps, each a Worker variable: `CODER_CRON_MAX` (10
 chat), `CODER_CRON_MIN_MINUTES` (1), `CODER_TRIGGER_MIN_HOURS` (1), `CODER_TRIGGER_MAX`
 (10), `CODER_CRON_RUNS_PER_DAY` (24 a chat, and 24 across cloud tasks, UTC),
 `CODER_CRON_EFFORT` (low). Recurring crons end after 7 days; wake-ups 60-3600 seconds.
+
 WORKTREES, FEEDBACK, ENDING A CHAT AND REVIEW FINDINGS (2026-11-23, `container/coder-worktree.mjs`):
 Claude Code's EnterWorktree, ExitWorktree, SendFeedback and EndConversation as `enter_worktree`,
 `exit_worktree`, `send_feedback` and `end_conversation` (held back until `tool_search` loads them;
@@ -2657,6 +2658,18 @@ owner on a card. `send_feedback` only shows a draft card (with Copy) kept with t
 sent. `end_conversation` (sustained abuse, or the owner asked and confirmed) ends the job, and the
 Worker then refuses new messages in that chat (`convoEnded`). `report_findings` shows the findings
 (file, line, summary, failure scenario, category, severity) as a list card.
+
+SUBAGENTS AND WORKFLOWS (2026-11-23, `coder-agents.mjs`): Claude Code's Agent,
+SubagentHandback, ListAgents, SendMessage and Workflow as `agent`, `subagent_handback`,
+`list_agents`, `send_message` (held back until `tool_search` loads it) and `workflow`.
+A subagent (general-purpose, Explore or Plan) runs on Coder's own loop, as Gloopy's
+helpers do, with the chat's model and effort, its own tools, and asks refused instead
+of shown as cards; `subagent_handback` ends it with its report; `send_message` resumes
+it with its whole history. A workflow's script runs in the sandbox as `dev`
+(`coder-tools.mjs workflow_step`), pass after pass, its `agent()` calls run as
+subagents in between; `resumeFromRunId` reuses the calls already done. Cost caps: at
+most 3 subagents at once and 10 per job, workflows included
+(`CODER_MAX_SUBAGENTS_AT_ONCE`, `CODER_MAX_SUBAGENTS_TOTAL`). Not offered from GitHub.
 
 HOW MUCH ONE READ GIVES (batch 8, MISS-79): `CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS`
 (or `CODER_FILE_READ_MAX_OUTPUT_TOKENS`), in the environment or a repository's
