@@ -4,6 +4,15 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-23: Coder can schedule work (Claude Code's scheduling tools)
+
+Coder now has Claude Code's five scheduling tools:
+- **Scheduled prompts in a chat** (CronCreate, CronDelete, CronList): "every 30 minutes, check the build" or "at 5pm, remind me". Each run is a new message in that chat, sent only when the chat is free. Repeating ones stop by themselves after 7 days.
+- **Self-paced loop** (ScheduleWakeup, for /loop): Coder picks when to look again, between 1 minute and 1 hour.
+- **Cloud scheduled tasks** (RemoteTrigger, for /schedule): "every weekday at 9, review open pull requests". Each run starts a new chat on the repository.
+
+**Cost limits** (every run is a paid Grok call): at most 10 scheduled prompts per chat, at most once a minute; cloud tasks at most once an hour (10 of them); at most 24 scheduled runs a day per chat, and 24 a day across cloud tasks; every run uses Low effort. Each limit can be changed with a Worker setting. Not yet tried live in the browser.
+
 ## 2026-11-23: The Claude Code vs Coder sheet, from all of Claude Code's docs
 
 You asked for everything from Claude Code's docs, in the layout from your picture. The file is [`docs/claude-code-vs-coder.xlsx`](claude-code-vs-coder.xlsx), with a short guide in [`docs/claude-code-vs-coder.md`](claude-code-vs-coder.md).

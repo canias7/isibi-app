@@ -2635,6 +2635,18 @@ never through a link, at most 5 MB) and handed with the job's pass to the Worker
 size and caption, Download, and Preview for a picture (the page's rules show pictures, not PDFs, from data: addresses) unless `display` is
 `attach`; `proactive` also sends a notification.
 
+SCHEDULING (2026-11-23): Claude Code's CronCreate, CronDelete, CronList, ScheduleWakeup
+and RemoteTrigger as `cron_create`, `cron_delete`, `cron_list`, `schedule_wakeup` (upfront)
+and `remote_trigger` (the other four held back for `tool_search`); hooks and rules see
+Claude Code's names; never from GitHub. The tools (`container/coder-schedule.mjs`) answer
+in words and return what changed with the turn; the Worker (`src/coder-schedules.mjs`)
+keeps it in R2, checked again, and its every-minute check starts the runs: a cron or
+wake-up as a message in its chat, only while the chat is idle; a cloud scheduled task as
+a new chat on its repository. Caps, each a Worker variable: `CODER_CRON_MAX` (10 crons a
+chat), `CODER_CRON_MIN_MINUTES` (1), `CODER_TRIGGER_MIN_HOURS` (1), `CODER_TRIGGER_MAX`
+(10), `CODER_CRON_RUNS_PER_DAY` (24 a chat, and 24 across cloud tasks, UTC),
+`CODER_CRON_EFFORT` (low). Recurring crons end after 7 days; wake-ups 60-3600 seconds.
+
 HOW MUCH ONE READ GIVES (batch 8, MISS-79): `CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS`
 (or `CODER_FILE_READ_MAX_OUTPUT_TOKENS`), in the environment or a repository's
 settings `env`, sets it, its tokens at 4 characters each (`readTokensChars`); unset,
