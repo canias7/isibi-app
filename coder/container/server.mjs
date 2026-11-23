@@ -2825,6 +2825,66 @@ export async function pushRepo({ dir, repo, branch, token, headers = [], message
   return { ok: true, pushed: committed || !/Everything up-to-date/.test(p.output), changed: committed, sha, unpushed: 0, ...(committed ? await commitFiles(dir, o) : {}), ...told };
 }
 /**
+ * CLAUDE CODE'S EnterWorktree AND ExitWorktree, THEIR GIT PART BY ROOT (the live test of 2026-11-23: `git worktree add` from the
+ * chat's shell failed "cannot lock ref refs/heads/worktree-wt1", because the chat's git folder is root's and only readable by
+ * the AI's commands, on purpose: the audit keeps hooks, config and refs out of the AI's reach). So Coder's service makes the
+ * branch and the worktree, as it commits and pushes: with the AI's commands paused (quietly's midTurn), in one of the chat's
+ * own repositories (`main` must be one of `dirs`), only under its .claude/worktrees/ (each folder on the way a real folder,
+ * never a link, made here when missing), on a new branch worktree-<name>; the new worktree's files are then handed to the
+ * AI's user (giveTree), and the git folder's new worktree record stays root's, readable by all. "remove" takes away only a
+ * worktree git lists under .claude/worktrees/ of that repository, and its branch. The sandbox is not changed.
+ * op "add": { main, name } → { ok, path, branch } | { ok: false, why }. op "remove": { main, path, branch } → { ok } | { ok: false, why }.
+ */
+export async function worktreeNow({ op, main, name, path, branch, dirs, gitRoot = GIT_ROOT, root = PROJECT_ROOT, owner = DEV, quiet = quietly }) {
+  const no = (why) => ({ ok: false, why });
+  const top = (Array.isArray(dirs) ? dirs : []).find((d) => typeof main === "string" && resolve(main) === d);
+  if (!top) return no("that folder is not one of this chat's repositories");
+  const o = { gitDir: gitDirFor(top, gitRoot), remote: DEFAULT_REMOTE, root };
+  if (!(await stat(join(o.gitDir, "HEAD")).then(() => true, () => false))) return no("not in a git repository");
+  const base = join(top, ".claude", "worktrees");
+  const go = await quiet({ midTurn: true });
+  if (!go) return no(NOT_STOPPED);
+  try {
+    const bad = await projectDirProblem(top, root);
+    if (bad) return no(bad);
+    if (op === "add") {
+      const n = String(name || "");
+      if (!n || n.length > 64 || !n.split("/").every((p) => /^[A-Za-z0-9._-]+$/.test(p) && p !== "." && p !== "..")) return no("Invalid worktree name");
+      const br = "worktree-" + n;
+      const target = join(base, n);
+      if ((await gitIn(top, ["check-ref-format", "--branch", br], o)).code !== 0) return no("Invalid worktree name");
+      if ((await gitIn(top, ["show-ref", "--verify", "--quiet", "refs/heads/" + br], o)).code === 0) return no("the branch " + br + " already exists");
+      // Each folder from the checkout down to the new worktree's parent: a real folder (made here, the AI's), never a link.
+      let at = top;
+      for (const part of relative(top, dirname(target)).split("/")) {
+        at = join(at, part);
+        const st = await lstat(at).catch(() => null);
+        if (st && (!st.isDirectory() || st.isSymbolicLink())) return no(at + " is not a plain folder, so no worktree was made there");
+        if (!st) { await mkdir(at, { mode: 0o755 }); if (owner) await lchown(at, owner.uid, owner.gid); }
+      }
+      if ((await realpath(dirname(target)).catch(() => "")) !== dirname(target)) return no(dirname(target) + " leads somewhere else, so no worktree was made there");
+      if (await lstat(target).then(() => true, () => false)) return no("A worktree named " + n + " already exists at " + target + "; pass it as path to enter it");
+      const a = await gitIn(top, ["worktree", "add", "-q", "-b", br, target, "HEAD"], o);
+      if (a.code !== 0) return no("git could not create the worktree: " + String(a.output || "").trim().slice(0, 200));
+      await new Promise((r) => spawn("chmod", ["-R", "u+rwX,go+rX,go-w", join(o.gitDir, "worktrees")]).on("close", r).on("error", r));
+      if (owner) { const g = await giveTree(target, owner, { root }); if (g) return no(g); }
+      return { ok: true, path: target, branch: br };
+    }
+    if (op === "remove") {
+      const p = resolve(String(path || ""));
+      if (!p.startsWith(base + "/")) return no("only a worktree under .claude/worktrees/ of this repository is removed");
+      const list = await gitIn(top, ["worktree", "list", "--porcelain"], o);
+      const listed = String(list.stdout || "").split("\n").filter((l) => l.startsWith("worktree ")).map((l) => l.slice(9));
+      if (!listed.includes(p)) return no(p + " is not a worktree of this repository");
+      const r = await gitIn(top, ["worktree", "remove", "--force", "--force", p], o);
+      if (r.code !== 0) return no("git could not remove the worktree: " + String(r.output || "").trim().slice(0, 200));
+      if (branch && /^[A-Za-z0-9._/-]{1,200}$/.test(branch)) await gitIn(top, ["branch", "-D", branch], o);
+      return { ok: true };
+    }
+    return no("unknown worktree operation");
+  } catch (e) { return no(String((e && e.message) || e).slice(0, 200)); } finally { go(); }
+}
+/**
  * PUSHED NOW, IN THE MIDDLE OF A TURN (2026-11-16, like Claude Code's cloud session, whose git pushes through its GitHub
  * proxy whenever Claude runs it: a live test asked to push, open a draft pull request and read its comments in one turn).
  * Coder's push_branch and pull_request call this from the job: what is on the disk is committed now (the job's first commit;
@@ -5787,6 +5847,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         // get_environment and the cards' checks ask the Worker, with this job's pass (coder-envtools.mjs, src/coder-envapi.mjs).
         ...(via ? { envApi: envCaller(via) } : {}),
         // PUSH NOW (push_branch, pull_request: pushMidTurn), never for a read-only chat (its work stays here).
+        // WORKTREES BY ROOT (enter_worktree, exit_worktree, an agent's isolation: worktreeNow), in the chat's own repositories.
+        worktree: (a) => worktreeNow({ ...a, dirs: [dir, ...extras.map((x) => x.dir)], gitRoot, root }),
         ...(body.readOnly === true ? {} : { pushNow: (message) => pushMidTurn({ body, project, root, gitRoot, gitVia, remote, message }), dirtyNow: () => treeDirty([dir, ...extras.map((x) => x.dir)], gitRoot, root), pushAtEnd: process.env.CODER_PUSH_IN_TURN === "1" }),
         // (The admin sandbox could not start on a machine made for one: no command runs. Fix 7.)
         boxDown: t.boxDown || "",

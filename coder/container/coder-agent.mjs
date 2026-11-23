@@ -36,7 +36,7 @@ import { PICS_MARK, WRITE_MARK, FACTS_MARK, WRITE_SHOW_LINES, PDF_PAGES_MAX, PDF
 import { okHost, HEADER_RE, PREFIXES, listProblem } from "./coder-secrets.mjs";
 import { credentialHost, credentialHeader, credentialPrefix, neverKeyWhy } from "./coder-secrets.mjs";
 import { inputCheckFor } from "./coder-inputs.mjs";
-import { CC_TOOLS as CC_EXTRA_TOOLS, checkEnterWorktree, checkExitWorktree, checkEndConversation, checkSendFeedback, checkReportFindings, randomWorktreeName, enterNewScript, enterPathScript, exitFactsScript, exitScript, markOf, exitState, atRiskWords, exitRefusedText, exitBusyText, NO_WORKTREE, findingsResult, findingsText, FEEDBACK_QUEUED, FEEDBACK_MAX, ENDED_RESULT, endConversationDenied, enterResult, exitResult, feedbackQuietText } from "./coder-worktree.mjs";
+import { CC_TOOLS as CC_EXTRA_TOOLS, checkEnterWorktree, checkExitWorktree, checkEndConversation, checkSendFeedback, checkReportFindings, randomWorktreeName, enterNewScript, enterPathScript, whereScript, whereOf, enterMadeScript, exitFactsScript, exitScript, markOf, exitState, atRiskWords, exitRefusedText, exitBusyText, NO_WORKTREE, findingsResult, findingsText, FEEDBACK_QUEUED, FEEDBACK_MAX, ENDED_RESULT, endConversationDenied, enterResult, exitResult, feedbackQuietText } from "./coder-worktree.mjs";
 // (A reply's calls side by side, in Claude Code's groups: coder-parallel.mjs. 2026-11-14.)
 import { safeCall, groupEnd, earlyRuns, RoundClosing, closedAs, interruptedNote, SKIPPED_BY_CHECK, INTERRUPTED_TOOL_USE } from "./coder-parallel.mjs";
 import { searchToolDef, GREP_INLINE_MAX, GLOB_INLINE_MAX, SEARCH_TIMEOUT_MS, splitPattern, checkedAt } from "./coder-search.mjs";
@@ -1792,6 +1792,24 @@ export function modeChangeNote(from, to, { planExited = PLAN_EXITED, autoExit = 
 // mode, which offers only the tools it allows. Each of these still refuses in such a job if called anyway.
 // (Nor enter_plan_mode: Claude Code offers EnterPlanMode only where someone can be asked, never in a non-interactive run, and
 // a job from GitHub is always Auto. 2026-11-14.)
+/**
+ * A NEW WORKTREE MADE BY CODER'S SERVICE (2026-11-23, the live test: the chat's git folder is root's and read-only to its
+ * commands, so `git worktree add` there could not write the branch). The shell says where it is (whereScript), the service
+ * makes the branch and the worktree as root (server.mjs worktreeNow), then the shell copies the .worktreeinclude files and
+ * moves in (enterMadeScript). → { r, main } (r: that last script's answer) or { error }.
+ */
+export async function makeWorktreeByService(deps, run, name) {
+  const f = markOf((await run(whereScript(), "Find the repository")).output);
+  if (!f || f.kind !== "WHERE") return { error: f && f.kind === "ERR" ? f.rest : "could not find the repository" };
+  const w = whereOf(f.rest);
+  if (w.inwt) return { error: "Already in a worktree session: from inside a worktree only path works, under .claude/worktrees/" };
+  let made;
+  try { made = await deps.worktree({ op: "add", main: w.main, name }); } catch (e) { made = { ok: false, why: String((e && e.message) || e) }; }
+  if (!made || !made.ok) return { error: String((made && made.why) || "git could not create the worktree").slice(0, 300) };
+  return { r: await run(enterMadeScript({ path: made.path, branch: made.branch, main: w.main }), "Enter worktree"), main: w.main };
+}
+/** What a subagent that answered in words without subagent_handback is told, once (Claude Code's own reminder, in Coder's words). */
+export const HANDBACK_NUDGE = "(Note from Coder's app, not the owner: your final report is delivered through subagent_handback. Only a subagent_handback call reaches Coder as your result; plain text you write at the end is not delivered. Call subagent_handback now with your full report as message. It ends your run.)";
 export const NOT_FROM_GITHUB = Object.freeze(["request_secret", ...ENV_TOOL_NAMES, "pr_comments", "pr_read", "pr_update", "suggest_connectors", "undo_last_job", "auto_fix", "enter_plan_mode", "rename_chat", "enter_worktree", "exit_worktree", "end_conversation", "send_feedback", "agent", "subagent_handback", "list_agents", "send_message", "workflow", "artifact", ...CRON_TOOL_NAMES, ...PLUGIN_TOOL_NAMES, PROJECTS_TOOL_NAME, ...CHROME_TOOL_NAMES]);
 export const GITHUB_TOOLS = Object.freeze(CODER_TOOLS.filter((t) => !NOT_FROM_GITHUB.includes(t.function.name)));
 /**
@@ -4255,8 +4273,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       chat: { model, effort }, bg: agentBg, early: agentEarly, pluginAgents: Array.isArray(pluginAgents) ? pluginAgents : [],
       customAgents: () => (customAgentsP = customAgentsP || (typeof deps.customAgents === "function" ? Promise.resolve(deps.customAgents()) : shRun(agentFilesScript(), 20).then((r) => customAgentsFrom(agentFilesOf(r && r.output)).defs)).catch(() => [])),
       worktree: {
-        create: async (name) => { const r = await shRun(agentWorktreeScript(name), 120); const m = markOf(r && r.output); if (!m || m.kind !== "OK") return { error: m && m.kind === "ERR" ? m.rest : "git could not create the worktree" }; const [path, branch] = m.rest.split("|"); return { path, branch }; },
-        finish: async (wt) => { const m = markOf((await shRun(agentWorktreeFinishScript(wt), 120)).output); return { kept: !(m && (m.kind === "REMOVED" || m.kind === "GONE")) }; },
+        create: async (name) => { if (typeof deps.worktree === "function") { const w = await makeWorktreeByService(deps, (cmd) => shRun("(\n" + cmd + "\n)", 120), name); if (w.error) return { error: w.error }; const m = markOf(w.r && w.r.output); if (!m || m.kind !== "OK") return { error: m && m.kind === "ERR" ? m.rest : "could not set up the worktree" }; const [path, branch] = m.rest.split("|"); return { path, branch, main: w.main }; } const r = await shRun(agentWorktreeScript(name), 120); const m = markOf(r && r.output); if (!m || m.kind !== "OK") return { error: m && m.kind === "ERR" ? m.rest : "git could not create the worktree" }; const [path, branch] = m.rest.split("|"); return { path, branch }; },
+        finish: async (wt) => { const m = markOf((await shRun(agentWorktreeFinishScript(wt, { service: typeof deps.worktree === "function" }), 120)).output); if (m && m.kind === "CLEAN" && typeof deps.worktree === "function") { const w = await deps.worktree({ op: "remove", main: m.rest.trim(), path: wt.path, branch: wt.branch }).catch(() => null); return { kept: !(w && w.ok) }; } return { kept: !(m && (m.kind === "REMOVED" || m.kind === "GONE")) }; },
       },
       // (SubagentStart: matched on the agent's type; its additionalContext goes to the agent. SubagentStop: a block or
       // additionalContext keeps the agent going with that as its next instruction.)
@@ -4356,6 +4374,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   // Like the installs above, it is reminded once, before it finishes, to say
   // which command failed and to propose a fix on the card.
   let setupNudged = false, saidAll = "", actNudged = false;
+  let handbackNudged = false;
   const INSTALL_RE = /(?:^|[;&|(]\s*|\s)((?:npm (?:ci|install|i)|pnpm (?:install|i)|yarn(?: install)?|pip3? install -r [^\s;&|]+|pip3? install -e \.|poetry install|bundle install|go mod download|cargo fetch)(?=$|[\s;&|)]))/g;
   // The saved history keeps a note in place of each picture.
   const noPics = (m) => (m.images ? { role: m.role, content: m.content + "\n[" + m.images.length + " picture" + (m.images.length > 1 ? "s" : "") + " attached]", ...(m.appNote === true ? { appNote: true } : {}) } : m);
@@ -4980,6 +4999,15 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       clearTimeout(waitT);
       const notes = takeAgentNotes();
       if (notes.length) { if (said) { emit({ type: "text", text: scrub(said) }); lastSaid = scrub(said).slice(0, 4000); } convo.push({ role: "user", appNote: true, content: "(Note from Coder's app, not the owner: a background agent finished.\n" + notes.join("\n\n") + ")" }); continue; }
+    }
+    // A SUBAGENT THAT ENDS IN WORDS WITHOUT ITS HANDBACK (the live test of 2026-11-23: in Auto mode the helper answered in words
+    // and no handback was shown). Claude Code tells a subagent that has SubagentHandback "Only a SubagentHandback call reaches
+    // your caller as your result; plain text you write at the end is not delivered", so it calls it. Coder tells it the same,
+    // once: the next round it calls subagent_handback (if it still answers in words, those words are its report, as before).
+    if (!calls.length && subagent && offered && offered.has("subagent_handback") && !handbackNudged) {
+      handbackNudged = true;
+      convo.push({ role: "user", appNote: true, content: HANDBACK_NUDGE });
+      continue;
     }
     // A STEP ANNOUNCED, NOT TAKEN (live test, 2026-11-13; aboutToAct): once a turn, Gloopy is told, and goes on.
     const announced = !calls.length && who === "Gloopy" && !actNudged ? aboutToAct(said) : "";
@@ -7776,8 +7804,14 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         if (enter) {
           const name = v.args.path ? "" : v.args.name || randomWorktreeName();
           emit({ type: "bash", id: c.id, tool: "worktree", verb: "Entered a worktree", command: plain(v.args.path || name).slice(0, 200) });
-          let r = await run(v.args.path ? enterPathScript(v.args.path) : enterNewScript(name), "Enter worktree");
-          let m = markOf(r && r.output);
+          let r, m;
+          if (!v.args.path && typeof deps.worktree === "function") {
+            // (Coder's machines: the git folder is root's, so Coder's service makes the branch and the worktree: worktreeNow.)
+            const w = await makeWorktreeByService(deps, run, name);
+            if (w.error) { no("error: " + w.error); continue; }
+            r = w.r;
+          } else r = await run(v.args.path ? enterPathScript(v.args.path) : enterNewScript(name), "Enter worktree");
+          m = markOf(r && r.output);
           if (m && m.kind === "ASK") {
             // (Claude Code asks before entering a path outside .claude/worktrees/: it moves where the work happens.)
             const where = m.rest.trim();
@@ -7813,8 +7847,14 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
             if (a.choice === "stop") return stopNow(reply);
             if (a.choice !== "yes" && a.choice !== "always") { no(refusedBy(a, "removing the worktree") + " Use action \"keep\" to leave it on disk."); continue; }
           }
-          const m = markOf((await run(exitScript({ top: st.top, main: st.main, branch: st.branch, remove }), "Leave the worktree")).output);
+          const byService = typeof deps.worktree === "function";
+          const m = markOf((await run(exitScript({ top: st.top, main: st.main, branch: st.branch, remove, service: byService }), "Leave the worktree")).output);
           if (!m || m.kind !== "OK") { no("error: " + (m && m.kind === "ERR" ? m.rest : "could not leave the worktree")); continue; }
+          if (remove && byService) {
+            let w;
+            try { w = await deps.worktree({ op: "remove", main: st.main, path: st.top, branch: st.branch }); } catch (e) { w = { ok: false, why: String((e && e.message) || e) }; }
+            if (!w || !w.ok) { no("error: git could not remove the worktree: " + String((w && w.why) || "no answer").slice(0, 200) + ". The chat's commands are back in " + st.main + "; the worktree is still at " + st.top + "."); continue; }
+          }
           const said = remove ? "Exited and removed the worktree at " + st.top + (st.branch ? " and its branch " + st.branch : "") + (risk ? " (discarded " + risk + ")" : "") + ". Your commands now start in " + st.main + "." : "Exited the worktree. Your work is preserved at " + st.top + (st.branch ? " on branch " + st.branch : "") + ". Your commands now start in " + st.main + ".";
           emit({ type: "result", id: c.id, code: 0, output: said, label: remove ? "Removed the worktree" : "Left the worktree (kept)" });
           reply(exitResult({ action: v.args.action, originalCwd: st.main, worktreePath: st.top, worktreeBranch: st.branch, discardedFiles: remove && risk ? st.files : 0, discardedCommits: remove && risk ? st.commits : 0, message: said }));

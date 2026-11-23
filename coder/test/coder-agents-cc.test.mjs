@@ -191,7 +191,8 @@ test("SubagentStart adds context to the agent; SubagentStop (matched on the agen
   };
   const subs = [];
   const next = mainLoop([say("", [call("agent", { run_in_background: false, description: "look", prompt: "Check a.js", subagent_type: "Explore" }, "a1")]), say("ok")]);
-  const send = async (req) => { if (isSub(req)) { subs.push({ sys: sysOf(req), text: userText(req) }); return subs.length === 1 ? say("a.js is fine") : say("b.js is fine too"); } return next(); };
+  // (A subagent that answers in words is reminded once to hand back (HANDBACK_NUDGE, 2026-11-23): it repeats its answer.)
+  const send = async (req) => { if (isSub(req)) { const last = req.messages.at(-1); if (last && last.content === A.HANDBACK_NUDGE) return say(req.messages.filter((m) => m.role === "assistant").at(-1).content); subs.push({ sys: sysOf(req), text: userText(req) }); return subs.length === 1 ? say("a.js is fine") : say("b.js is fine too"); } return next(); };
   const r = await A.runCoder(base(send, { exec }), opts("go", { hooks }));
   const evs = ran.map((x) => x.hook_event_name);
   assert.deepEqual(evs.filter((e) => e !== "Stop"), ["SubagentStart", "SubagentStop", "SubagentStop"]);

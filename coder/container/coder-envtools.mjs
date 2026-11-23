@@ -606,6 +606,8 @@ export const declinedText = (card) => card.kind === "update" ? "I declined the c
   : "I declined moving this chat to the environment " + quoteName(card.name) + ".";
 
 /** The machine's way to Coder's server for these tools (this job's pass, like a connector call): { text } | { card } | { error }. */
+/** The actions whose whole answer goes back to the tool that asked (coder-resources.mjs, coder-plugins.mjs, coder-projects.mjs). */
+export const WHOLE_ANSWER = new Set(["artifact", "mcp_resources", "mcp_wait", "plugins_list", "plugins_search", "plugins_install", "skills_owner", "skills_catalog", "guide_share", "feedback_queue", "projects"]);
 export function envCaller(via, fetchFn = fetch) {
   const url = String(via.url).replace(/\/api\/coder\/model$/, "/api/coder/environment");
   return async (body) => {
@@ -616,7 +618,9 @@ export function envCaller(via, fetchFn = fetch) {
     if (!j || typeof j !== "object") return { error: "error: Coder's server did not answer (" + r.status + "); nothing was proposed" };
     if (typeof j.error === "string") return { error: j.error.startsWith("error: ") ? j.error : "error: " + j.error };
     // (Artifact and the MCP resource tools take the whole answer: coder-resources.mjs, 2026-11-23.)
-    if (body && ["artifact", "mcp_resources", "mcp_wait"].includes(body.action)) return j;
+    // (And the plugin, skill, guide, feedback and project tools, which read their lists and fields from it: the live test of
+    // 2026-11-23 found search_plugins and suggest_plugin_install failing "did not answer", as their { ok, plugins } was dropped.)
+    if (body && WHOLE_ANSWER.has(body.action)) return j;
     // (pull_request's answer, mid-turn: the pull request's number and link. Before 2026-11-16's fix it was dropped here, and
     // Coder was told the server "did not answer", so no pull request opened, then or at the turn's end.)
     if (body && body.action === "pull_request" && Number.isInteger(j.number) && j.number > 0) return { number: j.number, url: String(j.url || ""), repo: String(j.repo || ""), draft: j.draft === true, existed: j.existed === true };

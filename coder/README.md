@@ -2724,6 +2724,12 @@ swap refused", `outputSwapped`); write's diff is skipped past 10 MB; a saved too
 capped at 1 GB; stop_job stops a background agent by ID or name; a whole `Bash` deny rule
 brings grep and glob back.
 
+LIVE-TEST FIXES (2026-11-23, `test/live-fixes-1123.test.mjs`): worktrees are made and removed by Coder's service as root
+(`server.mjs` worktreeNow; the chat's git folder stays read-only to its commands); `envCaller` passes the whole answer back for
+the plugin, skill, guide, feedback and project actions (`WHOLE_ANSWER`); a subagent with `subagent_handback` that ends in words is
+told once to hand back (`HANDBACK_NUDGE`), and the handback is a step in the chat; workflow takes scriptPath, then script, then
+name; a waking Fly machine is waited for up to 3 minutes (`FLY_RETRY_MS`).
+
 WORKTREES, FEEDBACK, ENDING A CHAT AND REVIEW FINDINGS (2026-11-23, `container/coder-worktree.mjs`):
 Claude Code's EnterWorktree, ExitWorktree, SendFeedback and EndConversation as `enter_worktree`,
 `exit_worktree`, `send_feedback` and `end_conversation` (held back until `tool_search` loads them;

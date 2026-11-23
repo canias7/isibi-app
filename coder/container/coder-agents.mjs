@@ -99,7 +99,7 @@ export const AGENT_TOOL = Object.freeze({ type: "function", function: {
 /** Claude Code's SubagentHandback: a subagent's report, delivered once, which ends its run. Only a subagent has it. */
 export const SUBAGENT_HANDBACK_TOOL = Object.freeze({ type: "function", function: {
   name: "subagent_handback",
-  description: "Deliver your final report to the agent that spawned you (your caller). Use it once, for that hand-off only: when your work is complete, call subagent_handback({message: <your full report>}). The call ends your run, so do everything else first and put everything your caller needs in that one report. It is not a messaging channel: do not use it for progress updates or questions.\n\nOnly a report delivered through subagent_handback reaches your caller; if you finish without it, your last words are taken as your report. There is no recipient parameter: the report can only go to your caller.",
+  description: "Deliver your final report to the agent that spawned you (your caller). Use it once, for that hand-off only: when your work is complete, call subagent_handback({message: <your full report>}). The call ends your run, so do everything else first and put everything your caller needs in that one report. It is not a messaging channel: do not use it for progress updates or questions.\n\nOnly a report delivered through subagent_handback reaches your caller; plain text you write at the end is NOT delivered. There is no recipient parameter: the report can only go to your caller.",
   parameters: { type: "object", properties: { message: { type: "string", description: "Your full report for your caller" } }, required: ["message"] },
 } });
 
@@ -606,6 +606,9 @@ export async function agentToolCall(c, k) {
     if (!k.isSub) return no("error: only a subagent hands back a report; you are the main conversation, so answer the owner in words");
     const message = String(args.message ?? "").trim();
     if (!message) return no("error: give message: your full report");
+    // (Shown in the chat as a step, as Claude Code shows a subagent's SubagentHandback call: the live test of 2026-11-23 found
+    // only its result sent, which the page draws under a step of the same id, so nothing showed.)
+    emit({ type: "bash", id: c.id, tool: "agent", verb: "Handed back its report", command: oneLine(message, 120) });
     say(0, "delivered", "Handed back its report");
     return { usage, stop: true, handback: message.slice(0, SUBAGENT_REPORT_MAX) };
   }
@@ -665,7 +668,7 @@ export async function agentToolCall(c, k) {
   }
 
   if (c.name === "workflow") {
-    emit({ type: "bash", id: c.id, tool: "workflow", verb: "Started a workflow", command: oneLine(args.scriptPath || args.name || args.resumeFromRunId || "inline script", 120) });
+    emit({ type: "bash", id: c.id, tool: "workflow", verb: "Started a workflow", command: oneLine(args.scriptPath || (typeof args.script === "string" && args.script.trim() ? (/name\s*:\s*["'`]([^"'`]{1,80})/.exec(args.script) || [])[1] || "inline script" : "") || args.name || args.resumeFromRunId || "inline script", 120) });
     if (k.isSub) return no("error: a subagent can't run workflows");
     const prev = typeof args.resumeFromRunId === "string" && args.resumeFromRunId ? k.runs.get(args.resumeFromRunId) : null;
     if (args.resumeFromRunId && !prev) return no("error: no workflow run " + oneLine(args.resumeFromRunId, 40) + " in this job");
@@ -674,14 +677,17 @@ export async function agentToolCall(c, k) {
       const got = await k.readText(args.scriptPath.trim());
       if (got.error) return no("error: " + got.error);
       script = got.text; scriptPath = args.scriptPath.trim();
-    } else if (typeof args.name === "string" && args.name.trim()) {
+    } else if (typeof args.script === "string" && args.script.trim()) script = args.script;
+    // (Claude Code: scriptPath "takes precedence over script and name"; an inline script over a name. The live test of
+    // 2026-11-23 sent script with name "say-hi": the name was read first, .claude/workflows/say-hi.js was missing, and the first
+    // start failed.)
+    else if (typeof args.name === "string" && args.name.trim()) {
       const nm = args.name.trim().replace(/\.js$/, "");
       if (!/^[\w-]{1,80}$/.test(nm)) return no("error: name is a workflow's name in .claude/workflows/");
       const got = await k.readText(".claude/workflows/" + nm + ".js");
       if (got.error) return no("error: " + got.error);
       script = got.text; scriptPath = ".claude/workflows/" + nm + ".js";
-    } else if (typeof args.script === "string" && args.script.trim()) script = args.script;
-    else if (prev) { script = prev.script; scriptPath = prev.scriptPath || ""; }
+    } else if (prev) { script = prev.script; scriptPath = prev.scriptPath || ""; }
     else return no("error: give script, name or scriptPath");
     const input = args.args === undefined && prev ? prev.args : args.args;
     const done = new Map(prev ? prev.done : []);
@@ -828,7 +834,13 @@ export function agentFilesOf(output) {
 }
 /** A subagent's worktree: the script that makes one without moving the chat's shell, and the one that cleans it up when unchanged. */
 export function agentWorktreeScript(name) { return "(\n" + enterNewScript(name) + "\n)"; }
-export function agentWorktreeFinishScript({ path, branch }) {
+export function agentWorktreeFinishScript({ path, branch }, { service = false } = {}) {
+  // (`service`: on Coder's machines root removes it (worktreeNow); the shell only says it is clean, and where the main checkout is.)
+  if (service) return "( cd -- " + shq(path) + " 2>/dev/null || { echo '" + MARK + " GONE'; exit 0; }\n"
+    + "__main=${PWD%%/.claude/worktrees/*}\n"
+    + "__files=$(git status --porcelain 2>/dev/null | wc -l | tr -d ' ')\n"
+    + "__commits=$(git rev-list --count HEAD --not \"$(git -C \"$__main\" rev-parse HEAD)\" 2>/dev/null || echo 0)\n"
+    + "if [ \"$__files\" = 0 ] && [ \"$__commits\" = 0 ]; then echo \"" + MARK + " CLEAN $__main\"; else echo '" + MARK + " KEPT'; fi )";
   return "( cd -- " + shq(path) + " 2>/dev/null || { echo '" + MARK + " GONE'; exit 0; }\n"
     + "__main=$(dirname \"$(git rev-parse --path-format=absolute --git-common-dir)\")\n"
     + "__files=$(git status --porcelain 2>/dev/null | wc -l | tr -d ' ')\n"

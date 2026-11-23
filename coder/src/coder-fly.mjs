@@ -267,8 +267,13 @@ export async function viaFly(env, machineId, req, body, fetchFn = fetch) {
   return new Response(JSON.stringify(w.body), { status: w.coderStatus, headers: { "content-type": "application/json", "x-coder-machine": "1" } });
 }
 
-/** How long a request waits for a machine slow to wake before it is said to have not answered. */
-export const FLY_RETRY_MS = 60_000;
+/**
+ * How long a request waits for a machine slow to wake before it is said to have not answered. Three minutes (2026-11-23: the
+ * live test's first message got "did not answer. Try again in a minute" and worked when sent again; on 2026-11-18 that next
+ * try took 107 s, past the minute this was). Claude Code's cloud waits for its machine; only a request that never reached
+ * Coder's own service is sent again, so waiting longer is safe.
+ */
+export const FLY_RETRY_MS = 3 * 60_000;
 /** Until the machine answers (a stopped Fly machine starts "well under a second"; Coder's service then starts). */
 async function untilAnswers(env, id, { fetchFn, sleep, now }, waitMs = FLY_WAKE_MS) {
   const until = now() + waitMs;

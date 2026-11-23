@@ -248,8 +248,11 @@ const FACTS = [
   "__top=$(git rev-parse --show-toplevel 2>/dev/null) || { echo \"" + MARK + " ERR not in a git repository\"; exit 3; }",
   "__common=$(git -C \"$__top\" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)",
   "__gd=$(git -C \"$__top\" rev-parse --path-format=absolute --git-dir 2>/dev/null)",
-  "__main=$(dirname \"$__common\")",
   "__inwt=0; [ \"$__common\" != \"$__gd\" ] && __inwt=1",
+  // (The main checkout. A repository whose git folder is its own .git: that folder's parent. On Coder's machines the git
+  // folder is root's, kept apart from the checkout (/data/git/<chat>, the live test of 2026-11-23), so its parent is not the
+  // checkout: there the main checkout is the top itself, or, from a worktree, the folder that holds .claude/worktrees/.)
+  "case \"$__common\" in */.git) __main=$(dirname \"$__common\");; *) if [ \"$__inwt\" = 1 ]; then __main=${__top%%/" + WORKTREE_DIR + "/*}; else __main=$__top; fi;; esac",
 ].join("\n") + "\n";
 
 /** The script that makes a new worktree and moves into it. */
@@ -263,6 +266,22 @@ export function enterNewScript(name) {
     INCLUDE_COPY,
     "cd -- \"$__wt\" && echo \"" + MARK + " OK $__wt|$__br|$__main|$__n\"",
   ].join("\n");
+}
+/**
+ * WHERE THE CHAT'S COMMANDS ARE (2026-11-23): the repository's top, its main checkout, and whether they are in a worktree.
+ * On Coder's machines the git folder is root's and only readable by the AI's commands (the sandbox), so `git worktree add`
+ * from the chat's shell cannot write the new branch ("cannot lock ref": the live test of 2026-11-23). Coder's service makes
+ * and removes the worktree itself, as root, with the AI's commands paused (server.mjs worktreeNow); the shell only says
+ * where it is (this), then copies the .worktreeinclude files and moves in (enterMadeScript).
+ */
+export function whereScript() {
+  return FACTS + "echo \"" + MARK + " WHERE $__top|$__main|$__inwt\"";
+}
+/** WHERE's fields. */
+export function whereOf(rest) { const [top, main, inwt] = String(rest || "").split("|"); return { top, main, inwt: inwt === "1" }; }
+/** After Coder's service made the worktree: copy what .worktreeinclude names into it, and move the chat's shell there. */
+export function enterMadeScript({ path, branch, main }) {
+  return ["__main=" + shq(main) + "; __wt=" + shq(path), INCLUDE_COPY, "cd -- \"$__wt\" && echo \"" + MARK + " OK $__wt|\"" + shq(branch || "") + "\"|$__main|$__n\""].join("\n");
 }
 /**
  * CLAUDE CODE'S .worktreeinclude (worktrees.md, "Copy gitignored files into worktrees"): .gitignore syntax at the repository's
@@ -313,7 +332,9 @@ export function exitFactsScript() {
   ].join("\n");
 }
 /** The script that leaves: back to the main checkout, removing the worktree and its branch for "remove". */
-export function exitScript({ top, main, branch, remove }) {
+export function exitScript({ top, main, branch, remove, service = false }) {
+  // (`service`: Coder's service removes the worktree afterwards, as root; the shell only goes back.)
+  if (service) remove = false;
   return [
     "cd -- " + shq(main) + " || { echo \"" + MARK + " ERR the original folder is gone\"; exit 3; }",
     remove ? "git worktree remove --force " + shq(top) + " >/dev/null 2>&1 || { echo \"" + MARK + " ERR git could not remove the worktree\"; exit 3; }" : ":",

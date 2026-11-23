@@ -5,6 +5,15 @@ The owner's running log, newest first, in plain English. Started fresh on
 log (81,000 lines) is in git history.
 
 
+## 2026-11-23: Fixes from the live tool test
+
+- Worktrees: entering a worktree failed because the chat's git folder belongs to Coder's machine and Coder's commands may only read it (on purpose, for safety). Now Coder's own service makes the worktree and its branch (under the repo's .claude/worktrees/), and removes them on "exit and remove". The safety box around Coder's commands is unchanged.
+- Plugin search and the install card: the answer from our server was being thrown away on the way back to the chat's machine, so Coder said "the catalog did not answer". Fixed; search shows the built-in catalog plus your marketplaces, and the install card shows. (The same bug also hit skill suggestions, sharing an onboarding guide, feedback drafts and the Projects tool; fixed for all.)
+- Helpers (subagents) in Auto mode: a helper that finishes by just talking is now reminded once to hand back its report, as Claude Code's are, and the hand-back shows in the chat as a step.
+- Workflows: the first start failed because Coder looked for a saved workflow by name before using the script it was given. Now the script comes first, as in Claude Code.
+- TodoWrite: no change needed. Claude Code's cloud sessions use the four Task tools instead of TodoWrite on every model; Coder does the same, so "TodoWrite is not available" was the right answer.
+- First message on a cold machine: Coder now waits up to 3 minutes (was 1) for a waking machine before showing "Fly.io did not answer", since one took 107 seconds before.
+
 ## 2026-11-23: Every tool tried live on gofarther.dev
 
 I went through the Tools tab row by row and tried each tool live with Grok (Low effort) in four throwaway chats, about 30 messages in all. The new column G "Tried live (2026-11-23)" has the result for each row: 56 worked, 3 broke, 10 partly worked, 12 were not tested and 18 are n/a.

@@ -84,8 +84,9 @@ test("the cap: past CODER_MAX_SUBAGENTS_TOTAL an agent call is refused and the m
   let mi = 0, subs = 0;
   const send = async (req) => { if (isSub(req)) { subs++; return say("finished"); } return main[Math.min(mi++, main.length - 1)]; };
   const r = await A.runCoder(base(send, { subagentEnv: { CODER_MAX_SUBAGENTS_TOTAL: "1" } }), opts("go"));
-  assert.equal(subs, 1);
-  assert.match(toolAnswer(r, "a1"), /^finished\n\nagentId: agent-1/, "with no handback, its last words are its report");
+  // (2: it answered in words, was told once to hand back (HANDBACK_NUDGE, 2026-11-23), and answered in words again.)
+  assert.equal(subs, 2);
+  assert.match(toolAnswer(r, "a1"), /^finished\n\nagentId: agent-1/, "with no handback even after the reminder, its last words are its report");
   assert.match(toolAnswer(r, "a2"), /cap of subagents is reached \(1 in all; CODER_MAX_SUBAGENTS_TOTAL/);
   assert.match(toolAnswer(r, "h0"), /only a subagent hands back/);
 });
