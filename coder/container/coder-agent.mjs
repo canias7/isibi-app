@@ -1421,7 +1421,7 @@ export const CODER_TOOLS = Object.freeze([
   // mid-conversation"). It took the place of Coder's old monitor, which looked at a background command's output: Claude Code
   // dropped that tool (TaskOutput, 2.1.277), and Claude reads output files with Read.
   fn("monitor", "Start a monitor: a shell command that runs in the background and whose every stdout line comes to you as an event while you work, so you can react when something happens (a server's ready line, an error in a log, a build or deploy that finishes, a file that changes, a status you poll in a loop) instead of checking again and again. Lines that come close together arrive together. Stderr goes to a file of its own and is no event. Or, for a server that already pushes events, a WebSocket (ws) instead of a command: each text message is one event, a binary one comes as a placeholder line, a message over 1 MiB ends the watch, and when the socket closes the watch ends and you are told its close code. It ends when its command exits, at its deadline (timeout_ms: default 300000, 5 minutes; at most 1800000, 30 minutes; you are told once, so you can start it again if you still need it), or with stop_job. One that prints too many lines is stopped, so filter what it prints (grep --line-buffered, awk with fflush()). A command is checked like a bash command (the same rules and questions); a WebSocket is asked about first, or judged by auto mode's checker. To read a background command's output, read its output file.", { command: { type: "string", description: "Shell command or script. Each stdout line is an event; exit ends the watch. Not with ws." }, ws: { type: "object", description: "WebSocket to open. Each text frame is an event; binary frames are reported as a placeholder line. Socket close ends the watch. Cannot be combined with command.", properties: { url: { type: "string", description: "A ws:// or wss:// URL, ASCII only, with no user name or password" }, protocols: { type: "array", items: { type: "string" }, description: "WebSocket subprotocols to offer (RFC 6455 tokens, each once)" } }, required: ["url"] }, description: { type: "string", description: "What it watches, in a few words (shown with each event)" }, timeout_ms: { type: "integer", description: "Its deadline in milliseconds (default 300000, at most 1800000)" } }, ["description"]),
-  fn("stop_job", "Stop a background command by its id (like Claude Code's TaskStop), when it is no longer needed.", { job: { type: "string" } }, ["job"]),
+  fn("stop_job", "Stop a background command by its id (like Claude Code's TaskStop), when it is no longer needed.", { task_id: { type: "string", description: "The id of the background command or monitor to stop" }, shell_id: { type: "string", description: "Deprecated: use task_id" }, job: { type: "string", description: "Coder's older name for task_id" } }, []),
   // (Claude Code's request_credential: SECRET_WORDS and SECRET_INPUTS, above. The owner, 2026-11-14.)
   fn("request_secret", SECRET_WORDS, SECRET_INPUTS, ["host", "reason"]),
   // CLAUDE CODE'S ENVIRONMENT TOOLS (the owner, 2026-11-14: "Do all the talk to you tools execpt for the notify one"; its cloud
@@ -1466,6 +1466,10 @@ export const CODER_TOOLS = Object.freeze([
       description: { type: "string", description: "What the command does, in plain words (e.g. \"Run the test suite\"). The owner sees it." },
       timeout: { type: "integer", description: "Optional timeout in milliseconds (default 120000, at most 600000). With run_in_background: its time limit in the background (default 1800000, at most 7200000)" },
       run_in_background: { type: "boolean", description: "Run it in the background: it keeps running after your answer, and you are told when it ends" },
+      // (Claude Code's dangerouslyDisableSandbox, 2026-11-23: taken and echoed in the result, as in Claude Code's cloud
+      // sessions, where its Bash sandbox is off and the field changes nothing; Coder's admin sandbox is the machine itself,
+      // never left, and every command already goes through the permission check.)
+      dangerouslyDisableSandbox: { type: "boolean", description: "Ask to run outside the sandbox. Here it changes nothing: commands always run on this chat's machine, with the usual permission check" },
     }, required: ["command"] },
   } },
   // OWNER, 2026-11-05 ("b"): the owner asks for a pull request in the chat,
@@ -1488,7 +1492,7 @@ export const CODER_TOOLS = Object.freeze([
   { type: "function", function: {
     name: "notify",
     description: "Send the owner a notification on their phone or computer (where they turned notifications on). Use it when the owner asked to be told about something (\"notify me when the tests finish\"), at that moment, or for news they would want while away during a long job. Not for the end of your answer: Coder's app tells them when a long job finishes. One short sentence; at most 3 a job.",
-    parameters: { type: "object", properties: { message: { type: "string" } }, required: ["message"] },
+    parameters: { type: "object", properties: { message: { type: "string" }, status: { type: "string", enum: ["proactive"], description: "Always \"proactive\" (Claude Code's PushNotification)" } }, required: ["message"] },
   } },
   // A FILE SENT TO THE OWNER ("Go Claude Code way", batch 8, 2026-11-22, audit MISS-55): Claude Code's SendUserFile ("Sends files
   // from the session to you with an optional caption, so a generated report, diagram, screenshot, or built artifact reaches
@@ -3208,7 +3212,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     // Coder's own tools'), its answer as text.
     const facts = toolFacts.get(c.id);
     const response = c.name === "bash" && c.monitor ? { taskId: String((bashFacts.get(c.id) || {}).backgroundTaskId || ""), timeoutMs: Number(c.args && c.args.timeout) || 0 }
-      : c.name === "bash" ? { output: content, ...(Number.isInteger(res.code) ? { code: res.code } : {}), stdout: content, stderr: "", interrupted: false, isImage: false, ...(bashFacts.get(c.id) || {}), ...(diff ? { bashEditDiff: diff } : {}) }
+      : c.name === "bash" ? { output: content, ...(Number.isInteger(res.code) ? { code: res.code } : {}), stdout: content, stderr: "", interrupted: false, isImage: false, ...(bashFacts.get(c.id) || {}), ...(c.args && c.args.dangerouslyDisableSandbox === true ? { dangerouslyDisableSandbox: true } : {}), ...(diff ? { bashEditDiff: diff } : {}) }
       : facts && typeof facts === "object" ? facts : typeof c.keepHead === "string" && content.startsWith(c.keepHead) ? content.slice(c.keepHead.length) : content;
     // (A hook's new output, checked against the tool's output shape and shown through the tool's own text: coder-hookcheck.mjs.)
     // (tool_search's: its text for a result object, and the tools that rewrite loads, `tsTaken`. 2026-11-14.)
@@ -5932,7 +5936,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           if (gone) j.done = true;
           stoppedNow = !!(gone && was);
         } else {
-          const cmd = "kill -TERM -- -" + j.pid + " 2>/dev/null; sleep 1; kill -KILL -- -" + j.pid + " 2>/dev/null; echo '[stopped " + name + "]'";
+          const cmd = "kill -TERM -- -" + j.pid + " 2>/dev/null; sleep 1.5; kill -KILL -- -" + j.pid + " 2>/dev/null; echo '[stopped " + name + "]'";
           try { r = await deps.exec({ command: cmd, timeoutS: 15, tool: true }); }
           catch (e) { r = { code: -1, output: String((e && e.message) || e).slice(0, 200) }; }
         }
@@ -7642,6 +7646,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         if (notified >= 3) { reply("error: at most 3 notifications a job"); continue; }
         notified++;
         emit({ type: "notify", text: message });
+        // (Claude Code's PushNotification result for its PostToolUse hooks, 2026-11-23: message, pushSent and sentAt.)
+        toolFacts.set(c.id, { message, pushSent: true, sentAt: new Date().toISOString() });
         reply("ok: sent to the owner's devices that have notifications on.");
       } else if (c.name === "auto_fix") {
         // From GitHub (strangers can write there) the owner's settings are never changed.

@@ -365,6 +365,8 @@ export function hookToolInput(name, args, at = null) {
   if ((name === "read" || name === "write" || name === "edit") && typeof a.path === "string" && a.file_path === undefined) a.file_path = a.path;
   // (The owner's read size, Coder's own input to its read: never Grok's, so never a hook's. Batch 8.)
   if (name === "read") delete a.read_chars;
+  // (TaskStop's own input name, task_id, beside Coder's `job`. 2026-11-23.)
+  if (name === "stop_job" && typeof a.job === "string" && a.task_id === undefined) a.task_id = a.job;
   // (NotebookEdit's own input names: notebook_path, never Coder's `path`. Batch 5.)
   if (name === "notebook_edit") { if (typeof a.notebook_path !== "string" && typeof a.path === "string") a.notebook_path = a.path; delete a.path; delete a.file_path; if (at && typeof a.notebook_path === "string") a.notebook_path = hookPath(a.notebook_path, at); }
   if (at && FULL_PATH_TOOLS.has(name)) for (const k of ["path", "file_path"]) if (typeof a[k] === "string") a[k] = hookPath(a[k], at);
@@ -385,6 +387,7 @@ export function toolInputFromHook(name, input) {
   const a = { ...input };
   if ((name === "read" || name === "write" || name === "edit") && typeof a.file_path === "string") { a.path = a.file_path; delete a.file_path; }
   if (name === "notebook_edit" && typeof a.notebook_path === "string") a.path = a.notebook_path;
+  if (name === "stop_job") { const id = [a.task_id, a.shell_id, a.job].find((v) => typeof v === "string" && v); if (id) a.job = id; delete a.task_id; delete a.shell_id; }
   if (name === "ask_user" && Array.isArray(a.questions)) a.questions = a.questions.map((q) => (!q || typeof q !== "object" || Array.isArray(q) || typeof q.multiSelect !== "boolean" ? q : { ...q, multi_select: q.multiSelect }));
   return a;
 }

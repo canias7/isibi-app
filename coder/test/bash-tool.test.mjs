@@ -136,7 +136,7 @@ test("CD273 bash on Coder's machine: output past 30,000 characters goes on in a 
 test("CD274 bash in the agent: Claude Code's inputs (description shown in place of the command, command_description too, timeout in milliseconds cut to the most), its refusals (a long sleep, a dangerous rm in its own words, the same command still running in the background), its cards (a protected file written by > or tee; a command over 10,000 characters), its result words, and a background command's notice when it ends", async () => {
   const { runCoder, CODER_TOOLS, RM_REFUSED, allowRunText } = await import("../container/coder-agent.mjs");
   const tool = CODER_TOOLS.find((t) => t.function.name === "bash").function;
-  assert.deepEqual(Object.keys(tool.parameters.properties), ["command", "description", "timeout", "run_in_background"]);
+  assert.deepEqual(Object.keys(tool.parameters.properties), ["command", "description", "timeout", "run_in_background", "dangerouslyDisableSandbox"]);
   assert.match(tool.description, /Give `description`: what the command does, in a few plain words in active voice/);
   assert.match(tool.description, /`timeout` in milliseconds: 120000 by default, at most 600000/);
   const execs = [], events = [];
