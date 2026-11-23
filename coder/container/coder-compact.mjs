@@ -392,7 +392,11 @@ export function summaryMessage(text, what, files = [], part = null, { auto = fal
   const tools = Array.isArray(part) ? { toolsLoaded: toolsLoadedIn(part), ...(defs.length ? { toolDefs: defs } : {}), ...(declared && declared.length ? { toolsDeclared: declared } : {}), ...(locks || {}), ...(toolSearchOnIn(part) ? { toolSearchOn: true } : {}) } : {};
   if (gloopy) return { role: "user", content: SUMMARY_TAG + ": " + what + ". The chat on the owner's page still shows all of it.)\n" + String(text || "").trim(), ...(reread.length ? { reread } : {}), planRef: true, ...tools };
   const content = COMPACT_LEAD + "\n\nSummary:\n" + String(text || "").trim() + (headCut ? "\n\n" + COMPACT_HEAD_CUT : "") + (auto ? "\n" + COMPACT_CONTINUE : "");
-  return { role: "user", content, compactSummary: true, summaryOf: String(what || ""), ...(reread.length ? { reread } : {}), planRef: true, ...tools };
+  // (Coder's chats: the tools tool_search found stay loaded until the messages where they were found are summarized; then
+  // Coder searches for them again, as Claude Code's tool search: "Found tools stay loaded until the messages where they were
+  // found are compacted". The definitions' locks stay, so a tool found again is sent with the same bytes. 2026-11-23.)
+  const { toolsLoaded: _found, toolDefs: _defs, ...kept } = tools;
+  return { role: "user", content, compactSummary: true, summaryOf: String(what || ""), ...(reread.length ? { reread } : {}), planRef: true, ...(Array.isArray(part) ? { toolsLoaded: [] } : {}), ...kept };
 }
 
 /**

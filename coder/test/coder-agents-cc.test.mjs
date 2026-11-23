@@ -81,7 +81,7 @@ test("custom agents: .claude/agents/*.md frontmatter (name, description, tools, 
 test("a custom agent runs with its own instructions, tools, effort and step limit; an unknown type is refused with the list", async () => {
   const subs = [];
   const def = G.parseAgentFile("---\nname: reviewer\ndescription: Reviews code\ntools: Read, Grep\neffort: high\nmaxTurns: 3\n---\nYou review code carefully.").def;
-  const next = mainLoop([say("", [call("agent", { description: "review", prompt: "Review x.js", subagent_type: "reviewer" }, "a1"), call("agent", { description: "nope", prompt: "p", subagent_type: "ghost" }, "a2")]), say("ok")]);
+  const next = mainLoop([say("", [call("agent", { run_in_background: false, description: "review", prompt: "Review x.js", subagent_type: "reviewer" }, "a1"), call("agent", { run_in_background: false, description: "nope", prompt: "p", subagent_type: "ghost" }, "a2")]), say("ok")]);
   const send = async (req) => { if (isSub(req)) { subs.push({ sys: sysOf(req), tools: req.tools.map((t) => t.function.name), effort: req.effort }); return say("", [call("subagent_handback", { message: "Looks fine." }, "h")]); } return next(); };
   const r = await A.runCoder(base(send, { customAgents: async () => [def] }), opts("go", { model: "grok-4.7", effort: "low" }));
   assert.equal(subs.length, 1);
@@ -95,7 +95,7 @@ test("a custom agent runs with its own instructions, tools, effort and step limi
 test("a message's agent calls run side by side, at most 3 at once; with CODER_MAX_SUBAGENTS_AT_ONCE 1, one at a time", async () => {
   for (const [env, want] of [[{}, 3], [{ CODER_MAX_SUBAGENTS_AT_ONCE: "1" }, 1]]) {
     let live = 0, peak = 0;
-    const next = mainLoop([say("", [1, 2, 3, 4].map((n) => call("agent", { description: "job " + n, prompt: "do job " + n }, "a" + n))), say("ok")]);
+    const next = mainLoop([say("", [1, 2, 3, 4].map((n) => call("agent", { run_in_background: false, description: "job " + n, prompt: "do job " + n }, "a" + n))), say("ok")]);
     const send = async (req) => {
       if (isSub(req)) { live++; peak = Math.max(peak, live); await new Promise((r) => setTimeout(r, 20)); live--; return say("", [call("subagent_handback", { message: "done " + userText(req).slice(-5) }, "h")]); }
       return next();
@@ -110,7 +110,7 @@ test("run_in_background: the call answers at once; the agent's result arrives la
   const events = [];
   let release;
   const gate = new Promise((r) => { release = r; });
-  const next = mainLoop([say("", [call("agent", { description: "slow", prompt: "Read a.js and fix it", run_in_background: true, name: "bg" }, "a1")]), say("Launched; waiting."), say("All done.")]);
+  const next = mainLoop([say("", [call("agent", { run_in_background: false, description: "slow", prompt: "Read a.js and fix it", run_in_background: true, name: "bg" }, "a1")]), say("Launched; waiting."), say("All done.")]);
   let mainCalls = 0;
   const send = async (req) => {
     if (isSub(req)) {
@@ -133,7 +133,7 @@ test("run_in_background: the call answers at once; the agent's result arrives la
   assert.equal(launched.agentResult.status, "async_launched");
   // (A foreground agent's result carries Claude Code's AgentOutput fields.)
   const ev2 = [];
-  const next2 = mainLoop([say("", [call("agent", { description: "fg", prompt: "Read a.js and fix it" }, "f1")]), say("ok")]);
+  const next2 = mainLoop([say("", [call("agent", { run_in_background: false, description: "fg", prompt: "Read a.js and fix it" }, "f1")]), say("ok")]);
   const send2 = async (req) => {
     if (isSub(req)) { const n = (req.messages || []).filter((m) => m.role === "tool").length; return n === 0 ? say("", [call("read", { file_path: "a.js" }, "r1"), call("edit", { file_path: "a.js", old_string: "a", new_string: "b\nc" }, "e1")]) : say("", [call("subagent_handback", { message: "Fixed." }, "h")]); }
     return next2();
@@ -143,10 +143,10 @@ test("run_in_background: the call answers at once; the agent's result arrives la
   assert.equal(res.status, "completed");
   assert.equal(res.resolvedModel, "grok-4.7");
   assert.equal(res.agentType, "general-purpose");
-  assert.deepEqual({ ...res.toolStats }, { readCount: 1, searchCount: 0, bashCount: 0, editFileCount: 1, linesAdded: 2, linesRemoved: 1, otherToolCount: 0 });
+  assert.deepEqual({ ...res.toolStats }, { readCount: 1, searchCount: 0, bashCount: 0, editFileCount: 1, linesAdded: 2, linesRemoved: 1, otherToolCount: 0, frameCount: 0 });
   assert.equal(res.totalToolUseCount, 2);
   assert.equal(res.usage.input_tokens, 3);
-  assert.equal(res.totalTokens, 10);
+  assert.equal(res.totalTokens, 5); // (the final request's, as Claude Code's)
 });
 
 test("isolation worktree: the agent's worktree is made without moving the chat's shell, its commands run there, and a changed one is kept with its path and branch", async () => {
@@ -158,7 +158,7 @@ test("isolation worktree: the agent's worktree is made without moving the chat's
     if (c.includes("git status --porcelain")) return { code: 0, output: W.MARK + " KEPT\n" };
     return { code: 0, output: "ok\n" };
   };
-  const next = mainLoop([say("", [call("agent", { description: "iso", prompt: "change things", isolation: "worktree" }, "a1"), call("agent", { description: "remote", prompt: "x", isolation: "remote" }, "a2")]), say("ok")]);
+  const next = mainLoop([say("", [call("agent", { run_in_background: false, description: "iso", prompt: "change things", isolation: "worktree" }, "a1"), call("agent", { run_in_background: false, description: "remote", prompt: "x", isolation: "remote" }, "a2")]), say("ok")]);
   let sub = 0;
   const send = async (req) => { if (isSub(req)) { sub++; return sub === 1 ? say("", [call("bash", { command: "ls -la" }, "b1")]) : say("", [call("subagent_handback", { message: "Changed f.txt." }, "h")]); } return next(); };
   const r = await A.runCoder(base(send, { exec }), opts("go"));
@@ -190,7 +190,7 @@ test("SubagentStart adds context to the agent; SubagentStop (matched on the agen
     return { code: 0, output: "" };
   };
   const subs = [];
-  const next = mainLoop([say("", [call("agent", { description: "look", prompt: "Check a.js", subagent_type: "Explore" }, "a1")]), say("ok")]);
+  const next = mainLoop([say("", [call("agent", { run_in_background: false, description: "look", prompt: "Check a.js", subagent_type: "Explore" }, "a1")]), say("ok")]);
   const send = async (req) => { if (isSub(req)) { subs.push({ sys: sysOf(req), text: userText(req) }); return subs.length === 1 ? say("a.js is fine") : say("b.js is fine too"); } return next(); };
   const r = await A.runCoder(base(send, { exec }), opts("go", { hooks }));
   const evs = ran.map((x) => x.hook_event_name);
@@ -215,10 +215,10 @@ return [a, b]`;
   assert.equal(p.pending[0].phase, "Scan");
   assert.equal(p.pending[0].effort, "medium");
   const efforts = [];
-  const next = mainLoop([say("", [call("workflow", { script }, "w1")]), say("ok")]);
+  const next = mainLoop([say("", [call("workflow", { script }, "w1")]), say("Launched."), say("ok")]);
   const send = async (req) => { if (isSub(req)) { efforts.push(req.effort); return say("", [call("subagent_handback", { message: "ok " + userText(req) }, "h")]); } return next(); };
   const r = await A.runCoder(base(send, { workflowStep: G.workflowStep }), opts("go", { model: "grok-4.7", effort: "low" }));
-  const w = toolAnswer(r, "w1");
+  const w = (r.messages.find((m) => /<task-id>wf-1<\/task-id>/.test(String(m.content || ""))) || {}).content || "";
   assert.match(w, /summary: audit two files\nphases: Scan: 1, Fix: 1/);
   assert.deepEqual(efforts, ["medium", "low"]);
 });

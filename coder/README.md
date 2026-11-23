@@ -54,6 +54,14 @@ code in **each user's own GitHub**.
    `keywords`, enter_worktree copies `.worktreeinclude` files, send_feedback drafts
    join a 10-draft, 30-day queue (`coder/<uid>/feedback-drafts.json`) and
    end_conversation can't be blocked by hooks or deny rules (tests: `cc-tools-parity`).
+   Agents and workflows, Claude Code's way (2026-11-23, `coder-agents.mjs`): an agent
+   started from the main chat runs in the background unless run_in_background is false
+   (a subagent's own agents wait), with outputFile in `/tmp/coder-agents/`; subagents
+   can start agents; subagent_handback only in auto mode; usage of the final request;
+   a workflow returns async_launched at once (syntax-checked) and reports by task
+   notification; stop_job stops a background agent (by id or name) or workflow; tool
+   search's catalog holds 10,000 tools and found tools drop at compaction; a skill
+   with allowed-tools, disallowed-tools or hooks asks first (tests: `agents-parity-1123`).
 
    **read opens pictures, PDFs and notebooks too** (owner item 1, 2026-11-08), like
    Claude Code's Read ("reads images (PNG, JPG, …) and presents them visually",

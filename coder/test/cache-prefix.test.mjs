@@ -241,12 +241,16 @@ test("CP6 a summary carries the locks (the owner's /compact, and the Worker's su
   await c.run([say("ok")], { text: "after /compact", opts: { compact: { focus: "" } } });
   assert.ok(C.isSummary(c.messages[0]) && Array.isArray(c.messages[0].toolLocks), "the /compact's summary carries them");
   await c.run([say("ok")], { text: "after the summary", opts: { timeouts: { defaultMs: 60000, maxMs: 600000, bgDefaultMs: 1800000, bgMaxMs: 4 * 3600000 } } });
-  assert.deepEqual(asSent(c.sent.at(-1).req).tools, tools, "the same tools, byte for byte");
+  // (The tool tool_search found, web_fetch, is dropped with the messages that found it, as Claude Code's tool search: "Found
+  // tools stay loaded until the messages where they were found are compacted". The rest are the same, byte for byte.)
+  const kept = tools.filter((t) => !/"name":"web_fetch"/.test(t));
+  assert.equal(kept.length, tools.length - 1);
+  assert.deepEqual(asSent(c.sent.at(-1).req).tools, kept, "the same tools, byte for byte");
   const w = chat();
   await w.run([say("ok")], { text: "hi" });
   let afterReq = null;
   await A.runCoder({ send: async (req) => { afterReq = req; return say("ok"); }, exec: async () => ({ code: 0, output: "" }), emit: () => {}, here: () => ROOT, root: ROOT, where: (p) => p, ask: async () => ({ choice: "yes" }) }, { text: "next", mode: "acceptEdits", messages: [sum], noBg: true });
-  assert.deepEqual(afterReq.tools.map((t) => JSON.stringify(M.toResponsesTools([t])[0])), tools, "after the Worker's summary too");
+  assert.deepEqual(afterReq.tools.map((t) => JSON.stringify(M.toResponsesTools([t])[0])), kept, "after the Worker's summary too");
 });
 
 test("CP7 lockTools, keyed as Claude Code's tool schema cache keys a tool (its name, and an MCP tool's input schema): a name lock is the tool's stock definition; one of Coder's own locked by its definition holds for the version of the tool code that made it; a connector's while its parameters are the same; a tool with none is locked as it goes (by name when it is its stock definition); a later lock in place of an earlier one", () => {

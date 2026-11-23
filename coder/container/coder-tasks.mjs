@@ -622,3 +622,22 @@ function taskStoreRaw(file) {
  */
 export const taskListName = (id) => String(id).replace(/[^a-zA-Z0-9_-]/g, "-");
 export const taskFileFor = (memRoot, chat, listId = "") => (typeof listId === "string" && listId ? join(memRoot, "tasks", taskListName(listId) + ".json") : join(memRoot, chat + ".tasks.json"));
+
+/**
+ * WHICH MODELS GET THE TASK TOOLS (Claude Code's tools reference, "Task tool availability", 2026-11-23): on by default only
+ * for Claude Opus 4.7, Sonnet 4.6, Haiku 4.5 and earlier; newer and unknown models need the opt-in
+ * (CLAUDE_CODE_ENABLE_TODO_TOOLS=1, or naming a Task tool in --allowedTools / --tools); background and cloud sessions get
+ * them on every model. Every Coder chat is a cloud session (it runs on Coder's machine, as Claude Code's cloud sessions do),
+ * so `cloud` is true there and its task list is on with Grok too.
+ */
+export function taskToolsAvailable({ model = "", cloud = false, background = false, optIn = false, allowed = [] } = {}) {
+  if (cloud || background || optIn) return true;
+  if ((Array.isArray(allowed) ? allowed : []).some((n) => /^(TaskCreate|TaskGet|TaskUpdate|TaskList|TodoWrite)$/.test(String(n)))) return true;
+  const m = String(model || "").toLowerCase();
+  let fam = "", maj = 0, min = 0, v;
+  if ((v = /claude-(opus|sonnet|haiku)-(\d)(?:[-.](\d{1,2})(?!\d))?/.exec(m))) { fam = v[1]; maj = Number(v[2]); min = Number(v[3] || 0); }
+  else if ((v = /claude-(\d)(?:[-.](\d{1,2}))?-(opus|sonnet|haiku)/.exec(m))) { fam = v[3]; maj = Number(v[1]); min = Number(v[2] || 0); }
+  else return false;
+  const last = { opus: [4, 7], sonnet: [4, 6], haiku: [4, 5] }[fam];
+  return maj < last[0] || (maj === last[0] && min <= last[1]);
+}

@@ -11,6 +11,14 @@ log (81,000 lines) is in git history.
 - **Not possible in Coder:** the SSH, Desktop-disconnection, mods and Cowork rows, because Coder runs in the cloud with no desktop app, SSH hosts, mods or Cowork.
 - Tested with automated tests and in a local browser; not yet tried live on gofarther.dev.
 
+## 2026-11-23: Coder's helpers and workflows now work like Claude Code's
+
+- **Helpers run in the background by default.** When Coder starts a helper agent, Coder keeps working and is told when the helper is done (as Claude Code does). Its report is also saved to a file Coder can read. A helper can now start its own helper, and waits for it. Your limits stay: 3 at once, 10 per job.
+- **Workflows start and return at once.** Coder is told when the workflow is finished. A script with a typing mistake is caught before it runs. Coder can stop a background helper or workflow by its name.
+- **Smaller matches:** the "report back" tool for helpers is only given in Auto mode, as in Claude Code; helper token counts now show only the last request. Tools Coder found with tool search are forgotten when the chat is summarized, and Coder searches again. A skill that changes Coder's tools or hooks asks you first.
+- **Not done:** messages between your own Coder chats. Each message would start a paid run in another chat without you, so it needs your OK first.
+- Tests pass. Not yet tried live on gofarther.dev.
+
 ## 2026-11-23: Five tool helpers merged, and the comparison sheet brought up to date
 
 Five helpers' work is now together on one branch (their own entries follow, below). All of Coder's tests pass (1,782 of 1,783; the one left is the known CD12 check, which fails only because of a local .claude folder).

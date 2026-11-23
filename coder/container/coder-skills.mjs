@@ -40,7 +40,7 @@ export function skillFrom(text, fallbackName, dir) {
   // (No description: Claude Code takes the first paragraph of the instructions.)
   const first = body.split(/\r?\n\s*\r?\n/).map((p) => p.replace(/^#+\s*/gm, "").trim()).find(Boolean) || "";
   const description = String(meta.description || first).replace(/\s+/g, " ").trim().slice(0, SKILL_DESC_MAX);
-  return { name, description, body: body.slice(0, SKILL_TEXT_MAX), dir, model: !isTrue(meta["disable-model-invocation"]), user: !isFalse(meta["user-invocable"]) };
+  return { name, description, body: body.slice(0, SKILL_TEXT_MAX), dir, model: !isTrue(meta["disable-model-invocation"]), user: !isFalse(meta["user-invocable"]), ...(skillAsks(meta) ? { asks: skillAsks(meta) } : {}) };
 }
 
 /** The skills of the project at `root`: .claude/skills/<name>/SKILL.md, then .claude/commands/<name>.md (a skill's name wins). */
@@ -81,6 +81,14 @@ export function slashSkill(text, skills) {
 }
 
 /** Claude Code's Skill(name) rules: the rule of `kind` that names this skill (bare Skill is the whole tool's), or "". */
+/**
+ * WHAT MAKES USING A SKILL ASK (Claude Code's tools reference, Skill: "Using a skill that sets allowed-tools, disallowed-tools
+ * or hooks can bring a permission prompt"; 2026-11-23): the front-matter fields it sets of those, or "".
+ */
+export function skillAsks(meta) {
+  const m = meta && typeof meta === "object" ? meta : {};
+  return ["allowed-tools", "disallowed-tools", "hooks"].filter((k) => Object.prototype.hasOwnProperty.call(m, k)).join(", ");
+}
 export function skillRule(rules, kind, name, parse) {
   for (const r of Array.isArray(rules && rules[kind]) ? rules[kind] : []) {
     const x = parse(r);
