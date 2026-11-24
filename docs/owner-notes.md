@@ -5,6 +5,15 @@ The owner's running log, newest first, in plain English. Started fresh on
 log (81,000 lines) is in git history.
 
 
+## 2026-11-24 — For later (owner: "note it for later")
+
+From the parameters live test, waiting for the owner's go:
+1. Tools page: Write set to Never still lets Coder make a file with Edit. Fix started, paused (owner: tools-page work can wait).
+2. Leaving a worktree deletes it even with unsaved changes; Claude Code refuses unless told to throw them away.
+3. A foreground `sleep 20` runs; Claude Code blocks it and points to background or a monitor.
+4. A web fetch that redirects to another site loops into "too many redirects"; Claude Code reports the new address instead.
+5. A skill's command ran with no card, but the chat was in Auto; recheck in Ask mode.
+
 ## 2026-11-24: Live retest after deploy, and the rest of the tool parameters tab
 
 Tried live on gofarther.dev with Grok on Low, after the deploy of cec9fd91, in six test chats on canias7/testingforclaude. No videos (your 2026-11-12 rule); screenshots only.
