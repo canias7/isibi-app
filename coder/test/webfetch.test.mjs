@@ -806,3 +806,41 @@ test("WF-long a URL over 2,000 characters is refused by the input check, before 
   const ok = "https://example.com/" + "a".repeat(1980);
   assert.equal(W.checkInput({ url: ok, prompt: "p" }).args.url, ok);
 });
+
+// GITHUB'S raw LINK THROUGH CODER'S NETWORK GATE (seen live on gofarther.dev, 2026-11-24): curl from Coder's machine got
+// github.com → 302 → raw.githubusercontent.com → 200, but web_fetch got "Too many redirects (exceeded 10)": eleven hops of
+// github.com/octocat/Hello-World/raw/master/README → 301 → the very same address. Through the gate Node sent
+// "Host: github.com:80", which GitHub answers with a 301 to its own https address. This stand-in for GitHub answers the same.
+test("WF-GH a cross-host redirect through the network gate is given back on the first hop (GitHub's /raw/ link, the chain seen live)", { timeout: 30000 }, async () => {
+  const https = await import("node:https"), net = await import("node:net");
+  const { execFileSync } = await import("node:child_process");
+  const dir = await mkdtemp(join(tmpdir(), "wf-gh-"));
+  const hosts = [];
+  let gh = null, gate = null;
+  try {
+    execFileSync("openssl", ["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "2", "-subj", "/CN=github.com", "-addext", "subjectAltName=DNS:github.com", "-keyout", join(dir, "k.pem"), "-out", join(dir, "c.pem")], { stdio: "ignore" });
+    gh = https.createServer({ key: readFileSync(join(dir, "k.pem")), cert: readFileSync(join(dir, "c.pem")) }, (req, res) => {
+      hosts.push(req.headers.host);
+      if (req.headers.host !== "github.com") { res.writeHead(301, { location: "https://github.com" + req.url }); return res.end(); }
+      res.writeHead(302, { location: "https://raw.githubusercontent.com/octocat/Hello-World/master/README" }); res.end();
+    });
+    await new Promise((ok) => gh.listen(0, "127.0.0.1", ok));
+    const connects = [];
+    gate = http.createServer();
+    gate.on("connect", (req, sock) => { connects.push(req.url); const up = net.connect(gh.address().port, "127.0.0.1", () => { sock.write("HTTP/1.1 200 Connection Established\r\n\r\n"); up.pipe(sock); sock.pipe(up); }); up.on("error", () => sock.destroy()); sock.on("error", () => up.destroy()); });
+    await new Promise((ok) => gate.listen(0, "127.0.0.1", ok));
+    const b64 = Buffer.from(JSON.stringify({ tool: "web_fetch", args: { url: "https://github.com/octocat/Hello-World/raw/master/README", deadline_ms: 20000 } })).toString("base64");
+    const out = await new Promise((ok) => execFile(process.execPath, ["--no-warnings", TOOLS_SCRIPT, b64], { env: { ...process.env, CODER_NET_LIMITED: "1", HTTPS_PROXY: "http://127.0.0.1:" + gate.address().port, NODE_EXTRA_CA_CERTS: join(dir, "c.pem") }, encoding: "utf8" }, (err, stdout) => ok({ code: err ? err.code : 0, stdout })));
+    assert.equal(out.code, 0, out.stdout);
+    assert.ok(!/Too many redirects/.test(out.stdout), out.stdout);
+    assert.deepEqual(connects, ["github.com:443"]);
+    assert.deepEqual(hosts, ["github.com"]);
+    const f = A.factsAnswer(out.stdout).facts;
+    assert.deepEqual(f, { kind: "redirect", originalUrl: "https://github.com/octocat/Hello-World/raw/master/README", redirectUrl: "https://raw.githubusercontent.com/octocat/Hello-World/master/README", statusCode: 302 });
+    assert.match(W.redirectText(f, { prompt: "what does it say" }), /^REDIRECT DETECTED: [\s\S]*raw\.githubusercontent\.com[\s\S]*Status: 302 Found/);
+  } finally {
+    if (gate) { gate.closeAllConnections(); await new Promise((ok) => gate.close(ok)); }
+    if (gh) { gh.closeAllConnections(); await new Promise((ok) => gh.close(ok)); }
+    await rm(dir, { recursive: true, force: true });
+  }
+});

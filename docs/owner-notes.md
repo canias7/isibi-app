@@ -8,6 +8,14 @@ log (81,000 lines) is in git history.
 ## 2026-11-24 — Idea for later: GitHub tools in their own group
 
 The owner wants Coder's GitHub tools (push the branch, open a pull request, read pull-request comments, auto-fix, review, the gh command) shown apart from Coder's other tools, in their own section. Not started; to plan with the owner first.
+## 2026-11-24: web_fetch of GitHub's /raw/ links: "Too many redirects", the real cause fixed
+
+Not deployed yet: it's on the work-redirect branch.
+
+- **What happened:** fetching https://github.com/octocat/Hello-World/raw/master/README said "Too many redirects (exceeded 10)". Claude Code says "REDIRECT DETECTED" instead, because GitHub sends one 302 to raw.githubusercontent.com.
+- **What we saw live** (in a test chat on gofarther.dev, Grok on Low, deleted afterwards): curl from Coder's machine got github.com → 302 → raw.githubusercontent.com → 200. Coder's own web_fetch got github.com → 301 → the very same address, eleven times.
+- **The cause:** when Coder's network list is on, web_fetch goes through Coder's network gate, and there Node sent the wrong Host header ("github.com:80" on an https request). GitHub answered with a redirect to its own address, round and round. The earlier cookie fix wasn't the cause.
+- **The fix:** web_fetch now sends the right Host header through the gate. GitHub's redirect to another host comes back on the first hop as "REDIRECT DETECTED", as in Claude Code. A new test plays the exact chain through a stand-in gate and GitHub.
 
 ## 2026-11-24: The desktop page's "just wrong" moments, fixed
 
