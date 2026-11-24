@@ -5,6 +5,17 @@ The owner's running log, newest first, in plain English. Started fresh on
 log (81,000 lines) is in git history.
 
 
+## 2026-11-24: GitHub is now a built-in connector
+
+Not deployed yet: it's on the work-ghconn branch. Not tried live on gofarther.dev yet: tried in a test browser with real clicks. Screenshots are in the session's ghconn-shots folder.
+
+- **Connectors page:** once you've signed in with GitHub, a GitHub row is there with the GitHub logo, Type "Built in" and Status "Connected as <your login>". It can't be removed. Its Disconnect button is the same GitHub sign-out as before, and it asks first.
+- **Its panel:** clicking the row lists its 7 tools: Push branch, Create or update pull request, Read pull request, Post review comments, Reply to a review comment, Auto-fix a pull request and Review a pull request. Each one has a "github · <tool>" line, a "!" that explains it, and Ask / Always allow / Never, with "(default)" until you change it. The defaults are what Coder did before: Auto-fix is Ask and the rest are Always allow. Auto-fix's and review's own confirmations didn't change.
+- **Tools page:** the GitHub group is gone. Anything you chose there moved to the GitHub panel and still works. Your choices are saved in the same place and applied by the same code.
+- **Rules:** a permission rule can name these tools the way Claude Code names its GitHub connector: `mcp__github__push_branch` for one, or `mcp__github` or `mcp__github__*` for all of them. The old names (push_branch, pull_request ...) still work.
+- **In the chat:** their steps and cards say "GitHub · Create pull request", "GitHub · Read pull request" and so on.
+- **Kept the same on purpose:** Grok still gets the tools under their old names. Renaming them would break the saved-prompt cache, the hooks, the list of tools a job from GitHub can't use, Claude Code's name map and many tests. Grok is told they make up its GitHub connector. Gloopy hasn't changed.
+
 ## 2026-11-24 — Idea for later: GitHub tools in their own group
 
 The owner wants Coder's GitHub tools (push the branch, open a pull request, read pull-request comments, auto-fix, review, the gh command) shown apart from Coder's other tools, in their own section. Not started; to plan with the owner first.

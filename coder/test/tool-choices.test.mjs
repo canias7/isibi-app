@@ -12,8 +12,8 @@ import { withRepoRules } from "../container/server.mjs";
 const EMPTY = { allow: [], ask: [], deny: [] };
 
 test("TC1 the page's rows: every group and tool of the mockup, each with its explanation and the names its rule uses", () => {
-  assert.equal(TOOL_ROWS.length, 42);
-  assert.deepEqual([...new Set(TOOL_ROWS.map((r) => r.group))], ["Files", "Commands", "Web", "GitHub", "Helpers", "Scheduling", "Sharing", "Side copies", "Connectors", "Plugins and skills", "Other"]);
+  assert.equal(TOOL_ROWS.length, 38);
+  assert.deepEqual([...new Set(TOOL_ROWS.map((r) => r.group))], ["Files", "Commands", "Web", "Helpers", "Scheduling", "Sharing", "Side copies", "Connectors", "Plugins and skills", "Other"]);
   for (const r of TOOL_ROWS) { assert.ok(r.tip.length > 20 && r.line && r.rules.length, r.id); assert.ok(["allow", "ask", "deny"].includes(r.def), r.id); assert.doesNotMatch(r.tip + r.line + r.name, /\p{Extended_Pictographic}/u); }
   const by = Object.fromEntries(TOOL_ROWS.map((r) => [r.name, r.rules]));
   assert.deepEqual([by.Bash, by.Edit, by.WebFetch, by.Agent, by.CronCreate, by["Connector tools"]], [["Bash"], ["Edit"], ["WebFetch"], ["Agent"], ["CronCreate"], ["mcp__*"]]);
@@ -130,7 +130,7 @@ test("TC8 the Worker keeps the choices per owner (coder/<uid>/tools.json): GET t
   let r = await go("GET");
   let j = await r.json();
   assert.equal(r.status, 200);
-  assert.deepEqual([j.rows.length, j.groups.length, j.choices], [42, 11, {}]);
+  assert.deepEqual([j.rows.length, j.groups.length, j.choices], [38, 10, {}]);
   assert.equal(m.size, 0, "nothing stored until the owner picks something");
   r = await go("POST", { id: "bash", value: "deny" });
   assert.deepEqual((await r.json()).choices, { bash: "deny" });

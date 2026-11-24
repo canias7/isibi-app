@@ -14,7 +14,7 @@ const PUB = new URL("../public/", import.meta.url).pathname;
 const SHOTS = process.env.CODER_SHOTS || "";
 if (SHOTS) mkdirSync(SHOTS, { recursive: true });
 
-const GROUPS = ["Files", "Commands", "Web", "GitHub", "Helpers", "Scheduling", "Sharing", "Side copies", "Connectors", "Plugins and skills", "Other"];
+const GROUPS = ["Files", "Commands", "Web", "Helpers", "Scheduling", "Sharing", "Side copies", "Connectors", "Plugins and skills", "Other"];
 
 async function open(browser, store, { width = 1200, height = 900, dark = false, touch = false, extra = {} } = {}) {
   const projects = [{ id: "c1", title: "Fix the cart total", repo: "ana/shop", branch: "coder/c1", base: "main", at: Date.now() }];
@@ -89,10 +89,12 @@ test("tools page: every group and row, the !, a choice saved and still there aft
     assert.equal(await page.textContent(".cd-tools .cd-sure-text"), "For each tool: ask you first, always allow it, or never use it. Your rules and the repository's rules come first. Coder's safety checks run either way.");
     assert.deepEqual(await page.$$eval(".cd-tl-sec", (x) => x.map((y) => y.textContent)), GROUPS);
     const names = await page.$$eval(".cd-tl-row", (x) => x.map((y) => y.querySelector("b").firstChild.textContent));
-    assert.equal(names.length, 42);
-    for (const n of ["Read", "Bash", "PowerShell", "WebFetch", "Browser", "Push", "Auto-fix", "Agent", "CronCreate", "Artifact", "EnterWorktree", "Connector tools", "Skill", "Projects", "Task list", "EndConversation"]) assert.ok(names.includes(n), n);
+    assert.equal(names.length, 38);
+    for (const n of ["Read", "Bash", "PowerShell", "WebFetch", "Browser", "Agent", "CronCreate", "Artifact", "EnterWorktree", "Connector tools", "Skill", "Projects", "Task list", "EndConversation"]) assert.ok(names.includes(n), n);
+    for (const n of ["Push", "Auto-fix", "Pull request", "Review comments"]) assert.ok(!names.includes(n), "GitHub rows moved to the Connectors page: " + n);
+    assert.ok(!(await page.$$eval(".cd-tl-sec", (x) => x.map((y) => y.textContent))).includes("GitHub"), "no GitHub group");
     // Nothing chosen: each row shows its default, marked "(default)"; no Reset in its menu.
-    assert.equal(await page.$$eval(".cd-tl-def", (x) => x.length), 42);
+    assert.equal(await page.$$eval(".cd-tl-def", (x) => x.length), 38);
     assert.equal(await page.$eval('[data-tool="bash"] select', (s) => s.options[s.selectedIndex].text), "Ask");
     assert.equal(await page.$eval('[data-tool="read"] select', (s) => s.options[s.selectedIndex].text), "Always allow");
     assert.equal(await page.$('[data-tool="bash"] option[value="default"]'), null);

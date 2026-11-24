@@ -770,6 +770,31 @@
 .cx-bad { color: #b42318; }
 .cx-ph { font-size: 16px; font-weight: 600; margin-top: 26px; }
 .cx-group { margin-top: 16px; }
+/* THE BUILT-IN GITHUB CONNECTOR (2026-11-24, approved mockup): its row and its panel of tools. */
+.cx-ghmark { color: #1f2328; background: transparent; }
+.cx-ghstat { flex-direction: column; align-items: flex-start; gap: 0; }
+.cx-conn { color: #17663a; font-size: 14px; }
+.cx-ghpanel { margin-top: 4px; }
+.cx-ghpanel .cx-desc code, .cx-ghcode { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; color: #555; }
+.cx-ghcode { display: block; margin-top: 2px; }
+.cx-ghtools { border: 1px solid #e6e3dc; border-radius: 12px; background: #fff; padding: 4px 16px; margin-top: 10px; }
+.cx-ghtools .cd-tl-row { display: flex; justify-content: space-between; align-items: center; gap: 18px; padding: 10px 0; }
+.cx-ghtools .cd-tl-row + .cd-tl-row { border-top: 1px solid #f2f0eb; }
+.cx-ghtools .cd-tl-t { min-width: 0; }
+.cx-ghtools .cd-tl-t b { font-weight: 500; display: block; font-size: 14px; color: #1f1f1f; overflow-wrap: anywhere; }
+.cx-ghtools .cd-ti { display: inline-flex; align-items: center; justify-content: center; width: 15px; height: 15px; box-sizing: border-box; border: 1.5px solid #9a958c; border-radius: 50%; color: #6b665e; font-size: 10px; font-weight: 700; margin-left: 7px; position: relative; cursor: default; vertical-align: 1px; outline: none; }
+.cx-ghtools .cd-ti:focus-visible { box-shadow: 0 0 0 2px #2783f2; }
+.cx-ghtools .cd-ti-tip { display: none; position: absolute; left: 22px; top: -6px; width: 280px; max-width: calc(100vw - 120px); background: #1f1f1f; color: #fff; font-weight: 400; font-size: 12.5px; line-height: 1.45; padding: 9px 11px; border-radius: 8px; z-index: 5; box-shadow: 0 6px 20px rgba(0,0,0,.2); white-space: normal; text-align: left; }
+.cx-ghtools .cd-ti:focus-visible .cd-ti-tip, .cx-ghtools .cd-ti.show .cd-ti-tip { display: block; }
+@media (hover: hover) { .cx-ghtools .cd-ti:hover .cd-ti-tip { display: block; } }
+.cx-ghtools .cd-tl-pick { flex: none; display: inline-flex; align-items: center; gap: 6px; font-size: 13.5px; color: #333; white-space: nowrap; }
+.cx-ghtools .cd-tl-def { color: #a3a09a; font-size: 12px; }
+.cx-ghtools .cd-tl-pick select { font: inherit; font-size: 13.5px; color: inherit; border: 0; background: transparent; cursor: pointer; padding: 4px 2px; border-radius: 6px; text-align: right; }
+.cx-ghtools .cd-tl-pick select:hover { background: #f3f1ed; }
+.cx-ghtools .cd-tl-pick.is-ask { color: #b45309; }
+.cx-ghtools .cd-tl-pick.is-deny { color: #b91c1c; }
+.cx-ghtools .cd-tl-pick select option { color: #1f1f1f; }
+@media (max-width: 640px) { .cx-ghtools .cd-tl-row { gap: 10px; position: relative; } .cx-ghtools .cd-ti { position: static; } .cx-ghtools .cd-ti-tip { left: 0; right: 0; top: 34px; width: auto; max-width: none; } }
 .cx-ghead { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 0; }
 .cx-gtoggle { font: inherit; font-size: 14px; font-weight: 600; border: 0; background: none; cursor: pointer; display: flex; align-items: center; gap: 8px; padding: 0; color: #1f1e1d; }
 .cx-chev { display: flex; transition: transform .15s; }

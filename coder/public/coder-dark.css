@@ -472,6 +472,20 @@ body.gf-side-open .gf-scrim { background: rgba(222, 225, 228, 0.25) }
 .cx-backb { color: #ecebeb }
 .cx-url { color: #83827e }
 .cx-bad { color: #da746c }
+.cx-ghmark { color: #e3e5e8 }
+.cx-conn { color: #abeac7 }
+.cx-ghpanel .cx-desc code, .cx-ghcode { color: #b4b4b4 }
+.cx-ghtools { border: 1px solid #4d4b46; background: #252525 }
+.cx-ghtools .cd-tl-row + .cd-tl-row { border-top: 1px solid #43413c }
+.cx-ghtools .cd-tl-t b { color: #eaeaea }
+.cx-ghtools .cd-ti { border: 1.5px solid #8a867e; color: #aba69f }
+.cx-ghtools .cd-ti-tip { background: #dfdfdf; color: #212121; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2) }
+.cx-ghtools .cd-tl-pick { color: #d6d6d6 }
+.cx-ghtools .cd-tl-def { color: #85817a }
+.cx-ghtools .cd-tl-pick select:hover { background: #302f2c }
+.cx-ghtools .cd-tl-pick.is-ask { color: #dda478 }
+.cx-ghtools .cd-tl-pick.is-deny { color: #d86565 }
+.cx-ghtools .cd-tl-pick select option { color: #eaeaea }
 .cx-gtoggle { color: #ecebeb }
 .cx-count { border: 1px solid #57554f; color: #a1a09e }
 .cx-gsel { border: 1px solid #4d4b46; background: #252525; color: #ecebeb }

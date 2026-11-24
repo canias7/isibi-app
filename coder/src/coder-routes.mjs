@@ -163,7 +163,7 @@ export function contextKept(c) {
   return { model: typeof c.model === "string" ? c.model.slice(0, 60) : "", window, used: n(c.used), parts: named(c.parts, 10), free: n(c.free), buffer: n(c.buffer), memory: named(c.memory, 50), connectors: named(c.connectors, 50), level: ["ok", "warn", "compact", "blocked"].includes(c.level) ? c.level : "ok", warning: typeof c.warning === "string" ? c.warning.slice(0, 200) : "", at: Date.now() };
 }
 import { normMode, ruleProblem, ruleWarning, ruleSaved, MODES } from "../container/coder-perms.mjs";
-import { TOOL_ROWS, TOOL_CHOICE_GROUPS, cleanToolChoices, changeToolChoice } from "../container/coder-toolchoices.mjs";
+import { TOOL_ROWS, TOOL_CHOICE_GROUPS, GITHUB_ROWS, cleanToolChoices, changeToolChoice } from "../container/coder-toolchoices.mjs";
 import { hooksSetting } from "../container/coder-hooks.mjs";
 import { autoModeSetting } from "../container/coder-checker.mjs";
 import { descriptionOk, DESCRIPTION_MAX } from "../container/coder-envtools.mjs";
@@ -1608,7 +1608,7 @@ export async function handleCoder(request, env, ctx, deps) {
   // THE TOOLS PAGE (the sidebar's More, Tools): GET its rows and the owner's choices; POST { id, value: allow | ask | deny |
   // default }. A row never changed is not stored and changes nothing; the choices reach each chat from its next message.
   if (parts[0] === "tool-choices") {
-    const out = (choices) => json({ ok: true, rows: TOOL_ROWS, groups: TOOL_CHOICE_GROUPS, choices });
+    const out = (choices) => json({ ok: true, rows: TOOL_ROWS, groups: TOOL_CHOICE_GROUPS, github: GITHUB_ROWS, choices });
     if (request.method === "GET") return out(await toolChoicesOf(bucket, uid));
     if (request.method !== "POST") return json({ error: "Tools take GET or POST" }, 405);
     const body = await request.json().catch(() => null);

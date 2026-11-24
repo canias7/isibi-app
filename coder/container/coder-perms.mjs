@@ -962,7 +962,19 @@ const searchPathSpec = (tool, spec) => (tool === "Grep" || tool === "Glob") && /
  * `LSP`) on the whole tool only (Claude Code: "Leave bare tool-name rules such as Write or Glob alone. Claude Code matches
  * them at the tool level"; one with a path is kept and never matches: ruleKept).
  */
+/**
+ * CODER'S BUILT-IN GITHUB CONNECTOR (the owner, 2026-11-24, approved mockup): Coder's GitHub tools, shown as a connector
+ * named "github", the way Claude Code gets GitHub through its GitHub MCP server. Their names sent to Grok stay Coder's own
+ * (push_branch, pull_request, ...); a rule may name one as `mcp__github__<tool>`, all of them as `mcp__github` or
+ * `mcp__github__*`, or by its bare name as before.
+ */
+export const GITHUB_CONNECTOR = "github";
+export const GITHUB_CONNECTOR_TOOLS = Object.freeze(["push_branch", "pull_request", "pr_update", "pr_read", "pr_comments", "reply_review", "auto_fix", "review"]);
+/** A GitHub tool's connector name, mcp__github__<tool>, or "" for any other tool. */
+export const githubMcpName = (tool) => (GITHUB_CONNECTOR_TOOLS.includes(String(tool ?? "")) ? "mcp__" + GITHUB_CONNECTOR + "__" + tool : "");
 export function parseRule(text) {
+  // (A GitHub tool by its bare name, push_branch: a whole-tool rule, the same as mcp__github__push_branch.)
+  if (GITHUB_CONNECTOR_TOOLS.includes(String(text ?? "").trim())) return { tool: String(text).trim(), spec: null };
   // (A tool name with a wildcard, `*`, `B*`, `mcp__*`: see toolGlob.)
   if (toolGlob(text)) return { tool: String(text).trim(), spec: null, glob: true };
   // A CONNECTOR'S TOOL BY ITS OWN NAME, mcp__<server>__<tool>, OR ALL OF ONE CONNECTOR'S, mcp__<server> (since the connectors
@@ -1093,7 +1105,7 @@ export const MONITOR_BASH_DENIED = "Permission to use Monitor has been denied: i
  * `mcp__bf7c680d-5fdc-5ef4-b4a0-abadb619bf0a…`, each exactly (D2 of recheck 3; coder-envtools.mjs remoteAliases).
  */
 const CODER_NAME_OF = Object.freeze(Object.assign(Object.create(null), Object.fromEntries(Object.entries(REMOTE_TOOL_NAMES).map(([k, v]) => [v, k]))));
-const ruleNamesOf = (tool) => { const t = String(tool ?? ""); const cc = CODER_NAME_OF[t] ? t : Object.hasOwn(REMOTE_TOOL_NAMES, t) ? REMOTE_TOOL_NAMES[t] : ""; return cc ? [cc, ...remoteAliases(cc), CODER_NAME_OF[cc]] : [t]; };
+const ruleNamesOf = (tool) => { const t = String(tool ?? ""); if (githubMcpName(t)) return [t, githubMcpName(t)]; const cc = CODER_NAME_OF[t] ? t : Object.hasOwn(REMOTE_TOOL_NAMES, t) ? REMOTE_TOOL_NAMES[t] : ""; return cc ? [cc, ...remoteAliases(cc), CODER_NAME_OF[cc]] : [t]; };
 /** A rule of `kind` on all of a tool (`Bash`, `Bash(*)`, `Monitor`; a connector's `mcp__<server>__<tool>`, or `mcp__<server>` for all of
  * that connector's; an allow rule's wildcard only after a literal mcp__<server>__, as Claude Code's), or "". */
 export const wholeRule = (rules, kind, tool) => (Array.isArray(rules && rules[kind]) ? rules[kind] : []).find((r) => { const x = parseRule(r); return !!x && x.spec === null && ruleNamesOf(tool).some((n) => (x.glob ? (kind !== "allow" || anchoredGlob(x.tool)) && toolGlobMatches(x.tool, n) : x.tool === n || (x.mcp === true && n.startsWith(x.tool + "__")))); }) || "";

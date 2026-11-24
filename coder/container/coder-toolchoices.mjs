@@ -15,13 +15,32 @@
  * - Ask: an ask rule on the tool. For Bash and PowerShell, a command that only reads still runs without asking (the
  *   machine checks it per command: `toolChoices.ask`), as the page's own words say.
  * - Never: a deny rule on the tool (the tool is taken out of the chat).
- * Tools Claude Code has no rule name for in Coder's rule reader (Agent, CronCreate, push_branch, connector tools ...) are
+ * Tools Claude Code has no rule name for in Coder's rule reader (Agent, CronCreate, connector tools ...) and the GitHub
+ * connector's tools (push_branch ..., GITHUB_ROWS) are
  * carried in `toolChoices` and checked by name where Coder decides whether a call asks or is refused.
  */
-import { parseRule } from "./coder-perms.mjs";
+import { parseRule, GITHUB_CONNECTOR_TOOLS, githubMcpName } from "./coder-perms.mjs";
+
+/**
+ * THE GITHUB CONNECTOR'S TOOLS (the owner, 2026-11-24, approved mockup): Coder's GitHub tools left the Tools page and are
+ * shown as a built-in connector, GitHub, on the Connectors page, one row per tool. Their choices are kept with the Tools
+ * page's (ids "github:<tool>") and applied by the same code below. Defaults are what Coder did before.
+ */
+export const GITHUB_ROWS = Object.freeze([
+  {"id": "github:push_branch", "group": "GitHub", "connector": "github", "tool": "push_branch", "name": "Push branch", "line": "Push to the chat's branch", "tip": "Lets Coder send its work to the chat's own branch on GitHub in the middle of a turn. It never touches your main branch.", "rules": ["push_branch"], "def": "allow"},
+  {"id": "github:pull_request", "group": "GitHub", "connector": "github", "tool": "pull_request", "name": "Create or update pull request", "line": "Open a pull request, mark it ready or draft, reply or comment", "tip": "Lets Coder open a pull request for its branch, or change one: mark it ready or draft, resolve a thread, reply or comment.", "rules": ["pull_request", "pr_update"], "def": "allow"},
+  {"id": "github:pr_read", "group": "GitHub", "connector": "github", "tool": "pr_read", "name": "Read pull request", "line": "Read a pull request's reviews and comments", "tip": "Lets Coder read the reviews and comments on a pull request. It never changes anything.", "rules": ["pr_read"], "def": "allow"},
+  {"id": "github:pr_comments", "group": "GitHub", "connector": "github", "tool": "pr_comments", "name": "Post review comments", "line": "Post review findings on a pull request's lines", "tip": "Lets Coder post its review findings as comments on the lines of its pull request, when you ask for that.", "rules": ["pr_comments"], "def": "allow"},
+  {"id": "github:reply_review", "group": "GitHub", "connector": "github", "tool": "reply_review", "name": "Reply to a review comment", "line": "Answer the review comment an auto-fix job was started for", "tip": "Lets Coder answer, in its thread on GitHub, the review comment that started an auto-fix job.", "rules": ["reply_review"], "def": "allow"},
+  {"id": "github:auto_fix", "group": "GitHub", "connector": "github", "tool": "auto_fix", "name": "Auto-fix a pull request", "line": "Fix a pull request on its own", "tip": "Lets Coder fix its pull request by itself when a check fails or someone leaves a review comment. At most 3 tries in a row.", "rules": ["auto_fix"], "def": "ask"},
+  {"id": "github:review", "group": "GitHub", "connector": "github", "tool": "review", "name": "Review a pull request", "line": "Review the branch's changes (code or security)", "tip": "Lets Coder read the changes on its branch to review them for bugs or security problems. It changes nothing.", "rules": ["review"], "def": "allow"},
+].map((r) => Object.freeze({ ...r, rules: Object.freeze(r.rules) })));
+/** The old Tools page's GitHub rows, and the connector's rows each one's choice moves to. */
+const OLD_GITHUB_ROWS = Object.freeze({ "push": ["github:push_branch"], "pull-request": ["github:pull_request"], "review-comments": ["github:pr_comments", "github:pr_read", "github:reply_review"], "auto-fix": ["github:auto_fix"] });
+const GH_NAMES = new Set(GITHUB_CONNECTOR_TOOLS);
 
 export const TOOL_CHOICE_VALUES = Object.freeze(["allow", "ask", "deny"]);
-export const TOOL_CHOICE_GROUPS = Object.freeze(["Files", "Commands", "Web", "GitHub", "Helpers", "Scheduling", "Sharing", "Side copies", "Connectors", "Plugins and skills", "Other"]);
+export const TOOL_CHOICE_GROUPS = Object.freeze(["Files", "Commands", "Web", "Helpers", "Scheduling", "Sharing", "Side copies", "Connectors", "Plugins and skills", "Other"]);
 /** Each row of the page: its id, group, name, short line, the "!" explanation, the rule names it stands for, and its default. */
 export const TOOL_ROWS = Object.freeze([
   {"id": "read", "group": "Files", "name": "Read", "line": "Read a file, picture, PDF or notebook", "tip": "Lets Coder open and look at a file in your repository, including pictures, PDFs and notebooks. It never changes anything.", "rules": ["Read"], "def": "allow"},
@@ -38,10 +57,6 @@ export const TOOL_ROWS = Object.freeze([
   {"id": "webfetch", "group": "Web", "name": "WebFetch", "line": "Read a web page", "tip": "Lets Coder read a web page, like documentation.", "rules": ["WebFetch"], "def": "allow"},
   {"id": "websearch", "group": "Web", "name": "WebSearch", "line": "Search the web", "tip": "Lets Coder search the web. Each search uses a little Grok.", "rules": ["WebSearch"], "def": "allow"},
   {"id": "browser", "group": "Web", "name": "Browser", "line": "Open pages, click, fill forms, run page scripts", "tip": "Lets Coder use a real browser: open pages, click, fill in forms, run page scripts and upload files.", "rules": ["tabs_context_mcp", "tabs_create_mcp", "navigate", "read_page", "computer", "form_input", "javascript_tool", "file_upload", "browser_batch"], "def": "ask", "note": "Only in chats where Coder's browser is on."},
-  {"id": "push", "group": "GitHub", "name": "Push", "line": "Push to the chat's branch", "tip": "Lets Coder send its work to the chat's own branch on GitHub. It never touches your main branch.", "rules": ["push_branch"], "def": "allow"},
-  {"id": "pull-request", "group": "GitHub", "name": "Pull request", "line": "Open or update a pull request", "tip": "Lets Coder open or update a pull request for its branch.", "rules": ["pull_request", "pr_update"], "def": "allow"},
-  {"id": "review-comments", "group": "GitHub", "name": "Review comments", "line": "Read and reply to review comments", "tip": "Lets Coder read and reply to review comments on its pull request.", "rules": ["pr_comments", "pr_read", "reply_review"], "def": "allow"},
-  {"id": "auto-fix", "group": "GitHub", "name": "Auto-fix", "line": "Fix a pull request on its own", "tip": "Lets Coder fix its pull request by itself when a check fails or someone leaves a review comment. At most 3 tries in a row.", "rules": ["auto_fix"], "def": "ask"},
   {"id": "agent", "group": "Helpers", "name": "Agent", "line": "Start a helper AI", "tip": "Lets Coder start a helper AI for part of the job. Each helper uses more Grok (at most 3 at once, 10 per job).", "rules": ["Agent"], "def": "allow"},
   {"id": "workflow", "group": "Helpers", "name": "Workflow", "line": "Run several helpers from a script", "tip": "Lets Coder run several helpers from a script. Uses more Grok.", "rules": ["Workflow"], "def": "ask"},
   {"id": "sendmessage", "group": "Helpers", "name": "SendMessage", "line": "Message a running helper", "tip": "Lets Coder send a follow-up to a helper it already started.", "rules": ["SendMessage"], "def": "allow"},
@@ -67,7 +82,9 @@ export const TOOL_ROWS = Object.freeze([
   {"id": "undo", "group": "Other", "name": "Undo", "line": "Undo the last job's changes", "tip": "Lets Coder undo the file changes from its last job.", "rules": ["undo_last_job"], "def": "ask"},
   {"id": "endconversation", "group": "Other", "name": "EndConversation", "line": "End the chat", "tip": "Lets Coder end the chat. Only for abuse, or when you ask and confirm.", "rules": ["EndConversation"], "def": "deny", "note": "Claude Code's rule: it can't be turned off while other tools remain."},
 ].map((r) => Object.freeze({ ...r, rules: Object.freeze(r.rules) })));
-const BY_ID = new Map(TOOL_ROWS.map((r) => [r.id, r]));
+/** Every row with a choice: the Tools page's and the GitHub connector's. */
+export const ALL_ROWS = Object.freeze([...TOOL_ROWS, ...GITHUB_ROWS]);
+const BY_ID = new Map(ALL_ROWS.map((r) => [r.id, r]));
 /** Shell tools whose Ask lets read-only commands through (checked per command on the machine). */
 const SHELL_ASK = new Set(["Bash", "PowerShell"]);
 /** Claude Code's EndConversation can't be denied while any other tool remains: its Never is shown, not applied. */
@@ -78,10 +95,13 @@ export function cleanToolChoices(x) {
   const out = {};
   if (!x || typeof x !== "object" || Array.isArray(x)) return out;
   for (const [k, v] of Object.entries(x)) if (BY_ID.has(k) && TOOL_CHOICE_VALUES.includes(v)) out[k] = v;
+  // (A choice saved on the old Tools page's GitHub rows moves to the GitHub connector's rows, unless one is set there.)
+  for (const [k, ids] of Object.entries(OLD_GITHUB_ROWS)) if (TOOL_CHOICE_VALUES.includes(x[k])) for (const id of ids) if (!out[id]) out[id] = x[k];
   return out;
 }
 /** One change: { id, value } where value is allow | ask | deny, or "default" to forget the choice. */
 export function changeToolChoice(now, id, value) {
+  if (Object.hasOwn(OLD_GITHUB_ROWS, id)) return { error: "GitHub's tools moved to the Connectors page: GitHub." };
   if (!BY_ID.has(id)) return { error: "Coder has no tool “" + String(id).slice(0, 60) + "” on its Tools page." };
   if (value !== "default" && !TOOL_CHOICE_VALUES.includes(value)) return { error: "A choice is Ask, Always allow, Never or Reset to default." };
   const out = cleanToolChoices(now);
@@ -94,10 +114,14 @@ const arr = (x) => (Array.isArray(x) ? x.filter((y) => typeof y === "string") : 
 function names(rule, n) {
   const t = String(rule).trim();
   if (t === n || t.startsWith(n + "(")) return true;
+  // (A GitHub tool by its connector name too: mcp__github__push_branch, mcp__github, mcp__github__*.)
+  const gh = githubMcpName(n);
+  if (gh && names(t, gh)) return true;
   if (n === "mcp__*") return t.startsWith("mcp__");
   const x = parseRule(t);
   if (!x) return false;
   if (x.tool === n) return true;
+  if (x.mcp && n.startsWith(x.tool + "__")) return true;
   if (x.glob) { try { return new RegExp("^" + x.tool.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*") + "$").test(n); } catch { return false; } }
   return false;
 }
@@ -115,13 +139,13 @@ export function applyToolChoices(rules, choices) {
   const all = [...base.allow, ...base.ask, ...base.deny];
   const add = { allow: [], ask: [], deny: [] };
   const tc = { allow: [], ask: [], deny: [], aside: [] };
-  for (const row of TOOL_ROWS) {
+  for (const row of ALL_ROWS) {
     const v = c[row.id];
     if (!v) continue;
     if (row.rules.some((n) => all.some((x) => names(x, n)))) { tc.aside.push(row.id); continue; }
     for (const n of row.rules) {
       if (v === "deny" && NOT_DENIED.has(n)) continue;
-      const ruled = n !== "mcp__*" && !!parseRule(n) && !(v === "ask" && SHELL_ASK.has(n));
+      const ruled = n !== "mcp__*" && !GH_NAMES.has(n) && !!parseRule(n) && !(v === "ask" && SHELL_ASK.has(n));
       if (ruled) { if (!add[v].includes(n)) add[v].push(n); } else if (!tc[v].includes(n)) tc[v].push(n);
     }
   }

@@ -610,6 +610,12 @@
   const CX_LOGOS = ['neon', 'supabase', 'cloudflare', 'railway', 'resend', 'sentry', 'linear', 'notion', 'robinhood', 'stripe', 'clerk', 'render', 'redis'];
   const cxLogo = (name) => { const w = String(name || '').trim().toLowerCase().split(/\s+/)[0]; return CX_LOGOS.includes(w) ? w : ''; };
   const cxBadge = (name) => { const lg = cxLogo(name); if (lg) return '<span class="cx-badge cx-logo"><img src="/logos/' + lg + '.svg" alt="" width="18" height="18"></span>'; const n = String(name || '?'); let h = 0; for (const ch of n) h = (h * 31 + ch.charCodeAt(0)) % 360; return '<span class="cx-badge" style="background:hsl(' + h + ',55%,92%);color:hsl(' + h + ',45%,32%)">' + esc(n.trim().charAt(0).toUpperCase() || '?') + '</span>'; };
+  // THE BUILT-IN GITHUB CONNECTOR (the owner, 2026-11-24, approved mockup): Coder's GitHub tools as a connector, "github",
+  // the way Claude Code gets GitHub through its GitHub MCP server. Its row is there once GitHub is signed in; its tools'
+  // choices are kept with the Tools page's (/tool-choices, ids "github:<tool>"; container/coder-toolchoices.mjs GITHUB_ROWS).
+  const GH_MARK = (n) => '<svg width="SZ" height="SZ" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>'.split('SZ').join(String(n));
+  // (Its tools' names in steps and cards: "GitHub · Create pull request".)
+  const GH_STEP = { push_branch: 'Push branch', pull_request: 'Create pull request', pr_update: 'Update pull request', pr_read: 'Read pull request', pr_comments: 'Post review comments', reply_review: 'Reply to a review comment', auto_fix: 'Auto-fix', review: 'Review' };
   const cxTitle = (t) => t.title || String(t.name || '').replace(/[_-]+/g, ' ').replace(/^./, (c) => c.toUpperCase());
   async function showConnectors(note) {
     const r = await call('/connectors');
@@ -619,6 +625,11 @@
     const cb = r.data.callback || '';
     const later = r.data.later || [];
     const st = { tab: 'yours', q: '', open: '', note: note || '', busy: '', shut: {}, allOff: r.data.allOff === true };
+    // (The GitHub connector's tools and the owner's choices for them; no row when GitHub is not signed in.)
+    const gh = { rows: [], choices: {}, busy: '' };
+    if (S.github && S.github.connected) { const t = await call('/tool-choices'); if (t.status === 200 && t.data && Array.isArray(t.data.github)) { gh.rows = t.data.github; gh.choices = t.data.choices || {}; } }
+    const ghOn = () => !!(S.github && S.github.connected && gh.rows.length);
+    const GH_NAMES = { allow: 'Always allow', ask: 'Ask', deny: 'Never' };
     const page = document.createElement('div'); page.className = 'cx'; page.setAttribute('role', 'dialog'); page.setAttribute('aria-modal', 'true'); page.setAttribute('aria-label', 'Connectors');
     document.body.append(page);
     const close = () => { document.removeEventListener('keydown', key); page.remove(); };
@@ -632,11 +643,12 @@
     const typeCell = (c) => '<span class="cx-type">Web</span>' + (c.custom ? '<span class="cx-pill">Custom</span>' : '');
     const listView = () => {
       const added = new Set(list.map((c) => c.url));
-      const rows = st.tab === 'yours'
+      const ghRow = st.tab === 'yours' && ghOn() && match({ name: 'GitHub', url: 'github built in' }) ? '<div class="cx-row cx-click cx-gh" data-row="github" tabindex="0"><div class="cx-name"><span class="cx-badge cx-ghmark">' + GH_MARK(26) + '</span><span><span>GitHub</span><span class="cx-about">Pull requests, review comments, auto-fix, your repositories</span></span></div><div class="cx-tcol"><span class="cx-type">Built in</span></div><div class="cx-scol cx-ghstat"><span class="cx-conn">Connected</span><span class="cx-about">as ' + esc(S.github.login || '') + '</span></div></div>' : '';
+      const rows = ghRow + (st.tab === 'yours'
         ? list.filter(match).map((c) => '<div class="cx-row cx-click" data-row="' + esc(c.id) + '" tabindex="0"><div class="cx-name">' + cxBadge(c.name) + '<span>' + esc(c.name) + '</span></div><div class="cx-tcol">' + typeCell(c) + '</div><div class="cx-scol">' + statusCell(c) + '</div></div>').join('')
-        : catalog.filter((k) => !added.has(k.url) && match(k)).map((k, i, all) => (i === 0 || all[i - 1].group !== k.group ? '<div class="cx-group-h">' + esc(k.group || '') + '</div>' : '') + '<div class="cx-row"><div class="cx-name">' + cxBadge(k.name) + '<span><span>' + esc(k.name) + '</span><span class="cx-about">' + esc(k.about) + '</span></span></div><div class="cx-tcol"><span class="cx-type">Web</span></div><div class="cx-scol"><button type="button" class="cx-btn cx-btn-dark" data-act="connect" data-url="' + esc(k.url) + '" data-name="' + esc(k.name) + '"' + (st.busy ? ' disabled' : '') + '>' + (st.busy === k.url ? 'Connecting…' : 'Connect') + '</button></div></div>').join('');
+        : catalog.filter((k) => !added.has(k.url) && match(k)).map((k, i, all) => (i === 0 || all[i - 1].group !== k.group ? '<div class="cx-group-h">' + esc(k.group || '') + '</div>' : '') + '<div class="cx-row"><div class="cx-name">' + cxBadge(k.name) + '<span><span>' + esc(k.name) + '</span><span class="cx-about">' + esc(k.about) + '</span></span></div><div class="cx-tcol"><span class="cx-type">Web</span></div><div class="cx-scol"><button type="button" class="cx-btn cx-btn-dark" data-act="connect" data-url="' + esc(k.url) + '" data-name="' + esc(k.name) + '"' + (st.busy ? ' disabled' : '') + '>' + (st.busy === k.url ? 'Connecting…' : 'Connect') + '</button></div></div>').join(''));
       const soon = st.tab === 'discover' ? later.filter(match).map((k) => '<div class="cx-row cx-soon"><div class="cx-name">' + cxBadge(k.name) + '<span><span>' + esc(k.name) + '</span><span class="cx-about">' + esc(k.group) + ' · ' + esc(k.why) + '</span></span></div><div class="cx-tcol"></div><div class="cx-scol"><span class="cx-pill">Coming later</span></div></div>').join('') : '';
-      const empty = st.tab === 'yours' ? (list.length ? 'No connector matches.' : 'No connectors yet. Pick one in Discover, or press + Add for any MCP server.') : 'Nothing more to add here. + Add takes any MCP server’s address.';
+      const empty = st.tab === 'yours' ? (list.length || ghOn() ? 'No connector matches.' : 'No connectors yet. Pick one in Discover, or press + Add for any MCP server.') : 'Nothing more to add here. + Add takes any MCP server’s address.';
       return '<div class="cx-top"><div class="cx-h">Connectors</div><button type="button" class="cx-x" data-act="close" aria-label="Close">' + CX_ICON.close + '</button></div>' +
         '<div class="cx-sub">Connect apps and services through MCP. They work in every chat, for Coder and Gloopy. Your sign-ins stay on our server, never on Coder’s machine.</div>' +
         // EVERY CONNECTOR OFF AT ONCE (Claude Code's deny rule "mcp__*").
@@ -680,7 +692,48 @@
       // ITS PROMPTS AND RESOURCES (Claude Code: prompts typed as /connector:prompt, resources with @): what to type in a message.
       ((c.prompts || []).length ? '<div class="cx-ph">Prompts</div><p class="cx-desc">Type one as a message, with what it asks for after it.</p><ul class="cx-plist">' + c.prompts.map((x) => '<li><code>' + esc(x.command) + '</code>' + (x.description ? ' <span>' + esc(x.description) + '</span>' : '') + '</li>').join('') + '</ul>' : '') +
       ((c.resources || []).length ? '<div class="cx-ph">Resources</div><p class="cx-desc">Put one in a message and it is attached for Coder.</p><ul class="cx-plist">' + c.resources.map((x) => '<li><code>' + esc(x.mention) + '</code>' + (x.name ? ' <span>' + esc(x.name) + '</span>' : '') + '</li>').join('') + '</ul>' : '');
+    const ghToolRow = (t) => {
+      const v = gh.choices[t.id], now = v || t.def;
+      return '<div class="cd-tl-row" data-ghtool="' + esc(t.id) + '"><div class="cd-tl-t"><b>' + esc(t.name) +
+          '<span class="cd-ti" tabindex="0" role="button" aria-label="About ' + esc(t.name) + '">!<span class="cd-ti-tip" role="tooltip">' + esc(t.tip) + '</span></span></b>' +
+          '<code class="cx-ghcode">github · ' + esc(t.tool) + '</code></div>' +
+        '<label class="cd-tl-pick is-' + now + '">' + (v ? '' : '<span class="cd-tl-def">(default)</span>') +
+          '<select aria-label="' + esc(t.name) + '"' + (gh.busy === t.id ? ' disabled' : '') + '>' +
+            ['ask', 'allow', 'deny'].map((k) => '<option value="' + k + '"' + (k === now ? ' selected' : '') + '>' + GH_NAMES[k] + '</option>').join('') +
+            (v ? '<option value="default">Reset to default (' + GH_NAMES[t.def] + ')</option>' : '') +
+          '</select></label></div>';
+    };
+    const ghView = () => '<div class="cx-top"><button type="button" class="cx-backb" data-act="back">' + CX_ICON.back + 'Your connectors</button><button type="button" class="cx-x" data-act="close" aria-label="Close">' + CX_ICON.close + '</button></div>' +
+      '<div class="cx-ghpanel"><div class="cx-dhead"><div class="cx-name cx-dname"><span class="cx-badge cx-ghmark">' + GH_MARK(22) + '</span><span>GitHub</span></div><div class="cx-dacts">' +
+      '<button type="button" class="cx-btn" data-act="ghoff">Disconnect</button></div></div>' +
+      '<p class="cx-desc">Connected with your GitHub sign-in' + (S.github && S.github.login ? ' as <b>' + esc(S.github.login) + '</b>' : '') + '. Coder only works on its own branch; it never touches your main branch. ' + gh.rows.length + ' tools. Built in: it can’t be removed, only disconnected.</p>' +
+      (st.note ? '<div class="cx-note">' + esc(st.note) + '</div>' : '') +
+      '<div class="cx-ph">Tools</div><p class="cx-desc">For each tool: ask you first, always allow it, or never use it. Your permission rules come first: they can name these tools as <code>mcp__github__push_branch</code>, or all of them as <code>mcp__github</code>.</p>' +
+      '<div class="cd-tl-card cx-ghtools">' + gh.rows.map(ghToolRow).join('') + '</div></div>';
     const paint = () => {
+      if (st.open === 'github') {
+        if (!ghOn()) st.open = '';
+        else {
+          page.innerHTML = '<div class="cx-in">' + ghView() + '</div>';
+          page.querySelectorAll('[data-act]').forEach((b) => { b.onclick = (e) => { e.stopPropagation(); act(b.getAttribute('data-act'), b); }; });
+          page.querySelectorAll('.cd-ti').forEach((i) => {
+            i.onclick = (e) => { e.preventDefault(); e.stopPropagation(); const on = !i.classList.contains('show'); page.querySelectorAll('.cd-ti.show').forEach((x) => x.classList.remove('show')); if (on) i.classList.add('show'); else i.blur(); };
+            i.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); i.click(); } };
+          });
+          page.querySelectorAll('[data-ghtool] select').forEach((sel) => {
+            sel.onchange = async () => {
+              const id = sel.closest('[data-ghtool]').dataset.ghtool, value = sel.value;
+              gh.busy = id; st.note = ''; paint();
+              const x = await call('/tool-choices', { method: 'POST', body: JSON.stringify({ id, value }) });
+              gh.busy = '';
+              if (x.status === 200 && x.data && x.data.choices) { gh.choices = x.data.choices; st.note = 'Saved. It applies from the next message in each chat.'; } else st.note = (x.data && x.data.error) || 'That choice could not be saved.';
+              paint();
+              const back = page.querySelector('[data-ghtool="' + id + '"] select'); if (back) back.focus();
+            };
+          });
+          return;
+        }
+      }
       const c = st.open && list.find((x) => x.id === st.open);
       if (st.open && !c) st.open = '';
       const qFocus = document.activeElement && document.activeElement.id === 'cxQ';
@@ -760,6 +813,8 @@
       if (what === 'close') return close();
       if (what === 'back') { st.open = ''; st.note = ''; return paint(); }
       if (what === 'add') return addForm();
+      // (GitHub, built in: disconnected through the GitHub sign-in's own Disconnect, which asks first.)
+      if (what === 'ghoff') { await disconnectGithub(); if (!(S.github && S.github.connected)) { st.open = ''; st.note = 'GitHub was disconnected.'; } return paint(); }
       if (what === 'connect') {
         const k = catalog.find((y) => y.url === b.getAttribute('data-url'));
         // A server that takes a key (Render): asked for in a box, never shown again.
@@ -2557,7 +2612,10 @@
     const open = !!S.open[key];
     const notYet = state === 'wait' || (state === 'bad' && neverRan(r));
     // File and web tools say what they did: Read, Edited, Wrote, Searched… (2026-11-05).
-    const verb = e.verb ? (state === 'run' ? e.verb.replace(/^Read$/, 'Reading').replace(/^Wrote$/, 'Writing').replace(/^Edited$/, 'Editing').replace(/^Searched/, 'Searching').replace(/^Found$/, 'Finding').replace(/^Fetched$/, 'Fetching').replace(/^Opened$/, 'Opening').replace(/^Looked at$/, 'Looking at').replace(/^Clicked$/, 'Clicking').replace(/^Hovered$/, 'Hovering').replace(/^Typed into$/, 'Typing into').replace(/^Typed$/, 'Typing').replace(/^Pressed$/, 'Pressing').replace(/^Chose in$/, 'Choosing in').replace(/^Chose$/, 'Choosing').replace(/^Scrolled$/, 'Scrolling').replace(/^Went back$/, 'Going back') : notYet ? presentVerb(e.verb) : e.verb) : state === 'run' ? 'Running' : notYet ? 'Run' : 'Ran';
+    // (A GitHub connector tool's step: "GitHub · Create pull request", as a connector tool's.)
+    const ghVerb = !GLOOPY && GH_STEP[e.tool] ? 'GitHub · ' + (e.tool === 'review' && /^Security/.test(String(e.verb || '')) ? 'Security review' : GH_STEP[e.tool]) : '';
+    const verbOwn = e.verb ? (state === 'run' ? e.verb.replace(/^Read$/, 'Reading').replace(/^Wrote$/, 'Writing').replace(/^Edited$/, 'Editing').replace(/^Searched/, 'Searching').replace(/^Found$/, 'Finding').replace(/^Fetched$/, 'Fetching').replace(/^Opened$/, 'Opening').replace(/^Looked at$/, 'Looking at').replace(/^Clicked$/, 'Clicking').replace(/^Hovered$/, 'Hovering').replace(/^Typed into$/, 'Typing into').replace(/^Typed$/, 'Typing').replace(/^Pressed$/, 'Pressing').replace(/^Chose in$/, 'Choosing in').replace(/^Chose$/, 'Choosing').replace(/^Scrolled$/, 'Scrolling').replace(/^Went back$/, 'Going back') : notYet ? presentVerb(e.verb) : e.verb) : state === 'run' ? 'Running' : notYet ? 'Run' : 'Ran';
+    const verb = ghVerb ? esc(ghVerb) : verbOwn;
     // WHAT A BROWSER STEP DID, said in words once it is done ("Clicked “Go”"), in place of its verb and the element's number.
     const said = r && typeof r.label === 'string' && r.label ? r.label : '';
     // A HELPER'S STEP: its name first, then what it does (live test, 2026-11-10: "Searched the web for “Rome population” ·
@@ -4850,7 +4908,7 @@
   const ruleShown = (r) => String(r).replace(/^Bash\(([\s\S]*)\)$/, '$1').replace(/^WebFetch\(domain:(.*)\)$/, '$1').replace(/^Read\(\/(\/[\s\S]*)\/\*\*\)$/, (m, d) => 'reading ' + d.replace(/\\(.)/g, '$1') + '/');
   // (web_search's card since it became Coder's own tool, 2026-11-14: its title here; its text is the card's `what`, Claude Code's
   // "Coder wants to search the web for: …", shown as any other tool's.)
-  const PERM_TITLE = { bash: 'Bash command', powershell: 'PowerShell command', monitor: 'WebSocket watch', write: 'Write file', edit: 'Edit file', read: 'Read file', grep: 'Search files', glob: 'Find files', lsp: 'Code lookup', web_fetch: 'Fetch', web_search: 'Web search', pull_request: 'Pull request', pr_comments: 'Review comments', auto_fix: 'Auto-fix', undo_last_job: 'Undo', connector: 'Connector' };
+  const PERM_TITLE = { bash: 'Bash command', powershell: 'PowerShell command', monitor: 'WebSocket watch', write: 'Write file', edit: 'Edit file', read: 'Read file', grep: 'Search files', glob: 'Find files', lsp: 'Code lookup', web_fetch: 'Fetch', web_search: 'Web search', pull_request: 'GitHub · Create pull request', pr_comments: 'GitHub · Post review comments', auto_fix: 'GitHub · Auto-fix', push_branch: 'GitHub · Push branch', pr_update: 'GitHub · Update pull request', pr_read: 'GitHub · Read pull request', reply_review: 'GitHub · Reply to a review comment', review: 'GitHub · Review', undo_last_job: 'Undo', connector: 'Connector' };
   // A CARD'S LINES, ALL OF THEM (audit I31; Claude Code's prompts scroll to show everything): the first 40, then "Show all N
   // lines" opens the rest in the same scrolling box. `left` lines the machine could not send (past its cap) are said.
   const CARD_FIRST = 40;
