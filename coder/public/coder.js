@@ -1903,7 +1903,8 @@
       if (S.sendingFor === id) { S.sending = false; S.sendingFor = null; }
       if (!S.project || S.project.id !== id) return draw();
       if (q.status !== 200) keepMid(qkey, qmid, q); else S.unsentMid = null;
-      if (q.status === 200 && q.data && q.data.queued) { S.queue = q.data.queue || []; boxEmpty(); return draw(true); }
+      // (Waiting but not taken by the job, or not started: said under the box, never a silent "sent". 2026-11-24.)
+      if (q.status === 200 && q.data && q.data.queued) { S.queue = q.data.queue || []; boxEmpty(); S.error = q.data.error ? String(q.data.error) : ''; return draw(true); }
       // (The save had just ended, so it went out at once as the next message: the chat is loaded to follow it.)
       if (q.status === 200 && q.data && q.data.reload && q.data.project) { boxEmpty(); stopPoll(); S.project = q.data.project; S.running = false; syncEntry(); return reloadChat(id); }
       // (The job had just ended, so the server started this message as a new job: it was sent, and the chat is followed.)

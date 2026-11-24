@@ -68,10 +68,11 @@ test("QS2 a message sent while the turn is being saved (the answer already shown
   const e = await (await w.go("shop-q2", "/state?since=0&early=1")).json();
   assert.equal(e.ending, true);
   const q = await (await w.msg("shop-q2", { text: "Now make it red", mid: "mQS2aaaaaaaa" })).json();
-  assert.equal(q.queued, true, "in line while the save runs");
-  assert.equal(turnN, 0);
-  const s = await (await w.go("shop-q2", "/state?since=1&turn=1")).json();
-  assert.equal(s.reload, true, "the save sent it, and the page follows it: " + JSON.stringify(s).slice(0, 400) + JSON.stringify(w.calls.map((c) => c.path)));
+  // (2026-11-24: the running job could not take it, "not running", so the ended job is saved at once and that save sends the
+  // message as the next one, never left waiting unsaid: the page follows it.)
+  assert.equal(q.reload, true, "the save sent it at once, and the page follows it: " + JSON.stringify(q).slice(0, 400));
+  assert.equal(turnN, 1, "once");
+  await w.go("shop-q2", "/state?since=1&turn=1");
   assert.equal(turnN, 1, "once");
   assert.deepEqual(w.read("shop-q2", "queue.json"), []);
   assert.equal(w.read("shop-q2", "meta.json").turn, 2);

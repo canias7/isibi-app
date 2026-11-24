@@ -2802,6 +2802,38 @@ export async function stagedSecrets(dir, o) {
 /** What the chat is told: the files and what was found in each, and what to do (Claude Code's offer: remove it, then save again). */
 export const secretSaveRefused = (hits) => hits.map((h) => h.path + " (" + h.labels.join(", ") + ")").join(", ") + (hits.length === 1 ? " looks like it holds a secret" : " look like they hold secrets") + ", so nothing was committed or pushed. Remove the secret from the file (keep it in an environment secret instead), or delete the file or add it to .gitignore, then save again.";
 
+/** GitHub's limit for one file in a push (GitHub: "GitHub blocks files larger than 100 MiB"). */
+export const GITHUB_FILE_MAX = 100 * 1024 * 1024;
+/** The files over GitHub's limit in the commits GitHub does not have yet: [{ path, size, commit }], at most 10. */
+export async function bigFilesToPush(dir, o, { max = GITHUB_FILE_MAX } = {}) {
+  const list = await gitIn(dir, ["rev-list", "--max-count=50", "HEAD", "--not", "--remotes=origin", "--"], o);
+  if (list.code !== 0) return [];
+  const out = [], seen = new Set();
+  for (const c of String(list.stdout ?? "").split("\n").map((x) => x.trim()).filter((x) => /^[0-9a-f]{7,64}$/.test(x))) {
+    const t = await gitIn(dir, ["ls-tree", "-r", "-l", "--full-tree", c], o);
+    if (t.code !== 0) continue;
+    for (const line of String(t.stdout ?? "").split("\n")) {
+      const m = /^\d+ blob ([0-9a-f]+)\s+(\d+)\t(.+)$/.exec(line);
+      if (!m || Number(m[2]) <= max || seen.has(m[1])) continue;
+      seen.add(m[1]);
+      out.push({ path: m[3], size: Number(m[2]), commit: c.slice(0, 7) });
+      if (out.length >= 10) return out;
+    }
+  }
+  return out;
+}
+/** GitHub's own refusal of a big file in a push's output (GH001): [{ path, size }]. */
+export function ghLargeFiles(output) {
+  const out = [];
+  for (const m of String(output || "").matchAll(/File (.+?) is ([\d.]+) MB; this exceeds GitHub's file size limit of 100(?:\.00)? MB/g)) out.push({ path: m[1], size: Math.round(Number(m[2]) * 1048576) });
+  return out;
+}
+/** Why a push with files over the limit was not sent, naming each file and the limit. */
+export function bigFilesWhy(big) {
+  const mb = (n) => (n / 1048576).toFixed(1) + " MB";
+  const names = big.slice(0, 5).map((f) => f.path + " (" + mb(f.size) + (f.commit ? ", in commit " + f.commit : "") + ")").join(", ") + (big.length > 5 ? " and " + (big.length - 5) + " more" : "");
+  return "GitHub rejects files larger than 100 MB, and " + (big.length === 1 ? "this file is" : "these files are") + " in the commits to push: " + names + ". Remove " + (big.length === 1 ? "it" : "them") + " from the branch's commits (or track " + (big.length === 1 ? "it" : "them") + " with Git LFS), then push again.";
+}
 export async function pushRepo({ dir, repo, branch, token, headers = [], message, trailer = "", text = "", remote = DEFAULT_REMOTE, gitRoot = GIT_ROOT, root = PROJECT_ROOT, noPush = false, netWaits = GIT_NET_WAITS, commitOnly = false }) {
   const o = { gitDir: gitDirFor(dir, gitRoot), remote, root };
   // THE AUDIT (2026-11-06): a project folder that fails the check is refused
@@ -2863,13 +2895,21 @@ export async function pushRepo({ dir, repo, branch, token, headers = [], message
     if ((await gitIn(dir, ["rev-parse", "--verify", "-q", "HEAD"], o)).code !== 0) return { ok: true, pushed: false, changed: false, ...told };
   }
   const url = remote + repo + ".git";
+  // FILES OVER GITHUB'S 100 MB LIMIT (the live test of 2026-11-24: a hook had committed test files of more than 100 MB, and
+  // every later push failed with only "the push failed"): named before the push, with the limit, as GitHub's own GH001 says.
+  const big = await bigFilesToPush(dir, o);
+  if (big.length) {
+    const sha = committed ? (await gitIn(dir, ["rev-parse", "HEAD"], o)).stdout.trim() : "";
+    return { ok: false, pushed: false, changed: committed, ...(sha ? { sha } : {}), why: bigFilesWhy(big), bigFiles: big, unpushed: await unpushedCount(dir, o), ...(committed ? await commitFiles(dir, o) : {}), ...told };
+  }
   // (GitHub busy for a moment: tried again, as at the start of a turn, round 5.)
   const p = await gitNet(dir, ["push", "--no-verify", url, "HEAD:refs/heads/" + branch], { ...o, token, headers }, netWaits);
   // A FAILED PUSH STILL MADE A COMMIT (the audit, 2026-11-20; Claude Code's checkpoints do not depend on a push): the commit
   // is named, so the chat keeps it for Undo, Rewind's "Restore code" and the Push button, and sends it later.
   if (p.code !== 0) {
     const sha = committed ? (await gitIn(dir, ["rev-parse", "HEAD"], o)).stdout.trim() : "";
-    return { ok: false, pushed: false, changed: committed, ...(sha ? { sha } : {}), why: "could not push: " + p.output.slice(0, 300), unpushed: await unpushedCount(dir, o), ...(committed ? await commitFiles(dir, o) : {}), ...told };
+    const gh = ghLargeFiles(p.output);
+    return { ok: false, pushed: false, changed: committed, ...(sha ? { sha } : {}), why: gh.length ? bigFilesWhy(gh) : "could not push: " + p.output.slice(0, 300), unpushed: await unpushedCount(dir, o), ...(committed ? await commitFiles(dir, o) : {}), ...told };
   }
   const sha = (await gitIn(dir, ["rev-parse", "HEAD"], o)).stdout.trim();
   // What GitHub now has is origin's (the push goes by Coder's own address, which moves no ref here): nothing left unpushed.
@@ -5983,7 +6023,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
             return t.lspStarting;
           },
         },
-        exec: async ({ command, timeoutS, tool, payload, here = false, follow = false, inBg = false, sleepFirst = false, desc = "", limitMs = 0, monitor = false, ws = false, hook = false, hookEnv = false, hookGate = false, kind = "", hookAsync = null, hosts = null, shown = "", ps = false, noPrefix = false }) => {
+        exec: async ({ command, timeoutS, tool, payload, here = false, follow = false, inBg = false, sleepFirst = false, desc = "", limitMs = 0, monitor = false, ws = false, hook = false, hookEnv = false, hookGate = false, kind = "", hookAsync = null, hosts = null, shown = "", ps = false, noPrefix = false, toolCwd = "" }) => {
           // NOT WITHOUT THE ADMIN SANDBOX (fix 7): a command, the AI's or the owner's `!`, is not started; Coder's own helpers
           // and the owner's hooks still run, as Claude Code's hooks run outside its sandbox.
           if (t.boxDown && !tool && !hook) return { code: -1, notStarted: true, output: boxDownTold(t.boxDown) };
@@ -6079,7 +6119,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
           }
           // (A file tool is told the owner's additional working folders, CODER_WORK_DIRS, which it treats as the project: Claude
           // Code's additionalDirectories, round 3, 2026-11-14.)
-          const r = await execIn(dir, command, timeoutS, { bgDir, kill: !!tool, home, room: t.room, box: t.box, onStart, prefix: tool ? "" : ps && t.psPrefix !== undefined ? t.psPrefix : t.prefix, ...(tool ? { ...(capped ? { memCg: t.memCgNow() } : {}), ...(hook ? { quietMs: hookQuietMs, shellPrefix: noPrefix ? "" : t.shellPrefix || "" } : {}) } : { onMove, onProgress: (lines) => { t.progress = { at: Date.now(), lines: lines.map((l) => scrub(l)) }; }, memCg: typeof t.memCgNow === "function" ? t.memCgNow() : "", shellPrefix: ps || noPrefix ? "" : t.shellPrefix || "", shell: t.shell || "bash", merge: true }), extraEnv: tool ? { ...(extraEnv || {}), CODER_MEMORY_FILE: memOn ? memFile : "", ...(planBox && planBox.current() ? { CODER_PLAN_FILE: planBox.current() } : {}), CODER_SEEN_DIR: seenDir, CODER_OUTPUT_DIRS: bgDir + ":" + outDir, ...(addDirs.length ? { CODER_WORK_DIRS: addDirs.join(":") } : {}),...(moved ? { CODER_CWD: t.cwd } : {}), ...(hookEnvFile ? { CLAUDE_ENV_FILE: hookEnvFile } : {}) } : { ...(extraEnv || {}), ...(pass ? px.env(pass) : {}), [TASK_MARK]: mark }, ...(tool ? { outMax: TOOL_OUTPUT_MAX } : { spillDir: outDir, spillAt: Math.min(t.outLimits.inlineMax, t.outLimits.readBack), keep: Math.max(t.outLimits.inlineMax, t.outLimits.readBack) + 10_000, stopAtTimeout: !!sleepFirst || (t.noBg && !monitor) }), ...(moved && (!tool || hook) ? { start: t.cwd } : {}), follow: !!(follow && !tool && !keepHome) });
+          const r = await execIn(dir, command, timeoutS, { bgDir, kill: !!tool, home, room: t.room, box: t.box, onStart, prefix: tool ? "" : ps && t.psPrefix !== undefined ? t.psPrefix : t.prefix, ...(tool ? { ...(capped ? { memCg: t.memCgNow() } : {}), ...(hook ? { quietMs: hookQuietMs, shellPrefix: noPrefix ? "" : t.shellPrefix || "" } : {}) } : { onMove, onProgress: (lines) => { t.progress = { at: Date.now(), lines: lines.map((l) => scrub(l)) }; }, memCg: typeof t.memCgNow === "function" ? t.memCgNow() : "", shellPrefix: ps || noPrefix ? "" : t.shellPrefix || "", shell: t.shell || "bash", merge: true }), extraEnv: tool ? { ...(extraEnv || {}), CODER_MEMORY_FILE: memOn ? memFile : "", ...(planBox && planBox.current() ? { CODER_PLAN_FILE: planBox.current() } : {}), CODER_SEEN_DIR: seenDir, CODER_OUTPUT_DIRS: bgDir + ":" + outDir, ...(addDirs.length ? { CODER_WORK_DIRS: addDirs.join(":") } : {}),...(moved ? { CODER_CWD: t.cwd } : {}), ...(typeof toolCwd === "string" && toolCwd.startsWith(dir + "/") ? { CODER_CWD: toolCwd } : {}), ...(hookEnvFile ? { CLAUDE_ENV_FILE: hookEnvFile } : {}) } : { ...(extraEnv || {}), ...(pass ? px.env(pass) : {}), [TASK_MARK]: mark }, ...(tool ? { outMax: TOOL_OUTPUT_MAX } : { spillDir: outDir, spillAt: Math.min(t.outLimits.inlineMax, t.outLimits.readBack), keep: Math.max(t.outLimits.inlineMax, t.outLimits.readBack) + 10_000, stopAtTimeout: !!sleepFirst || (t.noBg && !monitor) }), ...(moved && (!tool || hook) ? { start: t.cwd } : {}), follow: !!(follow && !tool && !keepHome) });
           // (Its output file is kept past either size, BASH_MAX_OUTPUT_LENGTH's too: Claude Code 2.1.325 saves such an output
           // whole, never cut, and a long one's preview ends with the file's last lines, read back here: bashResultText.)
           if (!tool && r && !r.background && typeof r.file === "string" && r.file && Number(r.size) > t.outLimits.readBack) Object.assign(r, await outputEnd(r.file, bashEndBytes(t.outLimits.readBack)));

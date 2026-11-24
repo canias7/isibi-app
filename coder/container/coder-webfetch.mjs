@@ -1028,19 +1028,25 @@ export async function fetchPage({ url, deadline_ms: deadlineMs = WEBFETCH_DEADLI
   const ac = new AbortController();
   const timer = dl > 0 ? setTimeout(() => ac.abort(), dl) : null;
   if (timer && typeof timer.unref === "function") timer.unref();
+  // (Each fetch's own cookies, kept across its redirects as a browser keeps them: a site that sets a cookie and sends the
+  // client back to the same address otherwise sends it round and round, "Too many redirects". Never kept past the fetch.)
+  const jar = new Map();
   try {
     for (let hops = 0; ; hops++) {
       if (hops > WEBFETCH_MAX_REDIRECTS) throw requestError(TOO_MANY_REDIRECTS(WEBFETCH_MAX_REDIRECTS));
       const host = new URL(current).hostname.replace(/^\[|\]$/g, "");
       if (isIP(host) && isPrivate(host)) throw requestError(PRIVATE_ADDRESS, "EPRIVATE");
       let res;
-      try { res = await request(current, { signal: ac.signal, proxy, lookup }); }
+      const jarHere = jar.get(new URL(current).hostname);
+      const cookie = jarHere && jarHere.size ? [...jarHere].map(([k, v]) => k + "=" + v).join("; ") : "";
+      try { res = await request(current, { signal: ac.signal, proxy, lookup, ...(cookie ? { headers: { cookie } } : {}) }); }
       catch (e) {
         if (ac.signal.aborted) throw requestError(DEADLINE_HIT(dl), "EDEADLINE");
         if (e && e.code === "ENOTFOUND") throw requestError(NOT_RESOLVED(String(e.message || "getaddrinfo ENOTFOUND " + host), new URL(current).hostname), "ENOTFOUND");
         throw e;
       }
       const status = res.status, h = res.headers || {};
+      keepCookies(jar, new URL(current).hostname, h["set-cookie"]);
       if (status >= 200 && status < 300) {
         const body = Buffer.isBuffer(res.body) ? res.body : Buffer.from(res.body || "");
         const contentType = String(h["content-type"] ?? "");
@@ -1072,6 +1078,20 @@ export async function fetchPage({ url, deadline_ms: deadlineMs = WEBFETCH_DEADLI
       return { text: "", facts: { kind: "http_error", statusCode: status, ...(typeof ra === "string" && /^[0-9]{1,6}$/.test(ra) ? { retryAfter: ra } : {}) } };
     }
   } finally { if (timer) clearTimeout(timer); }
+}
+
+/** A response's Set-Cookie values kept for its host (name=value only); → whether one was new or changed. */
+export function keepCookies(jar, host, setCookie) {
+  const list = Array.isArray(setCookie) ? setCookie : typeof setCookie === "string" ? [setCookie] : [];
+  let changed = false;
+  for (const c of list) {
+    const m = /^\s*([^=;\s]+)=([^;]*)/.exec(String(c));
+    if (!m) continue;
+    if (!jar.has(host)) jar.set(host, new Map());
+    const j = jar.get(host);
+    if (j.get(m[1]) !== m[2]) { j.set(m[1], m[2]); changed = true; }
+  }
+  return changed;
 }
 
 // ── WHAT CODER IS TOLD (in Coder's loop) ─────────────────────────────────────

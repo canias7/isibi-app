@@ -5,6 +5,17 @@ The owner's running log, newest first, in plain English. Started fresh on
 log (81,000 lines) is in git history.
 
 
+## 2026-11-24: Fixes for the last three "differs" and the lost follow-up message
+
+Not deployed yet: it's on the work-last3 branch.
+
+- **Helper with isolation "worktree":** it now really works in its own worktree. Its file tools and commands run there, and a full path into the chat's folder (like /data/work/<chat>/iso.txt) is taken as the same file in the worktree. It is also told it's in a worktree, as Claude Code tells its helpers. If it changed something, the result gives the worktree's path and branch; if not, the worktree is removed.
+- **Web fetch and GitHub redirects:** a fetch now keeps cookies a site sets while it follows that site's own redirects, the way a browser does. A redirect to another host still comes back as the "REDIRECT DETECTED" note. I couldn't reach GitHub from here to see the exact loop, so this needs a live check: github.com/octocat/Hello-World/raw/master/README should give the note pointing at raw.githubusercontent.com.
+- **Artifact from a file outside the project (like /tmp/p4.html):** you now get a card first. Yes publishes it and No publishes nothing, the same as read and write outside the project.
+- **The follow-up message that got no reply:** if the chat still looked busy but Coder's job had already ended, your message was quietly put in line and never went out. Now the ended job is saved straight away and your message goes out. If it can't go out, a line under the message box says so.
+- **"Not sent to GitHub: the push failed":** this had no reason because Coder's machine was still busy with a job. The note now says that. Also, if a commit has a file over GitHub's 100 MB limit, the push isn't tried and the note names the file, its size and the commit, and says to remove it or use Git LFS. GitHub refuses files that big, so the hook's big test files would have blocked every later push.
+
+
 ## 2026-11-24: Live retest of the "differs" and "partly" fixes
 
 Tried live on gofarther.dev after the deploy of the fixes (deploy run 45456366334, main @ df67cb33), with Grok on Low, in three test chats on canias7/testingforclaude, using the test branch audit-p3a (its hook writes every tool result to a file Coder pushes). Screenshots only. About 10 Grok messages.

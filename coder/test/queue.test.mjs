@@ -134,7 +134,7 @@ test("CD289 Coder's Worker: a message sent while Coder works waits with the chat
   assert.equal(turns.at(-1).text, "first\n\nsecond");
   // The page: grey with ✕, both buttons while Coder works, and its words for the box.
   const page = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
-  assert.match(page, /if \(q\.status === 200 && q\.data && q\.data\.queued\) \{ S\.queue = q\.data\.queue \|\| \[\]; boxEmpty\(\); return draw\(true\); \}/);
+  assert.match(page, /if \(q\.status === 200 && q\.data && q\.data\.queued\) \{ S\.queue = q\.data\.queue \|\| \[\]; boxEmpty\(\); S\.error = q\.data\.error \? String\(q\.data\.error\) : ''; return draw\(true\); \}/);
   assert.match(page, /data-unqueue="' \+ esc\(q\.qid\) \+ '" aria-label="Take this message back"/);
   assert.match(page, /const read = new Set\(S\.events\.filter\(\(e\) => e\.type === 'user' && e\.qid\)\.map\(\(e\) => e\.qid\)\);/, "one Coder read shows once, as the owner's message");
   assert.match(page, /'<button type="submit" class="cd-send cd-queue-send" aria-label="Send \(it waits for Coder\)"/);

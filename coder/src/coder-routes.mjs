@@ -303,6 +303,17 @@ export function pushedAll(meta) {
   if (!meta || meta.readOnly) return {};
   return { pushed: true, unpushed: 0, unpushedSince: 0, commits: (Array.isArray(meta.commits) ? meta.commits : []).map((c) => (c && c.local ? { ...c, local: undefined } : c)) };
 }
+/**
+ * THE MACHINE'S ANSWER TO A PUSH, WITH A REASON (the live test of 2026-11-24: "Not sent to GitHub: the push failed", no
+ * reason: the machine had answered {"error":"busy"}, a job still running there). → the answer, `ok: false` with `why` when it failed.
+ */
+export function pushAnswer(p) {
+  if (!p || typeof p !== "object") return { ok: false, why: "Coder's machine gave no answer" };
+  if (p.ok === false || p.ok === true) return p.ok === false && !p.why && p.error ? { ...p, why: pushErrorWords(p.error) } : p;
+  if (p.error) return { ...p, ok: false, why: pushErrorWords(p.error) };
+  return p;
+}
+const pushErrorWords = (e) => (String(e) === "busy" ? "a job was still running on Coder's machine, so nothing was committed or pushed; send a message or press Push to try again" : String(e).slice(0, 200));
 /** The note a push leaves in the chat. */
 export const pushedNote = (meta, pr) => "Pushed to the branch " + meta.branch + (pr ? " · pull request #" + pr.number + " updated" : "");
 /**
@@ -312,8 +323,8 @@ export const pushedNote = (meta, pr) => "Pushed to the branch " + meta.branch + 
  */
 export async function pushChat(env, bucket, uid, id, meta, post, { note = true, mark = null } = {}) {
   if (meta.readOnly) return { ok: false, why: "this chat's repository is read-only: its work stays on Coder's machine" };
-  const p = await post("/push", { project: id, repo: meta.repo, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn), message: "", ...(await commitWho(env, bucket, uid, meta, id)), extra: extraFor(meta) }).then((r) => r.json()).catch(() => ({ ok: false, why: "Coder's machine could not be reached" }));
-  if (!p.ok) return { ok: false, why: String(p.why || p.error || "the push failed").slice(0, 200) };
+  const p = pushAnswer(await post("/push", { project: id, repo: meta.repo, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn), message: "", ...(await commitWho(env, bucket, uid, meta, id)), extra: extraFor(meta) }).then((r) => r.json()).catch(() => ({ ok: false, why: "Coder's machine could not be reached" })));
+  if (!p.ok) return { ok: false, why: String(p.why || p.error || "the push failed").slice(0, Array.isArray(p.bigFiles) ? 900 : 200) };
   const bad = (Array.isArray(p.extra) ? p.extra : []).filter((x) => !x.ok).map((x) => x.repo + ": " + String(x.why || "the push failed").slice(0, 120));
   const cur = (await getJson(bucket, keyOf(uid, id, "meta.json"), null)) || meta;
   const left = Number(p.unpushed) || 0;
@@ -2003,7 +2014,12 @@ export async function handleCoder(request, env, ctx, deps) {
         const waiting = [...queue, entry];
         await putJson(bucket, keyOf(uid, id, "queue.json"), waiting);
         // (Queued for later: kept from the running job, as a command is, and sent when it ends.)
-        if (!entry.shell && !entry.cmd && !entry.later) await post("/queue", { project: id, qid: entry.qid, text: entry.text }).catch(() => null);
+        // (The live test of 2026-11-24: a message sent while the chat still read "running", but the machine's job had already
+        // ended, was answered "not running" and waited for ever, shown as sent with no reply. Now the ended job is saved at
+        // once, and the check below sends the message as the save would have; Claude Code never drops a sent message.)
+        let handed = null;
+        if (!entry.shell && !entry.cmd && !entry.later) handed = await post("/queue", { project: id, qid: entry.qid, text: entry.text }).then((r) => r.json()).catch(() => null);
+        if (!entry.shell && !entry.cmd && !entry.later && !(handed && handed.ok === true)) await saveNow().catch(() => null);
         // SENT WHILE THE TURN WAS BEING SAVED (2026-11-15: the page frees the box as soon as the answer is shown): if the save
         // ended meanwhile and its look at what waits came before this message was put in line, it would wait for ever. So:
         // the turn saved and the message still in line, it goes out now, as the save would have sent it (its own id, `mid`,
@@ -2016,9 +2032,17 @@ export async function handleCoder(request, env, ctx, deps) {
             await putJson(bucket, keyOf(uid, id, "queue.json"), left);
             const r2 = await self("/message", { text: said, fromQueue: true, ...(mid ? { mid } : {}) }).catch(() => null);
             if (r2 && r2.status === 200) { const got = await r2.json().catch(() => ({})); return json({ ...got, queue: left, reload: true }); }
-            // (Not started: back in line, as it was.)
+            // (Not started: back in line, as it was, and the owner told why, never shown as sent with no reply.)
             await putJson(bucket, keyOf(uid, id, "queue.json"), [...left, entry]);
+            const why = r2 ? await r2.clone().json().then((x) => String((x && x.error) || ""), () => "") : "";
+            return json({ ok: true, queued: true, qid: entry.qid, queue: [...left, entry], project: after, notStarted: true, error: "Your message is waiting: Coder could not start it yet" + (why ? " (" + why.slice(0, 200) + ")" : "") + ". It goes out when Coder can take it, or send it again." });
           }
+        } else if (!entry.shell && !entry.cmd && !entry.later && !(handed && handed.ok === true)) {
+          // (The save just made sent it as the next message: the page follows the chat.)
+          const still = await getJson(bucket, keyOf(uid, id, "queue.json"), []);
+          if (Array.isArray(still) && !still.some((q) => q && q.qid === entry.qid)) return json({ ok: true, project: after || meta, queue: still, reload: true });
+          // (Still "running" on record, but the machine's job did not take it: said, not left silent.)
+          return json({ ok: true, queued: true, qid: entry.qid, queue: waiting, project: meta, notRead: true, error: "Coder's job is finishing, so it could not read your message in this turn: it waits and goes out next, by itself." });
         }
         return json({ ok: true, queued: true, qid: entry.qid, queue: waiting, project: meta });
       }
@@ -2612,7 +2636,9 @@ export async function handleCoder(request, env, ctx, deps) {
       if (!gitWork) { /* nothing changed and nothing asked: no commit step (meta.unpushed stays as it is) */ }
       else if (!t && !meta.readOnly) { pushNote = "Not sent to GitHub: the connection has ended. Connect GitHub again and send a message to push it."; unpushed = Math.max(unpushed, 1); if (!unpushedSince) unpushedSince = Date.now(); }
       else {
-        const p = await post("/push", { project: id, repo: meta.repo, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn), message: turnTitle(s.result), chatUrl: chatLink, coAuthor: await coAuthorFor(env, bucket, uid, fetchFn), extra: extraFor(meta), ...(meta.readOnly ? { noPush: true } : pushNow ? {} : { commitOnly: true }) }).then((r) => r.json()).catch(() => ({ ok: false, why: "the machine could not be reached" }));
+        const p0 = await post("/push", { project: id, repo: meta.repo, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn), message: turnTitle(s.result), chatUrl: chatLink, coAuthor: await coAuthorFor(env, bucket, uid, fetchFn), extra: extraFor(meta), ...(meta.readOnly ? { noPush: true } : pushNow ? {} : { commitOnly: true }) }).then((r) => r.json()).catch(() => ({ ok: false, why: "the machine could not be reached" }));
+        // (A machine answer with no reason, {"error":"busy"} while a job still runs there, had read "the push failed": named.)
+        const p = pushAnswer(p0);
         if (p && p.ok !== false) attribution = p.attribution && typeof p.attribution === "object" ? p.attribution : null;
         // THE CHAT'S OTHER REPOSITORIES (2026-11-06): each saved to the chat's branch in its own repository, and its pull request when Coder was asked for one.
         for (const x of Array.isArray(p.extra) ? p.extra : []) {
@@ -2629,7 +2655,7 @@ export async function handleCoder(request, env, ctx, deps) {
           else extraNotes.push("The pull request in " + x.repo + " could not be opened on GitHub: " + prFailNote(x.repo, x.base, meta.branch, made, "is its branch saved?"));
         }
         if (!p.ok) {
-          pushNote = (meta.readOnly ? "Not kept: " : "Not sent to GitHub: ") + String(p.why || "the push failed").slice(0, Array.isArray(p.secretFiles) ? 900 : 200);
+          pushNote = (meta.readOnly ? "Not kept: " : "Not sent to GitHub: ") + String(p.why || "the push failed").slice(0, Array.isArray(p.secretFiles) || Array.isArray(p.bigFiles) ? 900 : 200);
           // (The audit, 2026-11-20: the commit made before the push failed is still the job's, kept for Undo and Rewind.)
           if (!meta.readOnly && p.changed && typeof p.sha === "string" && /^[0-9a-f]{7,64}$/.test(p.sha) && !commits.some((c) => c.sha === p.sha)) commits = [...commits, { sha: p.sha, turn: meta.turn, title: turnTitle(s.result), at: Date.now(), local: true, ...commitTracking(commits, s.result, p) }].slice(-50);
           // (Batch 21, I01: work that exists on no remote is never forgotten, as Claude Code's: the chat counts it, so the Push

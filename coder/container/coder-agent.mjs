@@ -1042,9 +1042,9 @@ export function coderAttachNote(put, missed, left = 0) {
  * A FILE IN GLOOPY'S WORK FOLDER, read as `dev` from inside it (coder-tools.mjs send_file: never through a link out of
  * it; at most 5 MB): { name, size, data } (base64), or { error }. For a file Gloopy sends the owner or uploads to a site.
  */
-async function readOwnFile(deps, path, { max } = {}) {
+async function readOwnFile(deps, path, { max, outside = false } = {}) {
   let r;
-  try { r = await deps.exec({ command: "node --no-warnings " + TOOLS_SCRIPT + " " + Buffer.from(JSON.stringify({ tool: "send_file", args: { path, ...(max ? { max } : {}) } })).toString("base64"), timeoutS: 60, tool: true, here: true }); }
+  try { r = await deps.exec({ command: "node --no-warnings " + TOOLS_SCRIPT + " " + Buffer.from(JSON.stringify({ tool: "send_file", args: { path, ...(max ? { max } : {}) }, ...(outside ? { outside: true } : {}) })).toString("base64"), timeoutS: 60, tool: true, here: true }); }
   catch (e) { r = { code: -1, output: String((e && e.message) || e) }; }
   let file = null;
   try { file = r && r.code === 0 ? JSON.parse(r.output) : null; } catch { file = null; }
@@ -2026,11 +2026,48 @@ export const todoSystem = (system) => String(system).replace("task_create, task_
  */
 export function inFolder(deps, cwd) {
   const q = "'" + String(cwd).replace(/'/g, "'\\''") + "'";
+  // (The live test of 2026-11-24: a helper in a worktree wrote /data/work/<chat>/iso.txt, a full path into the chat's own
+  // folder, and its worktree was then removed as unchanged. Claude Code points the helper's tools at its worktree: a full path
+  // into the chat's checkout outside the worktree is the same file in the worktree, and the worktree is the helper's project.)
+  const top = deps && typeof deps.root === "string" ? deps.root.replace(/\/+$/, "") : "";
+  const inWt = (p) => p === cwd || p.startsWith(cwd + "/");
+  const mapped = (p) => (top && cwd.startsWith(top + "/") && (p === top || p.startsWith(top + "/")) && !inWt(p) ? cwd + p.slice(top.length) : p);
   return {
+    ...(top && cwd.startsWith(top + "/") ? { root: cwd, mainRoot: top } : {}),
     here: () => cwd,
-    where: (p) => (String(p).startsWith("/") ? p : cwd + "/" + p),
-    exec: (o) => deps.exec(o && typeof o.command === "string" && !o.tool && !o.inBg && !o.monitor ? { ...o, command: "( cd -- " + q + " || exit 1\n" + o.command + "\n)" } : o),
+    mapArgs: (name, args) => {
+      if (!FILE_PATH_TOOLS.has(name) || !args || typeof args !== "object" || Array.isArray(args)) return args;
+      let out = args;
+      for (const k of TOOL_PATH_KEYS) if (typeof args[k] === "string" && args[k].trim().startsWith("/")) { const v = mapped(args[k].trim()); if (v !== args[k].trim()) out = { ...out, [k]: v }; }
+      return out;
+    },
+    where: (p) => (String(p).startsWith("/") ? mapped(String(p)) : cwd + "/" + p),
+    exec: (o) => deps.exec(o && typeof o.command === "string" && !o.tool && !o.inBg && !o.monitor ? { ...o, command: "( cd -- " + q + " || exit 1\n" + o.command + "\n)" }
+      : o && o.tool && !o.hook && typeof o.command === "string" ? toolInFolder(o, cwd, mapped) : o),
   };
+}
+/** Claude Code's note to a helper started with isolation "worktree" (its worktree, not the chat's folder, is where it works). */
+export const worktreeNotice = (parent, wt) => "You've inherited the conversation context above from a parent agent working in " + (parent || "the chat's folder") + ". You are operating in an isolated git worktree at " + wt + " — same repository, same relative file structure, separate working copy. Paths in the inherited context refer to the parent's working directory; translate them to your worktree root. Re-read files before editing if the parent may have modified them since they appear in the context. Your changes stay in this worktree and will not affect the parent's files.";
+/** A file tool's call in a helper's worktree: its short paths count from there (CODER_CWD, `toolCwd`) and its full paths into the chat's checkout are the worktree's. */
+const TOOL_PATH_KEYS = ["path", "file_path", "notebook_path"];
+const FILE_PATH_TOOLS = new Set(["read", "write", "edit", "multi_edit", "notebook_edit", "grep", "glob", "lsp"]);
+export function toolInFolder(o, cwd, mapped) {
+  const fix = (req) => {
+    if (!req || typeof req !== "object" || !req.args || typeof req.args !== "object") return req;
+    const args = { ...req.args };
+    for (const k of TOOL_PATH_KEYS) if (typeof args[k] === "string" && args[k].trim().startsWith("/")) args[k] = mapped(args[k].trim());
+    if (req.tool === "file_check" && args.args && typeof args.args === "object") args.args = fix({ args: args.args }).args;
+    return { ...req, args };
+  };
+  const out = { ...o, toolCwd: cwd };
+  try {
+    if (typeof o.payload === "string" && o.command.includes("@REQUEST")) out.payload = JSON.stringify(fix(JSON.parse(o.payload)));
+    else {
+      const m = /^(node --no-warnings \S+ )([A-Za-z0-9+/=]+)$/.exec(o.command);
+      if (m) out.command = m[1] + Buffer.from(JSON.stringify(fix(JSON.parse(Buffer.from(m[2], "base64").toString("utf8"))))).toString("base64");
+    }
+  } catch { /* left as it was */ }
+  return out;
 }
 
 export function readCalls(msg) {
@@ -4326,7 +4363,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         if (o.decision === "block") return o.blocks.join("\n") || o.reason || "";
         return o.context.length ? "SubagentStop hook feedback:\n" + o.context.join("\n") : "";
       },
-      startSub: ({ type, prompt, messages: past, label, emit: subEmit, model: m, effort: ef, toolNames, system: sys, maxRounds: mr, cwd, agentId, stopReq }) => runCoder({ ...deps, emit: subEmit, subagentBudget: agentBudget, ...(cwd ? inFolder(deps, cwd) : {}), ...(typeof stopReq === "function" ? { stopped: async () => stopReq() || (await stopped()) } : {}) }, { text: prompt, messages: past || [], system: sys || SUBAGENT_SYSTEM + (AGENT_TYPES[type] && AGENT_TYPES[type].note ? "\n\n" + AGENT_TYPES[type].note : ""), tools: subagentTools(subTools, type, toolNames, { mode: modeNow() }), context, base, model: m || model, effort: ef || effort, mode: modeNow(), rules, hooks, denyInstead, nudges: false, who: "Coder's agent “" + label + "”", asHelper: true, github: false, tasksOff: true, maxRounds: mr || SUBAGENT_ROUNDS, maxMs: Math.min(SUBAGENT_MS, left), subagent: { id: agentId || "", type } }),
+      startSub: ({ type, prompt, messages: past, label, emit: subEmit, model: m, effort: ef, toolNames, system: sys, maxRounds: mr, cwd, agentId, stopReq }) => runCoder({ ...deps, emit: subEmit, subagentBudget: agentBudget, ...(cwd ? inFolder(deps, cwd) : {}), ...(typeof stopReq === "function" ? { stopped: async () => stopReq() || (await stopped()) } : {}) }, { text: prompt, messages: past || [], system: (sys || SUBAGENT_SYSTEM + (AGENT_TYPES[type] && AGENT_TYPES[type].note ? "\n\n" + AGENT_TYPES[type].note : "")) + (cwd ? "\n\n" + worktreeNotice(deps.root || "", cwd) : ""), tools: subagentTools(subTools, type, toolNames, { mode: modeNow() }), context, base, model: m || model, effort: ef || effort, mode: modeNow(), rules, hooks, denyInstead, nudges: false, who: "Coder's agent “" + label + "”", asHelper: true, github: false, tasksOff: true, maxRounds: mr || SUBAGENT_ROUNDS, maxMs: Math.min(SUBAGENT_MS, left), subagent: { id: agentId || "", type } }),
       step: typeof deps.workflowStep === "function" ? deps.workflowStep : async (a) => { const r = await appTool(deps, "workflow_step", a, { timeoutS: WORKFLOW_PASS_S }); try { return JSON.parse(r.output); } catch { return { status: "error", error: r.output.trim().slice(0, 400) || "the script's pass failed" }; } },
       writeText: async (p, text) => { const b64 = Buffer.from(String(text), "utf8").toString("base64"); const q = "'" + String(p).replace(/'/g, "'\\''") + "'"; const r = await shRun("mkdir -p -- \"$(dirname -- " + q + ")\" && printf %s '" + b64 + "' | base64 -d > " + q, 20); if (!r || r.code !== 0) throw new Error("could not write " + p); },
       readText: async (p) => { try { const r = await deps.exec({ command: "cat -- '" + String(p).replace(/'/g, "'\\''") + "'", timeoutS: 15, tool: true }); return r && r.code === 0 ? { text: String(r.output || "") } : { error: "could not read " + p }; } catch { return { error: "could not read " + p }; } },
@@ -4997,6 +5034,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     if (!msg) { emit({ type: "error", text: "The AI gave no answer." }); return end("no-tool"); }
     const said = back ? "" : typeof msg.content === "string" ? msg.content.trim() : "";
     const calls = readCalls(msg);
+    // (A helper in a worktree: its file tools' full paths into the chat's checkout are its worktree's, inFolder's mapArgs.)
+    if (typeof deps.mapArgs === "function") for (const c of calls) c.args = deps.mapArgs(c.name, c.args);
     calls0 = calls;
     // (And, in Coder's chats, what that request really used, as Claude Code keeps each answer's usage: what it read and the
     // answer it wrote, its reasoning left out, as Grok is not sent that again. Auto-compact counts from it: autoCompact.)
@@ -8196,7 +8235,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         reply(CONNECTOR_DATA + told);
       } else if (RESOURCE_TOOL_NAMES.includes(c.name)) {
         // CLAUDE CODE'S Artifact, ListMcpResourcesTool, ReadMcpResourceTool, ReadMcpResourceDirTool, RefreshMcpTools AND WaitForMcpServers (coder-resources.mjs, 2026-11-23).
-        const o = await resourceToolCall(c, { facts: (o) => toolFacts.set(c.id, o), emit, reply, deps, github, scrub, plain, readFile: readOwnFile, ownRules, wholeRule, canAsk, askOwner, noOneHooks, answerOutcome, saidReply, REJECTED, askedWhy, approved: artifactsOk, seen: artifactsSeen, saveFile: async (name, data) => { const r = await appTool(deps, "save_upload", { name, data }); return r.code === 0 ? r.output.trim() : ""; } });
+        const o = await resourceToolCall(c, { facts: (o) => toolFacts.set(c.id, o), emit, reply, deps, github, scrub, plain, readFile: readOwnFile, ownRules, wholeRule, canAsk, askOwner, noOneHooks, answerOutcome, saidReply, REJECTED, askedWhy, modeNow, outsideWhy, outsideTold, approved: artifactsOk, seen: artifactsSeen, saveFile: async (name, data) => { const r = await appTool(deps, "save_upload", { name, data }); return r.code === 0 ? r.output.trim() : ""; } });
         if (o && o.end === "stop") return stopNow(reply);
         if (o && o.end === "no") return noEnd(i, "stopped: the owner said no");
       } else if (AGENT_TOOL_NAMES.includes(c.name)) {

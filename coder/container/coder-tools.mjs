@@ -2581,7 +2581,8 @@ export async function toolSaveUpload({ name, data }) {
 /** The most a file read this way can be (an artifact's page, as Claude Code's: 16 MiB). */
 export const FILE_READ_MAX = 16 * 1024 * 1024;
 export async function toolSendFile({ path, max }) {
-  const { abs, rel } = await inside(path, { mustExist: true });
+  // (tool "read": a path outside the working folders the owner allowed on a card is read too, an artifact's file_path: OUTSIDE_OK.)
+  const { abs, rel } = await inside(path, { mustExist: true, tool: "read" });
   const st = await lstat(abs);
   if (!st.isFile()) fail(rel + " is not a file");
   const most = Number.isInteger(max) && max > 0 ? Math.min(max, FILE_READ_MAX) : FILE_SEND_MAX;

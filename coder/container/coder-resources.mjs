@@ -385,7 +385,27 @@ async function artifactCall(c, h, args, done) {
   // ── PUBLISH ──
   const path = args.file_path.trim();
   const pub = typeof args.public === "boolean" ? args.public : undefined;
-  const file = await h.readFile(deps, path, { max: ARTIFACT_FILE_MAX });
+  let file = await h.readFile(deps, path, { max: ARTIFACT_FILE_MAX });
+  // A FILE OUTSIDE THE WORKING FOLDERS (the spreadsheet's row 24, 2026-11-24: refused at once, "that path is outside the
+  // project", with no card): the owner's card first, as Claude Code asks before it reads outside its working directories,
+  // then the same file read once more with `outside`. Bypass permissions skips the card. Never in a job from GitHub.
+  if (file.error && /^that path is outside the project\b/.test(String(file.error)) && !h.github) {
+    let ok = typeof h.modeNow === "function" && h.modeNow() === "bypassPermissions";
+    if (!ok) {
+      const where = h.plain(path).slice(0, 300);
+      const why = typeof h.outsideWhy === "function" ? h.outsideWhy("read", where) : "Coder wants to read " + where + ", which is outside the working folders.";
+      const told = typeof h.outsideTold === "function" ? h.outsideTold("read", where) : "Coder requested permissions to read from " + where + ", but you haven't granted it yet.";
+      const cd = { tool: "read", hookTool: "Artifact", id: c.id, path: where, what: "Read " + where + " to publish it", why, told };
+      const a = h.canAsk() ? await h.askOwner(cd) : await h.noOneHooks(cd);
+      if (!a) return done(-1, told, { ran: false });
+      const o = h.answerOutcome(a);
+      if (o === "stop") return { end: "stop" };
+      if (o === "said") return done(-1, h.saidReply(a), { ran: false });
+      if (o === "no" || o === "time") { reply(h.REJECTED); return { end: "no" }; }
+      ok = true;
+    }
+    if (ok) file = await h.readFile(deps, path, { max: ARTIFACT_FILE_MAX, outside: true });
+  }
   if (file.error) return done(1, "error: " + file.error);
   const page = artifactPageOf(file.name || path, file.data, h.scrub(str(args.title, 80)));
   if (page.error) return done(1, page.error);
