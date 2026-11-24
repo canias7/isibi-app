@@ -5,6 +5,22 @@ The owner's running log, newest first, in plain English. Started fresh on
 log (81,000 lines) is in git history.
 
 
+## 2026-11-24: Live retest after deploy, and the rest of the tool parameters tab
+
+Tried live on gofarther.dev with Grok on Low, after the deploy of cec9fd91, in six test chats on canias7/testingforclaude. No videos (your 2026-11-12 rule); screenshots only.
+
+**The fixes work live:** `pkill -f coder` is refused; an edit of a file not read in the chat is refused ("File has not been read yet..."); web search shows real page titles; a monitor with no output says "ended at once ... exit 0 ... It printed nothing"; a WebSocket watch on ws://127.0.0.1 is refused as a private address; a notebook read shows its cell output; an artifact list has a "truncated" field; a bash timeout of 900000 gets the "cut to 600000" note.
+
+**The Tools page:** with Write on Never and Bash on Always allow, a new chat ran `touch` with no card. Write was not used, but Coder made the file with Edit instead. Both were set back to default.
+
+**The 161 rows marked "not tested live (budget)"** in the spreadsheet: 89 work, 23 partly, 4 differ, 45 can't be forced from a chat (each says why). The 4 that differ:
+- exit_worktree removed a worktree with an unsaved file without discard_changes.
+- A skill with allowed-tools ran without a card (Auto mode).
+- A foreground `sleep 20` was not refused.
+- web_fetch of a github.com page said "Too many redirects (exceeded 10)".
+
+Cleaned up: the test chats, crons, wake-ups, cloud scheduled tasks and the artifact were deleted, and test pull request #41 is closed.
+
 ## 2026-11-24: Fixes from the tool parameters live test
 
 The differences the live test of the "Tool parameters & limits" tab found, fixed to work like Claude Code (on branch work-paramfix, not deployed yet):
