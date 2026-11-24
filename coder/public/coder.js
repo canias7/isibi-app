@@ -2241,6 +2241,7 @@
     chev: '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>',
     // THE PERMISSION MODES (the owner, 2026-11-09, the Claude app's menu): Auto, Accept edits, Plan; and a plan's card.
     auto: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l7 3v5c0 4.4-3 8.2-7 9.5C8 19.2 5 15.4 5 11V6l7-3z"/><path d="M9 12l2 2 4-4"/></svg>',
+    manual: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 11V6a2 2 0 00-4 0v5"/><path d="M14 10V4a2 2 0 00-4 0v6"/><path d="M10 10.5V6a2 2 0 00-4 0v8"/><path d="M18 8a2 2 0 014 0v6a8 8 0 01-8 8h-2c-2.8 0-4.5-.9-6-2.4l-3.6-3.6a2 2 0 012.8-2.8L7 15"/></svg>',
     edits: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>',
     plan: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="3.5" width="14" height="17.5" rx="2"/><path d="M9 3.5h6v3H9z"/><path d="M9 11h6M9 15h4"/></svg>',
     branch: '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><circle cx="18" cy="8" r="2"/><path d="M6 7v10M18 10c0 4-6 3-12 7"/></svg>',
@@ -3105,7 +3106,7 @@
         const viewable = /^(pdf|png|jpe?g|gif|webp)$/i.test(ext);
         // (Coder's SendUserFile, batch 8: "attach" is a download card only; in a Coder chat a picture only, as data: addresses.)
         const preview = viewable && e.display !== 'attach' && (GLOOPY || !/^pdf$/i.test(ext));
-        out.push('<div class="cd-filecard"><span class="cd-filecard-icon">' + ICON.doc + (ext ? '<b>' + esc(ext.toUpperCase()) + '</b>' : '') + '</span><span class="cd-filecard-t"><b>' + esc(e.name || 'File') + '</b><small>' + esc(sizeWords(Number(e.size) || 0)) + (e.caption ? ' · ' + esc(String(e.caption).slice(0, 300)) : '') + '</small></span>' + (preview ? '<button type="button" class="cd-card-no cd-filecard-view" data-file-view="' + esc(e.id) + '" data-file-name="' + esc(e.name || 'file') + '">Preview</button>' : '') + '<button type="button" class="cd-card-yes cd-filecard-get" data-file-get="' + esc(e.id) + '" data-file-name="' + esc(e.name || 'file') + '">Download</button></div>');
+        out.push('<div class="cd-filecard"><span class="cd-filecard-icon">' + ICON.doc + (ext ? '<b>' + esc(ext.toUpperCase()) + '</b>' : '') + '</span><span class="cd-filecard-t"><b>' + esc(e.name || 'File') + '</b><small>' + esc(sizeWords(Number(e.size) || 0)) + (e.caption ? ' · ' + esc(String(e.caption).slice(0, 300)) : '') + '</small></span>' + (preview ? '<button type="button" class="cd-card-no cd-filecard-view" data-file-view="' + esc(e.id) + '" data-file-name="' + esc(e.name || 'file') + '">Preview</button>' : '') + '<button type="button" class="cd-card-yes cd-filecard-get" data-file-get="' + esc(e.id) + '" data-file-name="' + esc(e.name || 'file') + '">Download</button></div>' + fileInline(e, preview, ext));
       }
       else if (e.type === 'hook') {
         // A WEBHOOK GLOOPY SET UP (2026-11-09: "2"; Grok Bot's routine webhook fields): its address, and its key when the
@@ -3456,6 +3457,27 @@
       // WHAT GLOOPY MAY DO (the owner, 2026-11-10: "all of it"): its settings, your rules and your sites, in one place.
       (S.project ? '<button type="button" class="cd-hbtn cd-web-btn" id="cdGset">' + ICON.sliders + 'Settings</button>' : '') +
     '</div>' + (S.web && !S.web.card ? webHTML() : '') + (S.view ? viewHTML() : '');
+  }
+  // A PICTURE SHOWN INLINE UNDER ITS FILE CARD (SendUserFile's display "render", 2026-11-24; Claude Code's render opens the file
+  // inline: in a Coder chat a picture sent with render, or with no display, the page deciding by its type): its bytes fetched once, as a
+  // data: address (the page's rules block blob: ones), kept for the page's life; a click opens the preview.
+  const fileInline = (e, preview, ext) => (!GLOOPY && preview && !/^pdf$/i.test(ext) && (e.display === 'render' || e.display === undefined) ? fileInlineHTML(e.id, e.name || 'file', ext) : '');
+  function fileInlineHTML(id, name, ext) {
+    const box = S.fileInline || (S.fileInline = {});
+    const got = box[id];
+    if (got === undefined && S.project) {
+      box[id] = '';
+      const pid = S.project.id;
+      queueMicrotask(async () => {
+        const r = await call('/projects/' + encodeURIComponent(pid) + '/files/' + encodeURIComponent(id), { file: name });
+        const e2 = String(ext).toLowerCase();
+        const type = e2 === 'jpg' || e2 === 'jpeg' ? 'image/jpeg' : 'image/' + e2;
+        const url = r && r.blob ? await new Promise((ok) => { const fr = new FileReader(); fr.onload = () => ok(String(fr.result || '')); fr.onerror = () => ok(''); fr.readAsDataURL(new Blob([r.blob], { type })); }) : '';
+        box[id] = url || null;
+        if (url && S.project && S.project.id === pid) draw();
+      });
+    }
+    return got ? '<button type="button" class="cd-filecard-inline" data-file-view="' + esc(id) + '" data-file-name="' + esc(name) + '" title="Open the preview"><img src="' + esc(got) + '" alt="' + esc(name) + '"></button>' : '';
   }
   // A PREVIEW OF A FILE (the audit, 2026-11-10): a PDF or a picture Gloopy made, shown over the chat at its signed address
   // (10 minutes), with Download; Escape or × closes it.
@@ -4661,6 +4683,8 @@
     { id: 'auto', name: 'Auto', info: 'Coder handles permission decisions', icon: 'auto' },
     { id: 'acceptEdits', name: 'Accept edits', info: 'Automatically accept all file edits', icon: 'edits' },
     { id: 'plan', name: 'Plan', info: 'Create a plan before making changes', icon: 'plan' },
+    // (Manual, Claude Code's "default" mode, 2026-11-24: every edit, command, page fetch and web search asks first.)
+    { id: 'default', name: 'Manual', info: 'Ask before edits and commands', icon: 'manual' },
   ];
   /** The modes offered: all three, or without Auto when Settings turn it off (Claude Code's disableAutoMode). */
   const modeList = () => MODE_LIST.filter((x) => !(S.autoOff && x.id === 'auto'));
@@ -4730,6 +4754,8 @@
     // (Claude Code's option on a card for its .claude folder: "Yes, and allow Claude to edit its own settings for this session".)
     if (e.claudeDir === true) o.push(['claudeDir', 'Yes, and allow Coder to edit its own settings for this session']);
     if (e.toAuto && !S.autoOff) o.push(['auto', 'Yes, and switch to auto mode']);
+    // (Manual's edit card, Claude Code's "Yes, allow all edits during this session": the chat switches to Accept edits.)
+    if (e.toEdits) o.push(['acceptEdits', 'Yes, allow all edits during this session']);
     o.push(['no', e.tool === 'web_fetch' ? 'No, and tell Coder what to do differently' : 'No']);
     return o;
   }
@@ -4744,6 +4770,7 @@
     if (ans.hook === true) return (c === 'yes' ? '<span class="cd-perm-ok">✓ ' + (e.tool === 'plan' ? 'Approved' : 'Allowed') + '</span>' : '<span class="cd-perm-no">' + (c === 'stop' ? 'Stopped' : '✕ ' + (e.tool === 'plan' ? 'Not approved' : 'Not allowed')) + '</span>') + ' · by your PermissionRequest hook';
     if (e.tool === 'plan') return c === 'auto' || c === 'acceptEdits' ? '<span class="cd-perm-ok">✓ Approved · ' + (c === 'auto' ? 'Auto' : 'Accept edits') + '</span>' + note : c === 'no' ? '<span class="cd-perm-no">Kept planning</span>' + note : '<span class="cd-perm-no">' + (c === 'stop' ? 'Stopped' : 'No answer') + '</span>';
     if (c === 'yes') return '<span class="cd-perm-ok">✓ Allowed</span>' + note;
+    if (c === 'acceptEdits') return '<span class="cd-perm-ok">✓ Allowed · Accept edits from now on</span>';
     if (c === 'always') return '<span class="cd-perm-ok">✓ Allowed</span> · won\'t ask again for ' + (e.rules || []).map((r) => '<code>' + esc(ruleShown(r)) + '</code>').join(' and ');
     if (c === 'claudeDir') return '<span class="cd-perm-ok">✓ Allowed</span> · Coder may edit its own settings for this session';
     if (c === 'auto') return '<span class="cd-perm-ok">✓ Allowed</span> · switched to Auto';

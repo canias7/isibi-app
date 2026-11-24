@@ -12,8 +12,9 @@ const decide = (mode, command, rules = {}) => bashDecision(command, { mode, rule
 const ro = (c) => parseShell(c).commands.every((x) => commandReadOnly(x));
 
 test("CD305 the three modes of Claude Code's cloud sessions, named and described as in the Claude app", () => {
-  assert.deepEqual(MODES, ["auto", "acceptEdits", "plan"]);
-  assert.deepEqual(MODE_NAMES, { auto: "Auto", acceptEdits: "Accept edits", plan: "Plan" });
+  // (And Manual, Claude Code's "default", since 2026-11-24: notdone-1124.test.mjs.)
+  assert.deepEqual(MODES, ["auto", "acceptEdits", "plan", "default"]);
+  assert.deepEqual(MODE_NAMES, { auto: "Auto", acceptEdits: "Accept edits", plan: "Plan", default: "Manual" });
   assert.equal(MODE_INFO.auto, "Coder handles permission decisions");
   assert.equal(MODE_INFO.acceptEdits, "Automatically accept all file edits");
   assert.equal(MODE_INFO.plan, "Create a plan before making changes");

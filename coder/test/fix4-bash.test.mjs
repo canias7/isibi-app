@@ -168,7 +168,7 @@ test("BR5 the shell setup lines are Claude Code 2.1.325's, word for word: `\\bui
   assert.ok(S.commandPrefix("", "", "/usr/bin/zsh").startsWith(S.EXTGLOB_OFF_ZSH));
   assert.ok(S.commandPrefix("/h", "", "/usr/bin/zsh", true).startsWith(S.SNAPSHOT_READ_ZSH + S.EXTGLOB_OFF_PREFIXED), "with the owner's prefix: the line for either shell");
   assert.ok(S.commandPrefix("/h", "", "bash", true).startsWith(S.SNAPSHOT_READ + S.EXTGLOB_OFF_PREFIXED));
-  assert.match(serverSrc(), /t\.prefix = commandPrefix\(home, envFileLine\(rawVars\.CODER_ENV_FILE, home0\) \+ \(home \? hookEnvLine\(project\) : ""\), t\.shell, !!shellPrefixOf\(rawVars\.CODER_SHELL_PREFIX\)\);/);
+  assert.match(serverSrc(), /t\.prefix = commandPrefix\(home, pythonEnvLine\(rawVars\.CODER_PYTHON_ENV, home0\) \+ envFileLine\(rawVars\.CODER_ENV_FILE, home0\) \+ \(home \? hookEnvLine\(project\) : ""\), t\.shell, !!shellPrefixOf\(rawVars\.CODER_SHELL_PREFIX\)\);/);
   assert.match(serverSrc(), /t\.psPrefix = commandPrefix\(home, psEnvLine\(envFilePaths\(rawVars\.CODER_ENV_FILE, home0, home \? project : ""\)\), t\.shell\);/, "a PowerShell command is never wrapped by the prefix");
   // For real: bash's patterns off even when the startup file turned them on; the prefixed line quiet in either shell.
   const run = (sh, script) => execFileSync(sh, ["-c", script], { encoding: "utf8" });

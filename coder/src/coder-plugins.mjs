@@ -283,7 +283,12 @@ export const FEEDBACK_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const feedbackKey = (uid) => "coder/" + uid + "/feedback-drafts.json";
 export async function readFeedback(bucket, uid, now = Date.now()) {
   const v = await getJson(bucket, feedbackKey(uid), []);
-  return (Array.isArray(v) ? v : []).filter((d) => d && typeof d.id === "string" && now - (Number(d.at) || 0) < FEEDBACK_TTL_MS).slice(-FEEDBACK_QUEUE_MAX);
+  return (Array.isArray(v) ? v : []).filter((d) => d && typeof d.id === "string" && now - (Number(d.at) || 0) < feedbackTtl(d)).slice(-FEEDBACK_QUEUE_MAX);
+}
+/** A draft's time to live: 30 days, or its chat's cleanupPeriodDays when that is shorter (Claude Code's; `keepDays`). */
+export function feedbackTtl(d) {
+  const k = Number(d && d.keepDays);
+  return Number.isInteger(k) && k >= 1 && k < 30 ? k * 24 * 60 * 60 * 1000 : FEEDBACK_TTL_MS;
 }
 const feedbackSettingsKey = (uid) => "coder/" + uid + "/feedback-settings.json";
 export async function feedbackOff(bucket, uid) { const v = await getJson(bucket, feedbackSettingsKey(uid), {}); return !!(v && v.off === true); }
@@ -295,7 +300,8 @@ export async function queueFeedback(bucket, uid, draft, chat = "", now = Date.no
   const list = await readFeedback(bucket, uid, now);
   const id = "fb" + Array.from(crypto.getRandomValues(new Uint8Array(5)), (b) => b.toString(16).padStart(2, "0")).join("");
   const where = clip(chat, 200);
-  list.push({ id, title, details, ...(area ? { area } : {}), chat: where, at: now });
+  const keepDays = Number(draft && draft.keepDays);
+  list.push({ id, title, details, ...(area ? { area } : {}), chat: where, at: now, ...(Number.isInteger(keepDays) && keepDays >= 1 && keepDays < 30 ? { keepDays } : {}) });
   const dropped = Math.max(0, list.length - FEEDBACK_QUEUE_MAX);
   const kept = list.slice(dropped);
   await putJson(bucket, feedbackKey(uid), kept);

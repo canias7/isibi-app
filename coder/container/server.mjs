@@ -32,6 +32,7 @@ import { runCoder, connectorTools, connectorCaller, connectorHookCaller, MACHINE
 // (Each chat's plan file, kept here beside its memory: Claude Code's plan mode with a disk; the owner, 2026-11-14.)
 import { planStore, plansDirectoryFor, plansDirWarning } from "./coder-plan-file.mjs";
 import { envCaller } from "./coder-envtools.mjs";
+import { ownWorktreePath } from "./coder-worktree.mjs";
 import { memoryLoaded, memorySafe } from "./coder-tools.mjs";
 import { hooksFrom, hooksFor, hookInput, transcriptLines, hookShell, splitHookOut, asyncHookTexts, sessionEndBudget, sessionEndHookLimit, httpUrlAllowed, runMcpToolHook, stopCapOf } from "./coder-hooks.mjs";
 import { autoModeSetting } from "./coder-checker.mjs";
@@ -318,6 +319,18 @@ export function envFileLine(value, project) {
   if (!v || v.length > 1000 || /[\0\n\r]/.test(v)) return "";
   const path = v.startsWith("~/") ? '"$HOME"/' + shellWord(v.slice(2)) : v.startsWith("/") ? shellWord(v) : shellWord(join(project, v));
   return "if [ -r " + path + " ]; then . " + path + "; fi\n";
+}
+/**
+ * THE OWNER'S PYTHON ENVIRONMENT (Claude Code: "Activate your virtualenv or conda environment before you launch Claude Code",
+ * so every command it runs has it). Nobody starts Coder's machine from a shell, so CODER_PYTHON_ENV names the environment's
+ * folder instead (a full path, ~/ for the AI's home, or one in the project: ".venv"), and its bin/activate is read before
+ * every command, as if it had been activated before launch; nothing when the folder has none. 2026-11-24.
+ */
+export function pythonEnvLine(value, project) {
+  const v = String(value ?? "").trim().replace(/\/+$/, "");
+  if (!v || v.length > 1000 || /[\0\n\r]/.test(v)) return "";
+  const dir = v.startsWith("~/") ? '"$HOME"/' + shellWord(v.slice(2)) : v.startsWith("/") ? shellWord(v) : shellWord(join(project, v));
+  return "if [ -z \"$VIRTUAL_ENV\" ] && [ -r " + dir + "/bin/activate ]; then . " + dir + "/bin/activate >/dev/null 2>&1; fi\n";
 }
 /**
  * THE CHAT'S HOOK ENV FILE (Claude Code's CLAUDE_ENV_FILE as its hooks get it: "SessionStart hooks have access to the
@@ -1280,6 +1293,9 @@ export function repoSettings(root, { trust = false, github = false, several = fa
     if (typeof p.defaultMode === "string" && ["acceptEdits", "plan", "default"].includes(p.defaultMode)) out.defaultMode = p.defaultMode;
     // (Claude Code's plansDirectory, "Any file": the later file's, settings.local.json over settings.json. 2026-11-14.)
     if (typeof j.plansDirectory === "string" && j.plansDirectory.length <= 1000) out.plansDir = j.plansDirectory;
+    // (Claude Code's cleanupPeriodDays: a SendFeedback draft expires after 30 days, "or after cleanupPeriodDays, when that is
+    // shorter". 2026-11-24.)
+    if (Number.isInteger(j.cleanupPeriodDays) && j.cleanupPeriodDays >= 1 && j.cleanupPeriodDays <= 3650) out.cleanupDays = j.cleanupPeriodDays;
     // (Claude Code's claudeMdExcludes, "Arrays merge across layers"; coderMdExcludes, Coder's name for it. M-f-14.)
     // (Claude Code's language and maxEffortLevel, the later file over the earlier. M-c-42. Its effortLevel waits for the owner:
     // it could start a chat above the Low default, which costs more.)
@@ -1563,6 +1579,22 @@ export function diskNoteAfter(outDir, lost, { statfs = statfsSync, probe = probe
   const code = probe(outDir);
   if (code === "EDQUOT") return "Disk quota used up: a test write beside this command's output file, on the volume holding " + where + ", failed with EDQUOT, so " + said + " and its own writes may have failed with \"Disk quota exceeded\". Delete files there that are no longer needed, then retry. If this is the owner's own computer, tell them before deleting anything to make room.";
   if (code === "ENOSPC") return "Disk full: a test write beside this command's output file, on the volume holding " + where + ", failed with ENOSPC (the volume, or the user's quota on it, has no space left), " + so + " " + FREE_SPACE;
+  return null;
+}
+/**
+ * A FULL DISK BEFORE A COMMAND STARTS (Claude Code: the command isn't started when the disk that holds command output is
+ * full). Only when the volume of Coder's folder for command output has under 10 MB free is a test write tried there; ENOSPC
+ * or EDQUOT: the words for the result, "The command was not started: Disk full: …". Otherwise null.
+ */
+export function diskFullBefore(outDir, { statfs = statfsSync, probe = probeWrite } = {}) {
+  try {
+    const f = statfs(outDir, { bigint: true });
+    if (f.blocks > 0n && f.bavail * f.bsize >= 10n * 1024n * 1024n) return null;
+  } catch { return null; }
+  const code = probe(outDir);
+  const where = outDir + " (Coder's folder for command output)";
+  if (code === "ENOSPC") return "The command was not started: Disk full: a test write on the volume holding " + where + " failed with ENOSPC (no space left on device). " + FREE_SPACE;
+  if (code === "EDQUOT") return "The command was not started: Disk quota used up: a test write on the volume holding " + where + " failed with EDQUOT. Delete files there that are no longer needed, then retry. If this is the owner's own computer, tell them before deleting anything to make room.";
   return null;
 }
 /** Only the newest `n` files of a folder are kept. */
@@ -2713,7 +2745,8 @@ export const LIKELY_SECRET = [".env", ".env.*", "!.env.example", "!.env.sample",
  * submodule whose commit could not be read).
  */
 async function saveSubmodules(dir, k, o) {
-  const left = k.nested.map((path) => ({ path, kind: "repo" }));
+  // (Coder's own worktrees, under .claude/worktrees/, are kept out quietly: Claude Code names none of its worktrees.)
+  const left = k.nested.filter((path) => !ownWorktreePath(path)).map((path) => ({ path, kind: "repo" }));
   for (const s of k.subs) {
     if (s.kind !== "filled") { left.push({ path: s.path, kind: "link" }); continue; }
     const head = s.sha ? await submoduleHead(dir, s.path, s.sha.length) : "";
@@ -5310,7 +5343,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     // environment variables", "Each Bash command runs the file's contents as shell code before the command itself".)
     // (In the owner's CODER_SHELL: shellOf.)
     t.shell = shellOf(rawVars.CODER_SHELL);
-    t.prefix = commandPrefix(home, envFileLine(rawVars.CODER_ENV_FILE, home0) + (home ? hookEnvLine(project) : ""), t.shell, !!shellPrefixOf(rawVars.CODER_SHELL_PREFIX));
+    t.prefix = commandPrefix(home, pythonEnvLine(rawVars.CODER_PYTHON_ENV, home0) + envFileLine(rawVars.CODER_ENV_FILE, home0) + (home ? hookEnvLine(project) : ""), t.shell, !!shellPrefixOf(rawVars.CODER_SHELL_PREFIX));
     // (A PowerShell command's: the same, its env files read Claude Code's way, psEnvLine.)
     t.psPrefix = commandPrefix(home, psEnvLine(envFilePaths(rawVars.CODER_ENV_FILE, home0, home ? project : "")), t.shell);
     // THE COMMANDS' TIMEOUTS from the environment's BASH_DEFAULT_TIMEOUT_MS and BASH_MAX_TIMEOUT_MS (see bashTimeouts).
@@ -5951,10 +5984,11 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
           // NOT WITHOUT THE ADMIN SANDBOX (fix 7): a command, the AI's or the owner's `!`, is not started; Coder's own helpers
           // and the owner's hooks still run, as Claude Code's hooks run outside its sandbox.
           if (t.boxDown && !tool && !hook) return { code: -1, notStarted: true, output: boxDownTold(t.boxDown) };
-          // A FULL DISK DOES NOT STOP A COMMAND FROM STARTING (Claude Code 2.1.322 says "The command was not started: …" only
-          // when its output file can't be created; side by side on a full disk, 2026-11-12, it ran `echo hello` and said the
-          // output was lost). Coder needs no file to start one (it keeps the output itself, and writes a file only past 30,000
-          // characters), so a command that frees space can still run: diskNoteAfter says the rest.
+          // A FULL DISK BEFORE A COMMAND STARTS (Claude Code: "When the disk that holds command output is full, the command isn't
+          // started"; its words, "The command was not started: …", when its output file can't be created). Coder tries a small
+          // write in its folder for command output first, only when that volume is under 10 MB free (diskFullBefore); a full one
+          // stops the command. Otherwise diskNoteAfter says the rest after a command that failed. (2026-11-24.)
+          if (!tool && !hook) { const full = diskFullBefore(outDir); if (full) return { code: -1, notStarted: true, output: full }; }
           // A big tool request is written to a new file in this project's own folder (never through a link), then read by the tool.
           if (typeof payload === "string" && command.includes("@REQUEST")) {
             // (The folder is made again when it is gone: a job's end removes it when no background command keeps it (tidyBg), and
@@ -6299,7 +6333,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         t.answerDone = true;
         return { status: "error", messages, crashed: true, summary: why };
       };
-      picsIn(Array.isArray(body.messages) ? body.messages : [], picsTo).then((msgsIn) => runCoder(turnDeps, { notices, lost, stalls, ...(takeUp ? { takeUp: { ...takeUp, ...(envNote ? { note: envNote } : {}) } } : {}), timeouts: t.tmo, outLimits: t.outLimits, cmdShell: t.shell, compactVars: compactVarsFor(rawVars), noBg: t.noBg, diskWarnGib: warnGibFrom(body.setup && body.setup.vars, "DISK", PREFS.diskWarnGib), memWarnGib: warnGibFrom(body.setup && body.setup.vars, "MEMORY", PREFS.memWarnGib), searchLimits: t.searchLimits, hooks: turnHooks, autoMode: autoModeIn(body.autoMode), denyInstead: PREFS.denyInstead === true, tasksOff: varOff(rawVars.CODER_ENABLE_TASKS) || !taskToolsAvailable({ cloud: true, optIn: varOn(rawVars.CLAUDE_CODE_ENABLE_TODO_TOOLS) }), refreshTools: !gloopy && varOn(rawVars.CODER_ENABLE_REFRESH_MCP_TOOLS), mcpHeadersHelper: !gloopy && typeof rawVars.CODER_MCP_HEADERS_HELPER === "string" ? rawVars.CODER_MCP_HEADERS_HELPER : "", mentionsOff: varOn(rawVars.CODER_DISABLE_FILE_MENTIONS), stopCap: stopCapOf(rawVars.CODER_STOP_HOOK_BLOCK_CAP), box: !!t.box, autoOff: PREFS.autoOff === true || repoSet.autoOff, suggest: !gloopy && PREFS.suggestOff !== true && process.env.CODER_ENABLE_PROMPT_SUGGESTION !== "false", fileEdits: repoSet.defaultMode === "acceptEdits", startMode: repoSet.defaultMode, resumed, lastAt: Number(body.lastAt) || 0, hostLists: hostListsFor(nn.mode), rmChecksOff: { subst: varOn(rawVars.CODER_DISABLE_SUBSTITUTION_RM_PROMPT), inline: varOn(rawVars.CODER_DISABLE_INLINE_SHELL_RM_PROMPT), mounted: varOn(rawVars.CODER_DISABLE_MOUNTED_DRIVE_RM_PROMPT), timeout: varOn(rawVars.CODER_DISABLE_DANGEROUS_RM_TIMEOUT) }, powershell: psOn ? { bypass: !varOn(rawVars.CODER_POWERSHELL_RESPECT_EXECUTION_POLICY), defaultShell: String(rawVars.CODER_DEFAULT_SHELL || "").trim().toLowerCase() === "powershell", parseMs: Number(rawVars.CODER_PWSH_PARSE_TIMEOUT_MS) > 0 ? Math.min(Number(rawVars.CODER_PWSH_PARSE_TIMEOUT_MS), 60000) : 0 } : null, planExit: body.prePlanMode === "acceptEdits" ? "acceptEdits" : "auto", respondToBash: !varOff(rawVars.CODER_RESPOND_TO_BASH_COMMANDS), promptNotify: !varOn(rawVars.CODER_DISABLE_PERMISSION_PROMPT_NOTIFY_HOOKS), readBlock: varOn(rawVars.CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockReads, writeBlock: varOn(rawVars.CODER_BLOCK_WRITES_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockWrites, connectors: mcpCall ? connectors : [], connectorNotes: mcpCall && Array.isArray(body.connectorNotes) ? body.connectorNotes.slice(0, 10) : [], connectorsWaiting: Array.isArray(body.connectorsWaiting) ? body.connectorsWaiting.map(String).slice(0, 20) : [], connectorsFailed: Array.isArray(body.connectorsFailed) ? body.connectorsFailed.slice(0, 20) : [], connectorsGone: body.connectorsGone && typeof body.connectorsGone === "object" && !Array.isArray(body.connectorsGone) ? body.connectorsGone : null, checker, checkerInPlan: !varOff(rawVars.CODER_USE_AUTO_MODE_DURING_PLAN), checkWhere: { key: project, repo: String(body.repo || ""), branch: String(body.branch || (body.repo ? "coder/" + project : "")) }, emailMark: typeof body.emailMark === "string" && /^\d{1,3}:[0-9a-f]{64}(?:,\d{1,3}:[0-9a-f]{64})?$/.test(body.emailMark) ? body.emailMark : "", editDiff: bashEditDiffOn({ vars: rawVars, prefs: PREFS, repoOff: repoSet.editDiffOff, mode: t.mode }), checkpoints: checkpointsOn(rawVars), searchTools: body.searchTools === true, cleared: !gloopy && body.cleared === true, schedule: !gloopy && body.schedule && typeof body.schedule === "object" ? body.schedule : null, goal: !gloopy && body.goal && typeof body.goal.condition === "string" ? { condition: body.goal.condition.slice(0, 4000) } : null, mode: t.mode, rules: withRepoRules(body.rules, repoSet), sessionRules: body.sessionRules && typeof body.sessionRules === "object" ? body.sessionRules : null, language: gloopy ? "" : repoSet.language, customTitle: !gloopy && typeof body.customTitle === "string" ? body.customTitle.slice(0, 200) : "", shell: typeof body.shell === "string" ? body.shell.slice(0, 100_000) : "", messages: msgsIn, text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), ...(body.compact && typeof body.compact === "object" ? { compact: { focus: String(body.compact.focus || "").slice(0, 300) } } : {}), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, readOnly: { main: body.readOnly === true, extra: extras.filter((x) => x.readOnly).map((x) => x.repo.toLowerCase()) }, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), replyTo: body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null, ...effortFor(body, repoSet, env, t) , skills: gloopy || body.github === true ? [] : (() => { try { return withOwnerSkills(readSkills(dir), body.ownerSkills); } catch { return []; } })(), pluginAgents: gloopy || body.github === true ? [] : pluginAgentsFrom(body.pluginAgents), ...(!gloopy && body.github !== true && Array.isArray(body.attached) ? { attached: body.attached.filter((x) => x && typeof x.id === "string").slice(0, 20), attachedLeft: Math.max(0, Math.min(1000, Number(body.attachedLeft) || 0)) } : {}), ...gloopyOpts }))
+      picsIn(Array.isArray(body.messages) ? body.messages : [], picsTo).then((msgsIn) => runCoder(turnDeps, { notices, lost, stalls, ...(takeUp ? { takeUp: { ...takeUp, ...(envNote ? { note: envNote } : {}) } } : {}), timeouts: t.tmo, outLimits: t.outLimits, cmdShell: t.shell, compactVars: compactVarsFor(rawVars), noBg: t.noBg, diskWarnGib: warnGibFrom(body.setup && body.setup.vars, "DISK", PREFS.diskWarnGib), memWarnGib: warnGibFrom(body.setup && body.setup.vars, "MEMORY", PREFS.memWarnGib), searchLimits: t.searchLimits, hooks: turnHooks, autoMode: autoModeIn(body.autoMode), denyInstead: PREFS.denyInstead === true, tasksOff: varOff(rawVars.CODER_ENABLE_TASKS) || !taskToolsAvailable({ cloud: true, optIn: varOn(rawVars.CLAUDE_CODE_ENABLE_TODO_TOOLS) }), refreshTools: !gloopy && varOn(rawVars.CODER_ENABLE_REFRESH_MCP_TOOLS), mcpHeadersHelper: !gloopy && typeof rawVars.CODER_MCP_HEADERS_HELPER === "string" ? rawVars.CODER_MCP_HEADERS_HELPER : "", mentionsOff: varOn(rawVars.CODER_DISABLE_FILE_MENTIONS), stopCap: stopCapOf(rawVars.CODER_STOP_HOOK_BLOCK_CAP), box: !!t.box, autoOff: PREFS.autoOff === true || repoSet.autoOff, suggest: !gloopy && PREFS.suggestOff !== true && process.env.CODER_ENABLE_PROMPT_SUGGESTION !== "false", fileEdits: repoSet.defaultMode === "acceptEdits", startMode: repoSet.defaultMode, resumed, lastAt: Number(body.lastAt) || 0, hostLists: hostListsFor(nn.mode), rmChecksOff: { subst: varOn(rawVars.CODER_DISABLE_SUBSTITUTION_RM_PROMPT), inline: varOn(rawVars.CODER_DISABLE_INLINE_SHELL_RM_PROMPT), mounted: varOn(rawVars.CODER_DISABLE_MOUNTED_DRIVE_RM_PROMPT), timeout: varOn(rawVars.CODER_DISABLE_DANGEROUS_RM_TIMEOUT) }, powershell: psOn ? { bypass: !varOn(rawVars.CODER_POWERSHELL_RESPECT_EXECUTION_POLICY), defaultShell: String(rawVars.CODER_DEFAULT_SHELL || "").trim().toLowerCase() === "powershell", parseMs: Number(rawVars.CODER_PWSH_PARSE_TIMEOUT_MS) > 0 ? Math.min(Number(rawVars.CODER_PWSH_PARSE_TIMEOUT_MS), 60000) : 0 } : null, planExit: body.prePlanMode === "acceptEdits" ? "acceptEdits" : "auto", respondToBash: !varOff(rawVars.CODER_RESPOND_TO_BASH_COMMANDS), promptNotify: !varOn(rawVars.CODER_DISABLE_PERMISSION_PROMPT_NOTIFY_HOOKS), readBlock: varOn(rawVars.CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockReads, writeBlock: varOn(rawVars.CODER_BLOCK_WRITES_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockWrites, connectors: mcpCall ? connectors : [], connectorNotes: mcpCall && Array.isArray(body.connectorNotes) ? body.connectorNotes.slice(0, 10) : [], connectorsWaiting: Array.isArray(body.connectorsWaiting) ? body.connectorsWaiting.map(String).slice(0, 20) : [], connectorsFailed: Array.isArray(body.connectorsFailed) ? body.connectorsFailed.slice(0, 20) : [], connectorsGone: body.connectorsGone && typeof body.connectorsGone === "object" && !Array.isArray(body.connectorsGone) ? body.connectorsGone : null, checker, checkerInPlan: !varOff(rawVars.CODER_USE_AUTO_MODE_DURING_PLAN), checkWhere: { key: project, repo: String(body.repo || ""), branch: String(body.branch || (body.repo ? "coder/" + project : "")) }, emailMark: typeof body.emailMark === "string" && /^\d{1,3}:[0-9a-f]{64}(?:,\d{1,3}:[0-9a-f]{64})?$/.test(body.emailMark) ? body.emailMark : "", editDiff: bashEditDiffOn({ vars: rawVars, prefs: PREFS, repoOff: repoSet.editDiffOff, mode: t.mode }), checkpoints: checkpointsOn(rawVars), searchTools: body.searchTools === true, cleared: !gloopy && body.cleared === true, schedule: !gloopy && body.schedule && typeof body.schedule === "object" ? body.schedule : null, goal: !gloopy && body.goal && typeof body.goal.condition === "string" ? { condition: body.goal.condition.slice(0, 4000) } : null, mode: t.mode, rules: withRepoRules(body.rules, repoSet), sessionRules: body.sessionRules && typeof body.sessionRules === "object" ? body.sessionRules : null, language: gloopy ? "" : repoSet.language, cleanupDays: gloopy ? 0 : Number(repoSet.cleanupDays) || 0, customTitle: !gloopy && typeof body.customTitle === "string" ? body.customTitle.slice(0, 200) : "", shell: typeof body.shell === "string" ? body.shell.slice(0, 100_000) : "", messages: msgsIn, text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), ...(body.compact && typeof body.compact === "object" ? { compact: { focus: String(body.compact.focus || "").slice(0, 300) } } : {}), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, readOnly: { main: body.readOnly === true, extra: extras.filter((x) => x.readOnly).map((x) => x.repo.toLowerCase()) }, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), replyTo: body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null, ...effortFor(body, repoSet, env, t) , skills: gloopy || body.github === true ? [] : (() => { try { return withOwnerSkills(readSkills(dir), body.ownerSkills); } catch { return []; } })(), pluginAgents: gloopy || body.github === true ? [] : pluginAgentsFrom(body.pluginAgents), ...(!gloopy && body.github !== true && Array.isArray(body.attached) ? { attached: body.attached.filter((x) => x && typeof x.id === "string").slice(0, 20), attachedLeft: Math.max(0, Math.min(1000, Number(body.attachedLeft) || 0)) } : {}), ...gloopyOpts }))
         // (Its job is over: a connector's question still waiting closes, coder-elicit.mjs.)
         .finally(() => { t.over = true; })
         // The last steps are sent BEFORE the end is handed out, so the Worker never saves the job while some are on their way.

@@ -89,6 +89,7 @@ export const ARTIFACT_TOOL = fn(ARTIFACT, ARTIFACT_DESCRIPTION, {
   title: { type: "string", description: "publish: the fallback title for an HTML page whose file has no <title>. It is a name, not a summary, and you keep it the same across republishes." },
   description: { type: "string", maxLength: ARTIFACT_LIMITS.description, description: "publish: one sentence for the subtitle on the artifact's card." },
   icon: { type: "string", maxLength: ARTIFACT_LIMITS.icon, description: "One short generic word for the artifact's icon, such as chart, calendar, recipe, code or map: a plain signifier, never a product or brand name. Include it on a first publish and omit it on a republish so the artifact keeps its icon, passing a new one only when the owner asks." },
+  favicon: { type: "string", minLength: 1, maxLength: 32, description: "Deprecated; omit it and use `icon`." },
   label: { type: "string", maxLength: ARTIFACT_LIMITS.label, description: "A short name for this publish, at most 60 characters (e.g. \"Draft to legal\"). Optional. It is a few words, not a description." },
   force: { type: "boolean", description: "publish: a last-resort overwrite that **discards** the newer published version. On a conflict, merge your changes onto the newer content that the refusal hands you and publish again. Pass true only when the owner explicitly said to discard that specific version." },
   limit: { type: "integer", minimum: ARTIFACT_LIMITS.limitMin, maximum: ARTIFACT_LIMITS.limitMax, description: "list only: the maximum number of artifacts to return (default 25)." },
@@ -309,12 +310,14 @@ export async function resourceToolCall(c, h) {
 }
 
 // ── ARTIFACT ───────────────────────────────────────────────────────────────────────────────────────────────────────────
-const PUBLISH_ONLY = ["file_path", "title", "description", "icon", "label", "force", "capabilities", "contract", "public"];
+const PUBLISH_ONLY = ["file_path", "title", "description", "icon", "favicon", "label", "force", "capabilities", "contract", "public"];
 /** Its inputs checked as Claude Code checks them: → an error line, or "". */
 export function artifactInputProblem(args) {
   const action = args.action === undefined ? "publish" : args.action;
   if (!ARTIFACT_ACTIONS.includes(action)) return "error: action must be one of " + ARTIFACT_ACTIONS.map((a) => "'" + a + "'").join(", ") + " (pin, unpin and quickstart are not available in Coder)";
   for (const k of ["description", "icon", "label"]) if (args[k] !== undefined && (typeof args[k] !== "string" || args[k].length > ARTIFACT_LIMITS[k])) return "error: " + k + " must be a string of at most " + ARTIFACT_LIMITS[k] + " characters";
+  // (favicon: Claude Code's deprecated input, taken and left unused, as its own is: icon names the icon. 2026-11-24.)
+  if (args.favicon !== undefined && (typeof args.favicon !== "string" || !args.favicon.length || args.favicon.length > 32)) return "error: favicon must be a string of 1 to 32 characters (it is deprecated: use icon)";
   if (args.limit !== undefined && !(Number.isInteger(args.limit) && args.limit >= ARTIFACT_LIMITS.limitMin && args.limit <= ARTIFACT_LIMITS.limitMax)) return "error: limit must be a whole number from 1 to 200";
   if (args.scope !== undefined && !ARTIFACT_SCOPES.includes(args.scope)) return "error: scope must be 'mine', 'shared' or 'all'";
   if (action === "list") { const extra = Object.keys(args).filter((k) => !["action", "limit", "scope"].includes(k) && args[k] !== undefined); if (extra.length) return "error: with action list, only limit and scope may be passed (not " + extra.join(", ") + ")"; return ""; }

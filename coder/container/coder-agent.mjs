@@ -1758,6 +1758,17 @@ export const PLAN_ASKS = Object.freeze(Object.setPrototypeOf({
   auto_fix: (a) => "Turn auto-fix " + (a && a.on === false ? "off" : "on") + " for " + String((a && a.pr) || "a pull request").slice(0, 200),
   undo_last_job: () => "Undo the last job that changed files",
 }, null));
+/**
+ * IN MANUAL MODE (Claude Code's "default"; 2026-11-24), the same tools ask first, and Workflow too (its tools table: "Permission
+ * required: Yes" for Workflow), in Claude Code's words for a tool it asks about: "Coder wants to use <tool>." (manualCallWhy).
+ */
+export const MANUAL_ASKS = Object.freeze(Object.setPrototypeOf({
+  ...PLAN_ASKS,
+  workflow: (a) => "Run a workflow" + (a && typeof a.name === "string" && a.name ? " (" + String(a.name).slice(0, 80) + ")" : a && typeof a.scriptPath === "string" && a.scriptPath ? " (" + String(a.scriptPath).slice(0, 160) + ")" : a && a.resumeFromRunId ? " (resume " + String(a.resumeFromRunId).slice(0, 40) + ")" : ""),
+}, null));
+export const manualCallWhy = (tool) => "Coder wants to use " + tool + ".";
+/** A file edit's ask in Manual mode, in Claude Code's words for its edit prompt: "Do you want to make this edit to <file>?" */
+export const manualWriteWhy = (path) => "Do you want to make this edit to " + ccPath(path) + "?";
 /** What Grok is told of the chat's permission mode, with the system's words (not saved with the chat). */
 /**
  * THE MODE AS CLAUDE CODE NAMES IT TO HOOKS (`permission_mode`): in its cloud, the Accept edits the owner picks is "default"
@@ -2255,7 +2266,7 @@ export function ruleHoldsSecret(rule) {
   }
   return false;
 }
-export async function runCoder(deps, { notices = [], lost = [], stalls = [], promptNotify = true, timeouts = null, outLimits = null, noBg = false, respondToBash = true, shell = "", cmdShell = "", compactVars = null, messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, mode = "auto", rules = null, editDiff = false, readBlock = false, writeBlock = false, checker = false, checkerInPlan = true, checkWhere = null, emailMark = "", diskWarnGib = 0, memWarnGib = 0, hooks = null, autoMode = null, denyInstead = false, autoOff = false, planExit = "auto", hostLists = null, powershell = null, connectors = [], connectorNotes = [], connectorsWaiting = [], connectorsFailed = [], connectorsGone = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS , rmChecksOff = null, fileEdits = true, startMode = "", resumed = false, lastAt = 0, sessionRules = null, language = "", customTitle = "", compact = null, system = CODER_SYSTEM, tools = null, nudges = true, who = "Coder", browserRules: rulesIn = [], granted: grantedIn = [], schedules = [], opening = "user", permissions: permsIn = null, sites: sitesIn = [], monitor = false, ownerSaid: ownerSaidList = null, asHelper = false, helper = null, pages = [], savedLogins = [], savedCards = [], contacts = [], webhooks = [], hookBase = "/api/coder/gloopy-hook/", attached = [], attachedLeft = 0, workNote = "", marked = null, taught = null, files: keptFiles = [], background = false, checkWrites = false, denied: deniedIn = [], zone = "", searchLimits = null, takeUp = null, tasksOff = false, mentionsOff = false, holdBack = null, suggest = false, stopCap = STOP_BLOCK_CAP, box = false, skills = [], pluginAgents = null, checkpoints = true, searchTools = false, cleared = false, schedule = null, subagent = null, refreshTools = false, mcpHeadersHelper = "", goal = null } = {}) {
+export async function runCoder(deps, { notices = [], lost = [], stalls = [], promptNotify = true, timeouts = null, outLimits = null, noBg = false, respondToBash = true, shell = "", cmdShell = "", compactVars = null, messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, mode = "auto", rules = null, editDiff = false, readBlock = false, writeBlock = false, checker = false, checkerInPlan = true, checkWhere = null, emailMark = "", diskWarnGib = 0, memWarnGib = 0, hooks = null, autoMode = null, denyInstead = false, autoOff = false, planExit = "auto", hostLists = null, powershell = null, connectors = [], connectorNotes = [], connectorsWaiting = [], connectorsFailed = [], connectorsGone = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS , rmChecksOff = null, fileEdits = true, startMode = "", resumed = false, lastAt = 0, sessionRules = null, language = "", cleanupDays = 0, customTitle = "", compact = null, system = CODER_SYSTEM, tools = null, nudges = true, who = "Coder", browserRules: rulesIn = [], granted: grantedIn = [], schedules = [], opening = "user", permissions: permsIn = null, sites: sitesIn = [], monitor = false, ownerSaid: ownerSaidList = null, asHelper = false, helper = null, pages = [], savedLogins = [], savedCards = [], contacts = [], webhooks = [], hookBase = "/api/coder/gloopy-hook/", attached = [], attachedLeft = 0, workNote = "", marked = null, taught = null, files: keptFiles = [], background = false, checkWrites = false, denied: deniedIn = [], zone = "", searchLimits = null, takeUp = null, tasksOff = false, mentionsOff = false, holdBack = null, suggest = false, stopCap = STOP_BLOCK_CAP, box = false, skills = [], pluginAgents = null, checkpoints = true, searchTools = false, cleared = false, schedule = null, subagent = null, refreshTools = false, mcpHeadersHelper = "", goal = null } = {}) {
   // (A connector's headersHelper, the environment's CODER_MCP_HEADERS_HELPER: its headers go with each connector call, and a
   // helper that fails stops the call. coder-mcphelper.mjs; 2026-11-23.)
   if (mcpHeadersHelper && typeof deps.mcp === "function" && typeof deps.exec === "function") deps = { ...deps, mcp: withHeadersHelper(deps.mcp, headersHelperFor(mcpHeadersHelper, deps.exec)) };
@@ -2572,7 +2583,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   const applyUpdates = (list) => {
     for (const u of Array.isArray(list) ? list : []) {
       if (u && (u.type === "addDirectories" || u.type === "removeDirectories")) { changeDirs(u); continue; }
-      if (u.type === "setMode") { const m = String(u.mode || ""); const to = m === "default" || m === "manual" ? "acceptEdits" : MODES.includes(m) ? m : ""; if (to && to !== modeNow()) setMode(to, "hook"); continue; }
+      if (u.type === "setMode") { const m = String(u.mode || ""); const to = m === "default" || m === "manual" ? "default" : MODES.includes(m) ? m : ""; if (to && to !== modeNow()) setMode(to, "hook"); continue; }
       if (u.type !== "addRules" && u.type !== "replaceRules" && u.type !== "removeRules") continue;
       const kind = ["allow", "deny", "ask"].includes(u.behavior) ? u.behavior : "";
       if (!kind) continue;
@@ -4293,7 +4304,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         if (o.decision === "block") return o.blocks.join("\n") || o.reason || "";
         return o.context.length ? "SubagentStop hook feedback:\n" + o.context.join("\n") : "";
       },
-      startSub: ({ type, prompt, messages: past, label, emit: subEmit, model: m, effort: ef, toolNames, system: sys, maxRounds: mr, cwd, agentId, stopReq }) => runCoder({ ...deps, emit: subEmit, subagentBudget: agentBudget, ...(cwd ? inFolder(deps, cwd) : {}), ...(typeof stopReq === "function" ? { stopped: async () => stopReq() || (await stopped()) } : {}) }, { text: prompt, messages: past || [], system: sys || SUBAGENT_SYSTEM + (AGENT_TYPES[type] && AGENT_TYPES[type].note ? "\n\n" + AGENT_TYPES[type].note : ""), tools: subagentTools(subTools, type, toolNames, { mode: modeNow() }), context, base, model: m || model, effort: ef || effort, mode: modeNow(), rules, hooks, denyInstead: true, nudges: false, who: "Coder's agent “" + label + "”", asHelper: true, github: false, tasksOff: true, maxRounds: mr || SUBAGENT_ROUNDS, maxMs: Math.min(SUBAGENT_MS, left), subagent: { id: agentId || "", type } }),
+      startSub: ({ type, prompt, messages: past, label, emit: subEmit, model: m, effort: ef, toolNames, system: sys, maxRounds: mr, cwd, agentId, stopReq }) => runCoder({ ...deps, emit: subEmit, subagentBudget: agentBudget, ...(cwd ? inFolder(deps, cwd) : {}), ...(typeof stopReq === "function" ? { stopped: async () => stopReq() || (await stopped()) } : {}) }, { text: prompt, messages: past || [], system: sys || SUBAGENT_SYSTEM + (AGENT_TYPES[type] && AGENT_TYPES[type].note ? "\n\n" + AGENT_TYPES[type].note : ""), tools: subagentTools(subTools, type, toolNames, { mode: modeNow() }), context, base, model: m || model, effort: ef || effort, mode: modeNow(), rules, hooks, denyInstead, nudges: false, who: "Coder's agent “" + label + "”", asHelper: true, github: false, tasksOff: true, maxRounds: mr || SUBAGENT_ROUNDS, maxMs: Math.min(SUBAGENT_MS, left), subagent: { id: agentId || "", type } }),
       step: typeof deps.workflowStep === "function" ? deps.workflowStep : async (a) => { const r = await appTool(deps, "workflow_step", a, { timeoutS: WORKFLOW_PASS_S }); try { return JSON.parse(r.output); } catch { return { status: "error", error: r.output.trim().slice(0, 400) || "the script's pass failed" }; } },
       writeText: async (p, text) => { const b64 = Buffer.from(String(text), "utf8").toString("base64"); const q = "'" + String(p).replace(/'/g, "'\\''") + "'"; const r = await shRun("mkdir -p -- \"$(dirname -- " + q + ")\" && printf %s '" + b64 + "' | base64 -d > " + q, 20); if (!r || r.code !== 0) throw new Error("could not write " + p); },
       readText: async (p) => { try { const r = await deps.exec({ command: "cat -- '" + String(p).replace(/'/g, "'\\''") + "'", timeoutS: 15, tool: true }); return r && r.code === 0 ? { text: String(r.output || "") } : { error: "could not read " + p }; } catch { return { error: "could not read " + p }; } },
@@ -5744,8 +5755,9 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       // for the owner's Yes on a card, as any action that only reads would not (Claude Code's plan mode).
       // (In Claude Code's words since round 6, its plan mode's ask for a call that may change something: "Cannot call <tool>
       // while in plan mode.")
-      if (PLAN_ASKS[c.name] && modeNow() === "plan" && canAsk() && !askedByRule) {
-        const a = await askOwner({ tool: c.name, id: c.id, what: scrub(PLAN_ASKS[c.name](c.args)).slice(0, 300), why: planCallWhy(ccTool(c.name)) });
+      if (((PLAN_ASKS[c.name] && modeNow() === "plan") || (MANUAL_ASKS[c.name] && modeNow() === "default" && !subagent)) && canAsk() && !askedByRule) {
+        const inPlan = modeNow() === "plan";
+        const a = await askOwner({ tool: c.name, id: c.id, what: scrub((inPlan ? PLAN_ASKS : MANUAL_ASKS)[c.name](c.args)).slice(0, 300), why: inPlan ? planCallWhy(ccTool(c.name)) : manualCallWhy(ccTool(c.name)) });
         const o = answerOutcome(a);
         if (o === "stop") { return stopNow(reply); }
         if (o === "time") { reply("not run: Coder ran out of time waiting for the owner's answer"); emit({ type: "error", text: "Coder ran out of time waiting for your answer." }); return end("time"); }
@@ -7403,7 +7415,11 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // (In Plan, the chat's plan file is the one file written without asking: Claude Code's plan mode, "NOTE that this is the
         // only file you are allowed to edit". The owner, 2026-11-14.)
         const toPlanFile = editsFile && !!planPath() && targetOf() === planPath();
-        const fileAsk = !c.rerun && editsFile && !github && ((why && !ownerAllowed(convo, guarded)) || (modeT === "plan" && !toPlanFile));
+        // (In Manual, Claude Code's "default", every file edit asks, unless an Edit allow rule covers the file, a hook allowed it,
+        // or it is Coder's own scratch, memory or plan file. 2026-11-24.)
+        const manualFree = (p) => !!p && (p === SCRATCH || p.startsWith(SCRATCH + "/") || (typeof deps.memFile === "string" && !!deps.memFile && isMemoryPath(p, deps.memFile)) || !!fileRuleHit((ownRules && ownRules.allow) || [], "Edit", p, "allow", { root: deps.root || "/", cwd: ruleCwd(), home: deps.home || "", roots: workdirs.slice(1) }));
+        const manualAsk = editsFile && modeT === "default" && !toPlanFile && !(c.hook && c.hook.decision === "allow") && !manualFree(targetFor(c.name, args));
+        const fileAsk = !c.rerun && editsFile && !github && ((why && !ownerAllowed(convo, guarded)) || (modeT === "plan" && !toPlanFile) || manualAsk);
         let approval = null;
         // (A hook's allow skips a page fetch's question, never a rule's.)
         // (Nor one Plan's checker approved: it is not asked about again.)
@@ -7425,7 +7441,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           // card; at the limit of blocks, what Coder is told where no one can answer, and the card's "don't ask again". Round 6.)
           const ccFetch = fetchLimit || fetchSwitched ? fetchDecision(String(args.url || ""), { mode: "acceptEdits", rules: ownRules }) : null;
           const card = fileAsk
-            ? { tool: c.name, id: c.id, path: shownPath, change: changeShown(), why: why ? (linkTo ? sensitiveWhy(linkTo, targetFor(c.name, args)) : sensitiveWhy(fullFile)) : planWriteWhy(targetFor(c.name, args)), ...(why && !linkTo && inClaudeDir(guarded) ? { claudeDir: true } : {}), ...(hookLine || {}) }
+            ? { tool: c.name, id: c.id, path: shownPath, change: changeShown(), why: why && !(manualAsk && ownerAllowed(convo, guarded)) ? (linkTo ? sensitiveWhy(linkTo, targetFor(c.name, args)) : sensitiveWhy(fullFile)) : modeT === "default" ? manualWriteWhy(targetFor(c.name, args)) : planWriteWhy(targetFor(c.name, args)), ...(why && !linkTo && inClaudeDir(guarded) ? { claudeDir: true } : {}), ...(manualAsk ? { toEdits: true } : {}), ...(hookLine || {}) }
             : ruleAsk
             ? { tool: c.name, id: c.id, ...(c.name === "web_fetch" ? { url: scrub(String(args.url || "")).slice(0, 500) } : { path: shownPath + readLeads }), ...(editsFile ? { change: changeShown() } : {}), why: fileDec && fileDec.verdict === "ask" ? fileDec.why : "", ...(hookLine || {}), byRule: true }
             : { tool: "web_fetch", id: c.id, url: scrub(String(args.url || "")).slice(0, 500), why: fetchLimit ? fetchLimit.why : fetchSwitched ? ccFetch.why : fetchDec.why, ...((ccFetch ? ccFetch.suggest : fetchDec && fetchDec.suggest) ? { rules: ccFetch ? ccFetch.suggest : fetchDec.suggest } : {}), ...(fetchLimit ? { told: "Coder requested permissions to use WebFetch, but you haven't granted it yet." } : {}) };
@@ -7442,6 +7458,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           if (o === "no") { emit({ type: "result", id: c.id, code: -1, ran: false, output: "Not run: you said no." }); reply(REJECTED); return noEnd(i, "stopped: the owner said no"); }
           if (approval.choice === "always") for (const r of card.rules || []) addRule(r);
           if (approval.choice === "claudeDir" && card.claudeDir) claudeDirOk = true;
+          // (Claude Code's "Yes, allow all edits during this session": Manual becomes Accept edits.)
+          if (approval.choice === "acceptEdits" && card.toEdits && modeNow() === "default") setMode("acceptEdits", "card");
           if (fetchLimit) resume(fetchLimit.st);
           // (A PermissionRequest hook's changed input: the call goes through again with it, Bash docs pass 8.)
           if (approval.updatedInput && !c.rerun) { const ni = toolInputFromHook(c.name, approval.updatedInput); if (ni) { c.args = ni; c.rerun = true; postFor = null; i--; continue; } }
@@ -7782,7 +7800,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         if (github) { reply("error: feedback is drafted from the chat on gofarther.dev, not from GitHub"); continue; }
         const v = checkSendFeedback(c.args);
         if (v.error) { reply(v.error); continue; }
-        const fb = { title: scrub(v.args.title), details: scrub(v.args.details), ...(v.args.area ? { area: scrub(v.args.area) } : {}) };
+        const fb = { title: scrub(v.args.title), details: scrub(v.args.details), ...(v.args.area ? { area: scrub(v.args.area) } : {}), ...(Number.isInteger(cleanupDays) && cleanupDays > 0 && cleanupDays < 30 ? { keepDays: cleanupDays } : {}) };
         // (Into the owner's queue on Coder's server: 10 drafts across chats, 30 days. Without it, this job's own count.)
         let q = null;
         if (typeof deps.envApi === "function") { try { q = await deps.envApi({ action: "feedback_queue", ...fb }); } catch { q = null; } }
