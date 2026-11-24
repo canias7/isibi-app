@@ -1459,7 +1459,8 @@ test("CD48 auto-fix (like Claude Code's, owner item 2): off until turned on; a f
   meta = { ...meta, autofix: true, autofixTries: 0 };
   assert.equal((await M.startAutofix(env, { coder, fetchFn }, M.readAutofix("check_run", check("failure", "feature/x")))).why, "not a Coder branch");
   await bucket.put(M.branchKey("canias7/shop", "feature/x"), JSON.stringify({ uid: "u1", id: "shop-ab12" }));
-  assert.equal((await M.startAutofix(env, { coder, fetchFn }, M.readAutofix("check_run", check("failure", "feature/x")))).ok, true);
+  // (Another failed run: the same event twice starts one fix, since 2026-11-24.)
+  assert.equal((await M.startAutofix(env, { coder, fetchFn }, { ...M.readAutofix("check_run", check("failure", "feature/x")), checkId: 556 })).ok, true);
   // A REVIEW COMMENT: its job may answer in its thread (and only there).
   const rc = { ...base, action: "created", sender: { login: "canias7", type: "User" }, comment: { id: 4242, body: "Use a const here", path: "src/a.js", line: 3 }, pull_request: { number: 9, head: { ref: "coder/shop-ab12", repo: { id: 1 } } } };
   const fc = M.readAutofix("pull_request_review_comment", rc);
@@ -1472,7 +1473,7 @@ test("CD48 auto-fix (like Claude Code's, owner item 2): off until turned on; a f
   assert.deepEqual(lastStart.replyTo, { pr: 9, ids: [4242] });
   assert.match(lastStart.text, /This is review comment 4242: once you have resolved it, you may answer in its thread on GitHub with reply_review/);
   meta = { ...meta, autofix: true, status: "running" };
-  assert.equal((await M.startAutofix(env, { coder, fetchFn }, f)).ok, true, "a busy chat's event waits, never refused");
+  assert.equal((await M.startAutofix(env, { coder, fetchFn }, { ...f, checkId: 557 })).ok, true, "a busy chat's event waits, never refused");
 });
 
 test("CD49 pictures are read as data: addresses (the page's rules block blob: ones)", () => {

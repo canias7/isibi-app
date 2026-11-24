@@ -301,6 +301,26 @@ export async function queueFeedback(bucket, uid, draft, chat = "", now = Date.no
   await putJson(bucket, feedbackKey(uid), kept);
   return { ok: true, id, queued: kept.length, inChat: kept.filter((d) => d.chat === where).length, dropped };
 }
+/**
+ * A DRAFT CARD'S STATE, SAVED WITH ITS CHAT (the retest of 2026-11-24: after a reload a dismissed card showed Review, Send and
+ * Dismiss again, as its state lived only in the open page). coder/<uid>/<chat>/feedback-cards.json, { <draft id>: { review,
+ * dismissed, sent, receipt, at } }, read back with the chat (GET /projects/<chat>, `fbCards`), as other cards' answers are.
+ */
+export const feedbackCardsKey = (uid, pid) => "coder/" + uid + "/" + pid + "/feedback-cards.json";
+export async function readCardStates(bucket, uid, pid) {
+  const v = await getJson(bucket, feedbackCardsKey(uid, pid), {});
+  return v && typeof v === "object" && !Array.isArray(v) ? v : {};
+}
+export async function saveCardState(bucket, uid, pid, draftId, want, now = Date.now()) {
+  if (!/^fb[0-9a-f]{10}$/.test(String(draftId || ""))) return { error: "No draft has that id." };
+  const all = await readCardStates(bucket, uid, pid);
+  const was = all[draftId] && typeof all[draftId] === "object" ? all[draftId] : {};
+  const st = { ...was, ...(want.review !== undefined ? { review: want.review === true } : {}), ...(want.dismissed ? { dismissed: true } : {}), ...(want.sent ? { sent: true, receipt: clip(want.receipt, 80) } : {}), at: now };
+  const keys = Object.keys(all).filter((k) => k !== draftId).sort((a, b) => (Number(all[a] && all[a].at) || 0) - (Number(all[b] && all[b].at) || 0)).slice(-49);
+  const next = {}; for (const k of keys) next[k] = all[k]; next[draftId] = st;
+  await putJson(bucket, feedbackCardsKey(uid, pid), next);
+  return { ok: true, state: st };
+}
 export async function removeFeedback(bucket, uid, id) {
   const list = await readFeedback(bucket, uid);
   const next = list.filter((d) => d.id !== id);
@@ -419,7 +439,19 @@ export async function handlePluginRoutes(request, bucket, uid, parts, { fetchFn 
       const pid = typeof b.project === "string" && /^[a-z0-9][a-z0-9-]{2,40}$/.test(b.project) ? b.project : "";
       const events = b.transcript === true && pid ? await getJson(bucket, "coder/" + uid + "/" + pid + "/events.json", []) : null;
       const r = await sendFeedback(bucket, uid, decodeURIComponent(parts[1]), { transcript: b.transcript === true, events, model: b.model, ua: request.headers.get("user-agent") || "" });
+      if (r.ok && pid) await saveCardState(bucket, uid, pid, decodeURIComponent(parts[1]), { sent: true, receipt: r.receipt });
       return json(r, r.ok ? 200 : 404);
+    }
+    // (The card's state, saved with the chat: POST /feedback/<id>/state { project, dismissed?, review? }; read back with the chat.)
+    if (parts.length === 3 && parts[2] === "state" && m === "POST") {
+      let b = {}; try { b = await request.json(); } catch { b = {}; }
+      const pid = typeof b.project === "string" && /^[a-z0-9][a-z0-9-]{2,40}$/.test(b.project) ? b.project : "";
+      if (!pid) return json({ error: "give the chat" }, 400);
+      const want = {};
+      if (b.dismissed === true) want.dismissed = true;
+      if (typeof b.review === "boolean") want.review = b.review;
+      const r = await saveCardState(bucket, uid, pid, decodeURIComponent(parts[1]), want);
+      return json(r, r.ok ? 200 : 400);
     }
     return json({ error: "method" }, 405);
   }

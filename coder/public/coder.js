@@ -563,6 +563,8 @@
     back: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>',
     close: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>',
     down: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>',
+    // (The search box's magnifier: missing, it was written as the word "undefined" before "Search"; retest of 2026-11-24.)
+    search: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>',
   };
   const PERM_WORDS = { allow: 'Always allow', ask: 'Needs approval', block: 'Blocked' };
   // THE APPS' OWN LOGOS (the owner, 2026-11-15: "they dont have the actual logos"): Simple Icons' (CC0), served from
@@ -1800,7 +1802,7 @@
     const after = S.sendAfterOpen && S.sendAfterOpen.id === id ? S.sendAfterOpen : null;
     if (S.sendAfterOpen && S.sendAfterOpen.id !== id) S.sendAfterOpen = null;
     if (r.status !== 200) { S.sendAfterOpen = null; S.error = (r.data && r.data.error) || 'The project could not be opened.'; return draw(); }
-    S.project = r.data.project; S.events = r.data.events || []; S.queue = r.data.queue || []; S.shellHist = Array.isArray(r.data.shellHistory) ? r.data.shellHistory : [];
+    S.project = r.data.project; S.events = r.data.events || []; S.queue = r.data.queue || []; S.shellHist = Array.isArray(r.data.shellHistory) ? r.data.shellHistory : []; fbTake(r.data.fbCards);
     S.running = S.project.status === 'running';
     S.background = undefined; startBgWatch();
     S.envInfo = null; loadEnvInfo();
@@ -2159,7 +2161,7 @@
     if (r.status !== 200 || !r.data || !r.data.project || !S.project || S.project.id !== id) return;
     if (ended && S.running) return;
     if (ended && r.data.project.status === 'running') { if (tries < 5) setTimeout(() => reloadChat(id, { ended: true, tries: tries + 1 }), 3000); return; }
-    S.project = r.data.project; S.events = r.data.events || []; S.queue = r.data.queue || []; if (Array.isArray(r.data.shellHistory)) S.shellHist = r.data.shellHistory;
+    S.project = r.data.project; S.events = r.data.events || []; S.queue = r.data.queue || []; if (Array.isArray(r.data.shellHistory)) S.shellHist = r.data.shellHistory; fbTake(r.data.fbCards);
     if (GLOOPY) S.sched = null;
     S.running = S.project.status === 'running';
     S.background = undefined;
@@ -4227,11 +4229,22 @@
       fbAct(ev.key === '1' ? 'review' : ev.key === '2' ? 'send' : 'dismiss', i);
     });
   }
+  // THE CARD'S STATE, SAVED WITH THE CHAT (retest of 2026-11-24: a reload showed a dismissed card's buttons again): what the
+  // server kept (`fbCards`, read with the chat) is taken on open and reload; each change is saved (POST /feedback/<id>/state).
+  function fbTake(cards) {
+    if (!cards || typeof cards !== 'object') return;
+    S.fb = S.fb || {};
+    for (const k of Object.keys(cards)) { const c = cards[k] || {}; S.fb[k] = { ...(S.fb[k] || {}), ...(c.sent ? { sent: true, receipt: c.receipt || '' } : {}), ...(c.dismissed ? { dismissed: true } : {}), ...(typeof c.review === 'boolean' ? { review: c.review } : {}) }; }
+  }
+  function fbSave(e, want) {
+    if (!e || !e.draftId || !S.project) return;
+    call('/feedback/' + encodeURIComponent(e.draftId) + '/state', { method: 'POST', body: JSON.stringify({ project: S.project.id, ...want }) }).catch(() => {});
+  }
   function fbState(i) { const e = S.events[i]; S.fb = S.fb || {}; const k = (e && e.draftId) || i; return (S.fb[k] = S.fb[k] || {}); }
   async function fbAct(kind, i) {
     const e = S.events[i]; if (!e || e.type !== 'feedback') return;
     const st = fbState(i);
-    if (kind === 'review') { st.review = !st.review; st.arm = false; }
+    if (kind === 'review') { st.review = !st.review; st.arm = false; fbSave(e, { review: st.review }); }
     else if (kind === 'send') {
       if (!st.arm) { st.arm = true; return draw(); }
       st.arm = false;
@@ -4239,6 +4252,7 @@
       if (r.status === 200 && r.data && r.data.ok) { st.sent = true; st.receipt = r.data.receipt; } else note((r.data && r.data.error) || 'The feedback could not be sent.');
     } else if (kind === 'dismiss') {
       st.dismissed = true; st.arm = false;
+      fbSave(e, { dismissed: true });
       const asked = Number(S.fbOffNo) || 0;
       if (asked < 2 && !(S.settings && S.settings.feedbackOff)) st.askOff = true;
     } else if (kind === 'keep') {

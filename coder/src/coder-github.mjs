@@ -294,6 +294,17 @@ export function prFailNote(repo, base, head, made, guess = "") {
 }
 
 /**
+ * WHAT CODER POSTS AS THE OWNER IS MARKED (2026-11-24): an HTML comment GitHub does not show, so auto-fix (which reads the
+ * owner's review comments, src/coder-mentions.mjs) never reacts to Coder's own review, reply or comment.
+ */
+export const OWN_MARK = "\n\n<!-- gofarther-coder -->";
+/** Whether a comment's text is one Coder posted (its mark, its review's last line, or its signed reply). */
+export function isOwnText(body) {
+  const s = String(body || "");
+  return s.includes("<!-- gofarther-coder -->") || /Reviewed by Coder\.\s*$/.test(s) || /— Coder \(gofarther\.dev\)/.test(s);
+}
+
+/**
  * REVIEW FINDINGS ON THE PULL REQUEST (like Claude Code's /code-review --comment):
  * one review with a comment on each line. When GitHub refuses the line
  * comments (a line outside the pull request's changes), the same findings go in
@@ -301,11 +312,11 @@ export function prFailNote(repo, base, head, made, guess = "") {
  */
 export async function postReview(token, repo, number, { summary = "", comments = [] }, fetchFn = fetch) {
   const path = "/repos/" + repo + "/pulls/" + Number(number) + "/reviews";
-  const head = (summary || "Review by Coder.") + "\n\nReviewed by Coder.";
-  const r = await gh(token, path, { method: "POST", body: { event: "COMMENT", body: head, comments: comments.map((c) => ({ path: c.path, line: c.line, side: "RIGHT", body: c.body })) }, fetchFn });
+  const head = (summary || "Review by Coder.") + "\n\nReviewed by Coder." + OWN_MARK;
+  const r = await gh(token, path, { method: "POST", body: { event: "COMMENT", body: head, comments: comments.map((c) => ({ path: c.path, line: c.line, side: "RIGHT", body: String(c.body || "") + OWN_MARK })) }, fetchFn });
   if (r.ok) return { ok: true, url: r.data && r.data.html_url, inline: true };
   const listed = comments.map((c) => "- `" + c.path + ":" + c.line + "`: " + c.body).join("\n");
-  const r2 = await gh(token, path, { method: "POST", body: { event: "COMMENT", body: (summary || "Review by Coder.") + "\n\n" + listed + "\n\nReviewed by Coder." }, fetchFn });
+  const r2 = await gh(token, path, { method: "POST", body: { event: "COMMENT", body: (summary || "Review by Coder.") + "\n\n" + listed + "\n\nReviewed by Coder." + OWN_MARK }, fetchFn });
   return r2.ok ? { ok: true, url: r2.data && r2.data.html_url, inline: false } : { ok: false };
 }
 
@@ -341,8 +352,10 @@ export async function updatePullRequest(token, repo, number, { op, commentId = 0
     const d = await gql("mutation($id:ID!){resolveReviewThread(input:{threadId:$id}){thread{isResolved}}}", { id: t.id });
     return d ? { ok: true, text: "Resolved the thread of comment " + cid + " on pull request #" + n + "." } : { error: "error: GitHub did not resolve that thread" };
   }
-  const text = String(body || "").trim().slice(0, 8000);
-  if (!text) return { error: "error: give the comment's body" };
+  const said = String(body || "").trim().slice(0, 8000);
+  if (!said) return { error: "error: give the comment's body" };
+  // Marked as Coder's (unseen on GitHub), so auto-fix never takes its own words for the owner's review.
+  const text = said + OWN_MARK;
   if (op === "reply") {
     if (!(Number.isInteger(cid) && cid > 0)) return { error: "error: give comment_id, the [number] pr_read shows before a review comment" };
     const r = await gh(token, base + "/pulls/" + n + "/comments/" + cid + "/replies", { method: "POST", body: { body: text }, fetchFn });

@@ -100,7 +100,7 @@ test("CD171 at the job's end, the Worker answers in the review thread as the own
   result = { status: "done", messages: [{ role: "user", content: "fix" }, { role: "assistant", content: "Done." }], summary: "Renamed it", reviewReplies: [{ id: 4242, body: "Renamed it to cartTotal." }, { id: 777, body: "not mine to answer" }] };
   let st = await (await go("projects/" + ID + "/state?since=0")).json();
   const posts = gh.filter(([m]) => m === "POST");
-  assert.deepEqual(posts, [["POST", "https://api.github.com/repos/ana/shop/pulls/9/comments/4242/replies", { body: "Renamed it to cartTotal.\n\n— Coder (gofarther.dev), for @ana" }]]);
+  assert.deepEqual(posts, [["POST", "https://api.github.com/repos/ana/shop/pulls/9/comments/4242/replies", { body: "Renamed it to cartTotal.\n\n— Coder (gofarther.dev), for @ana\n\n<!-- gofarther-coder -->" }]]);
   assert.ok(JSON.parse(bucket.m.get(k("events.json"))).some((e) => e.text === "Answered in 1 review thread on pull request #9 (as you, marked as Coder's)."));
   assert.equal(st.project.jobReplyTo, null, "forgotten after the job");
   // AUTO-FIX ASKED FOR IN THE CHAT: applied at the job's end.

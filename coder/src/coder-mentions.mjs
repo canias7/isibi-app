@@ -14,6 +14,7 @@
 //      ends, the "On it" comment is replaced by what Coder did, with links.
 import { githubTriggerEvent } from "./coder-schedules.mjs";
 import { readReviewEvent, handleReviewEvent } from "./coder-review.mjs";
+import { isOwnText } from "./coder-github.mjs";
 
 const enc = new TextEncoder();
 // A whole word: "@coder-bot" or "@coder_x" is someone else (Claude Code: "a complete word, not @claude-bot").
@@ -300,26 +301,131 @@ export function readAutofix(event, p) {
     // ANY PULL REQUEST INSIDE THIS REPOSITORY (owner item 2, like Claude Code's auto-fix: "Any existing
     // PR"): its chat is found by its branch (branchKey); one nobody watches goes no further.
     if (!branch) return null;
-    const o = p.check_run.output || {};
-    return { kind: "check", repo, branch, number: pr.number, sha: String(p.check_run.head_sha || ""), installation: p.installation.id, checkId: p.check_run.id, appSlug: p.check_run.app && p.check_run.app.slug,
-      text: "The check \"" + String(p.check_run.name || "").slice(0, 120) + "\" failed (" + p.check_run.conclusion + ")" + (o.title ? ": " + String(o.title).slice(0, 200) : "") + (o.summary ? "\n" + String(o.summary).slice(0, 2000) : "") + (o.text ? "\n" + String(o.text).slice(0, 3000) : "") };
+    return checkFix(repo, branch, pr.number, p.installation.id, p.check_run);
   }
   const sameRepo = (pr) => !!(pr && pr.head && pr.head.repo && pr.head.repo.id === p.repository.id);
   if (event === "pull_request_review" && p.action === "submitted" && p.review && sameRepo(p.pull_request) && p.pull_request.head.ref) {
     if (p.sender && p.sender.type === "Bot") return null;
-    if (p.review.state === "approved" || !String(p.review.body || "").trim() && p.review.state !== "changes_requested") return null;
-    if (MENTION.test(String(p.review.body || ""))) return null; // an @coder mention is handled as one
-    return { kind: "review", repo, branch: p.pull_request.head.ref, number: p.pull_request.number, installation: p.installation.id, login: String(p.sender && p.sender.login || ""),
-      text: "@" + (p.sender && p.sender.login) + " reviewed your pull request (" + p.review.state.replace("_", " ") + "):\n" + String(p.review.body || "(no text; see their line comments)").slice(0, 4000) };
+    return reviewFix(repo, p.pull_request.head.ref, p.pull_request.number, p.installation.id, { ...p.review, user: p.sender || p.review.user });
   }
   if (event === "pull_request_review_comment" && p.action === "created" && p.comment && sameRepo(p.pull_request) && p.pull_request.head.ref) {
     if (p.sender && p.sender.type === "Bot") return null;
-    if (MENTION.test(String(p.comment.body || ""))) return null;
-    // Its id: Coder may answer in that comment's thread (like Claude Code, which "may reply to review comment threads").
-    return { kind: "review", repo, branch: p.pull_request.head.ref, number: p.pull_request.number, installation: p.installation.id, login: String(p.sender && p.sender.login || ""), commentId: Number(p.comment.id) || 0,
-      text: "@" + (p.sender && p.sender.login) + " commented on " + String(p.comment.path || "") + (p.comment.line ? " line " + p.comment.line : "") + ":\n" + String(p.comment.body || "").slice(0, 3000) + (p.comment.diff_hunk ? "\n\nThe lines:\n" + String(p.comment.diff_hunk).slice(0, 1500) : "") };
+    return commentFix(repo, p.pull_request.head.ref, p.pull_request.number, p.installation.id, { ...p.comment, user: p.sender || p.comment.user });
   }
   return null;
+}
+/** A failed check run as an auto-fix event. */
+export function checkFix(repo, branch, number, installation, c) {
+  const o = c.output || {};
+  return { kind: "check", repo, branch, number, sha: String(c.head_sha || ""), installation, checkId: c.id, appSlug: c.app && c.app.slug,
+    text: "The check \"" + String(c.name || "").slice(0, 120) + "\" failed (" + c.conclusion + ")" + (o.title ? ": " + String(o.title).slice(0, 200) : "") + (o.summary ? "\n" + String(o.summary).slice(0, 2000) : "") + (o.text ? "\n" + String(o.text).slice(0, 3000) : "") };
+}
+/** A submitted review as an auto-fix event, or null (an approval, an empty comment-only review, an @coder mention, Coder's own). */
+export function reviewFix(repo, branch, number, installation, rv) {
+  const state = String(rv.state || "").toLowerCase();
+  const body = String(rv.body || "");
+  if (state === "approved" || !body.trim() && state !== "changes_requested") return null;
+  if (MENTION.test(body)) return null; // an @coder mention is handled as one
+  if (isOwnText(body) || rv.performed_via_github_app) return null; // never Coder's own review
+  const login = String((rv.user && rv.user.login) || "");
+  return { kind: "review", repo, branch, number, installation, login, reviewId: Number(rv.id) || 0,
+    text: "@" + login + " reviewed your pull request (" + state.replace("_", " ") + "):\n" + String(body || "(no text; see their line comments)").slice(0, 4000) };
+}
+/** An inline review comment as an auto-fix event, or null (an @coder mention, Coder's own). */
+export function commentFix(repo, branch, number, installation, c) {
+  const body = String(c.body || "");
+  if (MENTION.test(body)) return null;
+  if (isOwnText(body) || c.performed_via_github_app) return null; // never Coder's own reply or line comment
+  const login = String((c.user && c.user.login) || "");
+  const line = c.line || c.original_line;
+  // Its id: Coder may answer in that comment's thread (like Claude Code, which "may reply to review comment threads").
+  return { kind: "review", repo, branch, number, installation, login, commentId: Number(c.id) || 0,
+    text: "@" + login + " commented on " + String(c.path || "") + (line ? " line " + line : "") + ":\n" + body.slice(0, 3000) + (c.diff_hunk ? "\n\nThe lines:\n" + String(c.diff_hunk).slice(0, 1500) : "") };
+}
+/** The key an event is remembered by, so the webhook and the every-minute look never start it twice. */
+export const seenKeyOf = (f) => (f.kind === "check" ? (f.checkId ? "k" + f.checkId : "") : f.commentId ? "c" + f.commentId : f.reviewId ? "r" + f.reviewId : "");
+
+// ── THE PULL REQUESTS AUTO-FIX WATCHES (2026-11-24) ─────────────────────────
+// The retest of 2026-11-24: auto-fix was on for PR #38, a review comment was posted, and no fix started in 9 minutes. The
+// review events had never reached Coder: its GitHub App is not sent "Pull request review" and "Pull request review comment"
+// news unless both are ticked in the App's settings (only check runs and comments were), so only failed checks ever worked.
+// Like Claude Code, which watches the pull request itself once auto-fix is on, Coder now also looks at each watched pull
+// request every minute (pollAutofix): new review comments, reviews and failed checks since auto-fix was turned on. One record
+// per chat (watchKey), made when auto-fix is turned on and dropped when it is off; `seen` keeps what was already handled.
+export const WATCH_PREFIX = "coder/autofix-watch/";
+export const watchKey = (uid, id) => WATCH_PREFIX + uid + "__" + id + ".json";
+/** Turned on (with the chat's pull request) or off: the chat's watch record made or dropped. */
+export async function watchAutofix(bucket, uid, meta, now = Date.now()) {
+  const k = watchKey(uid, meta.id);
+  const n = meta && meta.pr ? Number(meta.pr.number) : 0;
+  if (!(meta && meta.autofix === true && Number.isInteger(n) && n > 0 && !meta.readOnly)) { await bucket.delete(k).catch(() => {}); return null; }
+  const was = await getJson(bucket, k);
+  const w = { uid, id: meta.id, repo: meta.repo, pr: n, since: now, seen: was && was.pr === n && Array.isArray(was.seen) ? was.seen : [], ...(was && was.installation ? { installation: was.installation } : {}) };
+  await putJson(bucket, k, w);
+  return w;
+}
+
+/**
+ * EVERY MINUTE: each watched pull request's news since auto-fix was turned on, read from GitHub as the app (review comments,
+ * reviews, the newest commit's failed checks), each handed to startAutofix as the webhook would. Only the owner's own review
+ * comments and reviews (startAutofix checks that too), never Coder's own (marked), each once (`seen`). A chat whose auto-fix is
+ * off, or whose pull request closed, is dropped from the list.
+ */
+export async function pollAutofix(env, deps, { now = Date.now(), appJwtFn = appJwt } = {}) {
+  const bucket = env.CODER_BUCKET;
+  const fetchFn = deps.fetchFn || fetch;
+  const page = await bucket.list({ prefix: WATCH_PREFIX });
+  let found = 0;
+  for (const o of page.objects || []) {
+   try {
+    const w = await getJson(bucket, o.key);
+    if (!w || !w.uid || !w.id) { await bucket.delete(o.key); continue; }
+    const meta = await getJson(bucket, "coder/" + w.uid + "/" + w.id + "/meta.json");
+    if (!meta || meta.autofix !== true || !meta.pr || Number(meta.pr.number) !== Number(w.pr)) { await bucket.delete(o.key); continue; }
+    const gh = await getJson(bucket, "coder/" + w.uid + "/github.json");
+    const ownerLogin = String((gh && gh.login) || "").toLowerCase();
+    if (!ownerLogin) continue;
+    let installation = w.installation;
+    if (!installation) {
+      const jwt = await appJwtFn(env).catch(() => null);
+      const inst = jwt ? await ghApi(jwt, "/repos/" + w.repo + "/installation", { fetchFn }) : null;
+      installation = inst && inst.ok && inst.data ? inst.data.id : null;
+      if (!installation) continue;
+      await putJson(bucket, o.key, { ...w, installation });
+    }
+    const tok = await installationToken(env, installation, fetchFn);
+    if (!tok) continue;
+    const base = "/repos/" + w.repo + "/pulls/" + Number(w.pr);
+    const pr = await ghApi(tok, base, { fetchFn });
+    if (!pr.ok || !pr.data) continue;
+    if (pr.data.state !== "open") { await bucket.delete(o.key); continue; }
+    const head = pr.data.head || {};
+    const branch = String(head.ref || "");
+    if (!branch || !head.repo || !pr.data.base || !pr.data.base.repo || head.repo.id !== pr.data.base.repo.id) continue;
+    const since = Number(w.since) || 0;
+    const after = (t) => Date.parse(String(t || "")) > since;
+    const mine = (u) => !!(u && String(u.login || "").toLowerCase() === ownerLogin && u.type !== "Bot");
+    const seen = new Set(Array.isArray(w.seen) ? w.seen : []);
+    const events = [];
+    const cm = await ghApi(tok, base + "/comments?per_page=100&since=" + encodeURIComponent(new Date(since).toISOString()), { fetchFn });
+    for (const c of (cm.ok && Array.isArray(cm.data) ? cm.data : [])) if (c && after(c.created_at) && mine(c.user)) { const f = commentFix(w.repo, branch, Number(w.pr), installation, c); if (f) events.push(f); }
+    const rv = await ghApi(tok, base + "/reviews?per_page=100", { fetchFn });
+    for (const r of (rv.ok && Array.isArray(rv.data) ? rv.data : [])) if (r && after(r.submitted_at) && mine(r.user)) { const f = reviewFix(w.repo, branch, Number(w.pr), installation, r); if (f) events.push(f); }
+    const sha = String(head.sha || "");
+    if (sha) {
+      const runs = await ghApi(tok, "/repos/" + w.repo + "/commits/" + sha + "/check-runs?per_page=50", { fetchFn });
+      for (const c of (runs.ok && runs.data && Array.isArray(runs.data.check_runs) ? runs.data.check_runs : [])) {
+        if (c && c.status === "completed" && ["failure", "timed_out"].includes(c.conclusion) && after(c.completed_at)) events.push(checkFix(w.repo, branch, Number(w.pr), installation, { ...c, head_sha: c.head_sha || sha }));
+      }
+    }
+    for (const f of events) {
+      if (seen.has(seenKeyOf(f))) continue;
+      const r = await startAutofix(env, deps, f).catch(() => null);
+      if (r && r.ok) found++;
+    }
+   } catch (e) { console.log("coder autofix watch failed: " + String((e && e.message) || e).slice(0, 200)); }
+  }
+  return { found };
 }
 
 /**
@@ -381,8 +487,21 @@ export async function startAutofix(env, deps, f) {
   // OFF UNTIL TURNED ON, for each pull request (owner item 2, like Claude Code: "turn on Auto-fix" in the
   // pull request's menu, or tell Claude to auto-fix it).
   if (meta.autofix !== true) return { ok: false, why: "auto-fix off" };
+  // EACH EVENT ONCE (2026-11-24): the webhook and the every-minute look (pollAutofix) may both bring it. → false when it was seen.
+  const firstTime = async () => {
+    const sk = seenKeyOf(f);
+    if (!sk) return true;
+    const wk = watchKey(owner.uid, owner.id);
+    const w = (await getJson(bucket, wk)) || (await watchAutofix(bucket, owner.uid, { ...meta, id: owner.id }));
+    if (!w) return true;
+    const seen = Array.isArray(w.seen) ? w.seen : [];
+    if (seen.includes(sk)) return false;
+    await putJson(bucket, wk, { ...w, seen: [...seen, sk].slice(-500) });
+    return true;
+  };
   // A BUSY CHAT: the event still waits (its job is kept until the chat is free), as Claude Code's auto-fix sees every event.
-  if ((meta.autofixTries || 0) >= AUTOFIX_MAX) return { ok: false, why: "too many tries" };
+  // AT MOST AUTOFIX_MAX TRIES IN A ROW (an event past them is not taken up later either).
+  if ((meta.autofixTries || 0) >= AUTOFIX_MAX) { await firstTime(); return { ok: false, why: "too many tries" }; }
   const botToken = await installationToken(env, f.installation, fetchFn);
   // A FAILED CHECK ON THE PULL REQUEST'S NEWEST COMMIT only, whoever made it (a watched pull request has
   // the owner's commits too); when GitHub cannot say, only on Coder's own newest commit, as before.
@@ -392,6 +511,7 @@ export async function startAutofix(env, deps, f) {
     const last = Array.isArray(meta.commits) && meta.commits.length ? meta.commits[meta.commits.length - 1] : null;
     if (!f.sha || (head ? head !== f.sha : !last || last.sha !== f.sha)) return { ok: false, why: "not the pull request's newest commit" };
   }
+  if (!(await firstTime())) return { ok: false, why: "already handled" };
   // THE FAILED RUN'S LOG (GitHub Actions): its last lines tell Coder what broke.
   let log = "";
   if (f.kind === "check" && botToken && f.checkId && (!f.appSlug || f.appSlug === "github-actions")) {

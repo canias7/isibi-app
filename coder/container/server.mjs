@@ -1861,6 +1861,17 @@ export async function projectDirProblem(dir, root = PROJECT_ROOT) {
   return "";
 }
 
+/** Why root may not work in `dir`, a folder inside the project folder `top` ("" when it may). It only looks. */
+export async function insideProblem(dir, top, root = PROJECT_ROOT) {
+  const bad = await projectDirProblem(top, root);
+  if (bad) return bad;
+  if (typeof dir !== "string" || resolve(dir) !== dir || !dir.startsWith(top + "/")) return "refused: " + String(dir).slice(0, 200) + " is not inside " + top + ", so nothing was done";
+  const st = await lstat(dir).catch(() => null);
+  if (!st || !st.isDirectory() || st.isSymbolicLink()) return "refused: " + dir + " is not a plain folder, so nothing was done in it";
+  if ((await realpath(dir).catch(() => "")) !== dir) return "refused: " + dir + " leads somewhere else, so nothing was done in it";
+  return "";
+}
+
 /**
  * A PROJECT'S FOLDER, MADE BY ROOT (the audit, 2026-11-06): made here (755)
  * when it is new, checked, and handed to `owner` (the AI's user) on its own:
@@ -2620,8 +2631,11 @@ export const originUrl = (repo) => "https://github.com/" + repo + ".git";
  * way (swapped, gone, or too deep to name) is left as it is, with what is in it.
  * Callers also stop the AI's user's processes first (killUser). `""`, or why not.
  */
-export async function giveTree(dir, owner, { root = PROJECT_ROOT } = {}) {
-  const bad = await projectDirProblem(dir, root);
+export async function giveTree(dir, owner, { root = PROJECT_ROOT, inside = "" } = {}) {
+  // A FOLDER INSIDE A PROJECT FOLDER (`inside`; the retest of 2026-11-24: a new worktree under .claude/worktrees/ was refused as
+  // "not a project folder", so the first enter_worktree failed after the worktree was made): the project folder passes the
+  // check, and the folder is a real folder within it, never a link and never leading elsewhere.
+  const bad = inside ? await insideProblem(dir, inside, root) : await projectDirProblem(dir, root);
   if (bad) return bad;
   if (!existsSync("/proc/self/fd")) return "could not hand the project's files over: this machine has no /proc";
   const { uid, gid } = owner;
@@ -2867,7 +2881,7 @@ export async function worktreeNow({ op, main, name, path, branch, dirs, gitRoot 
       const a = await gitIn(top, ["worktree", "add", "-q", "-b", br, target, "HEAD"], o);
       if (a.code !== 0) return no("git could not create the worktree: " + String(a.output || "").trim().slice(0, 200));
       await new Promise((r) => spawn("chmod", ["-R", "u+rwX,go+rX,go-w", join(o.gitDir, "worktrees")]).on("close", r).on("error", r));
-      if (owner) { const g = await giveTree(target, owner, { root }); if (g) return no(g); }
+      if (owner) { const g = await giveTree(target, owner, { root, inside: top }); if (g) return no(g); }
       return { ok: true, path: target, branch: br };
     }
     if (op === "remove") {

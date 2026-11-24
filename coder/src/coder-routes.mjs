@@ -168,13 +168,13 @@ import { autoModeSetting } from "../container/coder-checker.mjs";
 import { descriptionOk, DESCRIPTION_MAX } from "../container/coder-envtools.mjs";
 import { modelAccess } from "./coder-model-gate.mjs";
 import { PROJECT_ID, SETUP_SCRIPT_MAX, scrub, secretVar } from "../container/coder-checks.mjs";
-import { handlePluginRoutes, sharedGuide, ownerSkills, ownerPluginParts } from "./coder-plugins.mjs";
+import { handlePluginRoutes, sharedGuide, ownerSkills, ownerPluginParts, readCardStates } from "./coder-plugins.mjs";
 import { handleOwnerProjectRoutes } from "./coder-owner-projects.mjs";
 // (The check for a secret-looking variable is shared with Coder's machine, which tells Grok of them: coder-checks.mjs.)
 export { secretVar };
 import { okHost, okPattern, HEADER_RE, KEY_RE, PREFIXES, PATH_RE, headerValue, normSecret, normNetwork, parseEnv, toEnv, normConfig, configSecrets, SECRET_KINDS, notSentWhy, varsDropped } from "../container/coder-secrets.mjs";
 import { credentialHost, credentialHeader, credentialPrefix, hostMatches } from "../container/coder-secrets.mjs";
-import { handleWebhook, loginKey, profileKey, branchKey, failedCheckNow, startAutofix } from "./coder-mentions.mjs";
+import { handleWebhook, loginKey, profileKey, branchKey, failedCheckNow, startAutofix, watchAutofix } from "./coder-mentions.mjs";
 import { repoReviewKey, reviewSettingsOf, REVIEW_RUNS, REVIEW_LEVELS } from "./coder-review.mjs";
 import { readPush, writePush, cleanSub, vapidKeys, notifyOwner, seenKey, MAX_DEVICES } from "./coder-push.mjs";
 import { listEnvs, saveEnvList, readEnvData, writeEnvData, envIdFor, envForRepo, envIdOf, markUsed, envListOut, ENV_NAME, MAX_ENVS, DEFAULT_ENV, setupKeyOf, readEnvCache, writeEnvCache, GLOOPY_ENV, nameHolder, nameTakenText, envRepos, reposFrom } from "./coder-environments.mjs";
@@ -205,7 +205,7 @@ import { watchJob, watchKey, watchBackground, WATCH_PREFIX } from "./coder-watch
 import { livePass, LIVE_PATH, readLive, dropLive, wholeSteps, interruptedSteps, prunePics, dropPics } from "./coder-live.mjs";
 import { gitAccess } from "./coder-git.mjs";
 import { readConnectors, connectorOut, setPerms, CATALOG, CATALOG_LATER, addConnector, removeConnector, finishSignIn, toolsFor as connectorTools, keepJobTools, refreshTools, clientDoc, jobConnectors, expandConnectorRefs, readConnectorSettings, writeConnectorSettings, setConnectorState, STATE_COOKIE as MCP_COOKIE, CALLBACK_PATH as MCP_CALLBACK, jobTool, callTool } from "./coder-mcp.mjs";
-import { githubReady, makeState, readState, newNonce, STATE_COOKIE, signInUrl, installUrl, exchangeCode, saveConnection, forgetConnection, userToken, gh, ghRead, repoAccess, listRepos, openPullRequest, prFailNote, postReview, REPO, BRANCH, seal, unseal } from "./coder-github.mjs";
+import { githubReady, makeState, readState, newNonce, STATE_COOKIE, signInUrl, installUrl, exchangeCode, saveConnection, forgetConnection, userToken, gh, ghRead, repoAccess, listRepos, openPullRequest, prFailNote, postReview, OWN_MARK, REPO, BRANCH, seal, unseal } from "./coder-github.mjs";
 
 const MAX_PROJECTS = 50;
 const MAX_TEXT = 20000;
@@ -1823,7 +1823,7 @@ export async function handleCoder(request, env, ctx, deps) {
   };
   const action = parts[2] || "";
 
-  if (!action && request.method === "GET") return json({ ok: true, project: (await compactOffFor(env, bucket, uid, meta)) ? { ...meta, compactOff: true } : meta, events: await getJson(bucket, keyOf(uid, id, "events.json"), []), queue: await getJson(bucket, keyOf(uid, id, "queue.json"), []), shellHistory: await shellHistoryOf(bucket, uid, meta.repo) });
+  if (!action && request.method === "GET") return json({ ok: true, project: (await compactOffFor(env, bucket, uid, meta)) ? { ...meta, compactOff: true } : meta, events: await getJson(bucket, keyOf(uid, id, "events.json"), []), queue: await getJson(bucket, keyOf(uid, id, "queue.json"), []), shellHistory: await shellHistoryOf(bucket, uid, meta.repo), fbCards: await readCardStates(bucket, uid, id) });
 
   // GLOOPY'S CHAT: its own turns and their end (no GitHub, no environment), and Stop as a chat's; nothing of Coder's else.
   if (isGloopy(meta)) {
@@ -2688,7 +2688,7 @@ export async function handleCoder(request, env, ctx, deps) {
         let done = 0;
         for (const x of rr) {
           if (!allow || !t || !allow.ids.includes(Number(x && x.id))) continue;
-          const r = await gh(t.token, "/repos/" + meta.repo + "/pulls/" + Number(allow.pr) + "/comments/" + Number(x.id) + "/replies", { method: "POST", body: { body: String(x.body || "").slice(0, 4000) + "\n\n— Coder (gofarther.dev), for @" + (t.login || "the owner") }, fetchFn }).catch(() => null);
+          const r = await gh(t.token, "/repos/" + meta.repo + "/pulls/" + Number(allow.pr) + "/comments/" + Number(x.id) + "/replies", { method: "POST", body: { body: String(x.body || "").slice(0, 4000) + "\n\n— Coder (gofarther.dev), for @" + (t.login || "the owner") + OWN_MARK }, fetchFn }).catch(() => null);
           if (r && r.ok) done++;
         }
         extraNotes.push(done ? "Answered in " + done + " review thread" + (done > 1 ? "s" : "") + " on pull request #" + allow.pr + " (as you, marked as Coder's)." : "No answer was posted on GitHub" + (allow ? " (GitHub refused it)." : ": only the review comment this job was started for can be answered."));
@@ -2813,6 +2813,8 @@ export async function handleCoder(request, env, ctx, deps) {
         const go = startAutofix(env, { fetchFn, coder: (req, who) => handleCoder(req, env, ctx, { ...deps, authUser: async () => who }) }, afPending).catch((e) => console.log("coder: auto-fix at start " + id + ": " + String((e && e.message) || e).slice(0, 200)));
         if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(go); else await go;
       }
+      // AUTO-FIX TURNED ON OR OFF IN THE CHAT: the pull request is watched every minute, or no longer (pollAutofix).
+      if (Object.prototype.hasOwnProperty.call(afMeta, "autofix")) await watchAutofix(bucket, uid, ended).catch(() => {});
       // AFTER "SAVED", NOTHING THE PAGE WAITS FOR (2026-11-16): the watch list, the live sendings and the pictures are tidied in
       // the background (in this order, after the save is written).
       const tidy = (async () => {
@@ -3149,6 +3151,8 @@ export async function handleCoder(request, env, ctx, deps) {
     let body = {}; try { body = await request.json(); } catch { body = {}; }
     const next = { ...meta, autofix: body.on !== false, autofixTries: 0 };
     await saveMeta(bucket, uid, next);
+    // Watched every minute from now on (or no longer): new review comments, reviews and failed checks (pollAutofix).
+    await watchAutofix(bucket, uid, next).catch(() => {});
     return json({ ok: true, project: next });
   }
 

@@ -12,7 +12,7 @@ import { handleGit, GIT_PATH } from "./src/coder-git.mjs";
 import { handleModel, MODEL_PATH } from "./src/coder-model-gate.mjs";
 import { handleMcp, MCP_PATH } from "./src/coder-mcp.mjs";
 import { handleEnvApi, ENV_PATH } from "./src/coder-envapi.mjs";
-import { runMentionJobs, installationToken } from "./src/coder-mentions.mjs";
+import { runMentionJobs, installationToken, pollAutofix } from "./src/coder-mentions.mjs";
 import { runReviewJobs } from "./src/coder-review.mjs";
 import { runWatchedJobs, runBackgroundJobs, holdDecision, BUSY_PROBE_MS, handleWake, WAKE_PATH } from "./src/coder-watch.mjs";
 import { controlKeySync } from "./src/coder-control.mjs";
@@ -88,6 +88,9 @@ export default {
     const job = (p) => { work.push(p); ctx.waitUntil(p); };
     job(runMentionJobs(env, { coder }).catch((e) => console.log("coder jobs: " + String((e && e.message) || e).slice(0, 200))));
     job(runWatchedJobs(env, { coder }).catch((e) => console.log("coder watch: " + String((e && e.message) || e).slice(0, 200))));
+    // AUTO-FIX (2026-11-24): each watched pull request's new review comments, reviews and failed checks, as Claude Code's
+    // auto-fix watches its pull request (the webhook may never bring review news; see pollAutofix).
+    job(pollAutofix(env, { coder }).catch((e) => console.log("coder autofix watch: " + String((e && e.message) || e).slice(0, 200))));
     // BACKGROUND COMMANDS AFTER THE ANSWER (tool 4, like Claude Code's): Coder is told when one ends, in a turn of its own.
     job(runBackgroundJobs(env, { coder }).catch((e) => console.log("coder background: " + String((e && e.message) || e).slice(0, 200))));
     // GLOOPY'S SCHEDULES (2026-11-09): the runs that are due start now, each as a message for that person's Gloopy.

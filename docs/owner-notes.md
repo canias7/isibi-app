@@ -5,6 +5,15 @@ The owner's running log, newest first, in plain English. Started fresh on
 log (81,000 lines) is in git history.
 
 
+## 2026-11-24: Four fixes from the retest
+
+- **Auto-fix now notices review comments.** Why nothing happened on PR #38: Coder never heard about your comment. Everything after the news arrives works with that exact comment (your account, the chat's branch, auto-fix on; checked in a test), so the news itself never came: Coder's GitHub App gets news about failed checks and comments, and evidently not about review comments on code lines. Coder also had no way of its own to look. Now, like Claude Code, Coder also looks at each pull request it is watching once a minute: your new comments on lines, your reviews and failed checks since you turned auto-fix on. Each one starts a fix once, still at most 3 tries in a row, and Coder can answer in that comment's thread. Things Coder itself posts as you (its review, line comments, replies) now carry a hidden mark, so it never tries to "fix" its own comments. (Ticking "Pull request review" and "Pull request review comment" in the GitHub App's settings would make it react within seconds instead of within a minute; optional.)
+- **Enter worktree works on the first try.** The worktree was made, but the step that hands its files to Coder refused it because it isn't a top-level project folder. That check now accepts a plain folder inside the chat's project folder.
+- **The feedback card remembers what you did.** Review, Dismiss and Send are now saved with the chat on our server, so after a reload it shows "Dismissed · still queued" or "✓ Sent" instead of the buttons again.
+- **Connectors search box:** the word "undefined" before "Search" is gone; the magnifier icon shows.
+
+Tests: `coder/test/retest-1124.test.mjs`. Not deployed yet.
+
 ## 2026-11-23: Retest of the tools not yet confirmed
 
 I retested, live on gofarther.dev with Grok on Low, the 25 tool rows that had not yet worked. I set up what each one needed: a pull request with a real bug, a saved skill, a project with a file, a free public connector (DeepWiki), and, for one chat, the PowerShell, TodoWrite and no-tool-search settings on env-test. About 21 messages in all. In column G, each retested row now starts with "Retest:".

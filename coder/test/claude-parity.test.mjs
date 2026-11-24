@@ -179,7 +179,7 @@ test("CD104 review findings as comments on the pull request's lines, like Claude
   const fetchFn = async (url, init = {}) => { sent.push([String(url), JSON.parse(init.body || "{}")]); if (refuse && JSON.parse(init.body).comments) return new Response(JSON.stringify({ message: "Unprocessable" }), { status: 422 }); return new Response(JSON.stringify({ html_url: "https://github.com/a/b/pull/2#r1" }), { status: 200 }); };
   assert.deepEqual(await postReview("t", "a/b", 2, r.reviewPost, fetchFn), { ok: true, url: "https://github.com/a/b/pull/2#r1", inline: true });
   assert.equal(sent[0][0], "https://api.github.com/repos/a/b/pulls/2/reviews");
-  assert.deepEqual(sent[0][1].comments, [{ path: "src/a.js", line: 12, side: "RIGHT", body: "Off by one: use <=." }]);
+  assert.deepEqual(sent[0][1].comments, [{ path: "src/a.js", line: 12, side: "RIGHT", body: "Off by one: use <=.\n\n<!-- gofarther-coder -->" }], "marked as Coder's (2026-11-24)");
   assert.equal(sent[0][1].event, "COMMENT", "a review never approves or blocks, like Claude Code's");
   refuse = true; sent.length = 0;
   assert.equal((await postReview("t", "a/b", 2, r.reviewPost, fetchFn)).inline, false);
