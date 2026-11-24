@@ -1067,7 +1067,7 @@ test("CD39 background jobs: bash with run_in_background gives a job; a monitor's
     say("", [call("bash", { command: "for i in 1 2 3; do echo tick $i; sleep 0.2; done; sleep 30", run_in_background: true }, "b1")]),
     say("", [call("monitor", { command: "echo ready; sleep 1.5; echo done", description: "Two lines" }, "m1")]),
     say("", [call("monitor", { command: "echo quick", description: "Quick" }, "m2")]),
-    say("", [call("bash", { command: "sleep 2", description: "Wait" }, "w1")]),
+    say("", [call("bash", { command: "sleep 2 && true", description: "Wait" }, "w1")]),
     say("", [call("stop_job", { job: "job1" }, "s1")]),
     say("", [call("stop_job", { job: "job1" }, "s2"), call("stop_job", { job: "job9" }, "s3")]),
     say("Done.", []),
