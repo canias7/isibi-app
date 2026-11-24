@@ -5,6 +5,19 @@ The owner's running log, newest first, in plain English. Started fresh on
 log (81,000 lines) is in git history.
 
 
+## 2026-11-24: Fixes from the tool parameters live test
+
+The differences the live test of the "Tool parameters & limits" tab found, fixed to work like Claude Code (on branch work-paramfix, not deployed yet):
+- **`pkill -f coder`** (and `pkill node`, `pkill -f server.mjs`, `pkill -f gofarther-coder`) is now refused with Claude Code's own words. Coder checks the pattern itself against the names its service runs under, because commands can't see the service's process.
+- **Edit refuses a file Coder never read in the chat**, with Claude Code's words: "File has not been read yet. Read it first before writing to it." This now applies everywhere, the scratch folder and /tmp included. Before, the rule only applied when reading the file would have needed your approval.
+- **Web search titles:** a page that redirects (http to https, a bare address to www) is now followed, so the result shows the page's real title instead of its link.
+- **Monitor** with no output says "ended without producing output (exit 0)" with the real exit code, even when the end was spotted after the command had already gone.
+- **Monitor on ws://127.0.0.1** (or localhost, or any private address) is refused by the private-address check, in Claude Code's cloud words ("Destination IP is in a private/reserved range"), before the network gate.
+- **Notebooks:** printed output is shown with its text. An empty stream no longer shows a bare "[stdout]".
+- **Artifact list** results always have a "truncated" field.
+- **Bash timeout** above 600000 is cut to 600000, and the result now says so in a note.
+Tests: 8 new ones, and the full suite passes (1,866).
+
 ## 2026-11-24: Tool parameters tab tried live
 
 The "Tool parameters & limits" tab of the tools file now has a column G, "Tried live (2026-11-24)", filled in for all 514 rows after testing on gofarther.dev (Grok, effort Low, about 17 messages):

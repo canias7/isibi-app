@@ -599,7 +599,13 @@ async function readNotebook(raw, rel) {
     parts.push("--- Cell " + (i + 1) + " (" + String(c.cell_type || "code") + (Number.isInteger(c.execution_count) ? ", run " + c.execution_count : "") + ", id " + (typeof c.id === "string" && c.id ? c.id.slice(0, 40) : "cell-" + i) + ") ---\n" + str(c.source));
     for (const o of Array.isArray(c.outputs) ? c.outputs : []) {
       if (!o || typeof o !== "object") continue;
-      if (o.output_type === "stream") { parts.push("[" + String(o.name || "stdout") + "]\n" + plain(o.text)); continue; }
+      // (A stream's text wherever the notebook keeps it: `text`, or a `data` text/plain; nbformat 3's `stream` for its name.
+      // A stream with no text is left out. Live test of the parameters tab, 2026-11-24: "[stdout]" showed with no text.)
+      if (o.output_type === "stream") {
+        const said = plain(o.text != null ? o.text : o.data && typeof o.data === "object" ? o.data["text/plain"] : "");
+        if (said !== "") parts.push("[" + String(o.name || o.stream || "stdout") + "]\n" + said);
+        continue;
+      }
       if (o.output_type === "error") { parts.push("[error] " + String(o.ename || "") + ": " + String(o.evalue || "") + "\n" + plain(Array.isArray(o.traceback) ? o.traceback.join("\n") : "")); continue; }
       const d = o.data && typeof o.data === "object" ? o.data : {};
       const img = d["image/png"] ? ["png", d["image/png"]] : d["image/jpeg"] ? ["jpeg", d["image/jpeg"]] : null;
@@ -1431,6 +1437,11 @@ function editMatch(body, old_string, new_string) {
   if (curled) { const seenText = body.slice(at[0], at[0] + len); newN = curlify(newN, /[“”]/.test(seenText), /[‘’]/.test(seenText)); }
   return { at, oldN, newN, len };
 }
+/**
+ * NEVER READ, WRITTEN OR EDITED IN THIS CHAT (`seen` null, where the chat follows files): edit refuses it (Claude Code's
+ * read-first rule). Not for a file the chat never follows: Coder's memory files, and one past READ_WHOLE_MAX.
+ */
+const neverRead = (seen, abs, buf) => seen === null && !(process.env.CODER_MEMORY_FILE && isMemoryPath(abs, process.env.CODER_MEMORY_FILE)) && !(buf && buf.length > READ_WHOLE_MAX);
 /** Changed on disk since Coder read it (or a command changed it and its note has not shown that yet). */
 const changedSince = (seen, st, buf) => !!seen && (seen.stale === true || ((st.mtimeMs !== seen.mtime || st.size !== seen.size) && (st.size !== seen.size || st.size > READ_WHOLE_MAX || fingerprint(buf) !== seen.hash)));
 /**
@@ -1475,6 +1486,10 @@ async function editFirst(a, { guard = false } = {}) {
   if (notText) fail(textRefusal(rel, notText));
   if (!at.length) fail(EDIT_NOT_FOUND + saidBack(old_string));
   if (!applies) fail(editMany(at.length) + saidBack(old_string));
+  // AN EDIT THAT WOULD GO THROUGH, OF A FILE THIS CHAT NEVER READ, WROTE OR EDITED (`seen` null): refused in Claude Code's
+  // words wherever it is, the project, the scratch folder or /tmp (live test of the parameters tab, 2026-11-24: an edit of a
+  // never-read /tmp/coder-scratch/pp/f.txt went through, since only `guard` refused). The other refusals keep their words.
+  if (neverRead(seen, abs, buf)) fail(EDIT_NOT_READ);
   // (A Claude Code settings file left invalid by the edit, when it was valid before: Claude Code 2.1.325's check, its last
   // before the edit. Round 6's follow-up: settingsProblem.)
   if (settingsFile(abs)) {
@@ -1551,6 +1566,8 @@ export async function toolEdit(args) {
       if (!at.length) fail(EDIT_NOT_FOUND + saidBack(old_string));
       fail(editMany(at.length) + saidBack(old_string));
     }
+    // (Never read, written or edited in this chat: refused in Claude Code's words, wherever the file is. See editFirst.)
+    if (neverRead(seen, abs, buf)) fail(EDIT_NOT_READ);
   }
   const parts = [];
   let from = 0;
@@ -2383,12 +2400,25 @@ const WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
  */
 export const proxyResolvesHosts = (v) => /^(?:1|true)$/i.test(String(v ?? "").trim());
 export const couldNotResolve = (host) => "could not resolve " + host + " (behind the network gate, Coder looks the host up itself; set CODER_PROXY_RESOLVES_HOSTS=1 in the environment's variables so the gate looks it up instead)";
+/** Claude Code's cloud answer for a private address ("Destination IP is in a private/reserved range", x-deny-reason private_dest_ip). */
+export const PRIVATE_DEST = "Destination IP is in a private/reserved range";
+/** A WebSocket address whose host is a private or the machine's own address, written as one (or localhost). */
+export function wsPrivateHost(url) {
+  let u;
+  try { u = new URL(String(url)); } catch { return false; }
+  const host = u.hostname.replace(/^\[|\]$/g, "").toLowerCase();
+  if (host === "localhost" || host.endsWith(".localhost")) return true;
+  return !!isIP(host) && privateAddress(host);
+}
 export async function toolWsWatch({ url, protocols = [] }, { out = (t) => process.stdout.write(t), allowPrivate = false, proxy = null, resolves = null, lookup = null } = {}) {
   const say = (v) => out(JSON.stringify(v) + "\n");
   let u;
   try { u = new URL(String(url)); } catch { say({ error: "not a WebSocket address" }); return ""; }
   if (u.protocol !== "ws:" && u.protocol !== "wss:") { say({ error: "not a ws:// or wss:// address" }); return ""; }
   const secure = u.protocol === "wss:", host = u.hostname.replace(/^\[|\]$/g, ""), port = Number(u.port) || (secure ? 443 : 80);
+  // (A private address refused here, before the network gate, in Claude Code's words: live test of the parameters tab,
+  // 2026-11-24, ws://127.0.0.1 was refused by the gate's "no rule allows host" instead.)
+  if (!allowPrivate && wsPrivateHost(url)) { say({ error: PRIVATE_DEST }); return ""; }
   const px = proxy !== null ? proxy : process.env.CODER_NET_LIMITED === "1" && (process.env.HTTPS_PROXY || "");
   // (Behind the proxy: the host looked up here first, unless the proxy is to do it. proxyResolvesHosts.)
   if (px && !isIP(host) && !proxyResolvesHosts(resolves !== null ? resolves : process.env.CODER_PROXY_RESOLVES_HOSTS)) {
@@ -2562,17 +2592,28 @@ export const errorLine = (e) => { const m = String((e && e.message) || e); retur
  * only; 2026-11-23, coder-websearch.mjs withTitles): the start of each page (64 KB at most, 5 seconds each, side by side),
  * through the chat's network gate when its list is on, never to a private address; its <title>, or nothing. `{ url: title }`.
  */
-export const TITLE_BYTES = 65_536, TITLE_MS = 5_000;
+export const TITLE_BYTES = 65_536, TITLE_MS = 5_000, TITLE_HOPS = 5;
 export async function toolPageTitles({ urls = [] } = {}, { get = null } = {}) {
   const { titleOf, TITLES_MAX } = await import("./coder-websearch.mjs");
   const list = (Array.isArray(urls) ? urls : []).filter((u) => typeof u === "string" && /^https?:\/\/\S+$/i.test(u) && u.length <= 2048).slice(0, TITLES_MAX);
-  const one = (url) => new Promise((done) => {
+  // (A page that moves (http to https, a bare host to www, a short link) is followed, at most TITLE_HOPS times: live test of
+  // the parameters tab, 2026-11-24, most links kept their address as their title, since a redirect was taken as no title.)
+  const one = (url, hops = 0) => new Promise((done) => {
     let u;
     try { u = new URL(url); } catch { return done(""); }
+    if (!/^https?:$/.test(u.protocol)) return done("");
     let over = false, req = null;
     const timer = setTimeout(() => { over = true; try { if (req) req.destroy(); } catch { /* gone */ } done(""); }, TITLE_MS);
     const finish = (t) => { if (over) return; over = true; clearTimeout(timer); try { if (req) req.destroy(); } catch { /* gone */ } done(t); };
     const onRes = (res) => {
+      const to = res.headers && res.headers.location;
+      if (res.statusCode >= 300 && res.statusCode < 400 && typeof to === "string" && to && hops < TITLE_HOPS) {
+        let next = "";
+        try { next = new URL(to, u).href; } catch { next = ""; }
+        if (over) return;
+        over = true; clearTimeout(timer); try { if (req) req.destroy(); } catch { /* gone */ }
+        return next ? one(next, hops + 1).then(done) : done("");
+      }
       if (res.statusCode < 200 || res.statusCode >= 300 || !/html/i.test(String(res.headers["content-type"] || ""))) return finish("");
       const chunks = []; let size = 0;
       res.on("data", (c) => { size += c.length; chunks.push(c); const t = titleOf(Buffer.concat(chunks).toString("utf8")); if (t || size >= TITLE_BYTES) finish(t); });
@@ -2592,7 +2633,7 @@ export async function toolPageTitles({ urls = [] } = {}, { get = null } = {}) {
       if (req && typeof req.on === "function") req.on("error", () => finish(""));
     } catch { finish(""); }
   });
-  const got = await Promise.all(list.map(one));
+  const got = await Promise.all(list.map((x) => one(x)));
   const out = {};
   list.forEach((u, i) => { if (got[i]) out[u] = got[i]; });
   return JSON.stringify(out);

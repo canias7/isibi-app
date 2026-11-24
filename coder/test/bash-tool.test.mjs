@@ -165,7 +165,7 @@ test("CD274 bash in the agent: Claude Code's inputs (description shown in place 
   assert.equal(step("a1").desc, "Run the test suite");
   assert.equal(step("a2").desc, "Look for TODO notes", "command_description is taken for description");
   assert.equal(execs.find((x) => x.command === "npm test").timeoutS, 600);
-  assert.equal(reply("a1"), "ok");
+  assert.equal(reply("a1"), "ok\n\nNote: timeout 900000 is over the maximum of 600000 ms (10 minutes), so it was cut to 600000.");
   // grep's exit 1: no failure, no "Exit code" line, and not marked failed for the owner.
   assert.equal(reply("a2"), "(Bash completed with no output)");
   assert.equal(result("a2").ok, true);

@@ -82,7 +82,7 @@ test("CD385b the WebSocket watch on Coder's machine: each text message one event
   try { assert.deepEqual(await run(s3.url), ["only this", { close: 1006 }], "dropped without a close: 1006"); } finally { s3.close(); }
   // From the command line: never a private address ("Claude Code denies URLs that point at a private, link-local, or
   // cloud-metadata address").
-  for (const url of ["ws://127.0.0.1:9/x", "ws://169.254.169.254/latest", "ws://[::1]:9/", "ws://10.0.0.5/"]) { let out = ""; await T.toolWsWatch({ url }, { out: (t) => (out += t) }); assert.deepEqual(JSON.parse(out), { error: "that address is on a private network" }, url); }
+  for (const url of ["ws://127.0.0.1:9/x", "ws://169.254.169.254/latest", "ws://[::1]:9/", "ws://10.0.0.5/"]) { let out = ""; await T.toolWsWatch({ url }, { out: (t) => (out += t) }); assert.deepEqual(JSON.parse(out), { error: T.PRIVATE_DEST }, url); }
   assert.match(read("container/coder-tools.mjs"), /ws_watch: toolWsWatch[,}]/);
 });
 

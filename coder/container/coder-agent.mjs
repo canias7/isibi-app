@@ -33,7 +33,7 @@ import { textReasons } from "./coder-shell.mjs";
 import { accountEmailRefused, emailRefused, refusedNow, REMOTE_TOOLS } from "./coder-privacy.mjs";
 import { createHash, randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
-import { PICS_MARK, WRITE_MARK, FACTS_MARK, WRITE_SHOW_LINES, PDF_PAGES_MAX, PDF_PAGES_FREE, READ_CHARS, READ_LARGE_CHARS, notTextKind, SCRATCH, picSize, picMinFit, PIC_MIN_SIDE, PIC_MIN_PIXELS, fileInputProblem } from "./coder-tools.mjs";
+import { wsPrivateHost, PRIVATE_DEST, PICS_MARK, WRITE_MARK, FACTS_MARK, WRITE_SHOW_LINES, PDF_PAGES_MAX, PDF_PAGES_FREE, READ_CHARS, READ_LARGE_CHARS, notTextKind, SCRATCH, picSize, picMinFit, PIC_MIN_SIDE, PIC_MIN_PIXELS, fileInputProblem } from "./coder-tools.mjs";
 import { okHost, HEADER_RE, PREFIXES, listProblem } from "./coder-secrets.mjs";
 import { credentialHost, credentialHeader, credentialPrefix, neverKeyWhy } from "./coder-secrets.mjs";
 import { inputCheckFor } from "./coder-inputs.mjs";
@@ -954,6 +954,16 @@ export function commandTimeoutS(args, tmo = null) {
   if (Number.isFinite(ms) && ms > 0) return Math.min(maxS, Math.max(1, Math.round(ms / 1000)));
   if (args && args.timeout_s !== undefined) { const n = asNumber(args.timeout_s); return Number.isFinite(n) && n > 0 ? Math.min(Math.round(n), maxS) : defS; }
   return defS;
+}
+/**
+ * A FOREGROUND TIMEOUT OVER THE MOST (600000 ms unless BASH_MAX_TIMEOUT_MS says otherwise) is cut to it, not refused, and
+ * the command's result says so in a note, as Claude Code's does. "" when it was not cut.
+ */
+export function timeoutCutNote(args, tmo = null) {
+  const max = tmo && tmo.maxMs > 0 ? Math.round(tmo.maxMs) : MAX_TIMEOUT_S * 1000;
+  const ms = asNumber(args && args.timeout);
+  if (!Number.isFinite(ms) || ms <= max) return "";
+  return "Note: timeout " + Math.round(ms) + " is over the maximum of " + max + " ms (" + Math.round(max / 60000) + " minutes), so it was cut to " + max + ".";
 }
 /**
  * INSTRUCTION FILES SHOWN ONLY IN PART: the note Coder's app puts after the part it shows ("[NAME goes on: read the rest
@@ -3361,6 +3371,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     const refuse = (m) => { emit({ type: "result", id: c.id, code: -1, ran: false, output: m }); reply(m); };
     const bad = wsProblem(c.args);
     if (bad) { refuse("error: " + bad); return null; }
+    // (A private address: refused by the private-address check, in Claude Code's words, before any card or the gate.)
+    if (wsPrivateHost(url)) { refuse("error: " + PRIVATE_DEST); return null; }
     if (Array.isArray(c.args.allowed_domains) && c.args.allowed_domains.length) { refuse("error: " + HOSTS_ONLY_COMMAND); return null; }
     const modeW = modeNow();
     let dec = github ? { verdict: "check" } : wsDecision({ rules: ownRules, mode: modeW, input: c.args });
@@ -6127,6 +6139,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         if (cwdSaid) text = /^\((Bash|PowerShell) completed with no output\)$/.test(text) ? cwdSaid : text + "\n" + cwdSaid;
         if (!bg && ghRateLimited(command, r && r.output)) text += "\n\n(Note from Coder's app: " + GH_RATE_HINT + ")";
         if (r && typeof r.netNote === "string" && r.netNote) text += "\n\n" + r.netNote;
+        // (A foreground timeout over the most, cut to it and said: timeoutCutNote.)
+        if (!bg && !c.monitor) { const cut = timeoutCutNote(c.args, timeouts); if (cut) text += "\n\n" + cut; }
         // CONNECTIONS THAT FAILED WHILE IT RAN, for a reason other than a block (Bash docs pass 9; Claude Code adds its
         // agent proxy's note only to a command that failed, after a blank line: "[agent-proxy] While this command ran, …").
         if (isError && r && typeof r.failNote === "string" && r.failNote) text = text.trimEnd() + "\n\n" + r.failNote;

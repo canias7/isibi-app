@@ -358,7 +358,7 @@ async function artifactCall(c, h, args, done) {
   if (action === "list") {
     const r = await ask(deps, { action: "artifact", op: "list", limit: args.limit === undefined ? ARTIFACT_LIMITS.limitDefault : args.limit, scope: args.scope || "mine" });
     if (!r.ok) return done(1, answerText(r));
-    const out = { artifacts: r.artifacts || [], ...(r.truncated ? { truncated: true } : {}), total: r.total || 0, ...(args.scope && args.scope !== "mine" ? { scope: args.scope } : {}) };
+    const out = { artifacts: r.artifacts || [], truncated: r.truncated === true || (Number(r.total) || 0) > (Array.isArray(r.artifacts) ? r.artifacts.length : 0), total: r.total || 0, ...(args.scope && args.scope !== "mine" ? { scope: args.scope } : {}) };
     return done(0, JSON.stringify(out, null, 2), { label: "Listed " + out.artifacts.length + " artifact" + (out.artifacts.length === 1 ? "" : "s") });
   }
   if (action === "read" || action === "open") {

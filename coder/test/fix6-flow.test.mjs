@@ -357,7 +357,7 @@ test("FV3 the tools script's part, for real (its file_check and each run, the sa
     assert.equal(chk("edit", { path: "bin.txt", old_string: "nope", new_string: "b" }), "error: bin.txt " + T.notTextRefused("nul"), "not text before not found");
     assert.equal(chk("edit", { path: "a.txt", old_string: "nope", new_string: "b" }), "error: String to replace not found in file.\nString: nope");
     assert.equal(chk("edit", { path: "a.txt", old_string: "hello", new_string: "bye" }), "error: Found 2 matches of the string to replace, but replace_all is false. To replace all occurrences, set replace_all to true. To replace only one occurrence, please provide more context to uniquely identify the instance.\nString: hello");
-    assert.equal(chk("edit", { path: "a.txt", old_string: "hello", new_string: "bye", replace_all: true }), "ok");
+    assert.equal(chk("edit", { path: "a.txt", old_string: "hello", new_string: "bye", replace_all: true }), "error: " + T.EDIT_NOT_READ, "it would go through, but it was never read (live test, 2026-11-24)");
     // Changed since read: refused where its old text is not there once (before 'not text' and 'not found'); applied where it is.
     tool("read", { path: "a.txt" });
     writeFileSync(join(dir, "a.txt"), "hello world\nchanged line\n");
@@ -570,7 +570,7 @@ test("FV5 the tools script, for real: a pipe in the project refused by write and
     writeFileSync(join(dir, "b.txt"), "one\ntwo\nthree\n");
     assert.equal(T.EDIT_NOT_READ, "File has not been read yet. Read it first before writing to it.");
     assert.equal(chk("edit", { path: "b.txt", old_string: "one", new_string: "1" }, true), "error: " + T.EDIT_NOT_READ);
-    assert.equal(chk("edit", { path: "b.txt", old_string: "one", new_string: "1" }), "ok", "an edit that needs no approval: waived, as Claude Code waives it for newer models");
+    assert.equal(chk("edit", { path: "b.txt", old_string: "one", new_string: "1" }), "error: " + T.EDIT_NOT_READ, "never read: refused even where no approval is needed (live test, 2026-11-24)");
     tool("read", { path: "b.txt", limit: 1 });
     assert.equal(chk("edit", { path: "b.txt", old_string: "one", new_string: "1" }, true), "ok", "read with a limit, as asked: read (Claude Code's readFileState has it, not as a partial view)");
     // Read whole but given only its first part (a PARTIAL view, Claude Code's isPartialView): not read yet.
@@ -585,12 +585,14 @@ test("FV5 the tools script, for real: a pipe in the project refused by write and
     // A settings file left invalid (Claude Code: "Claude Code settings.json validation failed after edit: …").
     mkdirSync(join(dir, ".claude"));
     writeFileSync(join(dir, ".claude", "settings.json"), '{\n  "permissions": { "allow": ["Bash(ls)"] }\n}\n');
+    tool("read", { path: ".claude/settings.json" });
     const bad = chk("edit", { path: ".claude/settings.json", old_string: '["Bash(ls)"]', new_string: '"Bash(ls)"' });
     assert.ok(bad.startsWith("error: Claude Code settings.json validation failed after edit:\nSettings validation failed:\n- permissions.allow: Expected array, but received string\n\nFull schema:\n{"), bad.slice(0, 200));
     assert.ok(bad.endsWith("\nIMPORTANT: Do not update the env unless explicitly instructed to do so."));
     assert.match(chk("edit", { path: ".claude/settings.json", old_string: '"Bash(ls)"]', new_string: '"Bash(ls)",' }), /^error: Claude Code settings\.json validation failed after edit:\nInvalid JSON: /);
     assert.equal(chk("edit", { path: ".claude/settings.json", old_string: "Bash(ls)", new_string: "Bash(npm test)" }), "ok");
     writeFileSync(join(dir, ".claude", "settings.local.json"), "{ not json");
+    tool("read", { path: ".claude/settings.local.json" });
     assert.equal(chk("edit", { path: ".claude/settings.local.json", old_string: "not", new_string: "still not" }), "ok", "invalid before: not checked, as Claude Code");
     // A secret written to Coder's memory file (Claude Code's words for its memory, synced to the account).
     assert.equal(tool("write", { path: memFile, content: "Style: short answers\ntoken ghp_" + "a".repeat(36) + "\n" }), "error: Content contains potential secrets (GitHub PAT) and cannot be written to memory. Memory is synced to your account. Remove the sensitive content and try again.");
