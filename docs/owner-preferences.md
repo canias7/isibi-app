@@ -24,6 +24,7 @@ deleted (the old file is in git history).
   gofarther.dev in the browser, with Grok (then the same in Claude Code, to
   compare). Automated tests and checks on Claude's side are not enough on their
   own.
+- **Record page checks (2026-11-24, "record page checks").** Click-through checks of the page are recorded on video again. Other tests stay unrecorded unless the owner says otherwise.
 - **No more video recordings (2026-11-12, "for now on dont record anymore ,
   pls"):** live tests are no longer filmed. Results are written up from what the
   page and the chat show, with screenshots where they help.
