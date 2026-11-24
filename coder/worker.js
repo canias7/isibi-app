@@ -88,9 +88,6 @@ export default {
     const job = (p) => { work.push(p); ctx.waitUntil(p); };
     job(runMentionJobs(env, { coder }).catch((e) => console.log("coder jobs: " + String((e && e.message) || e).slice(0, 200))));
     job(runWatchedJobs(env, { coder }).catch((e) => console.log("coder watch: " + String((e && e.message) || e).slice(0, 200))));
-    // AUTO-FIX (2026-11-24): each watched pull request's new review comments, reviews and failed checks, as Claude Code's
-    // auto-fix watches its pull request (the webhook may never bring review news; see pollAutofix).
-    job(pollAutofix(env, { coder }).catch((e) => console.log("coder autofix watch: " + String((e && e.message) || e).slice(0, 200))));
     // BACKGROUND COMMANDS AFTER THE ANSWER (tool 4, like Claude Code's): Coder is told when one ends, in a turn of its own.
     job(runBackgroundJobs(env, { coder }).catch((e) => console.log("coder background: " + String((e && e.message) || e).slice(0, 200))));
     // GLOOPY'S SCHEDULES (2026-11-09): the runs that are due start now, each as a message for that person's Gloopy.
@@ -98,6 +95,9 @@ export default {
     // CODER'S SCHEDULED PROMPTS (2026-11-23; Claude Code's CronCreate, ScheduleWakeup, RemoteTrigger): the runs due now, within
     // the caps (src/coder-schedules.mjs).
     job(runCoderCrons(env, { coder }).catch((e) => console.log("coder crons: " + String((e && e.message) || e).slice(0, 200))));
+    // AUTO-FIX (2026-11-24): each watched pull request's new review comments, reviews and failed checks, as Claude Code's
+    // auto-fix watches its pull request (the webhook may never bring review news; see pollAutofix).
+    job(pollAutofix(env, { coder }).catch((e) => console.log("coder autofix watch: " + String((e && e.message) || e).slice(0, 200))));
     // CODE REVIEW (owner item 11, like Claude Code's): the reviews GitHub's news asked for, as Coder's app.
     job(runReviewJobs(env, { token: (i) => installationToken(env, i) }).catch((e) => console.log("coder review: " + String((e && e.message) || e).slice(0, 200))));
     // FLY.IO (2026-11-07): machines with nothing to do for 10 minutes are stopped, old ones removed.
