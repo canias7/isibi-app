@@ -5,6 +5,10 @@ The owner's running log, newest first, in plain English. Started fresh on
 log (81,000 lines) is in git history.
 
 
+## 2026-11-24 — Idea for later: GitHub tools in their own group
+
+The owner wants Coder's GitHub tools (push the branch, open a pull request, read pull-request comments, auto-fix, review, the gh command) shown apart from Coder's other tools, in their own section. Not started; to plan with the owner first.
+
 ## 2026-11-24: The desktop page's "just wrong" moments, fixed
 
 Not deployed yet: it's on the work-frontend branch. Not tried live on gofarther.dev yet: tried in a test browser with clicks and keys. Before and after screenshots are in the session's frontend-fix-shots folder.
