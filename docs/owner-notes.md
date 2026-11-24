@@ -5,6 +5,21 @@ The owner's running log, newest first, in plain English. Started fresh on
 log (81,000 lines) is in git history.
 
 
+## 2026-11-24: Live retest of the "differs" and "partly" fixes
+
+Tried live on gofarther.dev after the deploy of the fixes (deploy run 45456366334, main @ df67cb33), with Grok on Low, in three test chats on canias7/testingforclaude, using the test branch audit-p3a (its hook writes every tool result to a file Coder pushes). Screenshots only. About 10 Grok messages.
+
+**Now working:** a hook gets helper-agent results as objects (finished ones with toolStats, usage, model and counts; background ones as "async_launched"), and Projects and Artifact results as objects too. exit_worktree refuses to remove a worktree with an unsaved file. `sleep 20` is refused. A saved skill with allowed-tools asks on a card in Manual mode. Reading /etc/hostname and writing /tmp/p4w.txt ask on a card and then work. With question auto-continue at 60 seconds, the card went on by itself after a minute and Coder was told you may be away.
+
+**Still different (3):**
+- A helper with isolation "worktree" worked in the chat's own folder, so its result had no worktree branch.
+- Web fetch of https://github.com/octocat/Hello-World/raw/master/README still says "Too many redirects (exceeded 10)".
+- Publishing an artifact from a file in /tmp is still refused as outside the project, with no card.
+
+**Spreadsheet:** column G of the tool parameters tab now has 358 working, 24 partly, 3 differ, 103 not tested, 26 don't apply.
+
+**Put back:** question auto-continue is back to Never. The test chats, the test artifact, the test Project and the saved test skill were deleted. Nothing was scheduled. The three chats' coder/ branches are still on canias7/testingforclaude (this session can't delete branches there).
+
 ## 2026-11-24: Fixes for the tool parameters tab's "differs" and "partly" rows
 
 Made the rows that differed from Claude Code (and the "partly" ones that were Coder's fault) work the way Claude Code does. Not deployed yet: it's on the work-diffpartly branch.
