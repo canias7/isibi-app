@@ -301,7 +301,7 @@ test("CR12 the loop: list, read and open need no card (open shows the artifact's
     say("Done."),
   ];
   const { events, told } = await run(steps, { envApi, ask: (c) => { cards.push(c); return { choice: "yes" }; }, files: { "p.html": "<p>mine</p>" }, rules: { allow: ["Artifact"], ask: [], deny: [] } });
-  assert.deepEqual(JSON.parse(told("l1")), { artifacts: [{ title: "A", url: "pabcdefghij", version: 2 }], total: 1 });
+  assert.deepEqual(JSON.parse(told("l1")), { artifacts: [{ title: "A", url: "pabcdefghij", version: 2 }], truncated: false, total: 1 });
   assert.equal(api[0].limit, 5);
   assert.ok(events.some((e) => e.type === "page" && e.id === "pabcdefghij" && e.artifact === true), "open shows its card");
   assert.match(told("o1"), /^Showed the owner the artifact “A”/);

@@ -273,6 +273,20 @@ test("CD208 Claude Code's other reading rules (its memory, tools and errors docs
 // THE OWNER'S "Yea add all of that and go look at the docs again pls" (2026-11-08), after the second pass over Claude
 // Code's docs for read: @-mentions, the re-read after a summary, and the instruction files at the start.
 const toolsScript = new URL("../container/coder-tools.mjs", import.meta.url).pathname;
+// (Edit refuses a file never read in this chat since 2026-11-24: an edit of a file the test did not read itself reads it
+// first, and the "file state is current" note that read adds (`fresh`) is left out of its answer.)
+function readFirstTool(raw, fresh) {
+  const readByTest = new Set();
+  return async (name, args) => {
+    const p = args && (args.path || args.file_path);
+    if (name === "read") readByTest.add(p);
+    if (name !== "edit" || readByTest.has(p)) return raw(name, args);
+    const r = String(await raw("read", { path: p }));
+    const out = await raw(name, args);
+    if (typeof out === "string" && !out.startsWith("error:")) readByTest.add(p);
+    return fresh && !r.startsWith("error:") && typeof out === "string" ? out.split(fresh).join("") : out;
+  };
+}
 /** Coder's machine as tests run it: the file tools for real, in `dir`; any other command answered by `other`. */
 const machine = (dir, other = () => ({ code: 0, output: "ok" }), env = process.env) => async ({ command, payload }) => {
   const { execSync } = await import("node:child_process");
@@ -2096,7 +2110,7 @@ test("CD263 edit as Claude Code's Edit, tried side by side (tool 3; the owner, 2
   const dir = await mkdtemp(join(tmpdir(), "coder-edit-"));
   const follow = await mkdtemp(join(tmpdir(), "coder-edit-follow-"));
   const run = machine(dir, undefined, { ...process.env, CODER_SEEN_DIR: follow });
-  const tool = async (name, args) => (await run({ command: "node --no-warnings " + toolsScript + " " + Buffer.from(JSON.stringify({ tool: name, args })).toString("base64") })).output;
+  const tool = readFirstTool(async (name, args) => (await run({ command: "node --no-warnings " + toolsScript + " " + Buffer.from(JSON.stringify({ tool: name, args })).toString("base64") })).output, WRITE_FRESH);
   const has = (f) => readFile(join(dir, f), "utf8");
   const put = (f, x) => writeFile(join(dir, f), x);
   const MANY = "error: Found 2 matches of the string to replace, but replace_all is false. To replace all occurrences, set replace_all to true. To replace only one occurrence, please provide more context to uniquely identify the instance.\nString: ";
@@ -2308,7 +2322,7 @@ test("CD267 a Windows-line-ending file's change has no hidden \"\\r\" on its lin
   const dir = await mkdtemp(join(tmpdir(), "coder-crlf-change-"));
   const follow = await mkdtemp(join(tmpdir(), "coder-crlf-follow-"));
   const run = machine(dir, undefined, { ...process.env, CODER_SEEN_DIR: follow });
-  const tool = async (name, args) => (await run({ command: "node --no-warnings " + toolsScript + " " + Buffer.from(JSON.stringify({ tool: name, args })).toString("base64") })).output;
+  const tool = readFirstTool(async (name, args) => (await run({ command: "node --no-warnings " + toolsScript + " " + Buffer.from(JSON.stringify({ tool: name, args })).toString("base64") })).output, "");
   const change = async (name, args) => { const raw = await tool(name, { ...args, show_change: true }); assert.ok(raw.startsWith(WRITE_MARK), raw.slice(0, 80)); return JSON.parse(raw.slice(WRITE_MARK.length)).change; };
   const body = (c) => c.lines.filter((l) => !l.startsWith("@@"));
   // The live test's file (message 3): its Windows endings kept in the file, and none in the change, as Claude Code's.

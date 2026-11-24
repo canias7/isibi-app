@@ -903,6 +903,9 @@ export function readMonitor(j, { flood = MONITOR_FLOOD, now = Date.now() } = {})
   const lines = all.split("\n");
   j.part = j.end ? "" : lines.pop();
   if (j.part.length > MONITOR_PART_MAX) j.part = j.part.slice(-MONITOR_PART_MAX);
+  // (The exit code the log's last line gives, for a monitor whose end was found by its group being gone, with no code: its
+  // notice says Claude Code's "ended without producing output (exit 0)" with the real code. Live test, 2026-11-24.)
+  for (const l of lines) { const m = /^\[finished, exit code (-?\d+)\]$/.exec(l.trim()); if (m) j.logExit = Number(m[1]); }
   let fresh = lines.map((l) => l.replace(/\r$/, "")).filter((l) => l.trim() && !l.includes(CWD_MARK) && !/^\[finished, exit code -?\d+\]$/.test(l.trim()) && l.trim() !== SIZE_KILLED.trim());
   // A WEBSOCKET MONITOR (coder-tools.mjs's ws_watch): each line one JSON value, a message (one event, however many lines it
   // has) or, at its end, how the socket ended (`wsEnd`: { close, reason }, { tooBig } or { error }).
@@ -1315,7 +1318,7 @@ export function monitorNews(project) {
     const dropped = j.dropped || 0; j.dropped = 0;
     // (How many events it delivered in all, and its time limit: Claude Code's notice at its deadline says both; and, when it
     // was stopped for flooding, Claude Code's words for that.)
-    const end = j.end && !j.told ? { code: j.end.code, why: j.end.why || "", ...(j.wsEnd ? { ws: j.wsEnd } : {}), events: j.events || 0, ...(Number(j.limitMs) > 0 ? { ms: Number(j.limitMs) } : Number(j.deadline) > Number(j.at) ? { ms: Number(j.deadline) - Number(j.at) } : {}), ...(j.floodNote ? { note: j.floodNote } : {}) } : null;
+    const end = j.end && !j.told ? { code: Number.isInteger(j.end.code) ? j.end.code : Number.isInteger(j.logExit) ? j.logExit : null, why: j.end.why || "", ...(j.wsEnd ? { ws: j.wsEnd } : {}), events: j.events || 0, ...(Number(j.limitMs) > 0 ? { ms: Number(j.limitMs) } : Number(j.deadline) > Number(j.at) ? { ms: Number(j.deadline) - Number(j.at) } : {}), ...(j.floodNote ? { note: j.floodNote } : {}) } : null;
     if (end) j.told = true;
     if (lines.length || end) out.push({ id: j.id, desc: j.desc, lines, dropped, ...(end ? { end } : {}), ...(j.errLog ? { errLog: j.errLog } : {}) });
   }
