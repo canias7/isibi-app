@@ -5,6 +5,31 @@ The owner's running log, newest first, in plain English. Started fresh on
 log (81,000 lines) is in git history.
 
 
+## 2026-11-24: The new side menu
+
+Built from the side menu you approved (side3).
+- **Plugins** now holds only the plugin parts, in this order: Installed plugins, Skills, Commands, Helpers, Hooks, Connectors.
+- **More** holds Tools, Permission rules and Projects. Each has the same kind of line icon. There are no emojis.
+- **Every item has a "!".** Point at it, tap it or tab to it to see what the item is. The notes for the plugin parts end with "Plugins can add their own." Clicking the "!" shows the note and doesn't open the item.
+- **Two new lists**, read-only, in the same style as Skills:
+  - **Commands:** Coder's / commands, the repository's skills and the commands your installed plugins add.
+  - **Helpers:** the helper types Coder can start (general-purpose, Explore, Plan, web-fetch) and the helpers your plugins add.
+- The submenu items are now indented under their heading, as in the picture. Before, the indent wasn't showing.
+
+Tests: `coder/test/tools-page.test.mjs` and `coder/test/sidebar-menu.test.mjs`. Not tried live yet, and not deployed.
+
+## 2026-11-24: The Tools page
+
+Built from the mockup you approved.
+- **Sidebar:** More now holds one item, **Tools**. Settings and Notifications moved out of More, and they are still in the gear menu at the bottom left.
+- **The page:** the 11 groups and 42 tools from the mockup. Each has its short line and a small "!" after its name. Point at the "!" (or tap it on a phone, or tab to it with the keyboard) to see what the tool does in plain words. Each tool has a menu: Ask, Always allow or Never. It works on a phone and in dark mode.
+- **Defaults stay as they are.** A tool you never touched shows how Coder treats it today, with a grey "(default)", and nothing is saved for it. Once you pick something, its menu also has "Reset to default".
+- **Your choices are real.** They are saved on our server for your account and become Coder's permission rules in your chats, starting with each chat's next message. Always allow becomes an allow rule for that tool, Ask becomes an ask rule, and Never becomes a deny rule.
+- **What comes first:** your own written rules (Permission rules) and a repository's own `.claude/settings.json` rules. If they mention a tool at all, they decide for that tool and the page's choice for it is set aside. Coder's safety checks still run either way. Commands that only read things still run without asking, protected files still ask, and Auto's checker still checks commands.
+- **Tools that are off or only in some chats** (PowerShell, the browser, connectors) still show, with a note.
+
+Tests: `coder/test/tools-page.test.mjs` (the page in Chromium) and `coder/test/tool-choices.test.mjs` (the rules). Not tried live on gofarther.dev yet, and not deployed.
+
 ## 2026-11-24: Live retest of the four fixes
 
 All four fixes work on gofarther.dev (Grok, effort Low: 4 messages plus the one auto-fix job):

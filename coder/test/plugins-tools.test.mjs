@@ -323,10 +323,11 @@ test("page in Chromium: the sidebar's Plugins ▸ Plugins panel (install, remove
     const { page, errors, posts } = await openPage(browser, { events: [{ type: "user", text: "hi" }, { type: "skills", list: [{ name: "deploy", description: "How we deploy the shop" }] }, { type: "done", text: "Hello." }] });
     await page.waitForSelector("#cdSidePlugins:not([disabled])", { timeout: 15000 });
     await page.click("#cdSidePlugins");
-    const order = await page.$$eval(".gf-sub .gf-nav", (b) => b.map((x) => x.textContent));
-    assert.deepEqual(order.slice(0, 5), ["Plugins", "Connectors", "Skills", "Hooks", "Permission rules"]);
+    // (The owner's approved side menu, 2026-11-24: the plugin parts only, each with a "!" note.)
+    const order = await page.$$eval(".gf-sub .gf-sname", (b) => b.map((x) => x.textContent));
+    assert.deepEqual(order, ["Installed plugins", "Skills", "Commands", "Helpers", "Hooks", "Connectors"]);
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, "sidebar-plugins-menu.png") });
-    await page.click("#cdSidePluginsList");
+    await page.click("#cdSidePluginsList .gf-sname");
     await page.waitForSelector(".cpx-panel .cpx-empty");
     assert.match(await page.textContent(".cpx-panel"), /No plugins installed yet/);
     await page.click('.cpx-panel [data-pp-tab="catalog"]');
@@ -345,7 +346,7 @@ test("page in Chromium: the sidebar's Plugins ▸ Plugins panel (install, remove
     assert.ok(posts.some((x) => x[0] === "DELETE" && x[1] === "/api/coder/plugins/frontend"));
     await page.click('.cpx-panel [data-pp="done"]');
     // Skills: the repository's, saved, plugins' and ones to add.
-    await page.click("#cdSideSkills");
+    await page.click("#cdSideSkills .gf-sname");
     await page.waitForSelector(".cpx-panel [data-sk='add']");
     const txt = await page.textContent(".cpx-panel");
     assert.match(txt, /This repository[\s\S]*\/deploy[\s\S]*How we deploy the shop[\s\S]*Your saved skills[\s\S]*From your plugins[\s\S]*docs-writer:changelog[\s\S]*Skills you can add[\s\S]*commit-messages/);
@@ -357,14 +358,14 @@ test("page in Chromium: the sidebar's Plugins ▸ Plugins panel (install, remove
     // DARK (2026-11-23, second pass): both panels take the chat cards' dark colours.
     await page.emulateMedia({ colorScheme: "dark" });
     if (!(await page.$("#cdSidePluginsList"))) await page.click("#cdSidePlugins");
-    await page.click("#cdSidePluginsList");
+    await page.click("#cdSidePluginsList .gf-sname");
     await page.click('.cpx-panel [data-pp-tab="catalog"]');
     await page.waitForSelector('.cpx-panel [data-pp="install"][data-pp-name="frontend"]');
     assert.equal(await page.$eval(".cpx-panel", (el) => getComputedStyle(el).backgroundColor), "rgb(38, 38, 36)");
     assert.equal(await page.$eval(".cpx-panel .cpx-btn", (el) => getComputedStyle(el).backgroundColor), "rgb(47, 46, 43)");
     if (SHOTS) await page.locator(".cpx-panel").screenshot({ path: path.join(SHOTS, "p2-panel-plugins-dark.png") });
     await page.click('.cpx-panel [data-pp="done"]');
-    await page.click("#cdSideSkills");
+    await page.click("#cdSideSkills .gf-sname");
     await page.waitForSelector(".cpx-panel [data-sk='add']");
     assert.equal(await page.$eval(".cpx-panel", (el) => getComputedStyle(el).backgroundColor), "rgb(38, 38, 36)");
     if (SHOTS) await page.locator(".cpx-panel").screenshot({ path: path.join(SHOTS, "p2-panel-skills-dark.png") });

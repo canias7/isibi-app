@@ -271,8 +271,8 @@ test("page in Chromium: Plugins ▸ Projects makes a project, attaches it, adds 
   try {
     const { page, errors, bucket } = await openPage(browser);
     await page.waitForSelector("#cdSidePlugins:not([disabled])", { timeout: 15000 });
-    await page.click("#cdSidePlugins");
-    await page.click("#cdSideProjects");
+    await page.click("#cdSideMore");
+    await page.click("#cdSideProjects .gf-sname");
     await page.waitForSelector("#gfApp .cpj-panel .cpj-empty");
     if (SHOTS) await page.locator("#gfApp .cpj-panel").screenshot({ path: path.join(SHOTS, "z6-projects-empty.png") });
     await page.click('#gfApp .cpj-panel [data-cpj="new"]');

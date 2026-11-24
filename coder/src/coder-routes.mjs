@@ -163,6 +163,7 @@ export function contextKept(c) {
   return { model: typeof c.model === "string" ? c.model.slice(0, 60) : "", window, used: n(c.used), parts: named(c.parts, 10), free: n(c.free), buffer: n(c.buffer), memory: named(c.memory, 50), connectors: named(c.connectors, 50), level: ["ok", "warn", "compact", "blocked"].includes(c.level) ? c.level : "ok", warning: typeof c.warning === "string" ? c.warning.slice(0, 200) : "", at: Date.now() };
 }
 import { normMode, ruleProblem, ruleWarning, ruleSaved, MODES } from "../container/coder-perms.mjs";
+import { TOOL_ROWS, TOOL_CHOICE_GROUPS, cleanToolChoices, changeToolChoice } from "../container/coder-toolchoices.mjs";
 import { hooksSetting } from "../container/coder-hooks.mjs";
 import { autoModeSetting } from "../container/coder-checker.mjs";
 import { descriptionOk, DESCRIPTION_MAX } from "../container/coder-envtools.mjs";
@@ -521,6 +522,9 @@ export async function shellHistoryOf(bucket, uid, repo) {
  */
 const rulesKey = (uid, repo) => ["coder", uid, "rules", String(repo).replace(/[^A-Za-z0-9._-]+/g, "__") + ".json"].join("/");
 export const RULES_MAX = 200;
+/** THE TOOLS PAGE'S CHOICES (the owner, 2026-11-24): per owner, beside their other settings; only rows they changed. */
+const toolsKey = (uid) => ["coder", uid, "tools.json"].join("/");
+export async function toolChoicesOf(bucket, uid) { return cleanToolChoices(await getJson(bucket, toolsKey(uid), {})); }
 export async function rulesOf(bucket, uid, repo) {
   const r = await getJson(bucket, rulesKey(uid, repo), {});
   const out = { allow: [], ask: [], deny: [] };
@@ -1578,6 +1582,19 @@ export async function handleCoder(request, env, ctx, deps) {
     await putJson(bucket, settingsKey(uid), { ...saved, ...keepPick, mode, ...(body.pickV === PICK_V || saved.pickV === PICK_V ? { pickV: PICK_V } : {}), ...change.prefs });
     return json({ ok: true, pick: { ...chosen, mode }, prefs: change.prefs, ...(change.warnings ? { warnings: change.warnings } : {}) });
   }
+  // THE TOOLS PAGE (the sidebar's More, Tools): GET its rows and the owner's choices; POST { id, value: allow | ask | deny |
+  // default }. A row never changed is not stored and changes nothing; the choices reach each chat from its next message.
+  if (parts[0] === "tool-choices") {
+    const out = (choices) => json({ ok: true, rows: TOOL_ROWS, groups: TOOL_CHOICE_GROUPS, choices });
+    if (request.method === "GET") return out(await toolChoicesOf(bucket, uid));
+    if (request.method !== "POST") return json({ error: "Tools take GET or POST" }, 405);
+    const body = await request.json().catch(() => null);
+    if (!body || typeof body !== "object") return json({ error: "Which tool, and which choice?" }, 400);
+    const r = changeToolChoice(await toolChoicesOf(bucket, uid), String(body.id || ""), String(body.value || ""));
+    if (r.error) return json({ error: r.error }, 400);
+    await putJson(bucket, toolsKey(uid), r.choices);
+    return out(r.choices);
+  }
   // THE OWNER'S PERMISSION RULES FOR A REPOSITORY (Claude Code's /permissions: "lists all permission rules", where you add
   // or remove them): GET ?repo=owner/name; POST { repo, kind: allow | ask | deny, add | remove: "Bash(npm test *)" }.
   if (parts[0] === "permissions") {
@@ -2276,7 +2293,7 @@ export async function handleCoder(request, env, ctx, deps) {
       next.timing.asked = Date.now();
       next.timing.w = wt;
       try {
-      r = await post("/turn", { start: claim.id, secrets, egress, live, model: modelNow, extra: extraFor(meta), autoCompactWindow: Number.isInteger(meta.autoCompactWindow) ? meta.autoCompactWindow : 0, ...connOn, project: id, chatUrl: chatLinkOf(env, id), coAuthor: await coAuthorFor(env, bucket, uid, fetchFn), emailMark: emailNow, cwd: typeof meta.cwd === "string" ? meta.cwd : "", mode: noAuto(normMode(meta.mode), saved), prePlanMode: noAuto(saved.mode === "acceptEdits" ? "acceptEdits" : "auto", saved), rules: await rulesOf(bucket, uid, meta.repo), ...sessionRulesOn(meta), ...customTitleOn(meta), ...wakeOn, ...scheduleOn, ...shellOn, ...compactOn, ...takeUpOn, ...bgOn, ...lastAtOn, ...clearOn, text: takeUp || wake || shell || compactJob ? "" : review ? review.text.split("BASE_BRANCH").join(meta.base) : (text || blankText) + fileMentions(text), shown: takeUp || wake || shell || compactJob ? "" : body.fromGithub === true && body.autofix !== true && typeof body.shown === "string" && body.shown.trim() ? body.shown.slice(0, 300) : body.autofix === true ? "Auto-fix: " + String((text.split("<<<GITHUB\n")[1] || text.split("\n").filter(Boolean)[1] || "").split("\n")[0]).slice(0, 160) : text || blankText, images: pics.images, ...attachedOn, messages, repo: meta.repo, base: meta.base, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn + 1), fetch: fetchWanted(meta, { fromGithub: body.fromGithub === true, autofix: body.autofix === true, review }), ...(meta.readOnly ? { readOnly: true } : {}), effort: pick.effort, prefs: machinePrefs(saved), hooks: machineHooks(saved), autoMode: machineAutoMode(saved), memory, memoryFiles, setup, github: body.fromGithub === true, away: body.fromGithub !== true && messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0, lastJob: lastJobFor(meta), environment, envMoved: meta.envMoved === true, cache: { make: copyOn && !copyWait, ...(copyWait ? { note: copyWait } : {}) }, ...(next.jobReplyTo ? { replyTo: next.jobReplyTo } : {}) }, useCopy ? { [FROM_COPY]: useCopy.snapshot, [FROM_COPY_GB]: String(Number(useCopy.size) || 0) } : {});
+      r = await post("/turn", { start: claim.id, secrets, egress, live, model: modelNow, extra: extraFor(meta), autoCompactWindow: Number.isInteger(meta.autoCompactWindow) ? meta.autoCompactWindow : 0, toolsPage: await toolChoicesOf(bucket, uid), ...connOn, project: id, chatUrl: chatLinkOf(env, id), coAuthor: await coAuthorFor(env, bucket, uid, fetchFn), emailMark: emailNow, cwd: typeof meta.cwd === "string" ? meta.cwd : "", mode: noAuto(normMode(meta.mode), saved), prePlanMode: noAuto(saved.mode === "acceptEdits" ? "acceptEdits" : "auto", saved), rules: await rulesOf(bucket, uid, meta.repo), ...sessionRulesOn(meta), ...customTitleOn(meta), ...wakeOn, ...scheduleOn, ...shellOn, ...compactOn, ...takeUpOn, ...bgOn, ...lastAtOn, ...clearOn, text: takeUp || wake || shell || compactJob ? "" : review ? review.text.split("BASE_BRANCH").join(meta.base) : (text || blankText) + fileMentions(text), shown: takeUp || wake || shell || compactJob ? "" : body.fromGithub === true && body.autofix !== true && typeof body.shown === "string" && body.shown.trim() ? body.shown.slice(0, 300) : body.autofix === true ? "Auto-fix: " + String((text.split("<<<GITHUB\n")[1] || text.split("\n").filter(Boolean)[1] || "").split("\n")[0]).slice(0, 160) : text || blankText, images: pics.images, ...attachedOn, messages, repo: meta.repo, base: meta.base, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn + 1), fetch: fetchWanted(meta, { fromGithub: body.fromGithub === true, autofix: body.autofix === true, review }), ...(meta.readOnly ? { readOnly: true } : {}), effort: pick.effort, prefs: machinePrefs(saved), hooks: machineHooks(saved), autoMode: machineAutoMode(saved), memory, memoryFiles, setup, github: body.fromGithub === true, away: body.fromGithub !== true && messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0, lastJob: lastJobFor(meta), environment, envMoved: meta.envMoved === true, cache: { make: copyOn && !copyWait, ...(copyWait ? { note: copyWait } : {}) }, ...(next.jobReplyTo ? { replyTo: next.jobReplyTo } : {}) }, useCopy ? { [FROM_COPY]: useCopy.snapshot, [FROM_COPY_GB]: String(Number(useCopy.size) || 0) } : {});
       } catch (e) {
         await notStarted();
         return json({ error: "Coder's machine could not be started (" + String((e && e.message) || e).replace(/\s+/g, " ").slice(0, 200) + "). Try again in a minute." }, 502);
