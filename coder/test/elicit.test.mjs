@@ -1220,7 +1220,7 @@ test("EL26 (round 6) a display name on the cards, as Claude Code sends its cloud
   const esc = (v) => String(v == null ? "" : v).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" }[c]));
   const grab = (name) => { const i = ui.indexOf("  function " + name + "("); const j = ui.indexOf("\n  }\n", i); return ui.slice(i, j + 4); };
   const S = { running: true, events: [], permSent: {}, project: null };
-  const { permHTML } = new Function("S", "esc", "prose", "ICON", "PERM_TITLE", "blockLeft", "ruleShown", grab("permOptions") + grab("permDone") + grab("permHTML") + "return { permHTML };")(S, esc, (x) => x, { plan: "P", term: "T" }, { connector: "Connector" }, () => "", (r) => r);
+  const { permHTML } = new Function("S", "esc", "prose", "ICON", "PERM_TITLE", "blockLeft", "ruleShown", "const GLOOPY = true; /* the full card; Coder's approval line: askcard.test.mjs */" + grab("permOptions") + grab("permDone") + grab("permHTML") + "return { permHTML };")(S, esc, (x) => x, { plan: "P", term: "T" }, { connector: "Connector" }, () => "", (r) => r);
   const pc = { type: "permission", pid: "p1", tool: "connector", what: "Use Linear: create_issue", displayName: "Create <Issue>" };
   assert.match(permHTML(pc), /<b>Connector<\/b><span class="cd-perm-dn" title="Create &lt;Issue&gt;">Create &lt;Issue&gt;<\/span><\/div>/);
   assert.doesNotMatch(permHTML({ ...pc, displayName: undefined }), /cd-perm-dn/);

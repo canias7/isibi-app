@@ -1987,6 +1987,8 @@
     // AN UNKNOWN COMMAND, AS IN CLAUDE CODE (its docs: "Enter submits your text as typed and reports Unknown command"): the box
     // empties and the chat says "Unknown command: /name", with a "Did you mean" when one is close; nothing goes to the AI.
     { const u = !GLOOPY ? unknownSlash(text) : null; if (u) { boxEmpty(); note('Unknown command: /' + u.name + (u.near ? ' · Did you mean ' + u.near + '?' : '')); return; } }
+    // A REPLY WHILE AN APPROVAL LINE WAITS (design 16): Deny, and the reply tells Coder what to do instead.
+    { const w = !GLOOPY && text && !(S.pics || []).length && !(S.attach || []).length ? permWaiting() : null; if (w) { S.permNotes = { ...(S.permNotes || {}), [w.pid]: text }; boxEmpty(); answerPerm(w.pid, 'no'); return; } }
     if (/^!\s*\S/.test(text)) rememberShell(text);
     // COMMENTS ON THE CHANGES go with the message; the server writes them in.
     const comments = S.comments.map((c) => ({ file: c.file, line: c.line, quote: c.quote, text: c.text }));
@@ -4998,6 +5000,91 @@
         '<div class="cd-secret-btns"><button type="button" class="cd-secret-no" data-secret-no="' + esc(e.host) + '"' + at + '>Decline</button><button type="button" class="cd-secret-save" data-secret-save="' + esc(e.host) + '"' + at + ' disabled>Save</button></div>'
       : '') + '</div>';
   }
+  // THE APPROVAL LINE (design 16, picked by the owner, 2026-11-24): a tool set to Ask is one quiet indented line in the chat:
+  // the tool's icon (GitHub's own mark for GitHub's tools), a short label with a small grey line under it, and small pills:
+  // a black "Allow ↵", a grey "Always for <the server's own rule>", a plain "Deny esc". A file edit's changes open under the
+  // line ("Show changes"); a long command's lines the same way. A reply typed in the box while it waits denies it and tells
+  // Coder what to do instead. Once answered: one quiet line, "Allowed once", "Denied: <reason>". Coder's chat only (Gloopy
+  // has no such card); the plan card and the question card keep their own look.
+  const PL_ICON = {
+    pencil: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg>',
+    globe: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z"/></svg>',
+    search: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg>',
+    file: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/></svg>',
+    plug: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 3v5M15 3v5M7 8h10v3a5 5 0 01-10 0zM12 16v5"/></svg>',
+    tool: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/></svg>',
+    term: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 8l4 4-4 4"/><path d="M12 16h7"/></svg>',
+    gh: ICON.gh,
+  };
+  // (GitHub's own tools, and a connector of GitHub's: its mark.)
+  const plIsGitHub = (e) => /^GitHub · /.test(PERM_TITLE[e.tool] || '') || (e.tool === 'connector' && /github/i.test(String(e.what || '') + ' ' + String(e.hookTool || '')));
+  // What the line says: its icon, its verb, its object (bold), its grey detail.
+  function permLine(e) {
+    const lines = Array.isArray(e.lines) ? e.lines.filter((l) => typeof l === 'string') : [];
+    const why = typeof e.why === 'string' ? e.why : '';
+    const after = (s) => { const t = String(s || ''); const k = t.indexOf(': '); return k > 0 ? t.slice(k + 2) : t; };
+    if (e.tool === 'bash' || e.tool === 'powershell') {
+      const hosts = Array.isArray(e.hosts) && e.hosts.length ? 'Also opens ' + e.hosts.join(', ') : '';
+      return { icon: PL_ICON.term, verb: e.tool === 'powershell' ? 'Run PowerShell' : 'Run', obj: lines[0] || '', mono: true, detail: [e.desc, lines.length > 1 ? lines.length + ' lines' : '', hosts, why].filter(Boolean), more: lines.length > 1 || Number(e.more) > 0 || !!hosts ? 'command' : '' };
+    }
+    if (e.tool === 'write' || e.tool === 'edit' || e.tool === 'notebook_edit') {
+      const all = e.change && Array.isArray(e.change.lines) ? e.change.lines.filter((l) => typeof l === 'string') : [];
+      const upd = !!(e.change && e.change.kind === 'update');
+      const add = upd ? all.filter((l) => l[0] === '+').length : all.length, del = upd ? all.filter((l) => l[0] === '-').length : 0;
+      const verb = e.tool === 'notebook_edit' ? 'Edit notebook' : e.tool === 'write' && !upd ? 'Create' : 'Edit';
+      return { icon: PL_ICON.pencil, verb, obj: e.path || '', mono: true, detail: [(add || del ? '+' + add + (del ? ' −' + del : '') + ' lines' : ''), why].filter(Boolean), more: 'changes' };
+    }
+    if (e.tool === 'web_fetch') { let host = ''; try { host = new URL(String(e.url)).host; } catch (er) { host = String(e.url || ''); } return { icon: PL_ICON.globe, verb: 'Fetch', obj: host, detail: [e.url, why].filter(Boolean) }; }
+    if (e.tool === 'web_search') return { icon: PL_ICON.search, verb: 'Search the web for', obj: after(e.what), detail: [why].filter(Boolean) };
+    if (e.tool === 'monitor') return { icon: PL_ICON.globe, verb: 'Watch', obj: e.url || '', mono: true, detail: [e.desc, why].filter(Boolean) };
+    if (/^(read|grep|glob|lsp)$/.test(e.tool || '')) return { icon: PL_ICON.file, verb: (PERM_TITLE[e.tool] || 'Read'), obj: e.path || '', mono: true, detail: [why].filter(Boolean) };
+    const gh = plIsGitHub(e);
+    if (e.tool === 'connector') {
+      const dn = typeof e.displayName === 'string' ? e.displayName.trim() : '';
+      return { icon: gh ? PL_ICON.gh : PL_ICON.plug, verb: dn || 'Use connector', obj: dn ? '' : after(e.what), detail: [dn ? e.what : '', why].filter(Boolean), gh };
+    }
+    const title = String(PERM_TITLE[e.tool] || 'Coder asks').replace(/^GitHub · /, '');
+    const w = String(e.what || ''), k = w.indexOf(': ');
+    return { icon: gh ? PL_ICON.gh : PL_ICON.tool, verb: title, obj: k > 0 ? w.slice(k + 2) : w, detail: [why].filter(Boolean), gh };
+  }
+  // The pills' short words; the whole of Claude Code's option is each one's title.
+  const PL_WORDS = { yes: 'Allow', claudeDir: 'Allow settings edits', auto: 'Switch to Auto', acceptEdits: 'Allow all edits', no: 'Deny' };
+  // The answer, in one quiet line.
+  function permAnswered(e, ans) {
+    const c = ans.choice;
+    const said = ans.comment ? ': ' + esc(ans.comment) : '';
+    const scope = (e.rules || []).map((r) => '<code>' + esc(ruleShown(r)) + '</code>').join(' and ');
+    if (c === 'closed') return '<span class="cd-perm-no">Closed</span> · you sent a new message before answering';
+    if (ans.hook === true) return c === 'yes' ? '<span class="cd-perm-ok">Allowed</span> by your PermissionRequest hook' : c === 'stop' ? '<span class="cd-perm-no">Stopped</span>' : '<span class="cd-perm-no">Denied</span> by your PermissionRequest hook';
+    if (c === 'yes') return '<span class="cd-perm-ok">Allowed once</span>' + said;
+    if (c === 'always') return '<span class="cd-perm-ok">Always allowed</span> for ' + scope;
+    if (c === 'acceptEdits') return '<span class="cd-perm-ok">Allowed</span> · Accept edits from now on';
+    if (c === 'claudeDir') return '<span class="cd-perm-ok">Allowed</span> · Coder may edit its own settings for this session';
+    if (c === 'auto') return '<span class="cd-perm-ok">Allowed</span> · switched to Auto';
+    if (c === 'no') return '<span class="cd-perm-no">Denied</span>' + said;
+    if (c === 'none' && Number(e.blockAt) > 0) return '<span class="cd-perm-no">Blocked</span> · no answer within 2 minutes';
+    return '<span class="cd-perm-no">' + (c === 'stop' ? 'Stopped' : 'No answer') + '</span>';
+  }
+  function permLineHTML(e, ans, live, sent, body) {
+    const L = permLine(e);
+    const open = !!(S.permOpen && S.permOpen[e.pid]);
+    const head = '<span class="cd-pl-ic' + (L.gh ? ' is-gh' : '') + '">' + L.icon + '</span><div class="cd-pl-main"><div class="cd-pl-t">' + esc(L.verb) + (L.obj ? ' <b' + (L.mono ? ' class="cd-pl-mono"' : '') + '>' + esc(L.obj) + '</b>' : '') + '</div>';
+    const toggle = L.more ? '<button type="button" class="cd-pl-tog" data-perm-open="' + esc(e.pid) + '" aria-expanded="' + open + '">' + (open ? 'Hide ' : 'Show ') + L.more + '</button>' : '';
+    const detail = L.detail.length || toggle ? '<div class="cd-pl-d">' + L.detail.map((d) => '<span>' + esc(d) + '</span>').join('<i>·</i>') + toggle + '</div>' : '';
+    const more = L.more && open ? '<div class="cd-pl-more">' + body + '</div>' : '';
+    if (!live) return '<div class="cd-perm cd-pl is-done" data-perm="' + esc(e.pid) + '" tabindex="-1">' + head + detail + more + (ans ? '<div class="cd-perm-done cd-pl-ans">' + permAnswered(e, ans) + '</div>' : '') + '</div></div>';
+    const opts = permOptions(e);
+    const pill = ([c, label]) => {
+      const words = c === 'always' ? 'Always for ' + (e.rules || []).map((r) => '<span class="cd-pl-mono">' + esc(ruleShown(r)) + '</span>').join(' and ') : esc(PL_WORDS[c] || c);
+      const key = c === 'yes' ? '<kbd>↵</kbd>' : c === 'no' ? '<kbd>esc</kbd>' : '';
+      const tip = String(label).replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+      return '<button type="button" class="cd-perm-opt cd-pl-btn is-' + c + (sent === c ? ' is-sent' : '') + '" data-perm-pid="' + esc(e.pid) + '" data-perm-choice="' + c + '" title="' + esc(tip) + '"' + (sent ? ' disabled' : '') + '><span>' + words + '</span>' + key + '</button>';
+    };
+    return '<div class="cd-perm cd-pl is-live" data-perm="' + esc(e.pid) + '" tabindex="-1" aria-label="Coder asks: ' + esc(L.verb + (L.obj ? ' ' + L.obj : '')) + '">' + head + detail + more +
+      '<div class="cd-perm-opts cd-pl-opts">' + opts.map(pill).join('') + '</div>' +
+      (S.permErr && S.permErr.pid === e.pid ? '<p class="cd-secret-err">' + esc(S.permErr.text) + '</p>' : '') +
+      '<div class="cd-ask-wait cd-pl-wait">Waiting for your approval</div></div></div>';
+  }
   function permHTML(e) {
     const ans = S.events.find((x) => x.type === 'permanswer' && x.pid === e.pid);
     const live = (S.running || !!(S.project && S.project.parked && S.project.parked.pid === e.pid)) && !ans;
@@ -5034,6 +5121,7 @@
     // A file a rule of the owner's asks about (Read(…) on a read or a search): its path.
     else if (/^(read|grep|glob|lsp)$/.test(e.tool || '')) body = '<pre class="cd-perm-pre">' + esc(e.path || '') + '</pre>';
     else body = '<p class="cd-perm-desc">' + esc(e.what || '') + '</p>';
+    if (!plan && !GLOOPY) return permLineHTML(e, ans, live, sent, body);
     const opts = permOptions(e);
     const note = (S.permNotes && S.permNotes[e.pid]) || '';
     // (A DISPLAY NAME at the heading's end, round 6, the owner: "do what claude code does": Claude Code sends its cloud page
@@ -5405,12 +5493,18 @@
     const last = [...S.events].reverse().find((e) => e && !(e.type === 'user' && e.local));
     return !!(last && last.type === 'question' && last.pid && !S.events.some((x) => x.type === 'permanswer' && x.pid === last.pid));
   }
+  // AN APPROVAL LINE WAITING ON YOU (design 16): the first one still open in Coder's chat. A reply typed in the box answers it
+  // as Deny, with the reply as what Coder should do instead.
+  function permWaiting() {
+    if (GLOOPY || !S.project || !Array.isArray(S.events)) return null;
+    return S.events.find((x) => x && x.type === 'permission' && x.tool !== 'plan' && x.pid && !(S.permSent && S.permSent[x.pid]) && (S.running || !!(S.project.parked && S.project.parked.pid === x.pid)) && !S.events.some((y) => y.type === 'permanswer' && y.pid === x.pid)) || null;
+  }
   function composerHTML() {
     const busy = (S.running && !S.ending) || S.sending;
     const m = MODELS.find((x) => x.id === S.pick.model) || MODELS[0];
     return '<div class="cd-composewrap">' + goalBarHTML() + btwHTML() + bgHTML() + slashHTML() + bangHTML() + mentionHTML() + commentsHTML() + picsHTML() + attachHTML() +
       '<form class="cd-compose' + (/^!/.test(S.draft || '') ? ' is-shell' : '') + '" id="cdForm">' +
-        '<textarea id="cdIn" rows="1"' + (suggestNow() ? ' class="has-suggest" data-suggest="' + esc(suggestNow()) + '"' : '') + ' placeholder="' + (suggestNow() ? esc(suggestNow()) : S.ending && !S.sending && !GLOOPY ? 'Saving to the branch… a message now goes out right after' : busy ? (GLOOPY ? 'Gloopy is working… you can close this tab' : 'Enter to send, Ctrl+Enter to queue for later') : GLOOPY ? 'Ask Gloopy anything' : 'Ask Coder to build, fix or explain something · @ for a file') + '">' + esc(S.draft) + '</textarea>' +
+        '<textarea id="cdIn" rows="1"' + (suggestNow() ? ' class="has-suggest" data-suggest="' + esc(suggestNow()) + '"' : '') + ' placeholder="' + (permWaiting() ? 'Tell Coder what to do instead' : suggestNow() ? esc(suggestNow()) : S.ending && !S.sending && !GLOOPY ? 'Saving to the branch… a message now goes out right after' : busy ? (GLOOPY ? 'Gloopy is working… you can close this tab' : 'Enter to send, Ctrl+Enter to queue for later') : GLOOPY ? 'Ask Gloopy anything' : 'Ask Coder to build, fix or explain something · @ for a file') + '">' + esc(S.draft) + '</textarea>' +
         '<button type="button" class="cd-attach" id="cdAttach" aria-label="' + (GLOOPY ? 'Attach a file' : 'Attach files') + '" title="' + (GLOOPY ? 'Attach a file or a picture' : 'Attach files or pictures (or paste them)') + '">' + ICON.clip + '</button><input type="file" id="cdFile" accept="' + (GLOOPY ? 'image/png,image/jpeg,image/webp,image/gif,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.odt,.ods,.odp,.rtf,.txt,.md,.csv,.tsv,.json,.xml,.yaml,.yml,.html,.htm,.ics,.vcf,.eml,.ipynb,.log,.zip,.mp3,.m4a,.wav,.mp4,.mov,.webm,.heic,.svg' : '') + '" multiple hidden>' +
         // (And while a card Coder's paused job left open waits, as while its job ran: Stop closes the card. coder-park.mjs.)
         (waitsOnYou()
@@ -5419,6 +5513,7 @@
           ? '<button type="submit" class="cd-send cd-queue-send" aria-label="Send (it waits for Coder)" title="Send: Coder reads it once its running steps finish"' + (S.queueSending ? ' disabled' : '') + '>' + ICON.send + '</button><button type="button" class="cd-send cd-stop" id="cdStop" aria-label="Stop">' + ICON.stop + '</button>'
           : '<button type="submit" class="cd-send" aria-label="Send"' + (S.sending || S.queueSending || S.rewinding ? ' disabled' : '') + '>' + ICON.send + '</button>') +
       '</form>' +
+      (permWaiting() ? '<div class="cd-permhint" role="note">Reply to deny and tell Coder what to do instead</div>' : '') +
       // SHELL MODE (tool 4, part 3, like Claude Code's "! npm test"): the box says so while the message starts with "!".
       '<div class="cd-shellhint" role="note">Shell mode: runs this command on Coder\'s machine, then Coder answers what it printed · Tab completes</div>' +
       '<div class="cd-picks">' +
@@ -6406,8 +6501,15 @@
       if (e.target.matches && e.target.matches('input, textarea')) return;
       const opts = e.currentTarget.querySelectorAll('[data-perm-choice]');
       const k = Number(e.key);
-      if (k >= 1 && k <= opts.length && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); opts[k - 1].click(); }
+      if (k >= 1 && k <= opts.length && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); opts[k - 1].click(); return; }
+      // (The approval line's keys, design 16: Enter allows once, Cmd or Ctrl+Enter always, Esc denies.)
+      if (!e.currentTarget.classList.contains('cd-pl')) return;
+      const pick = (c) => e.currentTarget.querySelector('[data-perm-choice="' + c + '"]:not(:disabled)');
+      const b = e.key === 'Enter' && (e.metaKey || e.ctrlKey) ? pick('always') : e.key === 'Enter' && !e.altKey && !e.shiftKey && !(e.target.matches && e.target.matches('button')) ? pick('yes') : e.key === 'Escape' ? pick('no') : null;
+      if (b) { e.preventDefault(); e.stopPropagation(); b.click(); }
     });
+    // (A file edit's changes, or a long command, opened under its approval line.)
+    on('[data-perm-open]', 'click', (e) => { const pid = e.currentTarget.dataset.permOpen; S.permOpen = { ...(S.permOpen || {}), [pid]: !(S.permOpen && S.permOpen[pid]) }; draw(); const c = S.root.querySelector('.cd-pl[data-perm="' + CSS.escape(pid) + '"]'); if (c) try { c.focus({ preventScroll: true }); } catch (er) { /* older browsers */ } });
     // A card that just came: in front, unless the owner is typing a message.
     const liveCard = root.querySelector('.cd-perm.is-live');
     if (liveCard && S.permFocus !== liveCard.dataset.perm) {

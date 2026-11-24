@@ -581,6 +581,29 @@ body.gf-side-open .gf-scrim { background: rgba(222, 225, 228, 0.25) }
 .cd-perm-no { color: #d96e68 }
 .cd-plan-body { border: 1px solid #484642; background: #292826 }
 .cd-plan-edit { color: #84add5 }
+.cd-perm.cd-pl { border-left: 2px solid #4d4b46 }
+.cd-perm.cd-pl.is-live { border-left-color: #e2e1e0 }
+.cd-perm.cd-pl:focus-visible { outline: 2px solid #57554f }
+.cd-pl-ic { color: #ecebeb }
+.cd-pl-t { color: #ecebeb }
+.cd-pl-d { color: #85837f }
+.cd-pl-d i { color: #888377 }
+.cd-pl-tog { color: #ecebeb; text-decoration-color: #57554f }
+.cd-pl-tog:hover, .cd-pl-tog:focus-visible { text-decoration-color: #e2e1e0 }
+.cd-pl .cd-perm-opt.cd-pl-btn { background: #33322f; color: #ecebeb }
+.cd-pl .cd-perm-opt.cd-pl-btn:hover:not(:disabled), .cd-pl .cd-perm-opt.cd-pl-btn:focus-visible { background: #3a3935 }
+.cd-pl .cd-perm-opt.cd-pl-btn.is-yes { background: #e1e0df; color: #212121 }
+.cd-pl .cd-perm-opt.cd-pl-btn.is-yes:hover:not(:disabled), .cd-pl .cd-perm-opt.cd-pl-btn.is-yes:focus-visible { background: #d5d5d2 }
+.cd-pl .cd-perm-opt.cd-pl-btn.is-yes kbd { background: rgba(37, 37, 37, 0.16); color: #212121 }
+.cd-pl .cd-perm-opt.cd-pl-btn.is-no { color: #a3a29e }
+.cd-pl .cd-perm-opt.cd-pl-btn.is-no:hover:not(:disabled), .cd-pl .cd-perm-opt.cd-pl-btn.is-no:focus-visible { background: #2f2e2c; color: #ecebeb }
+.cd-pl .cd-perm-opt.cd-pl-btn kbd { background: #373532; color: #85837f }
+.cd-pl .cd-perm-opt.cd-pl-btn.is-sent { box-shadow: 0 0 0 2px #e2e1e0 }
+.cd-pl .cd-ask-wait.cd-pl-wait { color: #85837f }
+.cd-pl.is-done .cd-pl-t { color: #a3a29e }
+.cd-pl .cd-perm-done.cd-pl-ans { color: #85837f }
+.cd-pl .cd-pl-ans .cd-perm-ok, .cd-pl .cd-pl-ans .cd-perm-no { color: #ecebeb }
+.cd-permhint { color: #85837f }
 .cd-st-wait { color: #e4c394 }
 .cd-rules-h { color: #ecebeb }
 .cd-rules-h span { color: #a3a29e }

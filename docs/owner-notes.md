@@ -5,6 +5,17 @@ The owner's running log, newest first, in plain English. Started fresh on
 log (81,000 lines) is in git history.
 
 
+## 2026-11-24: Coder's approval card is now design 16
+
+The card shown when a tool is set to Ask is now one quiet indented line in the chat, in black and white: the tool's icon
+(GitHub's own mark for GitHub tools), a short label such as "Create pull request Fix login redirect loop" with a small grey
+line under it, and small pills: a black "Allow ↵", a grey "Always for <the exact rule>" and a plain "Deny esc". Enter allows,
+Cmd/Ctrl+Enter always allows, Esc denies. A file edit has a small "Show changes" link that opens the diff under the line.
+Typing a reply in the box while it waits denies it and tells Coder what to do instead (the line under the box says so).
+Once answered it becomes one quiet line: "Allowed once", "Always allowed for …", "Denied: <your reply>". Hooks, the
+waiting state, several cards at once and the sidebar dot work as before. The plan card, the question card and Gloopy are
+unchanged. Tests: `coder/test/askcard.test.mjs` (real clicks and keys).
+
 ## 2026-11-24: GitHub is now a built-in connector
 
 Not deployed yet: it's on the work-ghconn branch. Not tried live on gofarther.dev yet: tried in a test browser with real clicks. Screenshots are in the session's ghconn-shots folder.

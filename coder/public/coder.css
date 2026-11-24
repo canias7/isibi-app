@@ -960,6 +960,42 @@
 .cd-plan-body { border: 1px solid #ece9e2; border-radius: 10px; padding: 4px 14px; background: #fdfcfa; max-height: 420px; overflow: auto; font-size: 14px; }
 /* The plan edited on its card before it is approved (Claude Code's "edit it directly before Claude proceeds", 2026-11-14). */
 .cd-plan-edit { border: 0; background: none; padding: 6px 0 0; font: 500 12.5px Inter, system-ui, sans-serif; color: #2f5d8a; cursor: pointer; }
+/* THE APPROVAL LINE (design 16, the owner, 2026-11-24): one quiet indented line in Coder's chat, black and white. */
+.cd-perm.cd-pl { display: flex; align-items: flex-start; gap: 12px; border: 0; border-left: 2px solid #e5e3dd; border-radius: 0; background: transparent; box-shadow: none; margin: 10px 0 12px; padding: 2px 0 2px 16px; max-width: 640px; }
+.cd-perm.cd-pl.is-live { border-left-color: #1f1e1d; box-shadow: none; }
+.cd-perm.cd-pl:focus-visible { outline: 2px solid #d9d6cf; outline-offset: 4px; border-radius: 4px; }
+.cd-pl-ic { flex: none; display: inline-flex; width: 20px; height: 22px; align-items: center; justify-content: center; color: #1f1e1d; }
+.cd-pl-ic svg { width: 17px; height: 17px; }
+.cd-pl-main { flex: 1; min-width: 0; }
+.cd-pl-t { font-size: 14.5px; line-height: 22px; color: #1f1e1d; overflow-wrap: anywhere; }
+.cd-pl-t b { font-weight: 600; }
+.cd-pl-mono { font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .9em; }
+.cd-pl-d { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 6px; font-size: 12.5px; line-height: 1.5; color: #8a8884; margin-top: 1px; overflow-wrap: anywhere; }
+.cd-pl-d i { font-style: normal; color: #b5b2ab; }
+.cd-pl-tog { border: 0; background: none; padding: 0; margin-left: 4px; font: 500 12.5px Inter, system-ui, sans-serif; color: #1f1e1d; text-decoration: underline; text-decoration-color: #d9d6cf; text-underline-offset: 3px; cursor: pointer; }
+.cd-pl-tog:hover, .cd-pl-tog:focus-visible { text-decoration-color: #1f1e1d; outline: none; }
+.cd-pl-more { margin-top: 8px; }
+.cd-pl-more > .cd-perm-desc:first-child:not(.cd-perm-hosts) { display: none; }
+.cd-pl-more .cd-perm-pre { margin-bottom: 4px; }
+.cd-perm-opts.cd-pl-opts { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 10px; }
+.cd-pl .cd-perm-opt.cd-pl-btn { width: auto; display: inline-flex; gap: 7px; border: 0; border-radius: 999px; padding: 6px 13px; font: 600 13px Inter, system-ui, sans-serif; background: #f0ede7; color: #1f1e1d; white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.cd-pl .cd-perm-opt.cd-pl-btn > span { overflow: hidden; text-overflow: ellipsis; }
+.cd-pl .cd-perm-opt.cd-pl-btn:hover:not(:disabled), .cd-pl .cd-perm-opt.cd-pl-btn:focus-visible { background: #e5e3dd; outline: none; }
+.cd-pl .cd-perm-opt.cd-pl-btn.is-yes { background: #1f1e1d; color: #fff; }
+.cd-pl .cd-perm-opt.cd-pl-btn.is-yes:hover:not(:disabled), .cd-pl .cd-perm-opt.cd-pl-btn.is-yes:focus-visible { background: #3a3936; }
+.cd-pl .cd-perm-opt.cd-pl-btn.is-yes kbd { background: rgba(255,255,255,.16); border: 0; color: #fff; }
+.cd-pl .cd-perm-opt.cd-pl-btn.is-no { background: transparent; color: #6b6a66; font-weight: 500; padding-left: 8px; padding-right: 8px; }
+.cd-pl .cd-perm-opt.cd-pl-btn.is-no:hover:not(:disabled), .cd-pl .cd-perm-opt.cd-pl-btn.is-no:focus-visible { background: #f5f3ee; color: #1f1e1d; }
+.cd-pl .cd-perm-opt.cd-pl-btn kbd { border: 0; background: #ebe8e1; color: #8a8884; padding: 1px 5px; min-width: 0; }
+.cd-pl .cd-perm-opt.cd-pl-btn.is-sent { box-shadow: 0 0 0 2px #1f1e1d; }
+.cd-pl .cd-perm-opt.cd-pl-btn:disabled:not(.is-sent) { opacity: .45; }
+.cd-pl .cd-ask-wait.cd-pl-wait { display: block; background: none; padding: 0; margin: 8px 0 0; font-size: 12px; font-weight: 500; color: #8a8884; }
+.cd-pl .cd-ask-wait.cd-pl-wait::before { display: none; }
+.cd-perm.cd-pl.is-done { opacity: 1; }
+.cd-pl.is-done .cd-pl-t { color: #6b6a66; }
+.cd-pl .cd-perm-done.cd-pl-ans { font-size: 12.5px; color: #8a8884; margin-top: 3px; }
+.cd-pl .cd-pl-ans .cd-perm-ok, .cd-pl .cd-pl-ans .cd-perm-no { color: #1f1e1d; font-weight: 600; }
+.cd-permhint { font-size: 12px; color: #8a8884; text-align: center; margin: 6px 0 0; }
 .cd-plan-edit:hover, .cd-plan-edit:focus-visible { text-decoration: underline; outline: none; }
 .cd-plan-text { margin-top: 0; font: 12.5px/1.5 "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace; resize: vertical; min-height: 160px; max-height: 420px; }
 .cd-st-wait { color: #9a5b00; font-weight: 600; }
@@ -1625,3 +1661,4 @@ button.cd-vault-tab:hover:not(.is-on){background:#f6f6f6}
 #gfApp .cd-picks .cd-pick-ro.cd-pick-branch + .cd-pick-ro.cd-pick-env { padding-left: 4px; }
 #gfApp .cd-changes-loading { display: flex; align-items: center; gap: 8px; color: #8a857d; font-size: 13px; margin: 10px 2px; }
 #gfApp .cd-st-why { flex: 0 1 auto; min-width: 0; margin-left: 6px; color: #8a857d; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 320px; }
+

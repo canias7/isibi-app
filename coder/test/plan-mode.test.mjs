@@ -538,7 +538,7 @@ test("PM17 the plan's card as the page draws it (its own functions): the plan wi
   const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
   const prose = new Function("esc", grab("noColor") + grab("inline") + grab("blocks") + grab("prose") + "return prose;")(esc);
   const S = { events: [], running: true };
-  const { permOptions, permHTML } = new Function("S", "esc", "prose", "ICON", "PERM_TITLE", "blockLeft", "ruleShown", "const CARD_FIRST = 40;" + grab("cardShown") + grab("cardMore") + grab("permOptions") + grab("permDone") + grab("permHTML") + "return { permOptions, permHTML };")(S, esc, prose, { plan: "P", term: "T" }, {}, () => "", (r) => r);
+  const { permOptions, permHTML } = new Function("S", "esc", "prose", "ICON", "PERM_TITLE", "blockLeft", "ruleShown", "const GLOOPY = true; /* the full card; Coder's approval line: askcard.test.mjs */" + "const CARD_FIRST = 40;" + grab("cardShown") + grab("cardMore") + grab("permOptions") + grab("permDone") + grab("permHTML") + "return { permOptions, permHTML };")(S, esc, prose, { plan: "P", term: "T" }, {}, () => "", (r) => r);
   const card = { type: "permission", pid: "p1abc", tool: "plan", plan: "## Context\nFix the cart.\n" };
   S.events = [card];
   let h = permHTML(card);
