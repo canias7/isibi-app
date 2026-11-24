@@ -19,6 +19,9 @@ export const CC_NAMES = Object.freeze({ enter_worktree: "EnterWorktree", exit_wo
 
 /** Where the worktrees go, inside the repository (Claude Code's). */
 export const WORKTREE_DIR = ".claude/worktrees";
+/** A save's nested repository that is one of Coder's own worktrees (under .claude/worktrees/): kept out of the save without a
+ * "Not saved" line, as Claude Code shows none for its worktrees (live test, 2026-11-24). Other nested repositories are still named. */
+export const ownWorktreePath = (p) => { const x = String(p || "").replace(/^\.\//, ""); return x.startsWith(WORKTREE_DIR + "/") && x.length > WORKTREE_DIR.length + 1 && !x.split("/").includes(".."); };
 /** What a chat that ended answers to a new message (Claude Code's words, with "chat" for its session commands). */
 export const ENDED_TEXT = "Coder ended this conversation. Start a new chat (or /clear) to continue.";
 /** At most this many draft cards a chat; after that only a count of queued drafts (Claude Code: "at most three cards in a session"). */

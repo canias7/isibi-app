@@ -1564,7 +1564,7 @@ export async function handleCoder(request, env, ctx, deps) {
     const saved = await getJson(bucket, settingsKey(uid), {});
     // (`mode`: the permission mode new chats start in: the last one picked other than Plan, as in Claude Code's desktop app
     // and VS Code, where "Picking Plan … applies to that conversation only".)
-    const startMode = (m) => noAuto(m === "acceptEdits" ? "acceptEdits" : "auto", saved);
+    const startMode = (m) => noAuto(m === "acceptEdits" || m === "default" ? m : "auto", saved);
     if (request.method === "GET") return json({ ok: true, models: CODER_MODELS, pick: { ...pickModel(saved.model, savedEffort(saved)), mode: startMode(saved.mode) }, prefs: prefsOf(saved) });
     if (request.method !== "POST") return json({ error: "method" }, 405);
     let body = {}; try { body = await request.json(); } catch { body = {}; }
@@ -1738,7 +1738,7 @@ export async function handleCoder(request, env, ctx, deps) {
     // ITS PERMISSION MODE (Claude Code's cloud sessions: picked "both when you create the task and while the session
     // runs"): the one picked on the new chat's page, else the account's last pick (never Plan, which is for one chat).
     const picks = await getJson(bucket, settingsKey(uid), {});
-    const mode = noAuto(MODES.includes(body.mode) ? body.mode : picks.mode === "acceptEdits" ? "acceptEdits" : "auto", picks);
+    const mode = noAuto(MODES.includes(body.mode) ? body.mode : picks.mode === "acceptEdits" || picks.mode === "default" ? picks.mode : "auto", picks);
     const meta = { id, name: repo, repo, title: "", base, branch: "coder/" + id, turn: 0, saved: 0, status: "idle", pr: null, at: Date.now(), envId, mode, ...(r.readOnly ? { readOnly: true } : {}) };
     await saveMeta(bucket, uid, meta);
     // Whose this branch is, so GitHub's news about its pull request (failed
@@ -2341,7 +2341,7 @@ export async function handleCoder(request, env, ctx, deps) {
   // other than Plan is also where new chats start.
   if (action === "mode" && request.method === "POST") {
     let body = {}; try { body = await request.json(); } catch { body = {}; }
-    if (!MODES.includes(body.mode)) return json({ error: "the modes are Auto, Accept edits and Plan" }, 400);
+    if (!MODES.includes(body.mode)) return json({ error: "the modes are Manual, Auto, Accept edits and Plan" }, 400);
     if (body.mode === "auto" && prefsOf(await getJson(bucket, settingsKey(uid), {})).autoOff) return json({ error: "Auto mode is turned off in Settings." }, 400);
     const next = await saveMode(bucket, uid, id, body.mode);
     if (body.mode !== "plan") { const picks = await getJson(bucket, settingsKey(uid), {}); if (picks.mode !== body.mode) await putJson(bucket, settingsKey(uid), { ...picks, mode: body.mode }); }

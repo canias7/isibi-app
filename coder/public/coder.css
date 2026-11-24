@@ -1526,3 +1526,7 @@ button.cd-vault-tab:hover:not(.is-on){background:#f6f6f6}
 #gfApp .cd-goalline small{display:block;color:#59607a;font-size:12px;margin-top:2px;white-space:pre-wrap}
 #gfApp .cd-goalline.is-met{color:#17663a;border-color:#3aa66a;background:#eefaf2}
 #gfApp .cd-goalline.is-impossible,#gfApp .cd-goalline.is-stalled,#gfApp .cd-goalline.is-paused{color:#9a5b00;border-color:#e8a10c;background:#fdf6e6}
+/* SendUserFile's display "render" (2026-11-24): a picture shown under its file card; a click opens the preview. */
+#gfApp .cd-filecard-inline{display:block;max-width:460px;margin:-2px 0 8px;padding:0;border:1px solid #e5e2dc;border-radius:12px;background:#fff;overflow:hidden;cursor:zoom-in}
+#gfApp .cd-filecard-inline img{display:block;max-width:100%;max-height:360px;margin:0 auto;object-fit:contain}
+#gfApp .cd-mode-btn.is-default{color:#9a5b00}

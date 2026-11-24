@@ -5,6 +5,22 @@ The owner's running log, newest first, in plain English. Started fresh on
 log (81,000 lines) is in git history.
 
 
+## 2026-11-24: The "not done yet" tools, built
+
+From your tools comparison, the rows still marked as different from Claude Code that Coder could do:
+- **Manual mode.** The mode menu now has a fourth choice, Manual ("Ask before edits and commands"), which is Claude Code's normal mode. Coder asks you before every file edit, every command that isn't read-only, every page fetch and web search, workflows and its own changing tools (pull requests and the like). On an edit card, "Yes, allow all edits during this session" switches the chat to Accept edits. Your allow rules still skip the questions.
+- **A full disk** now stops a command before it starts, with a "Disk full" line saying how to free space (as Claude Code does).
+- **Python environments:** set `CODER_PYTHON_ENV` (for example `.venv`) in the environment's variables and that virtualenv is switched on for every command, as if you had activated it before starting Claude Code.
+- **Read's details for hooks** now also cover pictures and PDFs, in Claude Code's shapes.
+- **Artifacts** accept Claude Code's old `favicon` input (it is ignored; `icon` names the icon).
+- **Feedback drafts** expire sooner when a repository sets `cleanupPeriodDays` below 30.
+- **Workflows:** Claude Code's built-in `deep-research` workflow is there by name, and a workflow run can be resumed from a later message in the same chat.
+- **Subagents** now show you their permission cards (marked with the agent's name) instead of being refused.
+- **Files Coder sends you:** a picture sent to be shown ("render") now appears in the chat under its card by itself.
+- **Small fix from the live test:** after enter_worktree, the chat no longer says "Not saved: .claude/worktrees/…". Other folders with their own git repository are still named.
+
+Skipped, as they need your decision: messages between chats (paid runs), Claude models, the web search limits per chat and per message, the GitHub checker-off fetch rule, and the grep/glob defaults. Tests: `coder/test/notdone-1124.test.mjs`. Not pushed or deployed yet.
+
 ## 2026-11-24: Live retest of the four fixes
 
 All four fixes work on gofarther.dev (Grok, effort Low: 4 messages plus the one auto-fix job):

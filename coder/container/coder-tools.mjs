@@ -451,7 +451,7 @@ export async function readCapped(abs, cap) {
     return Buffer.concat(parts);
   } finally { await fh.close(); }
 }
-async function readPicture(abs, rel, kind) {
+async function readPicture(abs, rel, kind, facts = false) {
   const st = await stat(abs);
   if (st.isDirectory()) fail(folderError(abs));
   if (st.isFile() && st.size > PIC_MAX_BYTES) fail(picTooLarge(rel));
@@ -476,9 +476,31 @@ async function readPicture(abs, rel, kind) {
   // (A picture too small for Grok was enlarged, picMinFit: its real size is said, and how it was shown.)
   const bigger = !smaller && real && p.w && p.h && (p.w > real.w || p.h > real.h);
   const thumb = await thumbOf(buf, kind);
-  return withPics("Picture: " + rel + " (" + (smaller || bigger ? real.w + "×" + real.h : shown ? shown : "") + (smaller || bigger || shown ? ", " : "") + kind.toUpperCase() + ", " + kb(size) + "), shown to you as a picture after these results" +
+  const text = withPics("Picture: " + rel + " (" + (smaller || bigger ? real.w + "×" + real.h : shown ? shown : "") + (smaller || bigger || shown ? ", " : "") + kind.toUpperCase() + ", " + kb(size) + "), shown to you as a picture after these results" +
     (smaller ? ", made smaller (" + shown + "; multiply coordinates by " + (Math.max(real.w, real.h) / Math.max(p.w, p.h)).toFixed(2) + " to map them to the real picture): for fine detail, crop the part you need with ImageMagick into the scratch folder (e.g. mkdir -p " + SCRATCH + " && convert " + shq(rel) + " -crop 800x600+0+0 " + SCRATCH + "/part.png) and read the crop."
       : bigger ? ", enlarged to " + shown + " because Grok takes no picture under " + PIC_MIN_SIDE + " pixels a side or " + PIC_MIN_PIXELS + " in all: each pixel became a block, with a white margin where a side was still short." : "."), [p], thumb ? { thumb } : {});
+  return facts ? { text, facts: pictureFacts(p, size, real) } : text;
+}
+/**
+ * A PICTURE READ'S RESULT OBJECT FOR THE POSTTOOLUSE HOOKS (Claude Code's Read output for an image, 2026-11-24): { type:
+ * "image", file: { base64, type (image/jpeg, image/png, image/gif or image/webp), originalSize (bytes), dimensions } }, the
+ * picture as Grok was given it; dimensions are the real size and the size shown, when known.
+ */
+export function pictureFacts(p, size, real) {
+  const dims = { ...(real && real.w ? { originalWidth: real.w, originalHeight: real.h } : {}), ...(p && p.w ? { displayWidth: p.w, displayHeight: p.h } : {}) };
+  return { type: "image", file: { base64: String((p && p.data) || ""), type: String((p && p.type) || "image/png"), originalSize: Number(size) || 0, ...(Object.keys(dims).length ? { dimensions: dims } : {}) } };
+}
+/** The most of a PDF a "pdf" result object carries as base64 (bigger, the "parts" form). */
+export const PDF_FACTS_MAX = 4 * 1024 * 1024;
+/**
+ * A PDF READ'S RESULT OBJECT FOR THE POSTTOOLUSE HOOKS (Claude Code's Read output, 2026-11-24): a whole small PDF read without
+ * pages is { type: "pdf", file: { filePath, base64, originalSize } }; with pages (or a big one), { type: "parts", file: {
+ * filePath, originalSize, count, outputDir }, firstPage }: the page pictures, written to outputDir; as in Claude Code, the
+ * pictures' bytes are not on the object.
+ */
+export function pdfFacts({ abs, bytes = null, size = 0, asked = false, count = 0, outputDir = "", firstPage = 1 }) {
+  if (!asked && bytes && bytes.length <= PDF_FACTS_MAX) return { type: "pdf", file: { filePath: abs, base64: bytes.toString("base64"), originalSize: Number(size) || bytes.length } };
+  return { type: "parts", file: { filePath: abs, originalSize: Number(size) || 0, count, outputDir }, firstPage };
 }
 
 /** "3", "2-7" (or "2–7") within 1..total: [from, to], or null. */
@@ -511,7 +533,7 @@ const PDF_PAGES_PY = [
   "  pass",
 ].join("\n");
 
-async function readPdf(abs, rel, pages) {
+async function readPdf(abs, rel, pages, facts = false) {
   await fileSize(abs, rel, READ_MAX_BYTES);
   const info = await runProg("pdfinfo", [abs]);
   if (info.code === -2) fail("this machine has no PDF reader (poppler); use bash");
@@ -552,7 +574,14 @@ async function readPdf(abs, rel, pages) {
     let text = parts.join("\n\n");
     if (text.length > READ_TEXT_MAX) text = text.slice(0, READ_TEXT_MAX) + "\n[cut: the rest of these pages did not fit; read fewer pages at a time]";
     const thumbs = await thumbsOf(pictures);
-    return withPics(text, pictures, thumbs.length ? { thumbs } : {});
+    const answer = withPics(text, pictures, thumbs.length ? { thumbs } : {});
+    if (!facts) return answer;
+    const size = (await stat(abs)).size;
+    if (!asked && size <= PDF_FACTS_MAX) return { text: answer, facts: pdfFacts({ abs, bytes: await readFile(abs), size }) };
+    // (The page pictures kept in the scratch folder, as Claude Code's parts form keeps its extracted pages in outputDir.)
+    let outputDir = "";
+    try { outputDir = join(SCRATCH, "read-pages-" + randomBytes(4).toString("hex")); await mkdir(outputDir, { recursive: true }); for (const [k, p] of pictures.entries()) await writeFile(join(outputDir, "page-" + (range[0] + k) + "." + (p.type === "image/jpeg" ? "jpg" : "png")), Buffer.from(p.data, "base64")); } catch { outputDir = ""; }
+    return { text: answer, facts: pdfFacts({ abs, size, asked: true, count: pictures.length, outputDir, firstPage: range[0] }) };
   } finally { await rm(dir, { recursive: true, force: true }).catch(() => {}); }
 }
 
@@ -859,8 +888,8 @@ export async function toolRead({ path, offset, limit, pages = "", allow_large = 
   // (A picture's name on a pipe or a device is read, up to 128 MB, as Claude Code's Read does: readPicture.)
   if (!kind.isFile() && !kind.isDirectory() && !PIC_KINDS[extname(abs).toLowerCase()]) fail(rel + " is a pipe or a device, not a file; it cannot be read");
   const ext = extname(abs).toLowerCase();
-  if (PIC_KINDS[ext]) return readPicture(abs, rel, PIC_KINDS[ext]);
-  if (ext === ".pdf") return readPdf(abs, rel, pages);
+  if (PIC_KINDS[ext]) return readPicture(abs, rel, PIC_KINDS[ext], facts === true);
+  if (ext === ".pdf") return readPdf(abs, rel, pages, facts === true);
   if (kind.isFile() && binaryExt(abs)) fail(BINARY_REFUSED(ext));
   if (ext === ".ipynb") {
     await plainText(abs, rel, NOTEBOOK_MAX_BYTES, "read some of its cells with bash, e.g. jq '.cells[0:10]' " + rel);

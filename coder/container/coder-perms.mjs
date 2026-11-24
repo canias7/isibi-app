@@ -22,10 +22,13 @@ import { REMOTE_TOOL_NAMES, remoteAliases } from "./coder-envtools.mjs";
 export { fileRuleHit, readRuleFor } from "./coder-filerules.mjs";
 // (No node: modules here: Coder's Worker loads this file too, for the modes and the rules.)
 
-export const MODES = ["auto", "acceptEdits", "plan"];
-export const MODE_NAMES = { auto: "Auto", acceptEdits: "Accept edits", plan: "Plan" };
+// MANUAL (2026-11-24; Claude Code's "default" mode, its tools table's "Permission required" column): reads and the read-only
+// set run; every file edit, every other command, a page fetch, a web search and Coder's other tools that change something ask
+// first, unless an allow rule covers them. Kept as "default", Claude Code's own name for it in settings and hooks.
+export const MODES = ["auto", "acceptEdits", "plan", "default"];
+export const MODE_NAMES = { auto: "Auto", acceptEdits: "Accept edits", plan: "Plan", default: "Manual" };
 /** The menu's lines (the Claude app's, with Coder's name). */
-export const MODE_INFO = { auto: "Coder handles permission decisions", acceptEdits: "Automatically accept all file edits", plan: "Create a plan before making changes" };
+export const MODE_INFO = { auto: "Coder handles permission decisions", acceptEdits: "Automatically accept all file edits", plan: "Create a plan before making changes", default: "Ask before edits and commands" };
 export function normMode(m) { return MODES.includes(m) ? m : "auto"; }
 
 // ── CLAUDE CODE'S SAFE OPTIONS ───────────────────────────────────────────────
@@ -1730,8 +1733,9 @@ export function bashDecision(command, { mode = "auto", rules = {}, cwd = "/", wo
   const editOk = (p) => !!p && !!fileRuleHit(rules.allow, "Edit", p, "allow", fctx);
   // (Accept edits lets commands change files only as Claude Code's real acceptEdits: in its cloud sessions the mode is
   // "default" for commands, unless the repository's settings say acceptEdits: `byCommand`, Bash docs pass 8.)
+  // (Manual, Claude Code's "default": as Accept edits is for commands in its cloud sessions, cloudDefault.)
   const editsOk = normMode(mode) === "acceptEdits" && byCommand !== false;
-  const cloudDefault = normMode(mode) === "acceptEdits" && byCommand === false;
+  const cloudDefault = (normMode(mode) === "acceptEdits" && byCommand === false) || normMode(mode) === "default";
   // (When Claude Code's checks of the whole text caught it first, theirs is the reason, as its ct() runs before its parser:
   // `ls <1-5>` asks with "Contains zsh <N-M> numeric-range glob", not "Parse error". Bash docs pass 9.)
   if (!read.ok) return { verdict: "ask", why: (Array.isArray(read.complex) && read.complex[0]) || PARSE_ERROR, suggest: null };

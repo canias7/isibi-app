@@ -81,7 +81,7 @@ const capsWords = "at most 3 subagents run at the same time and at most 10 in al
 /** Claude Code's Agent tool, its inputs (AgentInput) and its description, in Coder's words. */
 export const AGENT_TOOL = Object.freeze({ type: "function", function: {
   name: "agent",
-  description: "Launch a new agent to handle complex, multi-step tasks autonomously.\n\nThe agent tool launches specialized agents (subprocesses) that autonomously handle complex tasks. Each agent type has specific capabilities and tools available to it.\n\nAvailable agent types and the tools they have access to:\n- general-purpose: " + AGENT_TYPES["general-purpose"].description + " (Tools: bash, read, edit, write, notebook_edit, grep, glob, web_fetch, web_search, agent)\n- Explore: " + AGENT_TYPES.Explore.description + " (Tools: bash, read, grep, glob, web_fetch, web_search)\n- Plan: " + AGENT_TYPES.Plan.description + " (Tools: bash, read, grep, glob, web_fetch, web_search)\n- web-fetch: " + AGENT_TYPES["web-fetch"].description + " (Tools: web_fetch)\n- the repository's custom agents: each file in " + AGENTS_DIR + "/*.md with a name and a description in its frontmatter (and optionally tools, disallowedTools, model, effort, maxTurns, isolation and background; the file's body is its instructions). list_agents lists them.\n\nWhen using the agent tool, specify a subagent_type parameter to select which agent type to use. If omitted, the general-purpose agent is used. The old name of this tool, Task, still works.\n\nWhen NOT to use the agent tool:\n- If you want to read a specific file path, use read or glob instead, to find the match more quickly\n- If you are searching for a specific class definition like \"class Foo\", use glob instead\n- If you are searching for code within a specific file or set of 2-3 files, use read instead\n- Other tasks that are not related to the agent descriptions above\n\nUsage notes:\n- Always include a short description (3-5 words) summarizing what the agent will do\n- Launch multiple agents concurrently whenever possible, to maximize performance; to do that, use a single message with multiple agent calls (they run side by side; " + capsWords + ")\n- When the agent is done, it will return a single message back to you. The result returned by the agent is not visible to the owner. To show the owner the result, you should send a text message back to the owner with a concise summary of the result.\n- run_in_background: left out, an agent you start from the main conversation runs in the background, and one a subagent starts is waited for (unless its definition sets background: true); set it to false to wait for the result, true to run in the background. When an agent runs in the background, you will be automatically notified when it completes; do not sleep, poll, or proactively check on its progress. Continue with other work or respond to the owner instead.\n- To continue a previously spawned agent, use send_message with the agent's ID or name as the `to` field. The agent resumes with its full context preserved. Each fresh agent invocation with a prompt starts without context, so provide a complete task description.\n- The agent's outputs should generally be trusted\n- Clearly tell the agent whether you expect it to write code or just to do research (search, file reads, web fetches, etc.), since it is not aware of the owner's intent\n- If the agent description mentions that it should be used proactively, then you should try your best to use it without the owner having to ask for it first. Use your judgement.\n- You can optionally set isolation: \"worktree\" to run the agent in a temporary git worktree, giving it an isolated copy of the repository. The worktree is automatically cleaned up if the agent makes no changes; if changes are made, the worktree path and branch are returned in the result.\n- model and effort run the agent on another of Coder's models (" + AGENT_MODELS.join(", ") + ") or effort level; the chat's are used when left out. An effort the model doesn't take runs at the nearest level it does.\n- Launching an agent never asks the owner; the agent's own steps are checked against the chat's rules as it runs, and a step that would need the owner's OK is refused (the agent says so in its report). A general-purpose subagent can start agents of its own (they share the job's caps).\n- Coder has no agent teams and no remote agents: team_name and mode are accepted for Claude Code's input and ignored, and isolation \"remote\" is refused.",
+  description: "Launch a new agent to handle complex, multi-step tasks autonomously.\n\nThe agent tool launches specialized agents (subprocesses) that autonomously handle complex tasks. Each agent type has specific capabilities and tools available to it.\n\nAvailable agent types and the tools they have access to:\n- general-purpose: " + AGENT_TYPES["general-purpose"].description + " (Tools: bash, read, edit, write, notebook_edit, grep, glob, web_fetch, web_search, agent)\n- Explore: " + AGENT_TYPES.Explore.description + " (Tools: bash, read, grep, glob, web_fetch, web_search)\n- Plan: " + AGENT_TYPES.Plan.description + " (Tools: bash, read, grep, glob, web_fetch, web_search)\n- web-fetch: " + AGENT_TYPES["web-fetch"].description + " (Tools: web_fetch)\n- the repository's custom agents: each file in " + AGENTS_DIR + "/*.md with a name and a description in its frontmatter (and optionally tools, disallowedTools, model, effort, maxTurns, isolation and background; the file's body is its instructions). list_agents lists them.\n\nWhen using the agent tool, specify a subagent_type parameter to select which agent type to use. If omitted, the general-purpose agent is used. The old name of this tool, Task, still works.\n\nWhen NOT to use the agent tool:\n- If you want to read a specific file path, use read or glob instead, to find the match more quickly\n- If you are searching for a specific class definition like \"class Foo\", use glob instead\n- If you are searching for code within a specific file or set of 2-3 files, use read instead\n- Other tasks that are not related to the agent descriptions above\n\nUsage notes:\n- Always include a short description (3-5 words) summarizing what the agent will do\n- Launch multiple agents concurrently whenever possible, to maximize performance; to do that, use a single message with multiple agent calls (they run side by side; " + capsWords + ")\n- When the agent is done, it will return a single message back to you. The result returned by the agent is not visible to the owner. To show the owner the result, you should send a text message back to the owner with a concise summary of the result.\n- run_in_background: left out, an agent you start from the main conversation runs in the background, and one a subagent starts is waited for (unless its definition sets background: true); set it to false to wait for the result, true to run in the background. When an agent runs in the background, you will be automatically notified when it completes; do not sleep, poll, or proactively check on its progress. Continue with other work or respond to the owner instead.\n- To continue a previously spawned agent, use send_message with the agent's ID or name as the `to` field. The agent resumes with its full context preserved. Each fresh agent invocation with a prompt starts without context, so provide a complete task description.\n- The agent's outputs should generally be trusted\n- Clearly tell the agent whether you expect it to write code or just to do research (search, file reads, web fetches, etc.), since it is not aware of the owner's intent\n- If the agent description mentions that it should be used proactively, then you should try your best to use it without the owner having to ask for it first. Use your judgement.\n- You can optionally set isolation: \"worktree\" to run the agent in a temporary git worktree, giving it an isolated copy of the repository. The worktree is automatically cleaned up if the agent makes no changes; if changes are made, the worktree path and branch are returned in the result.\n- model and effort run the agent on another of Coder's models (" + AGENT_MODELS.join(", ") + ") or effort level; the chat's are used when left out. An effort the model doesn't take runs at the nearest level it does.\n- Launching an agent never asks the owner; the agent's own steps are checked against the chat's rules and mode as it runs, and a step that needs the owner's OK shows the owner its card, as the chat's own steps do. A general-purpose subagent can start agents of its own (they share the job's caps).\n- Coder has no agent teams and no remote agents: team_name and mode are accepted for Claude Code's input and ignored, and isolation \"remote\" is refused.",
   parameters: { type: "object", properties: {
     description: { type: "string", description: "A short (3-5 word) description of the task" },
     prompt: { type: "string", description: "The task for the agent to perform" },
@@ -91,7 +91,7 @@ export const AGENT_TOOL = Object.freeze({ type: "function", function: {
     run_in_background: { type: "boolean", description: "Whether to run this agent in the background (you will be notified when it completes). Left out: true from the main conversation, false from a subagent" },
     name: { type: "string", description: "Name for the spawned agent. Makes it addressable via send_message({to: name}) while it runs and after it finishes." },
     team_name: { type: "string", description: "Deprecated; ignored (Coder has no agent teams)" },
-    mode: { type: "string", enum: ["acceptEdits", "auto", "bypassPermissions", "default", "dontAsk", "plan"], description: "Deprecated; ignored. A subagent runs in the chat's permission mode, refusing what would need the owner's OK" },
+    mode: { type: "string", enum: ["acceptEdits", "auto", "bypassPermissions", "default", "dontAsk", "plan"], description: "Deprecated; ignored. A subagent runs in the chat's permission mode, asking the owner for what would need the owner's OK" },
     isolation: { type: "string", enum: ["worktree", "remote"], description: "Isolation mode. \"worktree\" creates a temporary git worktree so the agent works on an isolated copy of the repo. \"remote\" is Claude Code's cloud agent and is refused in Coder" },
   }, required: ["description", "prompt"] },
 } });
@@ -124,13 +124,13 @@ export const SEND_MESSAGE_TOOL = Object.freeze({ type: "function", function: {
 /** Claude Code's Workflow tool, its inputs (WorkflowInput) and its description, in Coder's words. */
 export const WORKFLOW_TOOL = Object.freeze({ type: "function", function: {
   name: "workflow",
-  description: "Runs a dynamic workflow: a script that orchestrates many subagents in the background and returns one consolidated result. Use it only when the owner asks for a workflow or a task needs the same step over many items (an audit of many files, a migration, cross-checked research). At least one of script, name or scriptPath is required.\n\nThe script must begin with `export const meta = { name: '...', description: '...' }` as a literal (an optional `phases` array names its stages), then plain JavaScript with top-level await:\n- `await agent(prompt, { label, schema, subagent_type, model, effort, phase })` runs one subagent and gives its report; with `schema` (a JSON Schema) the parsed JSON it returns. It gives null when the agent failed, its answer didn't match the schema, or the cap was reached.\n- `parallel([() => agent(...), ...])` runs several at once and waits for all; `pipeline(items, (item) => agent(...))` runs one per item.\n- `phase(title)` starts a stage (agents after it are grouped under it) and `log(message)` shows progress.\n- `args` is the input; `return` the result.\nDate.now(), Math.random() and new Date() with no argument throw (pass a time in args). The script runs in the chat's sandbox, not with your tools. The call returns at once (status async_launched: taskId, taskType local_workflow, workflowName, runId, summary, scriptPath; error if the script fails its syntax check, and then it never ran) and the workflow runs in the background; you are notified when it completes, with the agents run per phase, the log and the result. stop_job with the taskId stops it. resumeFromRunId with the runId reruns a script and reuses the agent() calls already done with unchanged input (same job only). Limits: " + capsWords + ".",
+  description: "Runs a dynamic workflow: a script that orchestrates many subagents in the background and returns one consolidated result. Use it only when the owner asks for a workflow or a task needs the same step over many items (an audit of many files, a migration, cross-checked research). At least one of script, name or scriptPath is required.\n\nThe script must begin with `export const meta = { name: '...', description: '...' }` as a literal (an optional `phases` array names its stages), then plain JavaScript with top-level await:\n- `await agent(prompt, { label, schema, subagent_type, model, effort, phase })` runs one subagent and gives its report; with `schema` (a JSON Schema) the parsed JSON it returns. It gives null when the agent failed, its answer didn't match the schema, or the cap was reached.\n- `parallel([() => agent(...), ...])` runs several at once and waits for all; `pipeline(items, (item) => agent(...))` runs one per item.\n- `phase(title)` starts a stage (agents after it are grouped under it) and `log(message)` shows progress.\n- `args` is the input; `return` the result.\nDate.now(), Math.random() and new Date() with no argument throw (pass a time in args). The script runs in the chat's sandbox, not with your tools. The call returns at once (status async_launched: taskId, taskType local_workflow, workflowName, runId, summary, scriptPath; error if the script fails its syntax check, and then it never ran) and the workflow runs in the background; you are notified when it completes, with the agents run per phase, the log and the result. stop_job with the taskId stops it. resumeFromRunId with the runId reruns a script and reuses the agent() calls already done with unchanged input (in this chat, later messages too). name may be a built-in workflow: deep-research (args: the question) fans out web searches across several angles, cross-checks the claims and returns a cited report. Limits: " + capsWords + ".",
   parameters: { type: "object", properties: {
     script: { type: "string", description: "Inline workflow script. Must begin with export const meta = { name, description } as a literal, followed by the script body using agent(), parallel(), pipeline(), and phase()" },
-    name: { type: "string", description: "Name of a workflow saved in .claude/workflows/<name>.js. Resolved to a script" },
+    name: { type: "string", description: "Name of a built-in workflow (deep-research) or one saved in .claude/workflows/<name>.js. Resolved to a script" },
     scriptPath: { type: "string", description: "Path to a workflow script file on disk. Takes precedence over script and name" },
     args: { description: "Input value exposed to the script as the global args. Pass arrays and objects as actual JSON values, not as a JSON-encoded string" },
-    resumeFromRunId: { type: "string", description: "Run ID of a prior workflow invocation to resume. Completed agent() calls with unchanged inputs return cached results; the rest run live. Same job only" },
+    resumeFromRunId: { type: "string", description: "Run ID of a prior workflow invocation to resume. Completed agent() calls with unchanged inputs return cached results; the rest run live. Works in later messages of the same chat too" },
     title: { type: "string", description: "Ignored; the script's meta block sets the title" },
     description: { type: "string", description: "Ignored; the script's meta block sets the description" },
   }, required: [] },
@@ -380,6 +380,70 @@ export function splitScript(script) {
 }
 
 /**
+ * A WORKFLOW RUN'S SAVED RESULTS (Claude Code: a run is resumable within the same session; in a cloud session "the run's results"
+ * are saved with the session): on the chat's machine, RUNS_DIR/<runId>.json, { script, scriptPath, args, done }, written as its
+ * agents finish, so resumeFromRunId works from a later message of the chat; RUNS_DIR/last holds the newest run's number, so a
+ * new run's id is new. A run whose saved form is over RUN_SAVE_MAX characters is kept for its own job only. 2026-11-24.
+ */
+export const RUNS_DIR = "/tmp/coder-agents/workflow-runs";
+export const RUN_SAVE_MAX = 90_000;
+export async function saveRun(k, record, first = false) {
+  if (typeof k.writeText !== "function" || !record || !/^wf-\d{1,6}$/.test(String(record.runId))) return false;
+  let text = "";
+  try { text = JSON.stringify({ runId: record.runId, script: record.script, scriptPath: record.scriptPath || "", args: record.args === undefined ? null : record.args, done: [...record.done] }); } catch { return false; }
+  try {
+    if (first) await k.writeText(RUNS_DIR + "/last", String(record.runId).slice(3));
+    if (text.length > RUN_SAVE_MAX) return false;
+    await k.writeText(RUNS_DIR + "/" + record.runId + ".json", text);
+    return true;
+  } catch { return false; }
+}
+export async function loadRun(k, runId) {
+  const id = String(runId || "").trim();
+  if (!/^wf-\d{1,6}$/.test(id) || typeof k.readText !== "function") return null;
+  let got; try { got = await k.readText(RUNS_DIR + "/" + id + ".json"); } catch { return null; }
+  if (!got || got.error || typeof got.text !== "string") return null;
+  try {
+    const j = JSON.parse(got.text);
+    if (!j || typeof j.script !== "string" || !Array.isArray(j.done)) return null;
+    return { runId: id, script: j.script, scriptPath: typeof j.scriptPath === "string" ? j.scriptPath : "", args: j.args === null ? undefined : j.args, done: new Map(j.done.filter((x) => Array.isArray(x) && typeof x[0] === "string")), status: "saved" };
+  } catch { return null; }
+}
+export async function lastRunNo(k) {
+  // (Only where runs are saved: a job that can't write them has none from before.)
+  if (typeof k.readText !== "function" || typeof k.writeText !== "function") return 0;
+  try { const got = await k.readText(RUNS_DIR + "/last"); const n = got && !got.error ? Number(String(got.text || "").trim()) : 0; return Number.isInteger(n) && n > 0 && n < 1e6 ? n : 0; } catch { return 0; }
+}
+/**
+ * CLAUDE CODE'S BUILT-IN WORKFLOW, /deep-research (its workflows docs, "Bundled workflows": "Fans out web searches on a question
+ * across several angles, fetches and cross-checks the sources it finds, votes on each claim, and returns a cited report with
+ * claims that didn't survive cross-checking filtered out"; a claim no verifier could check is listed as unverified). Coder's
+ * script for it, run by name ("deep-research", args: the question), within the job's caps of subagents. 2026-11-24.
+ */
+export const BUILTIN_WORKFLOWS = Object.freeze({
+  "deep-research": [
+    "export const meta = { name: 'deep-research', description: 'Researches a question across several angles, cross-checks the sources and returns a cited report', phases: ['Search', 'Verify', 'Report'] };",
+    "const q = String(typeof args === 'string' ? args : (args && (args.question || args.q)) || '').trim();",
+    "if (!q) return { error: 'give the question as args' };",
+    "phase('Search');",
+    "const plan = await agent('Split this research question into 3 to 5 distinct angles worth searching separately. Question: ' + q, { label: 'angles', schema: { type: 'object', properties: { angles: { type: 'array', items: { type: 'string' } } }, required: ['angles'] } });",
+    "const angles = (plan && Array.isArray(plan.angles) && plan.angles.length ? plan.angles : [q]).slice(0, 5);",
+    "const CLAIMS = { type: 'object', properties: { claims: { type: 'array', items: { type: 'object', properties: { claim: { type: 'string' }, source: { type: 'string' } }, required: ['claim', 'source'] } } }, required: ['claims'] };",
+    "const found = await parallel(angles.map((a) => () => agent('Research this with web_search, then web_fetch the best sources: ' + a + '\\n(It is one angle of the question: ' + q + ')\\nReport up to 4 specific claims that answer it, each with the URL of the source it came from.', { label: String(a).slice(0, 60), schema: CLAIMS, subagent_type: 'general-purpose' })));",
+    "const claims = found.flatMap((f) => (f && Array.isArray(f.claims) ? f.claims : [])).slice(0, 12);",
+    "log(angles.length + ' angles, ' + claims.length + ' claims');",
+    "phase('Verify');",
+    "const VERDICT = { type: 'object', properties: { verdict: { type: 'string', enum: ['supported', 'refuted', 'unverified'] }, sources: { type: 'array', items: { type: 'string' } } }, required: ['verdict'] };",
+    "const checks = await parallel(claims.map((c) => () => agent('Cross-check this claim against independent sources with web_search and web_fetch (not only the one given). Claim: ' + c.claim + '\\nGiven source: ' + c.source + '\\nVerdict supported, refuted, or unverified when you could not check it.', { label: 'check: ' + String(c.claim).slice(0, 50), schema: VERDICT })));",
+    "const kept = [];",
+    "claims.forEach((c, i) => { const v = checks[i]; if (v && v.verdict === 'refuted') return; kept.push({ claim: c.claim, sources: [c.source].concat(v && Array.isArray(v.sources) ? v.sources : []).slice(0, 4), verified: !!(v && v.verdict === 'supported') }); });",
+    "phase('Report');",
+    "const report = await agent('Write a concise report answering: ' + q + '\\nUse only these cross-checked claims, cite each claim\\'s sources as links, and list the ones marked verified: false as unverified: ' + JSON.stringify(kept), { label: 'report' });",
+    "return { question: q, report, claims: kept.length, dropped: claims.length - kept.length };",
+  ].join("\n"),
+});
+
+/**
  * ONE PASS OF A WORKFLOW'S SCRIPT (in the chat's sandbox, as `dev`: coder-tools.mjs workflow_step). `done` holds the agent()
  * calls finished so far ([key, { ok } | { error }]); a call not among them is listed in `pending` and never settles in this
  * pass. → { status: "done", result, logs } | { status: "pending", pending, logs } | { status: "error", error, logs }.
@@ -460,6 +524,10 @@ export function taggedEmit(emit, tag, label) {
     if (typeof emit !== "function" || !e) return;
     if (e.type === "bash" || e.type === "result") emit({ ...e, id: tag + e.id, ...(e.type === "bash" ? { command: "“" + label + "” · " + String(e.command || "") } : {}), ...(e.type === "result" && typeof e.label === "string" && e.label ? { label: "“" + label + "” · " + e.label } : {}) });
     else if (e.type === "paused") emit({ ...e, why: "Its agent “" + label + "”: " + String(e.why || "") });
+    // (A subagent's permission card, passed through to the owner as Claude Code passes a subagent's prompts ("Permission prompts
+    // are passed through to you as they come up"; 2026-11-24): its call's id tagged, the agent named on it; and its answer.)
+    else if (e.type === "permission") emit({ ...e, id: tag + e.id, agent: String(label).slice(0, 80), why: "Its agent “" + label + "”: " + String(e.why || "") });
+    else if (e.type === "permanswer") emit(e);
   };
 }
 const capNote = (k) => "error: this job's cap of subagents is reached (" + k.budget.caps.total + " in all; " + TOTAL_VAR + " changes it). Do the rest yourself.";
@@ -670,8 +738,10 @@ export async function agentToolCall(c, k) {
   if (c.name === "workflow") {
     emit({ type: "bash", id: c.id, tool: "workflow", verb: "Started a workflow", command: oneLine(args.scriptPath || (typeof args.script === "string" && args.script.trim() ? (/name\s*:\s*["'`]([^"'`]{1,80})/.exec(args.script) || [])[1] || "inline script" : "") || args.name || args.resumeFromRunId || "inline script", 120) });
     if (k.isSub) return no("error: a subagent can't run workflows");
-    const prev = typeof args.resumeFromRunId === "string" && args.resumeFromRunId ? k.runs.get(args.resumeFromRunId) : null;
-    if (args.resumeFromRunId && !prev) return no("error: no workflow run " + oneLine(args.resumeFromRunId, 40) + " in this job");
+    // (A run of an earlier message of this chat: its saved results, on the chat's machine. Claude Code: "resumable within the
+    // same session"; "nothing to resume" when its saved results can't be found. 2026-11-24.)
+    const prev = typeof args.resumeFromRunId === "string" && args.resumeFromRunId ? k.runs.get(args.resumeFromRunId) || (await loadRun(k, args.resumeFromRunId)) : null;
+    if (args.resumeFromRunId && !prev) return no("error: nothing to resume: no workflow run " + oneLine(args.resumeFromRunId, 40) + " in this chat. Start the workflow over as a new run.");
     let script = "", scriptPath = "";
     if (typeof args.scriptPath === "string" && args.scriptPath.trim()) {
       const got = await k.readText(args.scriptPath.trim());
@@ -682,19 +752,22 @@ export async function agentToolCall(c, k) {
     // 2026-11-23 sent script with name "say-hi": the name was read first, .claude/workflows/say-hi.js was missing, and the first
     // start failed.)
     else if (typeof args.name === "string" && args.name.trim()) {
-      const nm = args.name.trim().replace(/\.js$/, "");
-      if (!/^[\w-]{1,80}$/.test(nm)) return no("error: name is a workflow's name in .claude/workflows/");
+      const nm = args.name.trim().replace(/^\//, "").replace(/\.js$/, "");
+      if (!/^[\w-]{1,80}$/.test(nm)) return no("error: name is a built-in workflow's name (" + Object.keys(BUILTIN_WORKFLOWS).join(", ") + ") or one in .claude/workflows/");
+      // (A saved one first, as Claude Code's own commands come after the project's; then a built-in one.)
       const got = await k.readText(".claude/workflows/" + nm + ".js");
-      if (got.error) return no("error: " + got.error);
-      script = got.text; scriptPath = ".claude/workflows/" + nm + ".js";
+      if (!got.error) { script = got.text; scriptPath = ".claude/workflows/" + nm + ".js"; }
+      else if (Object.hasOwn(BUILTIN_WORKFLOWS, nm)) script = BUILTIN_WORKFLOWS[nm];
+      else return no("error: " + got.error + " (no saved workflow " + nm + "; the built-in ones: " + Object.keys(BUILTIN_WORKFLOWS).join(", ") + ")");
     } else if (prev) { script = prev.script; scriptPath = prev.scriptPath || ""; }
     else return no("error: give script, name or scriptPath");
     const input = args.args === undefined && prev ? prev.args : args.args;
     const done = new Map(prev ? prev.done : []);
-    const runId = "wf-" + (k.runs.size + 1);
+    const runId = "wf-" + (Math.max(k.runs.size, await lastRunNo(k)) + 1);
     const taskId = runId;
     const record = { runId, script, scriptPath, args: input, done, status: "running", stopReq: false };
     k.runs.set(runId, record);
+    await saveRun(k, record, true);
     // CLAUDE CODE'S WORKFLOW RETURNS AT ONCE (2026-11-23): status async_launched with taskId, taskType local_workflow,
     // workflowName (meta.name), runId, summary (meta.description), scriptPath; error when the script fails its syntax check
     // (then it never runs, despite the status). The run's final result comes later as a task notification.
@@ -738,6 +811,7 @@ export async function agentToolCall(c, k) {
           const rep = reportOf(r);
           if (p.schema) { const v = schemaAnswer(rep, p.schema); done.set(p.key, { ok: v.error ? null : v.value }); } else done.set(p.key, { ok: rep });
         }));
+        await saveRun(k, record);
       }
       const meta = pass && pass.meta ? pass.meta : meta0;
       const nm = meta && meta.name ? meta.name : "";
