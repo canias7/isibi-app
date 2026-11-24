@@ -20,6 +20,7 @@
 // The conversation is kept in the OpenAI chat shape (`messages`, with
 // `tool_calls` and `tool` answers), which Grok speaks natively; the next
 // message continues from the same messages.
+import { toolChoiceSets, toolChoiceAskWhy } from "./coder-toolchoices.mjs";
 import { isMemoryPath } from "./memory-files.mjs";
 import { recordedSystem, summaryRequest, summaryMessage, cutPoint, isSummary, viewedFile, filesTouched, compactSettings, compactLimits, compactLevel, contextWarning, conversationTokens, contextUsage, COMPACT_FAILURES_MAX, REFILL_TURNS, REFILL_TIMES, PRECOMPACT_OUTPUT_MAX, CHARS_PER_TOKEN, COMPACTED_SHOWN, THRASHING, contextLimitShown, compactPrompt, summaryText, hasSummary, dropOldestRounds, tokenGap, COMPACT_PTL_RETRIES, COMPACT_TOO_LONG, tooShortToCompact, TOO_SHORT_TO_COMPACT } from "./coder-compact.mjs";
 // A command that views one file counts as reading it (moved to coder-compact.mjs, which the Worker uses too).
@@ -2435,6 +2436,9 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   for (const k of ["allow", "ask", "deny"]) for (const r of Array.isArray(rules && rules[k]) ? rules[k].slice(0, 200) : []) if (typeof r === "string" && r.length <= RULE_MAX + 20 && parseRule(r)) ownRules[k].push(r);
   // (Which settings each deny and ask rule came from, the owner's or the repository's, for a `!` file rule: rulesSources.)
   ownRules.sources = rulesSources(rules);
+  // THE TOOLS PAGE'S CHOICES that Coder's rule reader has no name for (Agent, CronCreate, connector tools ...), and its Ask for
+  // Bash and PowerShell, which lets read-only commands through: coder-toolchoices.mjs. (Its other choices are rules above.)
+  let picked = toolChoiceSets(rules);
   // GREP'S AND GLOB'S CONTEXT ON CODER'S MACHINE (coder-search.mjs; the owner, 2026-11-14: "start fixing and filling in gaps on
   // those tools"): the owner's Read deny rules, which Claude Code applies inside the search and before its caps ("a best-effort
   // attempt to apply Read(path) deny rules to all built-in tools that read files like Grep and Glob"; none in a job from
@@ -2480,6 +2484,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     rulesSeen = nr;
     for (const k of ["allow", "ask", "deny"]) { ownRules[k] = []; for (const r of Array.isArray(nr[k]) ? nr[k].slice(0, 200) : []) if (typeof r === "string" && r.length <= RULE_MAX + 20 && parseRule(r)) ownRules[k].push(r); }
     ownRules.sources = rulesSources(nr);
+    picked = toolChoiceSets(nr);
     for (const r of rulesAdded) if (!ownRules.allow.includes(r)) ownRules.allow.push(r);
     for (const k of ["allow", "ask", "deny"]) for (const r of [...hookSession[k], ...(hookSaved[k] || [])]) if (!ownRules[k].includes(r)) ownRules[k].push(r);
   };
@@ -3580,8 +3585,10 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   // Bash brings them back"); an allow rule doesn't. The 2026-11-23 sheet rows.
   // (Decided at the chat's first request, as Claude Code keeps its tool list: a later rule doesn't add or drop them.)
   const declaredBefore = (Array.isArray(messages) ? messages : []).find((m) => m && Array.isArray(m.toolsDeclared));
+  // (A Tools page choice by the call's name: Claude Code's name, Coder's own, or "mcp__*" for any connector's tool.)
+  const pickedFor = (set, name) => !!set.size && (set.has(ccTool(name)) || set.has(name) || (set.has("mcp__*") && typeof name === "string" && (name.startsWith("mcp__"))));
   const searchBack = declaredBefore ? declaredBefore.toolsDeclared.includes("grep") : !github && !!wholeRule(ownRules, "deny", "Bash");
-  const toolDenied = (name) =>!github && !!(name && (name === "end_conversation" ? endConversationDenied(ownRules, (n) => !!wholeRule(ownRules, "deny", n), !!wholeRule(ownRules, "allow", "EndConversation")) : wholeRule(ownRules, "deny", ccTool(name)) || (name === "monitor" && wholeRule(ownRules, "deny", "Bash"))));
+  const toolDenied = (name) =>!github && !!(name && (name === "end_conversation" ? endConversationDenied(ownRules, (n) => !!wholeRule(ownRules, "deny", n), !!wholeRule(ownRules, "allow", "EndConversation")) : wholeRule(ownRules, "deny", ccTool(name)) || (name === "monitor" && wholeRule(ownRules, "deny", "Bash")) || pickedFor(picked.deny, name)));
   // (Where Coder's gate can open hosts for one command, bash and monitor take allowed_domains: HOSTS_DESC.)
   const withHosts = (t) => {
     if (hostLists !== "on" || github || !t || !t.function || !["bash", "monitor", "powershell"].includes(t.function.name)) return t;
@@ -5185,7 +5192,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     // (`hooked`: its own PreToolUse hooks ran at its group's start and let it go on. Round 5.)
     // (Nor, since round 6's follow-up 2, one set to Needs approval in Auto: it asks there too, as Claude Code's ask overrides
     // auto mode; nor, since follow-up 3, one a PreToolUse hook allowed: its allow does not skip that ask.)
-    const quietWith = (c, exact, hooked = false) => { const t = c.args !== null && mcpByName.get(c.name); return !!t && t.readOnly && !t.always && t.perm === "allow" && !(offered && denied.has(("Use " + t.label).slice(0, 300))) && !github && !(hooked ? false : exact ? preHooked(c, c.args || {}) : hookList.length) && !toolDenied(c.name) && !wholeRule(ownRules, "ask", c.name) && !(emailMark && refusedNow(c.name, c.args, emailMark)); };
+    const quietWith = (c, exact, hooked = false) => { const t = c.args !== null && mcpByName.get(c.name); return !!t && t.readOnly && !t.always && t.perm === "allow" && !(offered && denied.has(("Use " + t.label).slice(0, 300))) && !github && !(hooked ? false : exact ? preHooked(c, c.args || {}) : hookList.length) && !toolDenied(c.name) && !wholeRule(ownRules, "ask", c.name) && !pickedFor(picked.ask, c.name) && !(emailMark && refusedNow(c.name, c.args, emailMark)); };
     const quiet = (c) => quietWith(c, false);
     // (A connector's call, as its turn makes it below, or its group's start.)
     // (Through mcpCall: a connector's questions for the owner come as cards, also for a call started early. Round 3.)
@@ -5712,7 +5719,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // mcp__claude-code-remote__…, which its privacy check reads as any MCP call; coder-privacy.mjs REMOTE_TOOLS. 2026-11-14.)
         // (Checked by Claude Code's name, but Coder is told its own tool's name, as in all it is shown: it never sees mcp__… names.)
         if (emailMark && !offered && REMOTE_TOOLS[c.name] && refusedNow(REMOTE_TOOLS[c.name], c.args, emailMark)) { const m = accountEmailRefused(c.name); emit({ type: "bash", id: c.id, tool: c.name, verb: c.name, command: "" }); emit({ type: "result", id: c.id, code: -1, ran: false, output: m }); reply(m); continue; }
-        const askRule = c.name === "ask_user" || c.name === "exit_plan_mode" ? "" : wholeRule(ownRules, "ask", cc) || tsRule("ask");
+        const askRule = c.name === "ask_user" || c.name === "exit_plan_mode" ? "" : wholeRule(ownRules, "ask", cc) || tsRule("ask") || (pickedFor(picked.ask, c.name) ? cc : "");
         if (askRule) {
           // (In Claude Code's words since round 6: its dialog's line for a rule, "Permission rule … requires confirmation for this
           // tool." (in Auto "Ask rule … overrides auto mode …"); where no one can answer, Coder is told its ask, "Coder requested
@@ -5822,6 +5829,9 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         const decideIn = async (m, byCmd) => { const r = c.monitor ? monitorRules(ownRules, m) : ownRules; const d = c.ps ? psDecision(command, { mode: m, rules: m === "auto" ? autoPsRules(r) : r, nativeReadOnly: nativeRO, parsed: await psParse(command), pathAbs: psAbs, inside: psInside, cwd: where0 || deps.root || "/", home: deps.home || "", byCommand: byCmd, input: c.args, dirs: workdirs }) : bashDecision(command, { mode: m, rules: r, cwd: where0 || deps.root || "/", workdirs, isProtected: isProt, real: (p) => realPath(p), input: c.monitor ? c.monitorArgs : c.args, home: deps.home || "", ownDirs: Array.isArray(deps.ownDirs) ? deps.ownDirs : [], byCommand: byCmd, scratch: [SCRATCH], planFile: planPath(), memoryDir: typeof deps.memFile === "string" && deps.memFile ? pathPosix.dirname(deps.memFile) : "", ...(c.monitor ? { settings: MONITOR_SETTINGS } : {}) }); return c.monitor ? namedForMonitor(d, r) : d; };
         let dec = github ? { verdict: "allow" } : tooLongToRead ? { verdict: "ask", why: "", suggest: null } : await decideIn(modeB, fileEdits !== false);
         if (dec.verdict === "deny") { refuse(dec.why); continue; }
+        // THE TOOLS PAGE'S ASK FOR BASH OR POWERSHELL (coder-toolchoices.mjs): a command that isn't read-only asks, as a rule's
+        // ask does; one that only reads runs as before (Plan mode's own decision says which).
+        { const sh = c.ps ? "PowerShell" : "Bash"; if (!github && dec.verdict !== "ask" && picked.ask.has(sh) && (await decideIn("plan", false)).verdict !== "allow") dec = { verdict: "ask", why: toolChoiceAskWhy(sh), told: askedWhy(sh), suggest: null, byRule: true }; }
         // A PRETOOLUSE HOOK'S ALLOW OR ASK (Claude Code: "allow skips the permission prompt"; "ask prompts the user to confirm";
         // "Deny and ask rules are still evaluated regardless of what the hook returns"): its ask asks, in Auto too; its allow
         // skips the mode's question and the auto mode checker, never an ask rule or one of Coder's own safety checks.

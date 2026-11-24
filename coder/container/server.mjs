@@ -17,6 +17,7 @@
 // read); every command the AI runs is started as the unprivileged `dev` user
 // (CODER_RUN_UID), with a bare environment. The token is never written into
 // the repository's settings.
+import { applyToolChoices } from "./coder-toolchoices.mjs";
 import http from "node:http";
 import { cleanMemoryFiles, memoryTopicName, MEMORY_FILE_MAX, MEMORY_FILES_MAX, memoryFolderName } from "./memory-files.mjs";
 import os from "node:os";
@@ -1295,6 +1296,11 @@ export function repoSettings(root, { trust = false, github = false, several = fa
 /** Claude Code's warning for what waits for trust ("Ignoring 2 permissions.allow entries from .claude/settings.json: this workspace has not been trusted. …"), with Coder's way to trust. */
 /** The owner's rules with the repository's (repoSettings) after them: deny, ask, and allow once trusted. */
 export function withRepoRules(rules, repoSet) {
+  // (THE TOOLS PAGE'S CHOICES, the owner's toolsPage, after the owner's and the repository's rules, which come first:
+  // coder-toolchoices.mjs, 2026-11-24.)
+  return applyToolChoices(ownerWithRepo(rules, repoSet), rules && typeof rules === "object" ? rules.toolsPage : null);
+}
+function ownerWithRepo(rules, repoSet) {
   const r = rules && typeof rules === "object" ? rules : {};
   const arr = (x) => (Array.isArray(x) ? x : []);
   const s = repoSet || { allow: [], ask: [], deny: [] };
@@ -5233,6 +5239,9 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     t.ownerRules = body.rules && typeof body.rules === "object" ? { allow: body.rules.allow, ask: body.rules.ask, deny: body.rules.deny } : null;
     t.rulesNext = null; t.hooksNext = null; t.blocksNext = null;
     for (const h of repoSet.held) t.events.push({ at: Date.now(), type: "note", text: heldNote(h) });
+    // (The Tools page's choices, sent beside the rules: coder-toolchoices.mjs, 2026-11-24.)
+    t.toolsPage = body.toolsPage && typeof body.toolsPage === "object" ? body.toolsPage : null;
+    if (t.toolsPage && body.rules && typeof body.rules === "object") body.rules.toolsPage = t.toolsPage;
     // THE REPOSITORY'S plansDirectory (Claude Code's setting, "Choose where plan mode writes plan files", resolved from the
     // project's folder): the chat's plan file in that folder of the project when Claude Code 2.1.325 would use it; else the
     // chat's own plans folder, its warning in the machine's log, as Claude Code only logs it (to its debug log, level "error"),
@@ -5817,6 +5826,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       const rs = repoSettings(dir, repoOpts);
       t.repoSet = rs;
       t.rulesNext = withRepoRules(t.ownerRules || { allow: [], ask: [], deny: [] }, rs) || { allow: [], ask: [], deny: [] };
+      if (t.toolsPage) t.rulesNext = applyToolChoices(t.rulesNext, t.toolsPage);
       t.hooksNext = hooksForTurn(dir, body.hooks, { github: repoOpts.github, several: repoOpts.several, trust: repoOpts.trust, plugins: body.pluginHooks });
       t.readBlockOn = !!(t.readBlockOn || was.blockReads || rs.blockReads);
       t.blocksNext = { read: ownReadBlock || t.readBlockOn, write: ownWriteBlock || rs.blockWrites };
@@ -6571,6 +6581,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         if (!t || !t.running || t.result || t.answerDone) return send(200, { ok: false, notRunning: true });
         t.ownerRules = { allow: r.allow, ask: r.ask, deny: r.deny };
         t.rulesNext = withRepoRules(t.ownerRules, t.repoSet) || { allow: [], ask: [], deny: [] };
+        if (t.toolsPage) t.rulesNext = applyToolChoices(t.rulesNext, t.toolsPage);
         // (A working folder the owner added meanwhile: from Coder's next step, audit M-r2-40.)
         const added = await addRuleDirsNow(t, r.dirs).catch(() => ({ dirs: [] }));
         return send(200, { ok: true, dirs: added.dirs });

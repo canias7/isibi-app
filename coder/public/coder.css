@@ -1526,3 +1526,60 @@ button.cd-vault-tab:hover:not(.is-on){background:#f6f6f6}
 #gfApp .cd-goalline small{display:block;color:#59607a;font-size:12px;margin-top:2px;white-space:pre-wrap}
 #gfApp .cd-goalline.is-met{color:#17663a;border-color:#3aa66a;background:#eefaf2}
 #gfApp .cd-goalline.is-impossible,#gfApp .cd-goalline.is-stalled,#gfApp .cd-goalline.is-paused{color:#9a5b00;border-color:#e8a10c;background:#fdf6e6}
+
+/* THE TOOLS PAGE (the owner, 2026-11-24, from the approved mockup): opened from the sidebar's More, Tools. It sits in
+   #gfApp, so its styles are scoped there. */
+#gfApp .cd-tools-modal .cd-tools { position: relative; max-width: 640px; max-height: calc(100vh - 32px); max-height: calc(100dvh - 32px); overflow-y: auto; padding: 24px 28px 16px; background: #fcfcfc; color: #1f1f1f; border-radius: 14px; box-sizing: border-box; }
+#gfApp .cd-tools-modal .cd-sure-title { font-size: 17px; margin-bottom: 8px; }
+#gfApp .cd-tools-modal .cd-sure-text { font-size: 12.5px; color: #8a8a8a; line-height: 1.45; margin-bottom: 16px; }
+#gfApp .cd-tools-modal .cd-tl-x { position: absolute; right: 12px; top: 10px; border: 0; background: none; font-size: 20px; line-height: 1; color: #777; cursor: pointer; padding: 4px 8px; border-radius: 8px; }
+#gfApp .cd-tools-modal .cd-tl-x:hover { background: #f0eee9; }
+#gfApp .cd-tools-modal .cd-tl-sec { color: #777; font-size: 12.5px; margin: 0 0 8px 10px; }
+#gfApp .cd-tools-modal .cd-tl-card { border: 1px solid #eee; border-radius: 12px; background: #fff; padding: 4px 14px; margin-bottom: 22px; }
+#gfApp .cd-tools-modal .cd-tl-row { display: flex; justify-content: space-between; align-items: center; gap: 18px; padding: 9px 0; }
+#gfApp .cd-tools-modal .cd-tl-row + .cd-tl-row { border-top: 1px solid #f4f2ee; }
+#gfApp .cd-tools-modal .cd-tl-t { min-width: 0; }
+#gfApp .cd-tools-modal .cd-tl-t b { font-weight: 500; display: block; font-size: 14px; color: #1f1f1f; overflow-wrap: anywhere; }
+#gfApp .cd-tools-modal .cd-tl-t small { display: block; color: #8a8a8a; font-size: 12.5px; line-height: 1.4; }
+#gfApp .cd-tools-modal .cd-tl-t small.cd-tl-note { color: #a0712a; font-size: 12px; margin-top: 2px; }
+#gfApp .cd-tools-modal .cd-ti { display: inline-flex; align-items: center; justify-content: center; width: 15px; height: 15px; box-sizing: border-box; border: 1.5px solid #9a958c; border-radius: 50%; color: #6b665e; font-size: 10px; font-weight: 700; margin-left: 7px; position: relative; cursor: default; vertical-align: 1px; outline: none; }
+#gfApp .cd-tools-modal .cd-ti:focus-visible { box-shadow: 0 0 0 2px #2783f2; }
+#gfApp .cd-tools-modal .cd-ti-tip { display: none; position: absolute; left: 22px; top: -6px; width: 280px; max-width: calc(100vw - 120px); background: #1f1f1f; color: #fff; font-weight: 400; font-size: 12.5px; line-height: 1.45; padding: 9px 11px; border-radius: 8px; z-index: 5; box-shadow: 0 6px 20px rgba(0,0,0,.2); white-space: normal; text-align: left; }
+#gfApp .cd-tools-modal .cd-ti:focus-visible .cd-ti-tip, #gfApp .cd-tools-modal .cd-ti.show .cd-ti-tip { display: block; }
+/* (Hover only where there is a real pointer: a phone's tap leaves a "hover" behind, so there a second tap closes it.) */
+@media (hover: hover) { #gfApp .cd-tools-modal .cd-ti:hover .cd-ti-tip { display: block; } }
+#gfApp .cd-tools-modal .cd-tl-pick { flex: none; display: inline-flex; align-items: center; gap: 6px; font-size: 13.5px; color: #333; white-space: nowrap; }
+#gfApp .cd-tools-modal .cd-tl-def { color: #a3a09a; font-size: 12px; }
+#gfApp .cd-tools-modal .cd-tl-pick select { font: inherit; font-size: 13.5px; color: inherit; border: 0; background: transparent; cursor: pointer; padding: 4px 2px; border-radius: 6px; text-align: right; }
+#gfApp .cd-tools-modal .cd-tl-pick select:hover { background: #f3f1ed; }
+#gfApp .cd-tools-modal .cd-tl-pick.is-ask { color: #b45309; }
+#gfApp .cd-tools-modal .cd-tl-pick.is-deny { color: #b91c1c; }
+#gfApp .cd-tools-modal .cd-tl-pick select option { color: #1f1f1f; }
+#gfApp .cd-tools-modal .cd-sure-row .cd-sure-yes { background: #1f1e1d; border-color: #1f1e1d; }
+@media (max-width: 520px) {
+  #gfApp .cd-tools-modal { padding: 8px; align-items: flex-end; }
+  #gfApp .cd-tools-modal .cd-tools { padding: 20px 16px 14px; border-radius: 16px 16px 0 0; max-height: 92vh; max-height: 92dvh; }
+  #gfApp .cd-tools-modal .cd-tl-row { gap: 10px; }
+  #gfApp .cd-tools-modal .cd-tl-card { padding: 2px 12px; }
+  #gfApp .cd-tools-modal .cd-tl-row { position: relative; }
+  #gfApp .cd-tools-modal .cd-ti { position: static; }
+  #gfApp .cd-tools-modal .cd-ti-tip { left: 0; right: 0; top: 34px; width: auto; max-width: none; }
+}
+@media (prefers-color-scheme: dark) {
+  #gfApp .cd-tools-modal .cd-tools { background: #262624; color: #eeece6; box-shadow: 0 12px 40px rgba(0,0,0,.5); }
+  #gfApp .cd-tools-modal .cd-sure-title, #gfApp .cd-tools-modal .cd-tl-t b { color: #eeece6; }
+  #gfApp .cd-tools-modal .cd-sure-text, #gfApp .cd-tools-modal .cd-tl-t small, #gfApp .cd-tools-modal .cd-tl-sec { color: #a8a49c; }
+  #gfApp .cd-tools-modal .cd-tl-t small.cd-tl-note { color: #d9a95a; }
+  #gfApp .cd-tools-modal .cd-tl-card { background: #2f2e2b; border-color: #3a3936; }
+  #gfApp .cd-tools-modal .cd-tl-row + .cd-tl-row { border-top-color: #3a3936; }
+  #gfApp .cd-tools-modal .cd-ti { border-color: #8f8b83; color: #c9c6bf; }
+  #gfApp .cd-tools-modal .cd-ti-tip { background: #f2f0eb; color: #1f1e1d; }
+  #gfApp .cd-tools-modal .cd-tl-pick { color: #d8d5ce; }
+  #gfApp .cd-tools-modal .cd-tl-pick.is-ask { color: #f0b061; }
+  #gfApp .cd-tools-modal .cd-tl-pick.is-deny { color: #f2877e; }
+  #gfApp .cd-tools-modal .cd-tl-pick select:hover, #gfApp .cd-tools-modal .cd-tl-x:hover { background: #3a3936; }
+  #gfApp .cd-tools-modal .cd-tl-pick select option { color: #eeece6; background: #262624; }
+  #gfApp .cd-tools-modal .cd-tl-def { color: #8f8b83; }
+  #gfApp .cd-tools-modal .cd-tl-x { color: #b9b5ad; }
+  #gfApp .cd-tools-modal .cd-sure-row .cd-sure-yes { background: #eeece6; border-color: #eeece6; color: #1f1e1d; }
+}

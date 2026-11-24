@@ -3897,8 +3897,37 @@
     search: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>',
     plugins: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 2v6M15 2v6M6 8h12v4a6 6 0 0 1-12 0zM12 18v4"/></svg>',
     more: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg>',
+    shield: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/></svg>',
+    folder: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>',
+    tools: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.1-.4-.4-2.1z"/></svg>',
     chev: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>',
   };
+  // THE SIDE MENU'S ITEMS AND THEIR "!" NOTES (the owner's approved layout, 2026-11-24).
+  const SIDE_PLUGINS = [
+    ['cdSidePluginsList', 'Installed plugins', 'Bundles you install in one go. Each one can bring skills, commands, helpers, hooks and connectors. Browse, install and remove them here.'],
+    ['cdSideSkills', 'Skills', 'Saved instructions Coder follows for a kind of job, from the repository or saved by you. Plugins can add their own.'],
+    ['cdSideCommands', 'Commands', 'Shortcuts you type with / in the message box, like /review or /compact. Plugins can add their own.'],
+    ['cdSideHelpers', 'Helpers', 'Helper AIs Coder can start for part of a job, like Explore or Plan. Plugins can add their own.'],
+    ['cdSideHooks', 'Hooks', 'Your own commands that run at set moments, like after every file edit. Plugins can add their own.'],
+    ['cdSideConnectors', 'Connectors', 'Apps Coder can use once you connect them, like Notion or Linear. Plugins can add their own.'],
+  ];
+  const SIDE_MORE = [
+    ['cdSideTools', 'Tools', 'For each of Coder\'s tools: ask you first, always allow it, or never use it.', 'tools'],
+    ['cdSideRules', 'Permission rules', 'Your written rules for one repository, like Bash(npm test *): allow, ask or deny. They come before the Tools page.', 'shield'],
+    ['cdSideProjects', 'Projects', 'Files you keep for Coder to read and search in every chat that uses the project.', 'folder'],
+  ];
+  const subNav = (id, name, tip, icon) => '<button type="button" class="gf-nav gf-subnav' + (icon ? ' gf-subnav-ic' : '') + '" id="' + id + '">' + icon + '<span class="gf-sname">' + esc(name) + '</span>' +
+    '<span class="gf-sinfo" role="button" tabindex="0" aria-label="About ' + esc(name) + '">!<span class="gf-stip" role="tooltip">' + esc(tip) + '</span></span></button>';
+  // (The "!" of a side menu item: hover, a tap or keyboard focus shows its note beside the sidebar, never opening the item.)
+  function sideTips(root) {
+    const place = (i) => { const t = i.querySelector('.gf-stip'), r = i.getBoundingClientRect(); const w = Math.min(280, window.innerWidth - 24); t.style.width = w + 'px'; t.style.left = Math.max(12, Math.min(r.right + 10, window.innerWidth - w - 12)) + 'px'; t.style.top = (r.right + 10 + w > window.innerWidth ? r.bottom + 8 : r.top - 6) + 'px'; };
+    root.querySelectorAll('.gf-sinfo').forEach((i) => {
+      i.addEventListener('mouseenter', () => place(i));
+      i.addEventListener('focus', () => place(i));
+      i.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); const on = !i.classList.contains('show'); root.querySelectorAll('.gf-sinfo.show').forEach((x) => x.classList.remove('show')); if (on) { place(i); i.classList.add('show'); } else i.blur(); });
+      i.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); i.click(); } });
+    });
+  }
   function drawSide() {
     const sd = S.side;
     // Only the tab that is showing draws the side (the other may still be following a job).
@@ -3917,16 +3946,12 @@
       (sharedView ? '' :
         '<button type="button" class="gf-nav" id="cdSidePlugins" aria-expanded="' + !!S.sidePlugins + '"' + (ready ? '' : ' disabled') + '>' + SIDE_ICON.plugins + 'Plugins<span class="gf-chev' + (S.sidePlugins ? ' open' : '') + '">' + SIDE_ICON.chev + '</span></button>' +
         (S.sidePlugins && ready ? '<div class="gf-sub" role="group" aria-label="Plugins">' +
-          '<button type="button" class="gf-nav gf-subnav" id="cdSidePluginsList">Plugins</button>' +
-          '<button type="button" class="gf-nav gf-subnav" id="cdSideConnectors">Connectors</button>' +
-          '<button type="button" class="gf-nav gf-subnav" id="cdSideSkills">Skills</button>' +
-          '<button type="button" class="gf-nav gf-subnav" id="cdSideHooks">Hooks</button>' +
-          '<button type="button" class="gf-nav gf-subnav" id="cdSideRules">Permission rules</button>' +
-          '<button type="button" class="gf-nav gf-subnav" id="cdSideProjects">Projects</button></div>' : '') +
+          // (THE SIDE MENU, the owner's approved layout of 2026-11-24, side3: Plugins holds the plugin parts only, each with a "!".)
+          SIDE_PLUGINS.map(([id, name, tip]) => subNav(id, name, tip, '')).join('') + '</div>' : '') +
         '<button type="button" class="gf-nav" id="cdSideMore" aria-expanded="' + !!S.sideMore + '"' + (ready ? '' : ' disabled') + '>' + SIDE_ICON.more + 'More<span class="gf-chev' + (S.sideMore ? ' open' : '') + '">' + SIDE_ICON.chev + '</span></button>' +
         (S.sideMore && ready ? '<div class="gf-sub" role="group" aria-label="More">' +
-          '<button type="button" class="gf-nav gf-subnav" id="cdSideSettings">Settings</button>' +
-          '<button type="button" class="gf-nav gf-subnav" id="cdSideNotify">Notifications</button></div>' : '') +
+          // (THE TOOLS PAGE, the owner, 2026-11-24: More holds Tools alone; Settings and Notifications are in the gear's menu.)
+          SIDE_MORE.map(([id, name, tip, icon]) => subNav(id, name, tip, SIDE_ICON[icon])).join('') + '</div>' : '') +
         '');
     if (sharedView) sd.tools.querySelectorAll('#cdSideRepos').forEach((b) => { b.disabled = false; });
     const cur = S.project && S.phase === 'chat' ? S.project.id : '';
@@ -3952,8 +3977,10 @@
     on(sd.tools, '#cdSideConnectors', 'click', () => showConnectors());
     on(sd.tools, '#cdSideHooks', 'click', () => { S.setAdv = true; showSettings(); });
     on(sd.tools, '#cdSideRules', 'click', () => showRules());
-    on(sd.tools, '#cdSideSettings', 'click', () => showSettings());
-    on(sd.tools, '#cdSideNotify', 'click', () => showNotifications());
+    on(sd.tools, '#cdSideTools', 'click', () => showTools());
+    on(sd.tools, '#cdSideCommands', 'click', () => showCommands());
+    on(sd.tools, '#cdSideHelpers', 'click', () => showHelpers());
+    sideTips(sd.tools);
     on(sd.tools, '#cdSidePluginsList', 'click', () => { if (window.CoderPluginsUI) window.CoderPluginsUI.pluginsPanel(); });
     // (The owner's projects, Claude Code's Projects tool: coder-projects.js, 2026-11-23.)
     on(sd.tools, '#cdSideProjects', 'click', () => { if (window.CoderProjectsUI) window.CoderProjectsUI.projectsPanel(); });
@@ -3983,6 +4010,27 @@
     wrap.onclick = (e) => { if (e.target === wrap) close(); };
     box.querySelector('.cd-notify-done').onclick = close;
     box.querySelector('.cd-notify-done').focus();
+  }
+  // THE COMMANDS AND HELPERS LISTS (the owner's approved side menu, 2026-11-24): read-only, as the Skills list. Commands: Coder's
+  // / commands, the repository's skills (in an open chat) and installed plugins' commands; Helpers: the helper types the agent
+  // tool starts (container/coder-agents.mjs AGENT_TYPES) and installed plugins' agents, named plugin:agent.
+  async function installedPlugins() { const r = await call('/plugins'); return r && r.status === 200 && r.data && Array.isArray(r.data.installed) ? r.data.installed : []; }
+  async function showCommands() {
+    const plug = await installedPlugins();
+    const fromPlugins = plug.flatMap((p) => (Array.isArray(p.commands) ? p.commands : []).map((c) => ['/' + p.name + ':' + c, 'From the ' + p.name + ' plugin']));
+    sideList('Commands', [...SLASH.map(([c, d]) => [c, d]), ...(S.project ? skillsSlash().map(([c, d]) => [c, d]) : []), ...fromPlugins],
+      'Type / in the message box to use one. Plugins can add their own.', '', 'No commands yet.');
+  }
+  const HELPER_TYPES = [
+    ['general-purpose', 'For research, searching code and jobs with several steps. It can read, change files and run commands.'],
+    ['Explore', 'Searches and reads the code quickly. It never changes anything.'],
+    ['Plan', 'Researches the code and writes a step-by-step plan. It never changes anything.'],
+    ['web-fetch', 'Reads a web page and answers a question about it.'],
+  ];
+  async function showHelpers() {
+    const plug = await installedPlugins();
+    const fromPlugins = plug.flatMap((p) => (Array.isArray(p.agents) ? p.agents : []).map((a) => [p.name + ':' + a, 'From the ' + p.name + ' plugin']));
+    sideList('Helpers', [...HELPER_TYPES, ...fromPlugins], 'Helper AIs Coder can start for part of a job (its agent tool). Each uses more Grok. Plugins can add their own.', '', 'No helpers.');
   }
   // Archive or unarchive: only the chat's mark changes, on the server; nothing is deleted, and a failure leaves it as it was.
   async function archiveChat(id, archived) {
@@ -5021,6 +5069,65 @@
     if (r.status !== 200) { delete S.permSent[pid]; S.permErr = { pid, text: (r.data && r.data.error) || 'Your answer could not be sent. Try again.' }; }
     if (followTakenUp(r)) return;
     draw();
+  }
+  /**
+   * THE TOOLS PAGE (the owner, 2026-11-24, from the approved mockup: "BUILD IT"): for each of Coder's tools, Ask, Always allow
+   * or Never, in groups, each with a "!" that explains it (hover, tap or keyboard focus). A row never changed shows its
+   * default, grey "(default)", and nothing is stored for it. The Worker keeps the choices per owner and turns them into
+   * Coder's permission rules after the owner's and the repository's own (container/coder-toolchoices.mjs).
+   */
+  async function showTools() {
+    const r = await call('/tool-choices');
+    if (r.status !== 200 || !r.data || !Array.isArray(r.data.rows)) { S.error = (r.data && r.data.error) || 'The Tools page could not be opened.'; return draw(); }
+    const rows = r.data.rows, groups = Array.isArray(r.data.groups) ? r.data.groups : [];
+    let choices = r.data.choices && typeof r.data.choices === 'object' ? r.data.choices : {}, err = '', busy = '';
+    const NAMES = { allow: 'Always allow', ask: 'Ask', deny: 'Never' };
+    const wrap = document.createElement('div'); wrap.className = 'cd-sure cd-tools-modal';
+    const box = document.createElement('div'); box.className = 'cd-sure-box cd-tools'; box.setAttribute('role', 'dialog'); box.setAttribute('aria-modal', 'true'); box.setAttribute('aria-label', 'Tools');
+    wrap.append(box); (document.getElementById('gfApp') || document.body).append(wrap);
+    const close = () => { document.removeEventListener('keydown', key); wrap.remove(); };
+    const key = (e) => { if (e.key === 'Escape') { const open = box.querySelector('.cd-ti.show'); if (open) open.classList.remove('show'); else close(); } };
+    document.addEventListener('keydown', key);
+    wrap.onclick = (e) => { if (e.target === wrap) close(); else if (!e.target.closest('.cd-ti')) box.querySelectorAll('.cd-ti.show').forEach((x) => x.classList.remove('show')); };
+    const rowHTML = (t) => {
+      const v = choices[t.id], now = v || t.def;
+      return '<div class="cd-tl-row" data-tool="' + esc(t.id) + '"><div class="cd-tl-t"><b>' + esc(t.name) +
+          '<span class="cd-ti" tabindex="0" role="button" aria-label="About ' + esc(t.name) + '" data-tip="' + esc(t.id) + '">!<span class="cd-ti-tip" role="tooltip">' + esc(t.tip) + '</span></span></b>' +
+          '<small>' + esc(t.line) + '</small>' + (t.note ? '<small class="cd-tl-note">' + esc(t.note) + '</small>' : '') + '</div>' +
+        '<label class="cd-tl-pick is-' + now + '">' + (v ? '' : '<span class="cd-tl-def">(default)</span>') +
+          '<select aria-label="' + esc(t.name) + '"' + (busy === t.id ? ' disabled' : '') + '>' +
+            ['ask', 'allow', 'deny'].map((k) => '<option value="' + k + '"' + (k === now ? ' selected' : '') + '>' + NAMES[k] + '</option>').join('') +
+            (v ? '<option value="default">Reset to default (' + NAMES[t.def] + ')</option>' : '') +
+          '</select></label></div>';
+    };
+    const paint = () => {
+      const keep = box.scrollTop;
+      box.innerHTML = '<button type="button" class="cd-tl-x" data-close aria-label="Close">&times;</button>' +
+        '<div class="cd-sure-title">Tools</div>' +
+        '<div class="cd-sure-text">For each tool: ask you first, always allow it, or never use it. Your rules and the repository\'s rules come first. Coder\'s safety checks run either way.</div>' +
+        (err ? '<p class="cd-secret-err">' + esc(err) + '</p>' : '') +
+        groups.map((g) => { const list = rows.filter((t) => t.group === g); return list.length ? '<div class="cd-tl-sec">' + esc(g) + '</div><div class="cd-tl-card">' + list.map(rowHTML).join('') + '</div>' : ''; }).join('') +
+        '<div class="cd-sure-row"><button type="button" class="cd-sure-yes" data-close>Done</button></div>';
+      box.scrollTop = keep;
+      box.querySelectorAll('[data-close]').forEach((b) => { b.onclick = close; });
+      box.querySelectorAll('.cd-ti').forEach((i) => {
+        // (A tap on a touch screen opens it, and a second tap closes it; hover and keyboard focus open it with CSS.)
+        i.onclick = (e) => { e.preventDefault(); e.stopPropagation(); const on = !i.classList.contains('show'); box.querySelectorAll('.cd-ti.show').forEach((x) => x.classList.remove('show')); if (on) i.classList.add('show'); else i.blur(); };
+        i.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); i.click(); } };
+      });
+      box.querySelectorAll('.cd-tl-row select').forEach((sel) => {
+        sel.onchange = async () => {
+          const id = sel.closest('.cd-tl-row').dataset.tool, value = sel.value;
+          busy = id; err = ''; paint();
+          const x = await call('/tool-choices', { method: 'POST', body: JSON.stringify({ id, value }) });
+          busy = '';
+          if (x.status === 200 && x.data && x.data.choices) choices = x.data.choices; else err = (x.data && x.data.error) || 'That choice could not be saved.';
+          paint();
+          const back = box.querySelector('.cd-tl-row[data-tool="' + id + '"] select'); if (back) back.focus();
+        };
+      });
+    };
+    paint();
   }
   // THE OWNER'S RULES FOR THIS REPOSITORY (Claude Code's /permissions: its allow, ask and deny rules, added and removed there).
   async function showRules() {

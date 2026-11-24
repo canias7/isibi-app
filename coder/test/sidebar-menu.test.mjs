@@ -1,5 +1,6 @@
 // THE SIDEBAR'S MENU (owner, 2026-11-23, with a picture of the Claude app's sidebar): under Repositories, Search, Artifacts,
-// Plugins (folds open: Connectors, Skills, Hooks, Permission rules) and More (Settings, Notifications).
+// Plugins (folds open: Installed plugins, Skills, Commands, Helpers, Hooks, Connectors) and More (Tools, Permission rules,
+// Projects), since the owner's approved side menu of 2026-11-24.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
@@ -56,21 +57,23 @@ test("sidebar: Plugins and More sit under Repositories; Plugins and More fold op
     assert.deepEqual(order.slice(order.indexOf("cdSideRepos"), order.indexOf("cdSideRepos") + 3), ["cdSideRepos", "cdSidePlugins", "cdSideMore"]);
     assert.equal(await page.$("#cdSideConnectors"), null, "Plugins starts folded");
     await page.click("#cdSidePlugins");
-    for (const id of ["cdSideConnectors", "cdSideSkills", "cdSideHooks", "cdSideRules"]) assert.ok(await page.$("#" + id), id);
+    assert.deepEqual(await page.$$eval('.gf-sub[aria-label="Plugins"] .gf-sname', (b) => b.map((x) => x.textContent)), ["Installed plugins", "Skills", "Commands", "Helpers", "Hooks", "Connectors"]);
     await page.click("#cdSideMore");
-    for (const id of ["cdSideSettings", "cdSideNotify"]) assert.ok(await page.$("#" + id), id);
+    // (Since 2026-11-24 More holds Tools alone; Settings and Notifications are in the gear's menu: tools-page.test.mjs.)
+    assert.deepEqual(await page.$$eval('.gf-sub[aria-label="More"] .gf-sname', (b) => b.map((x) => x.textContent)), ["Tools", "Permission rules", "Projects"]);
+    for (const id of ["cdSideSettings", "cdSideNotify"]) assert.equal(await page.$("#" + id), null, id);
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, "sidebar-menu.png") });
     assert.equal(await page.$("#cdSideSearch"), null);
     assert.equal(await page.$("#cdSideArtifacts"), null);
     // Hooks opens Settings with Advanced open.
-    await page.click("#cdSideHooks");
+    await page.click("#cdSideHooks .gf-sname");
     await page.waitForSelector("#cdSetHooks");
     assert.equal(await page.$eval("#cdSetAdv", (d) => d.open), true);
     await page.click("#cdSetDone");
     // Skills in an open chat.
     await page.click('.gf-item[data-chat="c1"]');
     await page.waitForSelector(".cd-filecard");
-    await page.click("#cdSideSkills");
+    await page.click("#cdSideSkills .gf-sname");
     assert.match(await page.textContent(".gf-sidelist"), /\/deploy[\s\S]*How we deploy the shop/);
     await page.click(".gf-sidelist .cd-notify-done");
     assert.equal(await page.$(".gf-sidelist"), null);
