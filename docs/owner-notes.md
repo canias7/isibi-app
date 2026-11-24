@@ -7,7 +7,7 @@ log (81,000 lines) is in git history.
 
 ## 2026-11-24: Live retest of the four fixes
 
-All four fixes work on gofarther.dev (Grok, effort Low, 4 Grok messages):
+All four fixes work on gofarther.dev (Grok, effort Low: 4 messages plus the one auto-fix job):
 - **Auto-fix:** with auto-fix on, your one review comment on the test pull request started one fix job in about a minute and a half. It pushed the fix and answered your comment in the thread.
 - **Entering a worktree** worked on the first try; leaving with remove deleted it.
 - **The feedback card** still says "Dismissed" after a reload, with no buttons.
