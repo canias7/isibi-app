@@ -5,6 +5,18 @@ The owner's running log, newest first, in plain English. Started fresh on
 log (81,000 lines) is in git history.
 
 
+## 2026-11-24: Third live pass on the tool parameters tab
+
+Tried live on gofarther.dev with Grok on Low, in three test chats on canias7/testingforclaude, each started from a test branch with its own `.claude/settings.json`. Screenshots only. About 20 Grok messages and 2 helpers were used.
+
+**How the hard rows were reached:** a hook in the test branch wrote every tool result to a file that Coder pushed, so the "result object" rows could be read. The branch settings also turned on PowerShell, the old todo list, longer command timeouts, a smaller output limit, and a rule denying Bash (which brings grep and glob back, as in Claude Code). A Project was made and used in chats, the "Show files commands change" switch was turned on for a while, big files were made to hit the size limits, and /compact was used.
+
+**Results:** 341 rows now work, 32 work partly, 12 differ, 103 are still not tested (each says why), 26 don't apply. The new rows that differ are all about one thing: a hook gets a helper's result as plain text, not Claude Code's result object (no model, tool counts, usage or worktree branch fields).
+
+**Still can't be tested from a chat:** WebSocket watches (local addresses are refused and public echo servers are blocked), pages behind the network list, ending a conversation (needs abusive messages), connectors with resources, long waits and caps, and 95,000/100,000-character single calls (xAI failed while writing them).
+
+**Put back:** the "Show files commands change" switch is off again and question auto-continue is back to Never. The test chats, the test Project and the test page were deleted. Nothing was scheduled. The test branches (audit-p3a, audit-p3b, audit-p3c and the three chats' coder/ branches) are still on canias7/testingforclaude: this session isn't allowed to delete branches there.
+
 ## 2026-11-24 — For later (owner: "note it for later")
 
 From the parameters live test, waiting for the owner's go:
