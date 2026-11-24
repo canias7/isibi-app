@@ -5,6 +5,15 @@ The owner's running log, newest first, in plain English. Started fresh on
 log (81,000 lines) is in git history.
 
 
+## 2026-11-23: Retest of the tools not yet confirmed
+
+I retested, live on gofarther.dev with Grok on Low, the 25 tool rows that had not yet worked. I set up what each one needed: a pull request with a real bug, a saved skill, a project with a file, a free public connector (DeepWiki), and, for one chat, the PowerShell, TodoWrite and no-tool-search settings on env-test. About 21 messages in all. In column G, each retested row now starts with "Retest:".
+
+- Now working: 19. These are /code-review --comment (it posted 2 findings on the PR), the findings card, the feedback card's Review and Dismiss, exiting worktrees (keep, remove, the refusal and the asking), the connector tools (tool search, resources, its tools, waiting for servers), PowerShell, the Projects tool, skills (tool and /name), the plugin search and install cards, the skill suggestion card, the helper hand-back, TodoWrite (with CODER_ENABLE_TASKS=0) and cloud scheduled tasks.
+- Partly working: 5. Auto-fix turned on and off, but a new review comment started no fix in 9 minutes, so reply_review (which only answers inside an auto-fix job) was never reached. The first "enter worktree" gave an error even though the worktree was made, and the second try worked. Reading a connector resource reached the server, but DeepWiki has no resources. Whether side-by-side reads overlap can't be seen on the page.
+- Not tested: 1 (a failed web search can't be forced).
+- Cleaned up: all test chats, the connector, the project, the skill, the plugin, the scheduled task, auto-fix and the env-test variables. PR #38 is closed.
+
 ## 2026-11-23: Fixes from the live tool test
 
 - Worktrees: entering a worktree failed because the chat's git folder belongs to Coder's machine and Coder's commands may only read it (on purpose, for safety). Now Coder's own service makes the worktree and its branch (under the repo's .claude/worktrees/), and removes them on "exit and remove". The safety box around Coder's commands is unchanged.
