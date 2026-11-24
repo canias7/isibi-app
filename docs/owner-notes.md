@@ -10,7 +10,7 @@ log (81,000 lines) is in git history.
 The "Tool parameters & limits" tab of the tools file now has a column G, "Tried live (2026-11-24)", filled in for all 514 rows after testing on gofarther.dev (Grok, effort Low, about 17 messages):
 - 143 match Claude Code, 18 partly match, 3 differ, 26 n/a (Claude Code only).
 - The 3 that differ: `pkill -f coder` was not refused (it tried to kill the machine's first process and failed); an edit of a file Coder had never read went through; web search results use the link as the title instead of the page's title.
-- 163 rows were not tried live: 161 not reached in this pass, plus some that need things that can't be made safely (huge files, full disk, long waits, Windows); the automated test is named where there is one.
+- 324 rows were not tried live: 161 not reached in this pass, and 163 that need something that can't be made safely or isn't visible in the chat (huge files, full disk, long waits, Windows, results only hooks see); the automated test is named where there is one.
 Test chats, the test page and the cron job were deleted, and the test pull request (#40) is closed. No videos were recorded (your 2026-11-12 rule).
 
 ## 2026-11-24: Live retest of the four fixes
