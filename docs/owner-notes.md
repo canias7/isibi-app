@@ -5,6 +5,15 @@ The owner's running log, newest first, in plain English. Started fresh on
 log (81,000 lines) is in git history.
 
 
+## 2026-11-24: Live retest of the four fixes
+
+All four fixes work on gofarther.dev (Grok, effort Low, 4 Grok messages):
+- **Auto-fix:** with auto-fix on, your one review comment on the test pull request started one fix job in about a minute and a half. It pushed the fix and answered your comment in the thread.
+- **Entering a worktree** worked on the first try; leaving with remove deleted it.
+- **The feedback card** still says "Dismissed" after a reload, with no buttons.
+- **Connectors search box** is empty (no "undefined").
+Results are in the Tools tab (rows 7, 17, 40, 100). The test pull request is closed and the test chats are deleted.
+
 ## 2026-11-24: Four fixes from the retest
 
 - **Auto-fix now notices review comments.** Why nothing happened on PR #38: Coder never heard about your comment. Everything after the news arrives works with that exact comment (your account, the chat's branch, auto-fix on; checked in a test), so the news itself never came: Coder's GitHub App gets news about failed checks and comments, and evidently not about review comments on code lines. Coder also had no way of its own to look. Now, like Claude Code, Coder also looks at each pull request it is watching once a minute: your new comments on lines, your reviews and failed checks since you turned auto-fix on. Each one starts a fix once, still at most 3 tries in a row, and Coder can answer in that comment's thread. Things Coder itself posts as you (its review, line comments, replies) now carry a hidden mark, so it never tries to "fix" its own comments. (Ticking "Pull request review" and "Pull request review comment" in the GitHub App's settings would make it react within seconds instead of within a minute; optional.)
