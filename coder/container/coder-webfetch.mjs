@@ -958,6 +958,10 @@ export function requestOnce(url, { signal = null, proxy = "", lookup = undefined
     // (A plain http address through the gate goes to it whole; Claude Code's own fetches are all https by now.)
     const plainViaGate = !!viaGate && u.protocol === "http:";
     if (viaGate && u.protocol === "https:") {
+      // (Node's own Host header is wrong once the connection is made here: with no agent it takes port 80 as the default
+      // and sends "Host: github.com:80" on an https request, and GitHub answers that with a 301 to the very same address,
+      // round and round: "Too many redirects". The address's own host, as curl and Claude Code send it. Seen live, 2026-11-24.)
+      opts.headers.host = u.host;
       opts.createConnection = (_o, cb) => {
         const c = http.request({ host: viaGate.hostname, port: viaGate.port || 80, method: "CONNECT", path: (u.hostname) + ":" + port, headers: { host: u.hostname + ":" + port } });
         c.setTimeout(WEBFETCH_REQUEST_MS, () => { c.destroy(); cb(requestError(REQUEST_TIMEOUT(WEBFETCH_REQUEST_MS), "ECONNABORTED")); });
