@@ -156,9 +156,15 @@ body { padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) en
    sidebar is outside #gfApp, so these sit here. */
 .gf-sidewrap .gf-nav.gf-subnav { padding: 7px 10px 7px 40px; font-size: 14px; color: #3a3833; }
 .gf-sidewrap .gf-nav.gf-subnav.gf-subnav-ic { gap: 10px; }
-.gf-sidewrap .gf-sinfo { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 15px; height: 15px; box-sizing: border-box; border: 1.5px solid #9a958c; border-radius: 50%; color: #6b665e; font-size: 10px; font-weight: 700; margin-left: 8px; cursor: default; outline: none; }
+/* (The "!" at the row's right edge, away from the label, so a click on the item opens it: the frontend audit of 2026-11-24.) */
+.gf-sidewrap .gf-subnav .gf-sname { flex: 1 1 auto; min-width: 0; }
+.gf-sidewrap .gf-sinfo { margin-left: auto !important; display: inline-flex; align-items: center; justify-content: center; flex: none; width: 15px; height: 15px; box-sizing: border-box; border: 1.5px solid #9a958c; border-radius: 50%; color: #6b665e; font-size: 10px; font-weight: 700; margin-left: 8px; cursor: default; outline: none; }
 .gf-sidewrap .gf-sinfo:focus-visible { box-shadow: 0 0 0 2px #2783f2; }
 .gf-sidewrap .gf-stip { display: none; pointer-events: none; position: fixed; z-index: 200; background: #1f1f1f; color: #fff; font-weight: 400; font-size: 12.5px; line-height: 1.45; padding: 9px 11px; border-radius: 8px; box-shadow: 0 6px 20px rgba(0,0,0,.2); white-space: normal; text-align: left; box-sizing: border-box; }
 .gf-sidewrap .gf-sinfo:focus-visible .gf-stip, .gf-sidewrap .gf-sinfo.show .gf-stip { display: block; }
 @media (hover: hover) { .gf-sidewrap .gf-sinfo:hover .gf-stip { display: block; } }
-@media (prefers-color-scheme: dark) { .gf-sidewrap .gf-stip { background: #f2f0eb; color: #1f1e1d; } }
+/* A chat being removed, and the list still loading (the frontend audit of 2026-11-24). */
+.gf-item.is-removing { opacity: .5; cursor: default; pointer-events: none; }
+.gf-item.is-removing .gf-more, .gf-item.is-removing .gf-x { display: none; }
+.gf-removing { flex: none; font-style: normal; font-size: 12px; color: #8a857d; }
+.gf-loading { color: #8a857d; }

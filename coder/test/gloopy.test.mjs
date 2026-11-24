@@ -4077,7 +4077,7 @@ test("GL84 (2026-11-10) found by the live test on the test copy: Gloopy's browse
   const { readFileSync } = await import("node:fs");
   const ui = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
   assert.match(ui, /if \(GLOOPY && S\.running && !r\.data\.running\) S\.sched = null;\n\s+S\.running = !!r\.data\.running;/);
-  assert.match(ui, /S\.project = r\.data\.project; S\.events = r\.data\.events \|\| \[\];[^\n]*\n\s+if \(GLOOPY\) S\.sched = null;/);
+  assert.match(ui, /S\.project = keepWanted\(r\.data\.project\); S\.events = withPending\(S\.project, r\.data\.events \|\| \[\]\);[^\n]*\n\s+if \(GLOOPY\) S\.sched = null;/);
   // In Gloopy's tab, a dropped connection names Gloopy (it said "Coder could not be reached").
   assert.match(ui, /error: \(GLOOPY \? 'Gloopy' : 'Coder'\) \+ ' could not be reached\. Check your connection\.'/);
   // 3. The schedules Gloopy is told of carry the parts of when they repeat; a change of time alone keeps "every weekday".
@@ -6228,7 +6228,7 @@ test("GL120 (2026-11-12) Grok Bot's progress and results (owner: \"yes build all
   const css = readFileSync(new URL("../public/coder.css", import.meta.url), "utf8");
   assert.ok(ui.includes("out.push('<div class=\"cd-ai\">' + prose(e.text) + '</div>' + (e.type === 'done' ? resultPics(e) + (GLOOPY ? '' : aiMetaHTML(e, i)) : ''));"));
   assert.match(ui, /e\.shots\.filter\(\(u\) => typeof u === 'string' && u\.length <= 60000 && \/\^data:image\\\/jpeg;base64,\[A-Za-z0-9\+\/\]\+=\*\$\/\.test\(u\)\)\.slice\(0, 2\)/, "only the machine's own small JPEGs, two at most");
-  assert.ok(ui.includes("if (S.running && GLOOPY) out.push(statusLine(S.events.slice(lastUser + 1), results));\n    else if (S.running && !S.ending && !S.events"));
+  assert.ok(ui.includes("if (S.running && GLOOPY) out.push(statusLine(S.events.slice(lastUser + 1), results));\n"));
   assert.ok(ui.includes("      if (e.type === 'text' && e.quiet === true) return;\n      flush();"), "a quiet line is left out of the chat");
   assert.match(GLOOPY_SYSTEM, /Its card shows your browser live, so a QR code can be scanned right from it: hand it off rather than telling the\n  owner to look at your browser\./);
   assert.match(css, /\.cd-result-pics img \{[^}]*width: min\(320px, 100%\)/);

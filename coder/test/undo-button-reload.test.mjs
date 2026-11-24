@@ -27,5 +27,5 @@ test("UB3 the reload at a job's end never makes the page wait again: a new job b
   const src = await readFile(new URL("../public/coder.js", import.meta.url), "utf8");
   const body = src.slice(src.indexOf("async function reloadChat("), src.indexOf("S.project = r.data.project; S.events = r.data.events", src.indexOf("async function reloadChat(")));
   assert.match(body, /if \(ended && S\.running\) return;/);
-  assert.match(body, /if \(ended && r\.data\.project\.status === 'running'\) \{ if \(tries < 5\) setTimeout\(\(\) => reloadChat\(id, \{ ended: true, tries: tries \+ 1 \}\), 3000\); return; \}/);
+  assert.match(body, /if \(ended && r\.data\.project\.status === 'running'\) \{ if \(tries < 20\) setTimeout\(\(\) => reloadChat\(id, \{ ended: true, tries: tries \+ 1 \}\), Math\.min\(3000 \+ tries \* 1000, 10000\)\); return; \}/);
 });

@@ -209,7 +209,7 @@ test("CD191 the desktop app (no web push in its window): while it is open it sho
   // THE PAGE: the panel's own switch for the app, the watcher started at load, the open chat's news.
   assert.match(ui, /const DESKTOP_APP = \/GoFartherDesktop\\\/\/\.test\(navigator\.userAgent\);/);
   assert.match(ui, /id="cdLocalOn">Turn on in this app<\/button>/);
-  assert.match(ui, /S\.projects = \(p\.data && p\.data\.projects\) \|\| \[\];\n\s+if \(DESKTOP_APP\) startDesktopWatch\(\);/);
+  assert.match(ui, /S\.projects = \(p\.data && p\.data\.projects\) \|\| \[\];\n[^\n]*\n\s+if \(DESKTOP_APP\) startDesktopWatch\(\);/);
   assert.match(ui, /if \(DESKTOP_APP && localNotifyOn\(\) && !document\.hasFocus\(\) && 'Notification' in window && Notification\.permission === 'granted'\) \{/);
   assert.match(readFileSync(HERE("desktop/main.js"), "utf8"), /backgroundThrottling: false/);
   // THE CHAT LIST: what the last job left waiting, and how long it ran.

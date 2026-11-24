@@ -148,7 +148,7 @@ test("M-d-48 a repository added to a chat that is already going, between jobs, a
   // The page: "+ Repository" shows after the first message too (not while Coder works), the list loads for a chat that has
   // started, and the × to take one away stays before the first message only.
   const page = readFileSync(HERE("public/coder.js"), "utf8");
-  assert.match(page, /\(S\.project && !S\.running && !S\.ending && !S\.rewinding && !S\.project\.parked && S\.allRepos && S\.allRepos\.length > 1 && \(S\.project\.repos \|\| \[\]\)\.length < 3/);
+  assert.match(page, /\(S\.project && !S\.running && !S\.sending && !S\.ending && !S\.rewinding && !S\.project\.parked && S\.allRepos && S\.allRepos\.length > 1 && \(S\.project\.repos \|\| \[\]\)\.length < 3/);
   assert.match(page, /title="Add another repository to this chat \(the next message opens it\)"/);
   assert.match(page, /if \(S\.allRepos \|\| !S\.project\) return;/);
   assert.match(page, /\(!S\.project\.turn && !S\.running \? '<button type="button" data-unrepo=/);

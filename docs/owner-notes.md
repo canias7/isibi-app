@@ -5,6 +5,22 @@ The owner's running log, newest first, in plain English. Started fresh on
 log (81,000 lines) is in git history.
 
 
+## 2026-11-24: The desktop page's "just wrong" moments, fixed
+
+Not deployed yet: it's on the work-frontend branch. Not tried live on gofarther.dev yet: tried in a test browser with clicks and keys. Before and after screenshots are in the session's frontend-fix-shots folder.
+
+- **Opening Coder looked like it started a chat:** while your last chat loaded, the page showed an empty "What should we work on?" and the sidebar said "Connect GitHub to start." Now it says "Loading chat…" and "Loading…" until it knows.
+- **Two chats from one pick:** picking a repository now shows "Opening…" on that row at once and the other rows wait. The server also makes only one chat even if the same pick arrives twice.
+- **Reload while Coder works:** your message stays on screen, the timer keeps counting from when you sent it, and the branch and environment stay shown under the box.
+- **No Stop for the first seconds:** Stop shows as soon as you send, and Enter puts another message in line, as in Claude Code.
+- **Sidebar stuck:** a new chat title and the end of a job now show in the sidebar without a reload. Chats working in the background are checked every 20 seconds.
+- **More > Tools needed a precise click:** the "!" is now at the right edge, so clicking the name opens the item. Plugins > Hooks now opens a list of your hooks, with an Edit hooks button.
+- **Esc and clicking outside** now close the title menu, the chat's ⋯ menu, the Environment window and Gloopy's Browser panel.
+- **Dark mode:** the whole page is now dark when your computer is in dark mode. It's made from the light colours by a small script, so it stays complete. The pale tooltip on a light page is gone.
+- **Smaller ones:** a question card no longer shows the working dots and Stop. A chat being removed is greyed out with "Removing…". See changes says "Loading changes…". A step that wasn't run says why.
+- **Found while looking:** switching chats quickly could show the chat you clicked first. Changing the model dropped the mode new chats start in. Your settings loading late could put back an older model or effort. The mode menu could jump back while saving. All fixed.
+- **Waiting messages:** when messages that waited in line go out, they now carry their own id, so a retry can't run one twice.
+
 ## 2026-11-24: Fixes for the last three "differs" and the lost follow-up message
 
 Not deployed yet: it's on the work-last3 branch.

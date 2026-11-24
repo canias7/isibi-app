@@ -67,7 +67,7 @@ async function openPage(browser, { reduced = false, chatHeld = null } = {}) {
   });
   await page.route(/^(?!https:\/\/gofarther\.test).*/, (route) => route.abort());
   await page.goto(ORIGIN + "/", { waitUntil: "domcontentloaded" });
-  await page.waitForSelector("#gfApp .cd-cl-fig svg.cl-logo", { timeout: 15000 });
+  await page.waitForSelector(chatHeld ? "#gfApp .cd-loading-chat" : "#gfApp .cd-cl-fig svg.cl-logo", { timeout: 15000 });
   /** Each logo on the page: where it is, its size, whether it types, and how far into its line (ms). */
   const logos = () => page.evaluate((LINE) => [...document.querySelectorAll("svg.cl-logo")].map((s) => {
     const r = s.getBoundingClientRect();
@@ -97,7 +97,7 @@ test("TW2 the typewriter is drawn once, in coder-logo.js (window.coderLogoHTML, 
   for (const f of ["index.html", "app.js", "coder.js", "gloopy.js", "auth.js", "app.css", "coder.css", "gloopy.css"]) assert.doesNotMatch(read("public/" + f), /clg-/, f + " draws none of it itself");
   assert.match(ui, /const coderFig = \(h\) => \(typeof window\.coderLogoHTML === 'function' \? window\.coderLogoHTML\(h\) : ''\);/);
   assert.match(ui, /'<button type="button" class="cd-menu" id="cdMenu" aria-label="Chats">☰<\/button>' \+\n\s+'<span class="cd-cl-av" aria-hidden="true">' \+ coderFig\(26\) \+ '<\/span>' \+\n\s+\(p \? '<b class="cd-title-bar"/);
-  assert.match(ui, /\(empty && !GLOOPY \? '<div class="cd-empty"><div class="cd-cl-fig" aria-hidden="true">' \+ coderFig\(120\) \+ '<\/div><b>What should we work on' \+ \(S\.project && S\.project\.repo \? ' in ' \+ esc\(S\.project\.repo\) : ''\) \+ '\?<\/b>/);
+  assert.match(ui, /\(empty && !GLOOPY && !loadingChat \? '<div class="cd-empty"><div class="cd-cl-fig" aria-hidden="true">' \+ coderFig\(120\) \+ '<\/div><b>What should we work on' \+ \(S\.project && S\.project\.repo \? ' in ' \+ esc\(S\.project\.repo\) : ''\) \+ '\?<\/b>/);
   assert.equal(ui.match(/coderFig\(/g).length, 2, "in Coder's chat: its bar and its empty chat");
   const { window } = logoScript();
   const svg = window.coderLogoHTML(34);
@@ -135,7 +135,7 @@ test("TW3 it moves only while it types (cl-run), only by transforms and opacity,
   assert.match(css, /\.cl-once \{ --cl-n: 1; \}/);
   assert.match(js, /const WHEN = \{ working: true, hover: true, click: true \};/, "when it types: easy to change");
   // Only Coder's view says whether Coder is working (Gloopy's chat never makes it type), each time it draws.
-  assert.match(ui, /function draw\(scroll\) \{\n\s+const root = S\.root;\n\s+if \(!root \|\| !root\.isConnected\) return;\n\s+\/\/ CODER'S LOGO TYPES WHILE CODER WORKS[^\n]*\n\s+if \(!GLOOPY && window\.coderLogo\) window\.coderLogo\.busy\(S\.phase === 'chat' && S\.running\);/);
+  assert.match(ui, /function draw\(scroll\) \{\n\s+const root = S\.root;\n\s+if \(!root \|\| !root\.isConnected\) return;\n\s+menuClosers\(\);\n\s+\/\/ CODER'S LOGO TYPES WHILE CODER WORKS[^\n]*\n\s+if \(!GLOOPY && window\.coderLogo\) window\.coderLogo\.busy\(S\.phase === 'chat' && S\.running\);/);
   assert.equal(ui.match(/coderLogo\.busy\(/g).length, 1);
 });
 
@@ -376,7 +376,9 @@ test("TW10 (2026-11-15, the owner: \"fix\") the empty chat names its repository 
     const chatHeld = new Promise((r) => { letGo = r; });
     const { page, errors } = await openPage(browser, { chatHeld });
     const ask = () => page.evaluate(() => { const b = document.querySelector("#gfApp .cd-empty b"); return b ? b.textContent : null; });
-    assert.equal(await ask(), "What should we work on?", "while the chat (and so its repository) is not known yet");
+    // (Since the frontend audit of 2026-11-24 a chat still loading shows "Loading chat…", never an empty new chat.)
+    assert.equal(await ask(), null, "no empty chat while the chat is not known yet");
+    assert.match(await page.textContent("#gfApp .cd-loading-chat"), /Loading chat/);
     letGo();
     await page.waitForFunction(() => { const b = document.querySelector("#gfApp .cd-empty b"); return b && / in /.test(b.textContent); }, null, { timeout: 8000 });
     assert.equal(await ask(), "What should we work on in ana/shop?");

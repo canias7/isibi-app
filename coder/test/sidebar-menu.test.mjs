@@ -65,8 +65,10 @@ test("sidebar: Plugins and More sit under Repositories; Plugins and More fold op
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, "sidebar-menu.png") });
     assert.equal(await page.$("#cdSideSearch"), null);
     assert.equal(await page.$("#cdSideArtifacts"), null);
-    // Hooks opens Settings with Advanced open.
+    // Hooks opens the hooks list (the frontend audit of 2026-11-24); its Edit hooks opens Settings with Advanced open.
     await page.click("#cdSideHooks .gf-sname");
+    await page.waitForSelector("#cdHooksEdit");
+    await page.click("#cdHooksEdit");
     await page.waitForSelector("#cdSetHooks");
     assert.equal(await page.$eval("#cdSetAdv", (d) => d.open), true);
     await page.click("#cdSetDone");

@@ -38,7 +38,7 @@
     const r = await call('/settings');
     if (r.status === 200 && r.data) {
       if (Array.isArray(r.data.models) && r.data.models.length) MODELS = r.data.models;
-      if (r.data.pick) S.pick = r.data.pick;
+      if (r.data.pick && !S.pickTouched) S.pick = r.data.pick;
       // (Auto mode turned off in Settings, Claude Code's disableAutoMode: Auto is not offered.)
       S.autoOff = !!(r.data.prefs && r.data.prefs.autoOff === true);
       // (Prompt suggestions turned off in Settings, Claude Code's promptSuggestionEnabled: false.)
@@ -252,6 +252,29 @@
     return load();
   }
 
+  // THE SIDEBAR'S CHATS, ASKED FOR AGAIN (the frontend audit of 2026-11-24: a chat's new title, and the end of a job in a chat
+  // that was not open, showed only after a reload): their titles and states are taken in, without reordering or redrawing
+  // the open chat. While any listed chat works, again every 20 s.
+  async function refreshProjects() {
+    if (GLOOPY || S.refreshingProjects || !(S.github && S.github.connected)) return;
+    S.refreshingProjects = true;
+    let r;
+    try { r = await call('/projects'); } finally { S.refreshingProjects = false; }
+    if (!r || r.status !== 200 || !r.data || !Array.isArray(r.data.projects)) return;
+    const fresh = new Map(r.data.projects.map((x) => [x.id, x]));
+    S.projects = S.projects.filter((x) => fresh.has(x.id) || x.removing).map((x) => {
+      const f = fresh.get(x.id);
+      if (!f) return x;
+      // (The open chat's own state is the page's, which follows it live.)
+      const open = S.project && S.project.id === x.id && S.phase === 'chat';
+      return { ...x, ...entryOf(f), ...(open ? { status: S.running ? 'running' : f.status === 'running' ? 'idle' : f.status } : {}), title: f.title || x.title };
+    });
+    for (const f of r.data.projects) if (!S.projects.some((x) => x.id === f.id)) S.projects.push(entryOf(f));
+    drawSide();
+    if (S.projectsTimer) clearTimeout(S.projectsTimer);
+    S.projectsTimer = S.projects.some((x) => x.status === 'running' && !(S.project && S.project.id === x.id && S.running)) ? setTimeout(refreshProjects, 20000) : 0;
+  }
+
   // ── LOADING: who am I on GitHub, which projects ───────────────────────────
   async function load() {
     if (GLOOPY) return loadGloopy();
@@ -268,6 +291,7 @@
     if (!g.data.connected) { S.phase = 'connect'; return draw(); }
     const p = await call('/projects');
     S.projects = (p.data && p.data.projects) || [];
+    if (S.projects.some((x) => x.status === 'running')) { if (S.projectsTimer) clearTimeout(S.projectsTimer); S.projectsTimer = setTimeout(refreshProjects, 20000); }
     if (DESKTOP_APP) startDesktopWatch();
     // A NOTIFICATION'S CHAT (owner item 8): /?chat=<id> opens it.
     const want = new URLSearchParams(location.search).get('chat');
@@ -347,10 +371,20 @@
     else { S.error = (r.data && r.data.error) || 'GitHub could not be opened.'; draw(); }
   }
 
+  // A NEW CHAT IS MADE ONCE, AND ONLY BY A PICK (the frontend audit of 2026-11-24: a double click, a second Enter or a redraw
+  // made two chats, and nothing showed for ~4 s after the pick): one at a time (S.adding), its row shows it is being opened,
+  // and the request carries its own name (`cid`), so the server gives back the same chat if the request is sent again.
   async function addProject(repo) {
-    const r = await call('/projects', { method: 'POST', body: JSON.stringify({ repo }) });
+    if (!repo || S.adding) return;
+    const cid = S.addingCid && S.addingCid.repo === repo ? S.addingCid.cid : 'n' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+    S.adding = repo; S.addingCid = { repo, cid }; S.error = ''; draw();
+    let r = null;
+    try { r = await call('/projects', { method: 'POST', body: JSON.stringify({ repo, cid }) }); } finally { S.adding = ''; }
+    if (!r) r = { status: 0, data: {} };
+    // (No answer at all: the same name is kept, so a second try gets the chat the first may have made.)
+    if (r.status !== 0) S.addingCid = null;
     if (r.status !== 200) { S.error = (r.data && r.data.error) || 'That repository could not be added.'; return draw(); }
-    S.projects = [entryOf(r.data.project), ...S.projects];
+    S.projects = [entryOf(r.data.project), ...S.projects.filter((x) => x.id !== r.data.project.id)];
     // ITS MACHINE STARTED NOW (owner, 2026-11-15: "start the machine when a repo is picked"), so it is up when the first
     // message comes; not waited for. Unused, it stops after the usual quiet time.
     call('/projects/' + encodeURIComponent(r.data.project.id) + '/warm', { method: 'POST' }).catch(() => {});
@@ -1748,6 +1782,11 @@
     if (!x || !(await askSure('Remove “' + (x.title || 'New chat') + '”?', 'Its branch and pull request stay on GitHub.', 'Remove'))) return;
     // NOTHING OF THE CHAT CHANGES UNTIL THE SERVER SAYS IT IS GONE (live test, 2026-11-21: after a DELETE that failed, the chat
     // looked stopped): no stop, no poll ended, no card closed here. A failed delete leaves it exactly as it was.
+    // REMOVING… (the frontend audit of 2026-11-24: the chat stayed in Recents, looking untouched, until the server answered):
+    // its row is greyed out with "Removing…" until then; nothing else of it changes, and a failure brings it back as it was.
+    if (x.removing) return;
+    const mark = (on) => { S.projects = S.projects.map((p) => (p.id === id ? (on ? { ...p, removing: true } : (({ removing: _r, ...rest }) => rest)(p)) : p)); drawSide(); };
+    mark(true);
     let r;
     try { r = await call('/projects/' + encodeURIComponent(id), { method: 'DELETE' }); } catch (e) { r = { status: 0, data: {} }; }
     // (A refusal, a server error or no answer at all is shown in a box of its own, wherever the page is, and before the page
@@ -1757,11 +1796,12 @@
     // is the owner's, 2026-11-16. Batch 2 of "Go Claude Code way", 2026-11-22: there was no way to do "anyway" on the page.)
     if (r && r.status === 409 && r.data && Number(r.data.unpushed) > 0) {
       const n = Number(r.data.unpushed);
-      if (!(await askSure('Remove anyway and lose ' + n + ' commit' + (n === 1 ? '' : 's') + '?', r.data.error || 'The push to GitHub failed.', 'Remove anyway'))) return;
+      if (!(await askSure('Remove anyway and lose ' + n + ' commit' + (n === 1 ? '' : 's') + '?', r.data.error || 'The push to GitHub failed.', 'Remove anyway'))) return mark(false);
       try { r = await call('/projects/' + encodeURIComponent(id) + '?force=1', { method: 'DELETE' }); } catch (e) { r = { status: 0, data: {} }; }
     }
     if (!r || r.status !== 200 || !r.data || r.data.ok !== true) {
       const why = (r && r.data && typeof r.data.error === 'string' && r.data.error) || (!r || !r.status ? 'Coder could not be reached. Check your connection.' : 'Server error (' + r.status + '): try again in a moment.');
+      mark(false);
       tellRemoveFailed(why);
       return;
     }
@@ -1794,19 +1834,37 @@
     return (own || 'The message was not sent.') + tail;
   }
 
+  // THE MESSAGE BEING WORKED ON, AFTER A RELOAD (the frontend audit of 2026-11-24: reloading while Coder set up or worked lost
+  // your own bubble, and the timer started again at 0s): the saved chat has it only once the job is saved, so it is drawn from
+  // the chat's record of it (`asked`, or `starting` while the machine is still being set up), with when it was sent. The
+  // machine's own copy of it replaces it when it comes (applyState).
+  function withPending(p, events) {
+    if (GLOOPY || !p || p.status !== 'running') return events;
+    const a = p.asked && Number(p.asked.turn) === Number(p.turn) ? p.asked : p.starting && typeof p.starting.text === 'string' ? p.starting : null;
+    const text = a && typeof a.text === 'string' ? a.text.trim() : '';
+    if (!text) return events;
+    const at = Number(a.at) > 0 ? Number(a.at) : Date.now();
+    const last = events.filter((e) => e && e.type === 'user').pop();
+    if (last && last.text === text && Number(last.at || 0) >= at - 2000) return events;
+    return events.concat([{ type: 'user', text, at, local: true, ...(/^! /.test(text) ? { shell: true } : {}) }]);
+  }
   async function openProject(id) {
     stopPoll();
     keepDraft(S, id);
     S.opening = id;
     stopBgWatch(); stopBgOut(); S.bgOut = null; S.bgUntold = 0;
     S.phase = 'chat'; S.project = null; S.events = []; S.next = 0; S.showEarlier = false; S.error = (S.sendFailed && S.sendFailed[id]) || ''; if (S.sendFailed) delete S.sendFailed[id]; S.sending = !!S.sendingFor && S.sendingFor === id; S.showChanges = false; S.changes = null; S.compareAgainst = ''; S.compareBranches = null; window.dispatchEvent(new CustomEvent('gf:side', { detail: false })); draw();
+    const seq = S.openSeq = (S.openSeq || 0) + 1;
     const r = await call('/projects/' + encodeURIComponent(id));
+    // (Another chat was clicked meanwhile: this late answer is dropped, so a quick switch never shows the chat clicked before.
+    // The frontend audit of 2026-11-24.)
+    if (seq !== S.openSeq) return;
     if (S.opening === id) S.opening = '';
     // (A message sent while the chat was still loading goes out once it has loaded: sendAfterOpen.)
     const after = S.sendAfterOpen && S.sendAfterOpen.id === id ? S.sendAfterOpen : null;
     if (S.sendAfterOpen && S.sendAfterOpen.id !== id) S.sendAfterOpen = null;
     if (r.status !== 200) { S.sendAfterOpen = null; S.error = (r.data && r.data.error) || 'The project could not be opened.'; return draw(); }
-    S.project = r.data.project; S.events = r.data.events || []; S.queue = r.data.queue || []; S.shellHist = Array.isArray(r.data.shellHistory) ? r.data.shellHistory : []; fbTake(r.data.fbCards);
+    S.project = r.data.project; S.events = withPending(S.project, r.data.events || []); S.queue = r.data.queue || []; S.shellHist = Array.isArray(r.data.shellHistory) ? r.data.shellHistory : []; fbTake(r.data.fbCards);
     S.running = S.project.status === 'running';
     S.background = undefined; startBgWatch();
     S.envInfo = null; loadEnvInfo();
@@ -1870,7 +1928,7 @@
     if (!GLOOPY && /^\/export(?:\s|$)/i.test(text)) { boxEmpty(); exportCmd(text.replace(/^\/export\s*/i, '')); return; }
     // /model <name> AND /effort <level>, CLAUDE CODE'S (batch 2 of "Go Claude Code way", 2026-11-22): set them at once, as the
     // two pickers on the box do; alone, they say the current one and the choices. Nothing goes to the AI.
-    if (!GLOOPY && /^\/(model|effort)(?:\s|$)/i.test(text)) { boxEmpty(); const r = pickCmd(text, MODELS, S.pick); if (r.pick) { S.pick = r.pick; savePick(); } note(r.text); return; }
+    if (!GLOOPY && /^\/(model|effort)(?:\s|$)/i.test(text)) { boxEmpty(); const r = pickCmd(text, MODELS, S.pick); if (r.pick) { S.pick = r.pick; S.pickTouched = true; savePick(); } note(r.text); return; }
     // AN UNKNOWN COMMAND, AS IN CLAUDE CODE (its docs: "Enter submits your text as typed and reports Unknown command"): the box
     // empties and the chat says "Unknown command: /name", with a "Did you mean" when one is close; nothing goes to the AI.
     { const u = !GLOOPY ? unknownSlash(text) : null; if (u) { boxEmpty(); note('Unknown command: /' + u.name + (u.near ? ' · Did you mean ' + u.near + '?' : '')); return; } }
@@ -1883,24 +1941,30 @@
     // ENTER IN A CHAT STILL LOADING (live test, 2026-11-16: a new chat's first message, typed while the chat was being opened
     // just after its repository was picked, was dropped and stayed in the box): it goes out once the chat has loaded.
     if (!S.project && S.opening && text && !GLOOPY) { S.sendAfterOpen = { id: S.opening, text, opts }; S.draft = text; return; }
-    if ((!text && !comments.length && !pics.length && !att.length) || !S.project || S.sending) return;
+    if ((!text && !comments.length && !pics.length && !att.length) || !S.project || S.queueSending) return;
+    // A MESSAGE SENT WHILE THE FIRST IS STILL ON ITS WAY (the frontend audit of 2026-11-24: Send stayed greyed out, with no
+    // Stop, for the 5-40 s a message's start takes, the machine's setup too): it waits for Coder as one sent while it works
+    // does (Claude Code: Enter queues while Claude works). The Worker has already marked the chat as starting.
+    const onWay = !GLOOPY && S.sending && S.sendingFor === S.project.id;
+    if (S.sending && !onWay) return;
     // WHILE CODER WORKS, A MESSAGE WAITS FOR IT (Claude Code's queue): shown in grey at the end of the chat, with ✕ to take it
     // back, until Coder reads it, which it does once its running tool calls finish; what is left goes out when it is done.
     // (And while the key card or an environment card Coder's paused job left open waits: it waits for Coder in the turn the
     // card's answer takes up again. A question card's reply is the message; a permission card or the plan's is closed by it,
     // and the message goes out now, as Claude Code's. container/coder-park.mjs.)
     const parkedWait = !S.running && !GLOOPY && S.project && S.project.parked && !['question', 'permission'].includes(S.project.parked.kind);
-    if (S.running || parkedWait) {
+    if (S.running || parkedWait || onWay) {
       if (GLOOPY) return; // (Gloopy's chat sends once Gloopy is done, as on its branch.)
       if (pics.length || comments.length || att.length || !text) { S.error = parkedWait ? 'Coder is waiting for your answer on its card: send pictures or line comments once it is done.' : S.ending ? 'Coder is saving to the branch: send pictures or line comments in a second, once it is saved.' : att.length ? 'Coder is still working: send files once it is done.' : 'Coder is still working: send pictures or line comments once it is done.'; return draw(); }
-      S.sending = true; S.sendingFor = S.project.id; S.error = '';
+      // (Its own flag: the first message's S.sending is left as it is while it is still on its way.)
+      S.queueSending = true; S.error = '';
       const id = S.project.id;
       // (Its own id, so the same message is never started twice: 2026-11-15.)
       const qkey = sendKey(id, text);
       const qmid = midFor(qkey);
       // (Ctrl+Enter: QUEUED FOR LATER, as Claude Code's web page: it waits until Coder's job is over. Audit M-d-12.)
       const q = await call('/projects/' + encodeURIComponent(id) + '/message', { method: 'POST', body: opts && opts.later ? JSON.stringify({ text, mid: qmid, later: true }) : JSON.stringify({ text, mid: qmid }) });
-      if (S.sendingFor === id) { S.sending = false; S.sendingFor = null; }
+      S.queueSending = false;
       if (!S.project || S.project.id !== id) return draw();
       if (q.status !== 200) keepMid(qkey, qmid, q); else S.unsentMid = null;
       // (Waiting but not taken by the job, or not started: said under the box, never a silent "sent". 2026-11-24.)
@@ -1974,6 +2038,8 @@
     startPoll(); draw(true);
   }
 
+  // A mode just picked, still on its way to the server, stays shown over a look's older copy of the chat.
+  const keepWanted = (p) => (p && S.modeWant && S.modeWant.id === p.id ? { ...p, mode: S.modeWant.mode, modeAt: S.modeWant.modeAt } : p);
   function startPoll() { stopPoll(); S.ending = false; S.poll = setTimeout(tick, 300); webWake(); }
   // WHILE A MESSAGE IS STILL BEING SENT: an ending already saved for it (its job lost and freed with an error, `lost`, or its
   // turn over) is shown at once, without a reload; anything else waits for the message's own answer.
@@ -2128,7 +2194,7 @@
         }
       }
       S.next = r.data.next || S.next;
-      if (r.data.project) S.project = r.data.project;
+      if (r.data.project) S.project = keepWanted(r.data.project);
       if (Array.isArray(r.data.background)) S.background = r.data.background;
       if (Array.isArray(r.data.queue)) S.queue = r.data.queue;
       S.progress = r.data.progress || null;
@@ -2149,6 +2215,8 @@
       // (A new step does not pull a reader back to the bottom: the at-bottom rule in draw decides. 2026-11-20.)
       draw();
       if (justEnded && S.project && S.project.id === id && marksOff()) reloadChat(id, { ended: true });
+      // (The sidebar's "working" dot goes as the job ends, and the list's titles are asked for again: the frontend audit.)
+      if (justEnded) { S.projects = S.projects.map((x) => (x.id === id && x.status === 'running' ? { ...x, status: 'idle' } : x)); drawSide(); refreshProjects(); }
       // (A job that ended may have made files: the @ list is refreshed in the background.)
       if (justEnded && S.files && S.files.id === id) loadFiles(true);
     }
@@ -2165,8 +2233,11 @@
     const r = await call('/projects/' + encodeURIComponent(id));
     if (r.status !== 200 || !r.data || !r.data.project || !S.project || S.project.id !== id) return;
     if (ended && S.running) return;
-    if (ended && r.data.project.status === 'running') { if (tries < 5) setTimeout(() => reloadChat(id, { ended: true, tries: tries + 1 }), 3000); return; }
-    S.project = r.data.project; S.events = r.data.events || []; S.queue = r.data.queue || []; if (Array.isArray(r.data.shellHistory)) S.shellHist = r.data.shellHistory; fbTake(r.data.fbCards);
+    // (A save can take a while, a push or a pull request with it: asked again for up to ~2 minutes, more slowly as it goes. Before,
+    // after 15 s the page gave up, and the chat kept its old title and its "working" dot in the sidebar until a reload: the
+    // frontend audit of 2026-11-24.)
+    if (ended && r.data.project.status === 'running') { if (tries < 20) setTimeout(() => reloadChat(id, { ended: true, tries: tries + 1 }), Math.min(3000 + tries * 1000, 10000)); return; }
+    S.project = keepWanted(r.data.project); S.events = withPending(S.project, r.data.events || []); S.queue = r.data.queue || []; if (Array.isArray(r.data.shellHistory)) S.shellHist = r.data.shellHistory; fbTake(r.data.fbCards);
     if (GLOOPY) S.sched = null;
     S.running = S.project.status === 'running';
     S.background = undefined;
@@ -2213,14 +2284,26 @@
     draw();
   }
   async function stop() {
-    if (!S.project) return;
+    if (!S.project || S.stopping) return;
     S.rewindAfter = false;
     const id = S.project.id;
-    const r = await call('/projects/' + encodeURIComponent(id) + '/stop', { method: 'POST' });
+    // STOP WHILE THE MESSAGE IS STILL ON ITS WAY (the frontend audit of 2026-11-24): the Worker puts the chat back with the
+    // message kept in it, then "Stopped"; the start's own late answer then changes nothing here.
+    const onWay = S.sending && S.sendingFor === id && S.sendWatch && S.sendWatch.id === id ? S.sendWatch : null;
+    S.stopping = true; draw();
+    let r;
+    try { r = await call('/projects/' + encodeURIComponent(id) + '/stop', { method: 'POST' }); } finally { S.stopping = false; }
+    if (onWay && r.status === 200 && r.data && r.data.reload) { onWay.gone = true; S.sendWatch = null; S.sending = false; S.sendingFor = null; S.unsent = ''; }
     // The machine was gone: the chat was freed, with what the job saved as it went.
     if (r.status === 200 && r.data && r.data.reload && S.project && S.project.id === id) { stopPoll(); S.running = false; return reloadChat(id); }
   }
 
+  // WHY A STEP WAS NOT RUN, in one line: its own reason, else the first line of what it reported ("Not run: you said no.").
+  function notRunWhy(r) {
+    const t = typeof (r && r.notRun) === 'string' && r.notRun.trim() ? r.notRun : String((r && r.output) || '');
+    return t.split('\n').map((x) => x.trim()).find(Boolean) ? t.split('\n').map((x) => x.trim()).find(Boolean).replace(/^Not run:\s*/i, '').slice(0, 200) : '';
+  }
+  const notRunLine = (r) => (notRunWhy(r) ? '<small class="cd-st-why">' + esc(notRunWhy(r)) + '</small>' : '');
   // ── DRAWING ───────────────────────────────────────────────────────────────
   const ICON = {
     eye: '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>',
@@ -2483,8 +2566,9 @@
     const what = who ? e.command.slice(who[0].length) : e.command;
     const tail = state === 'run' ? '<span class="cd-st"><span class="cd-spin" aria-label="working"></span></span>'
       // (Not run because auto mode's check had no usable answer: dim, not an error, as Claude Code shows it; Bash docs pass 8.)
-      : state === 'bad' && r && typeof r.notRun === 'string' && r.notRun ? '<span class="cd-st cd-st-notrun">not run</span>'
-      : state === 'bad' ? '<span class="cd-st cd-st-bad">✕ ' + (r.timedOut ? 'timed out' : autoBlockOf(r) ? 'blocked' : hookBlockOf(r) ? 'blocked by hook' : r.hookDenied === true ? 'denied by hook' : r.denied === true ? 'refused' : r.ran === false ? 'not run' : e.tool ? 'error' : 'exit ' + esc(r.code)) + '</span>'
+      // (A step not run says why, on hover and in a short line beside it: the frontend audit of 2026-11-24.)
+      : state === 'bad' && r && typeof r.notRun === 'string' && r.notRun ? '<span class="cd-st cd-st-notrun" title="' + esc(notRunWhy(r)) + '">not run</span>' + notRunLine(r)
+      : state === 'bad' ? '<span class="cd-st cd-st-bad"' + (r.ran === false && notRunWhy(r) ? ' title="' + esc(notRunWhy(r)) + '"' : '') + '>✕ ' + (r.timedOut ? 'timed out' : autoBlockOf(r) ? 'blocked' : hookBlockOf(r) ? 'blocked by hook' : r.hookDenied === true ? 'denied by hook' : r.denied === true ? 'refused' : r.ran === false ? 'not run' : e.tool ? 'error' : 'exit ' + esc(r.code)) + '</span>' + (r.ran === false && !r.timedOut && !autoBlockOf(r) && !hookBlockOf(r) && r.hookDenied !== true && r.denied !== true ? notRunLine(r) : '')
       : state === 'bg' ? '<span class="cd-st cd-st-bg"><i></i>running</span>'
       : state === 'bgend' ? (/^(exit|ended)/.test(String((S.bgEnded[r.job] || {}).label || '')) ? '<span class="cd-st cd-st-bad">✕ ' + esc(S.bgEnded[r.job].label) + '</span>' : '<span class="cd-st cd-st-stopped">' + esc((S.bgEnded[r.job] || {}).label || 'stopped') + '</span>')
       : state === 'ok' ? '<span class="cd-st cd-st-ok" aria-label="done">✓</span>'
@@ -3223,6 +3307,9 @@
     });
     flush();
     if (S.running && GLOOPY) out.push(statusLine(S.events.slice(lastUser + 1), results));
+    // A QUESTION CODER WAITS ON (the frontend audit of 2026-11-24: its card showed the "working" dots and Stop): only its own
+    // "Needs your input" line says it waits for you, as Claude Code's question does.
+    else if (waitsOnYou()) { /* nothing more */ }
     else if (S.running && !S.ending && !S.events.slice(lastUser + 1).some((e) => e.type !== 'user')) out.push(workingHTML(lastUser));
     // (While the message is still being sent: the same line, from what the chat's looks say meanwhile, watchSend.)
     else if (S.sending && !S.running && !GLOOPY) out.push(workingHTML(lastUser));
@@ -3985,16 +4072,16 @@
     // ARCHIVED CHATS (round 6, 2026-11-21; Claude Code on the web: an archived session leaves the list and can be shown and
     // restored): the row's ⋯ menu archives; "Archived (N)" at the end of Recents shows them, each with Unarchive.
     const row = (x) =>
-      '<div class="gf-item' + (x.id === cur ? ' on' : '') + (x.archived ? ' is-archived' : '') + '" data-chat="' + esc(x.id) + '" role="button" tabindex="0" title="' + esc((x.title || 'New chat') + ' · ' + x.repo) + '">' +
+      '<div class="gf-item' + (x.id === cur ? ' on' : '') + (x.archived ? ' is-archived' : '') + (x.removing ? ' is-removing' : '') + '" data-chat="' + esc(x.id) + '" role="button" tabindex="0"' + (x.removing ? ' aria-disabled="true"' : '') + ' title="' + esc((x.title || 'New chat') + ' · ' + x.repo) + '">' +
         '<span class="gf-item-t">' + esc(x.title || 'New chat · ' + x.repo.split('/').pop()) + '</span>' +
-        (x.status === 'running' ? '<i class="gf-dot" title="Coder is working"></i>' : x.status === 'failed' ? '<i class="gf-failed" title="Coder stopped: auto mode could not check its steps">!</i>' : x.pr ? '<em class="gf-prn">#' + esc(x.pr) + '</em>' : '') +
+        (x.removing ? '<em class="gf-removing">Removing…</em>' : (x.id === cur && !GLOOPY ? S.running || S.sending : x.status === 'running') ? '<i class="gf-dot" title="Coder is working"></i>' : x.status === 'failed' ? '<i class="gf-failed" title="Coder stopped: auto mode could not check its steps">!</i>' : x.pr ? '<em class="gf-prn">#' + esc(x.pr) + '</em>' : '') +
         (x.archived ? '<button type="button" class="gf-unarch" data-unarchive="' + esc(x.id) + '" aria-label="Unarchive this chat">Unarchive</button>'
           : '<button type="button" class="gf-more" data-rowmenu="' + esc(x.id) + '" aria-label="More for this chat" aria-expanded="' + (S.rowMenu === x.id) + '">⋯</button>') +
         '<button type="button" class="gf-x" data-remove="' + esc(x.id) + '" aria-label="Remove this chat">×</button>' +
         (S.rowMenu === x.id && !x.archived ? '<div class="gf-rowmenu" role="menu"><button type="button" role="menuitem" data-archive="' + esc(x.id) + '">Archive</button></div>' : '') +
       '</div>';
     const live = S.projects.filter((x) => !x.archived), kept = S.projects.filter((x) => x.archived);
-    sd.recents.innerHTML = (live.length ? live.map(row).join('') : '<p class="gf-none">' + (sharedView ? 'You are viewing a shared chat. <a href="/">Your chats</a>' : !ready ? 'Connect GitHub to start.' : kept.length ? 'No chats outside the archive.' : 'No chats yet. Start one with New chat.') + '</p>') +
+    sd.recents.innerHTML = (live.length ? live.map(row).join('') : '<p class="gf-none">' + (sharedView ? 'You are viewing a shared chat. <a href="/">Your chats</a>' : !ready ? (S.github === null && S.phase !== 'connect' && S.phase !== 'error' && S.phase !== 'off' ? '<span class="gf-loading">Loading…</span>' : 'Connect GitHub to start.') : kept.length ? 'No chats outside the archive.' : 'No chats yet. Start one with New chat.') + '</p>') +
       (kept.length ? '<button type="button" class="gf-archived" id="cdSideArchived" aria-expanded="' + !!S.showArchived + '">' + (S.showArchived ? 'Hide archived' : 'Archived (' + kept.length + ')') + '</button>' + (S.showArchived ? kept.map(row).join('') : '') : '');
     const on = (el, sel, ev, fn) => el.querySelectorAll(sel).forEach((n) => n.addEventListener(ev, fn));
     on(sd.tools, '#cdSideNew', 'click', () => { if (S.phase === 'shared') location.href = '/'; else showPicker('new'); });
@@ -4002,7 +4089,7 @@
     on(sd.tools, '#cdSidePlugins', 'click', () => { S.sidePlugins = !S.sidePlugins; drawSide(); });
     on(sd.tools, '#cdSideMore', 'click', () => { S.sideMore = !S.sideMore; drawSide(); });
     on(sd.tools, '#cdSideConnectors', 'click', () => showConnectors());
-    on(sd.tools, '#cdSideHooks', 'click', () => { S.setAdv = true; showSettings(); });
+    on(sd.tools, '#cdSideHooks', 'click', () => showHooks());
     on(sd.tools, '#cdSideRules', 'click', () => showRules());
     on(sd.tools, '#cdSideTools', 'click', () => showTools());
     on(sd.tools, '#cdSideCommands', 'click', () => showCommands());
@@ -4014,7 +4101,7 @@
     // (The repository's skills, and the owner's saved and plugins' skills: coder-plugins.js. Without it, the list as before.)
     on(sd.tools, '#cdSideSkills', 'click', () => window.CoderPluginsUI ? window.CoderPluginsUI.skillsPanel(S.project ? skillsSlash().map(([c, d]) => [c, d]) : null) : sideList('Skills', S.project ? skillsSlash().map(([c, d]) => [c, d]) : null,
       'Skills are saved instructions in the repository’s .claude/skills folder. Type / in the message box to use one.', 'Open a chat to see its repository’s skills.', 'This chat’s repository has no skills yet.'));
-    on(sd.recents, '.gf-item', 'click', (e) => { if (e.target.closest('.gf-x')) return; openProject(e.currentTarget.dataset.chat); });
+    on(sd.recents, '.gf-item', 'click', (e) => { if (e.target.closest('.gf-x') || e.currentTarget.classList.contains('is-removing')) return; openProject(e.currentTarget.dataset.chat); });
     on(sd.recents, '.gf-item', 'keydown', (e) => { if (e.key === 'Enter') openProject(e.currentTarget.dataset.chat); });
     on(sd.recents, '.gf-x', 'click', (e) => { e.stopPropagation(); removeChat(e.currentTarget.dataset.remove); });
     on(sd.recents, '[data-rowmenu]', 'click', (e) => { e.stopPropagation(); const id = e.currentTarget.dataset.rowmenu; S.rowMenu = S.rowMenu === id ? '' : id; drawSide(); });
@@ -4054,6 +4141,30 @@
     ['Plan', 'Researches the code and writes a step-by-step plan. It never changes anything.'],
     ['web-fetch', 'Reads a web page and answers a question about it.'],
   ];
+  // THE HOOKS LIST (the frontend audit of 2026-11-24: Plugins > Hooks opened Settings): your own hooks, each event with what
+  // it runs, and the installed plugins' hooks; "Edit hooks" opens them in Settings, where they are written.
+  async function showHooks() {
+    const [st, plug] = await Promise.all([call('/settings'), installedPlugins()]);
+    const prefs = (st && st.data && st.data.prefs) || {};
+    let parsed = null;
+    try { parsed = typeof prefs.hooks === 'string' && prefs.hooks.trim() ? JSON.parse(prefs.hooks) : null; } catch (er) { parsed = null; }
+    const map = parsed && typeof parsed === 'object' ? (parsed.hooks && typeof parsed.hooks === 'object' ? parsed.hooks : parsed) : {};
+    const what = (h) => (h && typeof h === 'object' ? String(h.command || h.url || h.prompt || h.type || '') : '');
+    const mine = [];
+    for (const [ev, groups] of Object.entries(map || {})) {
+      if (!Array.isArray(groups)) continue;
+      for (const g of groups) for (const h of (g && Array.isArray(g.hooks) ? g.hooks : [])) mine.push([ev + (g.matcher ? ' · ' + g.matcher : ''), (h.type || 'command') + ': ' + what(h).slice(0, 200)]);
+    }
+    const fromPlugins = plug.flatMap((p) => (Array.isArray(p.hooks) ? p.hooks : []).map((h) => [typeof h === 'string' ? h : String((h && (h.event || h.name)) || 'Hook'), 'From the ' + p.name + ' plugin']));
+    const bad = typeof prefs.hooks === 'string' && prefs.hooks.trim() && !parsed;
+    sideList('Hooks', [...mine, ...fromPlugins], bad ? 'Your hooks could not be read: fix them in Settings, under Advanced.' : 'Your own commands that run at set moments, like after every file edit. Plugins can add their own.', '', 'No hooks yet. Add one with Edit hooks.');
+    const box = document.querySelector('.gf-sidelist');
+    if (box && !box.querySelector('#cdHooksEdit')) {
+      const b = document.createElement('button'); b.type = 'button'; b.id = 'cdHooksEdit'; b.className = 'cd-btn-2'; b.textContent = 'Edit hooks';
+      b.onclick = () => { const w = box.closest('.cd-sure'); if (w) w.click(); const d = box.querySelector('.cd-notify-done'); if (d) d.click(); S.setAdv = true; showSettings(); };
+      const row = box.querySelector('.cd-sure-row'); if (row) row.prepend(b);
+    }
+  }
   async function showHelpers() {
     const plug = await installedPlugins();
     const fromPlugins = plug.flatMap((p) => (Array.isArray(p.agents) ? p.agents : []).map((a) => [p.name + ':' + a, 'From the ' + p.name + ' plugin']));
@@ -4079,7 +4190,8 @@
     // COMPARE AGAINST (like Claude Code's diff view): the base branch, or any other of the repo's.
     const bar = '<div class="cd-compare"><label for="cdCompare">Compare against</label><select id="cdCompare">' +
       list.map((b) => '<option value="' + esc(b) + '"' + (b === pick ? ' selected' : '') + '>' + esc(b) + (b === base ? ' (base)' : '') + '</option>').join('') + '</select></div>';
-    if (!c) return '<div class="cd-changes">' + bar + '<span class="cd-spin"></span></div>';
+    // (A line that says it is loading, not a bare strip: the frontend audit of 2026-11-24.)
+    if (!c) return '<div class="cd-changes">' + bar + '<p class="cd-changes-loading" role="status"><span class="cd-spin" aria-hidden="true"></span> Loading changes…</p></div>';
     if (!c.files.length) return '<div class="cd-changes">' + bar + '<p class="cd-changes-none">' + (c.error ? esc(c.error) : pick === base ? 'No changes yet.' : 'No differences from ' + esc(pick) + '.') + '</p></div>';
     // (Unpushed work comes from Coder's machine; when it could not answer, GitHub's copy is shown with a note.)
     const unp = c.note ? '<p class="cd-changes-note">' + esc(c.note) + '</p>' : c.unpushed > 0 ? '<p class="cd-changes-note">Includes ' + c.unpushed + ' commit' + (c.unpushed === 1 ? '' : 's') + ' on Coder\'s machine not pushed to GitHub yet.</p>' : '';
@@ -4383,7 +4495,7 @@
       if (!arg) return { text: 'Model: ' + cur.name + '. Use /model <name> to switch (' + list + ').' };
       const to = models.find((x) => x.id.toLowerCase() === arg || x.name.toLowerCase() === arg);
       if (!to) return { text: 'Unknown model: ' + m[2].trim() + '. Choose one of: ' + list + '.' };
-      return { pick: { model: to.id, effort: to.efforts.includes(pick && pick.effort) ? pick.effort : to.effort }, text: 'Set model to ' + to.name };
+      return { pick: { ...(pick || {}), model: to.id, effort: to.efforts.includes(pick && pick.effort) ? pick.effort : to.effort }, text: 'Set model to ' + to.name };
     }
     const list = cur.efforts.join(', ');
     if (!arg) return { text: 'Effort: ' + (pick && pick.effort || cur.effort) + '. Use /effort <level> to switch (' + list + ').' };
@@ -4719,8 +4831,13 @@
     if (!S.project || !modeList().some((x) => x.id === m) || m === chatMode()) return draw();
     const was = { mode: S.project.mode, modeAt: S.project.modeAt };
     S.project = { ...S.project, mode: m, modeAt: Date.now() }; // shown at once
+    // (Kept over the chat's looks until the server has it: a look answered meanwhile carried the old mode, and the menu
+    // jumped back. The frontend audit of 2026-11-24.)
+    const want = S.modeWant = { id: S.project.id, mode: m, modeAt: S.project.modeAt };
     draw();
     const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/mode', { method: 'POST', body: JSON.stringify({ mode: m }) });
+    if (S.modeWant === want) S.modeWant = null;
+    if (!S.project || S.project.id !== want.id) return;
     if (r.status === 200 && r.data && r.data.project) { S.project = { ...S.project, mode: r.data.project.mode, modeAt: r.data.project.modeAt }; if (m !== 'plan' && S.pick) S.pick.mode = m; }
     else { S.project = { ...S.project, ...was }; S.error = (r.data && r.data.error) || 'The mode could not be changed.'; }
     draw();
@@ -5223,6 +5340,13 @@
     const t = last && last.type === 'suggest' && typeof last.text === 'string' ? last.text.trim() : last && last.type === 'done' && typeof last.suggest === 'string' ? last.suggest.trim() : '';
     return t && S.suggestGone !== (S.project.id + '|' + t) ? t : '';
   }
+  // Coder's running job waits on a question card of yours, the newest step in the chat, still unanswered.
+  function waitsOnYou() {
+    if (GLOOPY || S.ending) return false;
+    if (!S.running) return !!(S.project && S.project.parked && S.project.parked.kind === 'question' && !S.sending);
+    const last = [...S.events].reverse().find((e) => e && !(e.type === 'user' && e.local));
+    return !!(last && last.type === 'question' && last.pid && !S.events.some((x) => x.type === 'permanswer' && x.pid === last.pid));
+  }
   function composerHTML() {
     const busy = (S.running && !S.ending) || S.sending;
     const m = MODELS.find((x) => x.id === S.pick.model) || MODELS[0];
@@ -5231,23 +5355,33 @@
         '<textarea id="cdIn" rows="1"' + (suggestNow() ? ' class="has-suggest" data-suggest="' + esc(suggestNow()) + '"' : '') + ' placeholder="' + (suggestNow() ? esc(suggestNow()) : S.ending && !S.sending && !GLOOPY ? 'Saving to the branch… a message now goes out right after' : busy ? (GLOOPY ? 'Gloopy is working… you can close this tab' : 'Enter to send, Ctrl+Enter to queue for later') : GLOOPY ? 'Ask Gloopy anything' : 'Ask Coder to build, fix or explain something · @ for a file') + '">' + esc(S.draft) + '</textarea>' +
         '<button type="button" class="cd-attach" id="cdAttach" aria-label="' + (GLOOPY ? 'Attach a file' : 'Attach files') + '" title="' + (GLOOPY ? 'Attach a file or a picture' : 'Attach files or pictures (or paste them)') + '">' + ICON.clip + '</button><input type="file" id="cdFile" accept="' + (GLOOPY ? 'image/png,image/jpeg,image/webp,image/gif,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.odt,.ods,.odp,.rtf,.txt,.md,.csv,.tsv,.json,.xml,.yaml,.yml,.html,.htm,.ics,.vcf,.eml,.ipynb,.log,.zip,.mp3,.m4a,.wav,.mp4,.mov,.webm,.heic,.svg' : '') + '" multiple hidden>' +
         // (And while a card Coder's paused job left open waits, as while its job ran: Stop closes the card. coder-park.mjs.)
-        ((S.running && !S.ending) || (!GLOOPY && S.project && S.project.parked)
-          ? '<button type="submit" class="cd-send cd-queue-send" aria-label="Send (it waits for Coder)" title="Send: Coder reads it once its running steps finish"' + (S.sending ? ' disabled' : '') + '>' + ICON.send + '</button><button type="button" class="cd-send cd-stop" id="cdStop" aria-label="Stop">' + ICON.stop + '</button>'
-          : '<button type="submit" class="cd-send" aria-label="Send"' + (S.sending || S.rewinding ? ' disabled' : '') + '>' + ICON.send + '</button>') +
+        (waitsOnYou()
+          ? '<button type="submit" class="cd-send" aria-label="Reply" title="Your message is the answer to Coder\'s question"' + (S.queueSending ? ' disabled' : '') + '>' + ICON.send + '</button>'
+          : (S.running && !S.ending) || (!GLOOPY && S.project && S.project.parked) || (!GLOOPY && S.sending && S.project && S.sendingFor === S.project.id)
+          ? '<button type="submit" class="cd-send cd-queue-send" aria-label="Send (it waits for Coder)" title="Send: Coder reads it once its running steps finish"' + (S.queueSending ? ' disabled' : '') + '>' + ICON.send + '</button><button type="button" class="cd-send cd-stop" id="cdStop" aria-label="Stop">' + ICON.stop + '</button>'
+          : '<button type="submit" class="cd-send" aria-label="Send"' + (S.sending || S.queueSending || S.rewinding ? ' disabled' : '') + '>' + ICON.send + '</button>') +
       '</form>' +
       // SHELL MODE (tool 4, part 3, like Claude Code's "! npm test"): the box says so while the message starts with "!".
       '<div class="cd-shellhint" role="note">Shell mode: runs this command on Coder\'s machine, then Coder answers what it printed · Tab completes</div>' +
       '<div class="cd-picks">' +
-        (S.project && !S.project.turn && S.branches && S.branches.length && !S.running
+        (S.project && !S.project.turn && S.branches && S.branches.length && !S.running && !S.sending
           ? '<label class="cd-pick cd-pick-branch" title="Starting branch (picked before the first message)">' + ICON.branch + '<select id="cdBaseSel" aria-label="Starting branch">' + S.branches.map((b) => '<option value="' + esc(b) + '"' + (b === S.project.base ? ' selected' : '') + '>' + esc(b) + '</option>').join('') + '</select></label>'
           : '') +
-        (S.project && !S.running && !S.ending && !S.rewinding && !S.project.parked && S.allRepos && S.allRepos.length > 1 && (S.project.repos || []).length < 3
+        // (While a message is on its way or Coder works, the chat's branch and environment stay shown, read only: before, they
+        // vanished on a reload. The frontend audit of 2026-11-24.)
+        (S.project && !GLOOPY && S.project.branch && (S.project.turn || S.running || S.sending)
+          ? '<span class="cd-pick cd-pick-ro cd-pick-branch" title="Coder\'s branch for this chat">' + ICON.branch + '<span>' + esc(S.project.branch) + '</span></span>'
+          : '') +
+        (S.project && !GLOOPY && S.envInfo && (S.project.turn || S.running || S.sending)
+          ? '<span class="cd-pick cd-pick-ro cd-pick-env" title="This chat\'s environment">' + ICON.cloud + '<span>' + esc(S.envInfo.name || 'Default') + '</span></span>'
+          : '') +
+        (S.project && !S.running && !S.sending && !S.ending && !S.rewinding && !S.project.parked && S.allRepos && S.allRepos.length > 1 && (S.project.repos || []).length < 3
           ? '<label class="cd-pick cd-pick-repo" title="Add another repository to this chat (the next message opens it)">' + ICON.gh + '<select id="cdAddRepo" aria-label="Add a repository"><option value="">+ Repository</option>' + S.allRepos.filter((r) => r !== S.project.repo && !(S.project.repos || []).some((x) => x.repo === r)).map((r) => '<option value="' + esc(r) + '">' + esc(r) + '</option>').join('') + '</select></label>'
           : '') +
         (S.project && (S.project.repos || []).length
           ? S.project.repos.map((x) => '<span class="cd-repo-chip" title="Also in this chat, on its branch">' + esc(x.repo) + (!S.project.turn && !S.running ? '<button type="button" data-unrepo="' + esc(x.repo) + '" aria-label="Take ' + esc(x.repo) + ' out of this chat">×</button>' : '') + '</span>').join('')
           : '') +
-        (S.project && !S.project.turn && S.envInfo && !S.running
+        (S.project && !S.project.turn && S.envInfo && !S.running && !S.sending
           ? '<label class="cd-pick cd-pick-env" title="Environment (picked before the first message)">' + ICON.cloud + '<select id="cdEnvSel" aria-label="Environment">' + S.envInfo.environments.map((x) => '<option value="' + esc(x.id) + '"' + (x.id === S.envInfo.envId ? ' selected' : '') + '>' + esc(x.name) + '</option>').join('') + '<option value="__add">+ Add environment…</option></select></label>'
           : '') +
         '<label class="cd-pick" title="Model"><select id="cdModel" aria-label="Model">' + MODELS.map((x) => '<option value="' + esc(x.id) + '"' + (x.id === m.id ? ' selected' : '') + '>' + esc(x.name) + '</option>').join('') + '</select></label>' +
@@ -5279,7 +5413,7 @@
       (S.error ? '<p class="cd-errline">' + esc(S.error) + '</p>' : ''));
     if (S.phase === 'pick') {
       const install = S.github && S.github.install;
-      const repoBtn = (r) => '<button type="button" class="cd-repo" data-repo="' + esc(r.repo) + '">' + ICON.gh + '<span>' + esc(r.repo) + '</span>' + (r.readOnly ? '<em title="You can read it but not push to it">read-only</em>' : '') + (r.private ? '<em>private</em>' : '') + '</button>';
+      const repoBtn = (r) => '<button type="button" class="cd-repo' + (S.adding === r.repo ? ' is-busy' : '') + '" data-repo="' + esc(r.repo) + '"' + (S.adding ? ' disabled aria-disabled="true"' : '') + (S.adding === r.repo ? ' aria-busy="true"' : '') + '>' + ICON.gh + '<span>' + esc(r.repo) + '</span>' + (S.adding === r.repo ? '<span class="cd-spin" aria-hidden="true"></span><i class="cd-repo-busy">Opening…</i>' : '') + (r.readOnly ? '<em title="You can read it but not push to it">read-only</em>' : '') + (r.private ? '<em>private</em>' : '') + '</button>';
       // ON THE REPOSITORIES SCREEN: each repository you can push to has its Code review setting (owner item 11).
       const RUNS = [['off', 'Off'], ['push', 'After every push'], ['open', 'Once after PR creation'], ['manual', 'Manual (@coder review)']];
       const LEVELS = [['quick', 'Quick'], ['standard', 'Standard'], ['deep', 'Deep']];
@@ -5311,10 +5445,14 @@
     // THE EMPTY CHAT names its repository once it is known; before (no repository picked, or the chat still loading)
     // it asks "What should we work on?" (the owner, 2026-11-15: "fix"; it said "What should we work on in ?").
     const empty = !S.events.length && !S.running;
+    // A CHAT STILL LOADING (the frontend audit of 2026-11-24: opening Coder showed an empty "What should we work on?" for a
+    // second before the last chat, which read as a new chat made by itself): a neutral loading line until it has come.
+    const loadingChat = !GLOOPY && !S.project && !!S.opening && !S.error;
     return headHTML() +
       '<div class="cd-log" id="cdLog">' +
-        (empty && GLOOPY ? gloopyEmptyHTML() : '') +
-        (empty && !GLOOPY ? '<div class="cd-empty"><div class="cd-cl-fig" aria-hidden="true">' + coderFig(120) + '</div><b>What should we work on' + (S.project && S.project.repo ? ' in ' + esc(S.project.repo) : '') + '?</b><p>Coder reads the code, runs commands in its own Linux machine, and saves its work to its own branch. Ask it for a pull request when you’re ready.</p>' +
+        (loadingChat ? '<div class="cd-loading-chat" role="status" aria-live="polite"><span class="cd-spin" aria-hidden="true"></span> Loading chat…</div>' : '') +
+        (empty && GLOOPY && !loadingChat ? gloopyEmptyHTML() : '') +
+        (empty && !GLOOPY && !loadingChat ? '<div class="cd-empty"><div class="cd-cl-fig" aria-hidden="true">' + coderFig(120) + '</div><b>What should we work on' + (S.project && S.project.repo ? ' in ' + esc(S.project.repo) : '') + '?</b><p>Coder reads the code, runs commands in its own Linux machine, and saves its work to its own branch. Ask it for a pull request when you’re ready.</p>' +
           '<div class="cd-starts">' + ['Explain how this project is laid out', 'Run the tests and fix what fails', 'Add a README with setup steps'].map((s) => '<button type="button" class="cd-start" data-answer="' + esc(s) + '">' + esc(s) + '</button>').join('') + '</div></div>' : '') +
         '<div class="cd-thread">' + stepsHTML() + '</div>' +
       '</div>' +
@@ -5353,9 +5491,37 @@
     try { a0 = a.selectionStart; b0 = a.selectionEnd; } catch (er) { /* no cursor */ }
     return { id: a.id || '', a: a0, b: b0, v: typeof a.value === 'string' ? a.value : null };
   }
+  // ESC AND A CLICK OUTSIDE CLOSE WHAT IS OPEN (the frontend audit of 2026-11-24: the title's ▾ menu ignored both, the row's ⋯
+  // menu and the Environment window ignored Esc, Gloopy's Browser panel too): one listener each for the whole page, the newest
+  // first. A window of its own (.cd-sure) answers its own Esc.
+  function menuClosers() {
+    if (S.closersOn) return;
+    S.closersOn = true;
+    document.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape' || e.defaultPrevented || !S.root || !S.root.isConnected || !S.root.getClientRects().length) return;
+      if (document.querySelector('.cd-sure')) return;
+      if (S.titleMenu) { S.titleMenu = false; e.preventDefault(); draw(); const b = S.root.querySelector('#cdTitleMore'); if (b) b.focus(); return; }
+      if (S.rowMenu) { const id = S.rowMenu; S.rowMenu = ''; e.preventDefault(); drawSide(); const b = document.querySelector('[data-rowmenu="' + CSS.escape(id) + '"]'); if (b) b.focus(); return; }
+      if (!GLOOPY && S.showEnv) { S.showEnv = false; e.preventDefault(); draw(); return; }
+      // (Gloopy's Browser panel: not while a key is being typed into its page, where Esc is the page's own.)
+      if (GLOOPY && S.web && !['cdWebScreen', 'cdWebType', 'cdWebCmd'].includes((document.activeElement || {}).id || '')) { e.preventDefault(); webClose(); }
+    });
+    // (After the click has done its own work, so a redraw never takes the button from under it.)
+    document.addEventListener('click', (e) => {
+      const t = e.target;
+      if (!t || !t.closest) return;
+      const title = S.titleMenu && !t.closest('.cd-title-wrap'), row = S.rowMenu && !t.closest('.gf-rowmenu') && !t.closest('[data-rowmenu]') ? S.rowMenu : '';
+      if (!title && !row) return;
+      setTimeout(() => {
+        if (title && S.titleMenu) { S.titleMenu = false; draw(); }
+        if (row && S.rowMenu === row) { S.rowMenu = ''; drawSide(); }
+      }, 0);
+    }, true);
+  }
   function draw(scroll) {
     const root = S.root;
     if (!root || !root.isConnected) return;
+    menuClosers();
     // CODER'S LOGO TYPES WHILE CODER WORKS (the owner, 2026-11-14: "like if it's actually typing"): while its open chat runs.
     if (!GLOOPY && window.coderLogo) window.coderLogo.busy(S.phase === 'chat' && S.running);
     // (/rewind sent while Coder worked opens once it is done: audit M-b-24.)
@@ -6145,8 +6311,10 @@
     on('#cdPush', 'click', () => pushBranch());
     on('#cdChanges', 'click', () => { S.showChanges = !S.showChanges; if (S.showChanges) loadChanges(); draw(); });
     on('#cdCompare', 'change', (e) => { const v = e.currentTarget.value; S.compareAgainst = v === ((S.project && S.project.base) || 'main') ? '' : v; loadChanges(); });
-    on('#cdModel', 'change', (e) => { const m = MODELS.find((x) => x.id === e.target.value) || MODELS[0]; S.pick = { model: m.id, effort: m.efforts.includes(S.pick.effort) ? S.pick.effort : m.effort }; savePick(); draw(); });
-    on('#cdEffort', 'change', (e) => { S.pick.effort = e.target.value; savePick(); });
+    // (The pick keeps its other parts, the mode new chats start in too: before, changing the model dropped it, and the
+    // settings read at load could put back an older pick over one just made. The frontend audit of 2026-11-24.)
+    on('#cdModel', 'change', (e) => { const m = MODELS.find((x) => x.id === e.target.value) || MODELS[0]; S.pick = { ...S.pick, model: m.id, effort: m.efforts.includes(S.pick.effort) ? S.pick.effort : m.effort }; S.pickTouched = true; savePick(); draw(); });
+    on('#cdEffort', 'change', (e) => { S.pick = { ...S.pick, effort: e.target.value }; S.pickTouched = true; savePick(); });
     on('#cdConnChip', 'click', () => { showChatConnectors(); });
     on('#cdRpToggle', 'click', () => { rpSet(!rpOpen()); draw(); });
     on('#cdRpEnv', 'click', () => { S.showEnv = true; S.showChanges = false; loadEnv(); draw(); });

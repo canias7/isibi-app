@@ -561,7 +561,7 @@ test("CD416 Auto mode's details, as Claude Code's docs and program give them: ev
   assert.equal(new Set(names(C.DEFAULT_SOFT_DENY)).size, C.DEFAULT_SOFT_DENY.length, "no rule twice");
   // THE PAGE: a dim "Not run" row under the step, "not run" on its right, never a red error.
   const page = fs.readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
-  assert.match(page, /: state === 'bad' && r && typeof r\.notRun === 'string' && r\.notRun \? '<span class="cd-st cd-st-notrun">not run<\/span>'/);
+  assert.match(page, /: state === 'bad' && r && typeof r\.notRun === 'string' && r\.notRun \? '<span class="cd-st cd-st-notrun" title="' \+ esc\(notRunWhy\(r\)\) \+ '">not run<\/span>'/);
   assert.match(page, /\(r && typeof r\.notRun === 'string' && r\.notRun \? '<div class="cd-notrun">Not run · ' \+ esc\(r\.notRun\) \+ '<\/div>' : ''\)/);
   const css = fs.readFileSync(new URL("../public/coder.css", import.meta.url), "utf8");
   assert.match(css, /\.cd-notrun \{[^}]*color: #9ca3af;/);

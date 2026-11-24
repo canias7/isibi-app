@@ -152,7 +152,7 @@ test("CD103 the starting branch, like Claude Code: the repo's branches are liste
   // The page: the picker shows before the first message only, next to the environment.
   const { readFileSync } = await import("node:fs");
   const page = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
-  assert.match(page, /S\.project && !S\.project\.turn && S\.branches && S\.branches\.length && !S\.running\n\s+\? '<label class="cd-pick cd-pick-branch"/);
+  assert.match(page, /S\.project && !S\.project\.turn && S\.branches && S\.branches\.length && !S\.running && !S\.sending\n\s+\? '<label class="cd-pick cd-pick-branch"/);
   assert.match(page, /on\('#cdBaseSel', 'change', \(e\) => pickBase\(e\.currentTarget\.value\)\);/);
 });
 

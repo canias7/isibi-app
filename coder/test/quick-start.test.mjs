@@ -100,7 +100,7 @@ test("QS4 the page frees the box as soon as the answer is shown (`ending`): a no
   const page = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
   assert.ok(page.includes("S.ending = S.running && (!!r.data.ending || !!S.ending);"));
   assert.ok(page.includes("const busy = (S.running && !S.ending) || S.sending;"));
-  assert.ok(page.includes("((S.running && !S.ending) || (!GLOOPY && S.project && S.project.parked)"));
+  assert.ok(page.includes("(S.running && !S.ending) || (!GLOOPY && S.project && S.project.parked)"));
   assert.ok(page.includes("function startPoll() { stopPoll(); S.ending = false;"));
   assert.ok(page.includes("JSON.stringify({ text, mid: qmid })"));
   assert.ok(page.includes("if (q.status === 200 && q.data && q.data.reload && q.data.project)"));

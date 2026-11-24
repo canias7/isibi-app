@@ -537,7 +537,7 @@ test("CP11 the page: a card a paused job waits on stays live (permission, questi
   assert.match(ui, /const live = e\.pid \? \(S\.running \|\| !!\(S\.project && S\.project\.parked && S\.project\.parked\.pid === e\.pid\)\) && !ans : !S\.running && !S\.events\.slice\(i \+ 1\)\.some\(\(x\) => x\.type === 'user'\);\n\s+const host = e\.kind === 'allow_host'/);
   // A message while the key card or an environment card waits: to the queue (the Worker keeps it for the card's turn). While a
   // question card waits it is the reply; while a permission card or the plan's waits, it goes out now and closes the card.
-  assert.match(ui, /const parkedWait = !S\.running && !GLOOPY && S\.project && S\.project\.parked && !\['question', 'permission'\]\.includes\(S\.project\.parked\.kind\);\n\s+if \(S\.running \|\| parkedWait\) \{/);
+  assert.match(ui, /const parkedWait = !S\.running && !GLOOPY && S\.project && S\.project\.parked && !\['question', 'permission'\]\.includes\(S\.project\.parked\.kind\);\n[\s\S]{0,700}?if \(S\.running \|\| parkedWait \|\| onWay\) \{/);
   // The card the message closed is drawn closed at once, before the message (or after a start that failed); a start that
   // took the messages waiting in line with it loads the chat, as after a job's end.
   assert.match(ui, /const closed = r\.data && Array\.isArray\(r\.data\.closed\) \? r\.data\.closed : \[\];\n\s+if \(closed\.length && S\.project\) S\.project = \{ \.\.\.S\.project, parked: null, waiting: null \};\n\s+if \(r\.status !== 200\) \{\n\s+S\.events = S\.events\.slice\(0, base\)\.concat\(closed\);/);

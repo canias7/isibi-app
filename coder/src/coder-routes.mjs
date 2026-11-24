@@ -1112,6 +1112,18 @@ async function claimStart(bucket, uid, meta, metaKey, mid, said = "", { guard = 
  * has started, this one answers as it did (`done`). Otherwise the chat as it is now (`meta`), to go on as usual (the first
  * copy's start failed: this one tries).
  */
+/**
+ * THE ID A START OF WAITING MESSAGES GOES OUT WITH (the frontend audit of 2026-11-24, "an older message re-run"): a lone
+ * waiting message keeps the page's own id, so a start the Worker could not see the answer to (cut off, timed out) is known
+ * when the same message is sent again, and never runs twice; several together get one id made from theirs.
+ */
+export function queuedMid(first) {
+  const list = Array.isArray(first) ? first.filter(Boolean) : [];
+  if (!list.length) return {};
+  if (list.length === 1) return typeof list[0].mid === "string" && list[0].mid ? { mid: list[0].mid } : typeof list[0].qid === "string" && list[0].qid ? { mid: "q" + list[0].qid } : {};
+  const ids = list.map((q) => String(q.mid || q.qid || "")).filter(Boolean);
+  return ids.length === list.length ? { mid: "qs" + ids.join("").replace(/[^A-Za-z0-9]/g, "").slice(-40) } : {};
+}
 async function sameMessage(bucket, metaKey, meta, mid, pause = (ms) => new Promise((ok) => setTimeout(ok, ms))) {
   let cur = meta;
   for (const until = Date.now() + STARTING_MAX_MS; mid && cur; ) {
@@ -1744,6 +1756,16 @@ export async function handleCoder(request, env, ctx, deps) {
     let body = {}; try { body = await request.json(); } catch { body = {}; }
     const repo = String(body.repo || "").trim();
     if (!REPO.test(repo)) return json({ error: "pick one of your GitHub repositories" }, 400);
+    // THE SAME NEW CHAT ASKED FOR TWICE (the frontend audit of 2026-11-24: a double click on a repository, or a request the
+    // browser sent again, made two chats): the page names each new chat it asks for (`cid`), and a second request with the
+    // same name gets the chat the first one made, never another.
+    const cid = typeof body.cid === "string" && /^[A-Za-z0-9_-]{8,64}$/.test(body.cid) ? body.cid : "";
+    const cidKey = cid ? "coder/" + uid + "/newchat/" + cid + ".json" : "";
+    if (cidKey) {
+      const made = await getJson(bucket, cidKey, null);
+      const had = made && typeof made.id === "string" ? await getJson(bucket, keyOf(uid, made.id, "meta.json"), null) : null;
+      if (had) return json({ ok: true, project: had, again: true });
+    }
     const t = await userToken(env, bucket, uid, { fetchFn });
     if (!t) return json({ error: "connect GitHub first", connect: true }, 409);
     // ANY REPOSITORY THIS USER CAN READ, LIKE CLAUDE CODE (owner item 5; its docs: "a session can clone any
@@ -1773,6 +1795,7 @@ export async function handleCoder(request, env, ctx, deps) {
     // checks, reviews) can reach the right chat (auto-fix, coder-mentions.mjs).
     // (A read-only chat's branch never reaches GitHub.)
     if (!meta.readOnly) await bucket.put(branchKey(repo, meta.branch), JSON.stringify({ uid, id }), { httpMetadata: { contentType: "application/json" } });
+    if (cidKey) await putJson(bucket, cidKey, { id, at: Date.now() }).catch(() => {});
     return json({ ok: true, project: meta });
   }
 
@@ -1805,7 +1828,7 @@ export async function handleCoder(request, env, ctx, deps) {
     if (waiting.length !== (Array.isArray(queued) ? queued.length : 0)) await putJson(bucket, keyOf(uid, id, "queue.json"), waiting);
     const first = nextQueued(waiting);
     if (!first.length) return false;
-    const r2 = await self("/message", { text: first.map((q) => q.text).join("\n\n"), fromQueue: true }).catch(() => null);
+    const r2 = await self("/message", { text: first.map((q) => q.text).join("\n\n"), fromQueue: true, ...queuedMid(first) }).catch(() => null);
     if (!r2 || r2.status !== 200) return false;
     const sent = new Set(first.map((q) => q.qid));
     await putJson(bucket, keyOf(uid, id, "queue.json"), (await getJson(bucket, keyOf(uid, id, "queue.json"), [])).filter((q) => q && !sent.has(q.qid)));
@@ -2882,7 +2905,7 @@ export async function handleCoder(request, env, ctx, deps) {
       const first = parkRec ? [] : nextQueued(waiting);
       if (first.length) {
         const headers = new Headers(request.headers); headers.set("content-type", "application/json");
-        const r2 = await handleCoder(new Request(new URL(request.url).origin + "/api/coder/projects/" + encodeURIComponent(id) + "/message", { method: "POST", headers, body: JSON.stringify({ text: first.map((q) => q.text).join("\n\n"), fromQueue: true, ...(first.length === 1 && typeof first[0].mid === "string" ? { mid: first[0].mid } : {}) }) }), env, ctx, deps).catch(() => null);
+        const r2 = await handleCoder(new Request(new URL(request.url).origin + "/api/coder/projects/" + encodeURIComponent(id) + "/message", { method: "POST", headers, body: JSON.stringify({ text: first.map((q) => q.text).join("\n\n"), fromQueue: true, ...queuedMid(first) }) }), env, ctx, deps).catch(() => null);
         if (r2 && r2.status === 200) {
           const sent = new Set(first.map((q) => q.qid));
           waiting = (await getJson(bucket, keyOf(uid, id, "queue.json"), [])).filter((q) => q && !sent.has(q.qid));
@@ -3658,7 +3681,7 @@ export async function handleCoder(request, env, ctx, deps) {
       const queue = await getJson(bucket, keyOf(uid, id, "queue.json"), []);
       const first = nextQueued(queue);
       if (first.length) {
-        const r2 = await self("/message", { text: first.map((q) => q.text).join("\n\n"), fromQueue: true }).catch(() => null);
+        const r2 = await self("/message", { text: first.map((q) => q.text).join("\n\n"), fromQueue: true, ...queuedMid(first) }).catch(() => null);
         if (r2 && r2.status === 200) { const sent = new Set(first.map((q) => q.qid)); await putJson(bucket, keyOf(uid, id, "queue.json"), (await getJson(bucket, keyOf(uid, id, "queue.json"), [])).filter((q) => q && !sent.has(q.qid))); }
       }
       return json({ ok: true, reload: true });
