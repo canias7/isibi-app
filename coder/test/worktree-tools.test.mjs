@@ -129,7 +129,7 @@ test("WT7 enter_worktree and exit_worktree through the chat's shell; removing wo
   await runCoder({ send: s.send, exec, emit: () => {} }, { text: "do it in a worktree" });
   const t = toolMsgs(s);
   assert.ok(t.some((x) => /Created worktree at .*\.claude\/worktrees\/fix on branch worktree-fix/.test(x)), t.join("\n"));
-  assert.ok(t.some((x) => /Worktree has 1 uncommitted file\. Removing it would discard this work/.test(x)));
+  assert.ok(t.some((x) => /Worktree has 1 uncommitted file\. Removing will discard this work permanently/.test(x)));
   assert.ok(t.some((x) => /Exited the worktree\. Your work is preserved/.test(x)));
   assert.equal(cwd, d);
   assert.ok(existsSync(join(d, ".claude/worktrees/fix/new.txt")));

@@ -50,7 +50,7 @@ test("CD269 bash: a foreground sleep of 25 seconds or more is refused in Claude 
   assert.match(sleepBlocked("sleep 30"), /^Blocked: standalone sleep 30\. To wait for a condition, use monitor with an until-loop \(e\.g\. `until <check>; do sleep 2; done`\)\. To wait for a command you started, use run_in_background: true\. Do not chain shorter sleeps to work around this block\.$/);
   assert.match(sleepBlocked("sleep 26; echo hi"), /^Blocked: sleep 26 followed by: echo hi\./);
   assert.match(sleepBlocked("sleep 30 && npm test"), /^Blocked: sleep 30 followed by: npm test\./);
-  for (const c of ["sleep 24", "sleep 2", "echo a; sleep 60", "sleep 1.5"]) assert.equal(sleepBlocked(c), "", c);
+  for (const c of ["sleep 24; echo a", "sleep 1", "echo a; sleep 60", "sleep 1.5"]) assert.equal(sleepBlocked(c), "", c);
   assert.equal(leadsWithSleep("sleep 5; echo after"), true);
   assert.equal(leadsWithSleep("npm test"), false);
 });

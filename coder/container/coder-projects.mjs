@@ -118,5 +118,7 @@ export async function projectsTool(ctx) {
     } catch { out.content = out.content.slice(0, READ_INLINE_MAX); out.notice = "Only the first " + READ_INLINE_MAX + " characters are shown: the rest could not be written to a file."; }
   }
   if (out.method === "project_write" && out.present_to_user) emit({ type: "note", text: "Coder wrote " + out.path + " to your project. Open it under Projects." });
+  // (Its PostToolUse hooks get the result object itself, as Claude Code's tool_response: ctx.facts. 2026-11-24.)
+  if (typeof ctx.facts === "function") ctx.facts(out);
   return done(JSON.stringify(out));
 }

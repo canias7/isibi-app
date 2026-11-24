@@ -128,8 +128,10 @@ export function parkAnswer(kind, a) {
     return { choice, comment, ...(typeof a.plan === "string" && (choice === "auto" || choice === "acceptEdits") ? { plan: a.plan.slice(0, 200_000) } : {}) };
   }
   if (kind === "question") {
-    if (choice === "skip") return { choice };
-    if (choice === "answers" && Array.isArray(a.picks)) return { choice, picks: a.picks.slice(0, 4) };
+    // (`afk`: the card closed on its own after that much idle time, question auto-continue; kept through a paused turn. 2026-11-24.)
+    const afk = [60_000, 300_000, 600_000].includes(Number(a.afk)) ? { afk: Number(a.afk) } : {};
+    if (choice === "skip") return { choice, ...afk };
+    if (choice === "answers" && Array.isArray(a.picks)) return { choice, picks: a.picks.slice(0, 4), ...afk };
     if (choice === "chat" && typeof a.text === "string" && a.text.trim()) return { choice, text: a.text.slice(0, 100_000), qid: str(a.qid, 40) };
     return null;
   }

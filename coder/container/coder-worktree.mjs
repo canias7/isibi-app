@@ -328,7 +328,9 @@ export function exitFactsScript() {
     "if [ \"$__inwt\" != 1 ]; then echo \"" + MARK + " NONE\"; exit 0; fi",
     "case \"$__top/\" in \"$__main/" + WORKTREE_DIR + "/\"*) ;; *) echo \"" + MARK + " NONE\"; exit 0;; esac",
     "__br=$(git -C \"$__top\" symbolic-ref --short -q HEAD 2>/dev/null || true)",
-    "__files=$(git -C \"$__top\" status --porcelain 2>/dev/null | wc -l | tr -d ' ')",
+    // (A status git could not give counts as unknown, never as clean: the live test of 2026-11-24 removed a worktree with an
+    // uncommitted file because the count came back 0. Unknown refuses as uncommitted work does.)
+    "if __st=$(git --no-optional-locks -c safe.directory='*' -C \"$__top\" status --porcelain --untracked-files=all 2>/dev/null); then __files=$(printf '%s' \"$__st\" | grep -c . || true); else __files='?'; fi",
     "__base=$(git -C \"$__main\" rev-parse -q --verify HEAD 2>/dev/null || true)",
     "if git -C \"$__top\" rev-parse -q --verify '@{u}' >/dev/null 2>&1; then __commits=$(git -C \"$__top\" rev-list --count '@{u}..HEAD' 2>/dev/null || echo 0); else __commits=$(git -C \"$__top\" rev-list --count HEAD --not ${__base:+\"$__base\"} --remotes 2>/dev/null || echo 0); fi",
     "echo \"" + MARK + " STATE $__top|$__br|$__main|$__files|$__commits\"",
@@ -355,16 +357,17 @@ export function markOf(output) {
 /** STATE's fields. */
 export function exitState(rest) {
   const [top, branch, main, files, commits] = String(rest || "").split("|");
-  return { top, branch, main, files: Number(files) || 0, commits: Number(commits) || 0 };
+  return { top, branch, main, files: files === "?" ? -1 : Number(files) || 0, commits: Number(commits) || 0 };
 }
 /** What a removal would throw away, in words ("" when nothing). */
 export function atRiskWords({ files, commits }) {
   const parts = [];
-  if (files) parts.push(files + " uncommitted " + (files === 1 ? "file" : "files"));
+  if (files < 0) parts.push("uncommitted changes that could not be checked");
+  else if (files) parts.push(files + " uncommitted " + (files === 1 ? "file" : "files"));
   if (commits) parts.push(commits + " " + (commits === 1 ? "commit" : "commits") + " not pushed or not on the original branch");
   return parts.join(" and ");
 }
-export const exitRefusedText = (state) => "Worktree has " + atRiskWords(state) + ". Removing it would discard this work. Confirm with the owner, then call exit_worktree again with discard_changes: true — or use action: \"keep\" to preserve the worktree.";
+export const exitRefusedText = (state) => "Worktree has " + atRiskWords(state) + ". Removing will discard this work permanently. Confirm with the user, then re-invoke with discard_changes: true — or use action: \"keep\" to preserve the worktree.";
 /** enter_worktree's answer: Claude Code's EnterWorktreeOutput, { worktreePath, worktreeBranch?, message }. */
 export const enterResult = (worktreePath, worktreeBranch, message) => JSON.stringify({ worktreePath, ...(worktreeBranch ? { worktreeBranch } : {}), message });
 /** exit_worktree's answer: Claude Code's ExitWorktreeOutput (no tmux in Coder). */

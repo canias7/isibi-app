@@ -2401,7 +2401,7 @@ export async function handleCoder(request, env, ctx, deps) {
     // A CARD WHOSE JOB PAUSED (coder-park.mjs; Claude Code: "you can still answer when you come back, up to environment
     // expiry, and the session continues from your answer"): the answer starts the job that takes the turn up again at the
     // call the card waits on, as a message starts one.
-    const takeUp = () => self("/message", { mid: "answer-" + pid, resume: { pid, answer: { choice, comment: typeof body.comment === "string" ? body.comment.slice(0, 2000) : "", ...(Array.isArray(body.answers) ? { picks: body.answers.slice(0, 4) } : {}), ...(typeof body.plan === "string" ? { plan: body.plan.slice(0, 200_000) } : {}) } } });
+    const takeUp = () => self("/message", { mid: "answer-" + pid, resume: { pid, answer: { choice, comment: typeof body.comment === "string" ? body.comment.slice(0, 2000) : "", ...(Array.isArray(body.answers) ? { picks: body.answers.slice(0, 4) } : {}), ...(typeof body.plan === "string" ? { plan: body.plan.slice(0, 200_000) } : {}), ...([60_000, 300_000, 600_000].includes(Number(body.afk)) ? { afk: Number(body.afk) } : {}) } } });
     if (meta.status !== "running") {
       const p = parkedOf(meta);
       if (!p || p.pid !== pid) return json({ ok: false, error: "Coder is not waiting for an answer any more." }, 409);

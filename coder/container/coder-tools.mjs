@@ -89,6 +89,9 @@ export function toolPath(p) {
   if (n.startsWith("~/")) return join(home, n.slice(2));
   return isAbsolute(n) ? normalize(n) : resolve(BASE, n);
 }
+/** This call may use a path outside the working folders: the owner allowed it on a card (Coder's loop's `outside`). */
+let OUTSIDE_OK = false;
+export const allowOutside = (v) => { OUTSIDE_OK = v === true; };
 async function inside(p, { mustExist = false, tool = "", output = false } = {}) {
   if (typeof p !== "string" || !p.trim()) fail("give a path");
   // Named by its tool and argument, as Claude Code's are ("Read file_path cannot contain null bytes …"): write's so far
@@ -141,6 +144,13 @@ async function inside(p, { mustExist = false, tool = "", output = false } = {}) 
   // in one session): their folders, next to this one, count as inside too.
   const holds = (r) => { const x = relative(r, abs); return !climbsOut(x) && !isAbsolute(x); };
   const roots = [ROOT, SCRATCH, ...String(process.env.CODER_EXTRA_ROOTS || "").split(":").filter((x) => x && isAbsolute(x))];
+  // A PATH OUTSIDE THE WORKING FOLDERS THE OWNER ALLOWED ON A CARD (Claude Code asks before Read, Grep, Glob, Write or Edit
+  // work outside its working directories, then does it; the spreadsheet's rows 139, 256 and 408, 2026-11-24): this one call
+  // may use it, as the machine's unprivileged user. Coder's loop sets `outside` on the request only after the owner's yes.
+  if (OUTSIDE_OK && ["read", "search", "write", "edit", "notebook_edit"].includes(tool) && !roots.some(holds) && !workDirs().some(holds)) {
+    if (mustExist) { try { await lstat(abs); } catch { fail(missingFile(abs)); } }
+    return { abs, rel: abs };
+  }
   // THE OWNER'S ADDITIONAL WORKING FOLDERS (Claude Code's additionalDirectories; round 3, 2026-11-14): Coder's machine names
   // them (CODER_WORK_DIRS), and they count as inside too, as Claude Code's "Files in additional directories follow the same
   // permission rules as the original working directory" (they had been refused as outside the project, while Coder was told to
@@ -2654,6 +2664,7 @@ if (process.argv[1] && import.meta.url === "file://" + process.argv[1]) {
       else req = JSON.parse(Buffer.from(arg, "base64").toString("utf8"));
     } catch { req = null; }
     const fn = req && TOOLS[req.tool];
+    OUTSIDE_OK = !!req && req.outside === true;
     // Exits once all of it is written: a pipe takes a big answer (a picture) in parts, and exiting at once cut it off.
     const say = (text, code) => process.stdout.write(text, () => process.exit(code));
     if (!fn) return say("error: unknown tool", 2);

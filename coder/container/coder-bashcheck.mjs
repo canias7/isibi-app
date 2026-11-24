@@ -43,12 +43,18 @@ export function exitMeaning(command, code) {
 // "Blocked: standalone sleep 30. …", "Blocked: sleep 26 followed by: echo hi. …"), and never moves a command that
 // starts with `sleep` to the background at its timeout (its docs: "unless the command starts with sleep").
 export const SLEEP_BLOCK_S = 25;
+// (Claude Code 2.1.300: "Claude no longer polls a background command's output file or sleeps while it runs": a foreground
+// command that is only `sleep N`, N of 2 seconds or more, is refused with its words, Monitor named as Coder's monitor. The
+// spreadsheet's row 434, 2026-11-24: Coder ran `sleep 20`.)
+export const SLEEP_ALONE_S = 2;
+export const sleepAloneText = (n) => "Blocked: sleep " + n + ". Run blocking commands in the background with run_in_background: true \u2014 you'll get a completion notification when done. For streaming events (watching logs, polling APIs), use the monitor tool. If you genuinely need a delay (rate limiting, deliberate pacing), keep it under " + SLEEP_ALONE_S + " seconds.";
 export function sleepBlocked(command) {
   const parts = topTexts(command);
   if (!parts.length) return "";
   const m = /^sleep\s+(\d+(?:\.\d*)?)\s*$/.exec(parts[0].trim());
   if (!m) return "";
   const n = parseFloat(m[1]);
+  if (parts.length === 1 && n >= SLEEP_ALONE_S && n < SLEEP_BLOCK_S) return sleepAloneText(n);
   if (!(n >= SLEEP_BLOCK_S)) return "";
   const rest = parts.slice(1).join(" ").trim();
   const what = rest ? "sleep " + n + " followed by: " + rest : "standalone sleep " + n;

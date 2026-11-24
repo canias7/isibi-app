@@ -359,6 +359,7 @@ async function artifactCall(c, h, args, done) {
     const r = await ask(deps, { action: "artifact", op: "list", limit: args.limit === undefined ? ARTIFACT_LIMITS.limitDefault : args.limit, scope: args.scope || "mine" });
     if (!r.ok) return done(1, answerText(r));
     const out = { artifacts: r.artifacts || [], truncated: r.truncated === true || (Number(r.total) || 0) > (Array.isArray(r.artifacts) ? r.artifacts.length : 0), total: r.total || 0, ...(args.scope && args.scope !== "mine" ? { scope: args.scope } : {}) };
+    if (typeof h.facts === "function") h.facts(out);
     return done(0, JSON.stringify(out, null, 2), { label: "Listed " + out.artifacts.length + " artifact" + (out.artifacts.length === 1 ? "" : "s") });
   }
   if (action === "read" || action === "open") {
@@ -409,5 +410,7 @@ async function artifactCall(c, h, args, done) {
   if (h.seen) h.seen.set(r.id, r.version);
   emit({ type: "page", id: r.id, title, version: r.version, artifact: true, ...(r.public ? { public: true } : {}), ...(r.link ? { link: r.link } : {}) });
   const facts = { url: r.url || r.id, path: r.path || r.id, title, version: r.version, contract: r.contract || ARTIFACT_RUNTIME, capabilities: r.capabilities || {}, warnings: Array.isArray(r.warnings) ? r.warnings : [], updated: r.updated === true, liveSubscription: false };
+  // (Its PostToolUse hooks get this object, as Claude Code's tool_response, not the text: h.facts. 2026-11-24.)
+  if (typeof h.facts === "function") h.facts(facts);
   return done(0, answerText(r) + "\n" + JSON.stringify(facts), { label: (r.version > 1 ? "Updated “" : "Published “") + title.slice(0, 60) + "”" });
 }

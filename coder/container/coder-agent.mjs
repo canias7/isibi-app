@@ -791,6 +791,13 @@ const SEARCH_NAMES = new Set(["grep", "glob"]);
 /** Coder's file tools the owner's Read and Edit rules (and whole-tool Write, Grep, Glob, LSP rules) apply to. */
 const FILE_RULE_TOOLS_HERE = new Set(["read", "grep", "glob", "lsp", "write", "edit", "notebook_edit"]);
 /** The file tools' refusal under the read block (Claude Code 2.1.322's words: "/etc/hostname is outside /home/user/cc-live-bash; the permissions.blockReadsOutsideWorkingDirectories setting blocks reads outside the working directories. Ask the user to add the directory with /add-dir, or to remove that setting."), with Coder's setting; Coder has no /add-dir. */
+/** The file tools that may work outside the working folders once the owner allows it on a card (Claude Code's ask). */
+export const OUTSIDE_TOOLS = new Set(["read", "grep", "glob", "write", "edit", "notebook_edit"]);
+const OUTSIDE_EDITS = new Set(["write", "edit", "notebook_edit"]);
+/** The card's line for a path outside the working folders. */
+export const outsideWhy = (tool, path) => "Coder wants to " + (OUTSIDE_EDITS.has(tool) ? "edit" : tool === "read" ? "read" : "search") + " " + path + ", which is outside the working folders.";
+/** What Coder is told when no one can answer that card (Claude Code's words for an ask nobody granted). */
+export const outsideTold = (tool, path) => "Coder requested permissions to " + (OUTSIDE_EDITS.has(tool) ? "edit" : "read from") + " " + path + ", but you haven't granted it yet.";
 export const READ_BLOCKED = (path, dirs) => "error: " + path + " is outside " + (Array.isArray(dirs) ? dirs : []).filter((x) => typeof x === "string" && x).join(", ") + "; the CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES setting blocks reads outside the working directories. Ask the owner to remove that setting.";
 /**
  * The file tools' refusals under the write block (Bash docs pass 6, the owner, 2026-11-10: "yea do all of them"; Claude Code
@@ -1476,7 +1483,7 @@ export const CODER_TOOLS = Object.freeze([
   // and Claude Code 2.1.319's own Bash description, read and tried that day).
   { type: "function", function: {
     name: "bash",
-    description: "Run ONE shell command (bash) and get back what it printed. Each command runs in a separate process. A cd carries over to your later commands (in later messages too) when the command succeeds and stays inside the project or this chat's other repositories; outside them the next command starts back in the project's folder, and the result says \"Shell cwd was reset to …\". Environment variables do not carry over from one command to the next; the aliases, functions and PATH of the shell's startup file (~/.bashrc, as it was when this message started) are in every command. What a command prints is shown to you, not reliably to the owner: say in your answer what matters. Give `description`: what the command does, in a few plain words in active voice (\"Run the test suite\", \"Install the packages\"), never the command echoed; the owner sees it in place of the command. `timeout` in milliseconds: 120000 by default, at most 600000; a command still running then is moved to the background and you are told its id and output file (a command that starts with `sleep` is stopped instead). A command that runs on (a dev server, a watcher, a long build) goes in the background with run_in_background: true, never with &: you get its id and output file, and you are told when it ends; read its output with read on that file, stop it with stop_job. A background command keeps running after your answer, until it ends, is stopped, or reaches its time limit: 30 minutes, or with run_in_background the `timeout` you give, up to 7200000 (2 hours); you are told when it ends, even after your answer. A foreground `sleep` of 25 seconds or more is refused; use monitor with an until-loop to wait on a condition. Output past 30,000 characters is saved to a file: you get its path and a preview of about 2,000 characters (its start, and its end when it is much longer), and read or grep that file for the rest. Exit code 1 from grep, rg, find, diff, test and git diff or git grep is not a failure. Commands run with no secrets in their environment; every one has GOFARTHER_CODER=1, and this chat's id and link in GOFARTHER_CODER_CHAT_ID and GOFARTHER_CODER_CHAT_URL (for a link back to this chat in a report or a post, when one is wanted). Use it for installs, tests, builds, scripts, git status/log/diff, and to find files and text (find, grep, rg); read, write and edit for files.",
+    description: "Run ONE shell command (bash) and get back what it printed. Each command runs in a separate process. A cd carries over to your later commands (in later messages too) when the command succeeds and stays inside the project or this chat's other repositories; outside them the next command starts back in the project's folder, and the result says \"Shell cwd was reset to …\". Environment variables do not carry over from one command to the next; the aliases, functions and PATH of the shell's startup file (~/.bashrc, as it was when this message started) are in every command. What a command prints is shown to you, not reliably to the owner: say in your answer what matters. Give `description`: what the command does, in a few plain words in active voice (\"Run the test suite\", \"Install the packages\"), never the command echoed; the owner sees it in place of the command. `timeout` in milliseconds: 120000 by default, at most 600000; a command still running then is moved to the background and you are told its id and output file (a command that starts with `sleep` is stopped instead). A command that runs on (a dev server, a watcher, a long build) goes in the background with run_in_background: true, never with &: you get its id and output file, and you are told when it ends; read its output with read on that file, stop it with stop_job. A background command keeps running after your answer, until it ends, is stopped, or reaches its time limit: 30 minutes, or with run_in_background the `timeout` you give, up to 7200000 (2 hours); you are told when it ends, even after your answer. A foreground `sleep` of 25 seconds or more is refused, and so is a command that is only `sleep N` with N of 2 or more; use monitor with an until-loop to wait on a condition. Output past 30,000 characters is saved to a file: you get its path and a preview of about 2,000 characters (its start, and its end when it is much longer), and read or grep that file for the rest. Exit code 1 from grep, rg, find, diff, test and git diff or git grep is not a failure. Commands run with no secrets in their environment; every one has GOFARTHER_CODER=1, and this chat's id and link in GOFARTHER_CODER_CHAT_ID and GOFARTHER_CODER_CHAT_URL (for a link back to this chat in a report or a post, when one is wanted). Use it for installs, tests, builds, scripts, git status/log/diff, and to find files and text (find, grep, rg); read, write and edit for files.",
     parameters: { type: "object", properties: {
       command: { type: "string", description: "The command to run" },
       description: { type: "string", description: "What the command does, in plain words (e.g. \"Run the test suite\"). The owner sees it." },
@@ -4298,8 +4305,11 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   const agentKit = (reply) => {
     const left = Math.max(30_000, maxMs - (now() - started) - 30_000);
     const subTools = [...chatTools, ...STOCK_TOOLS.values()];
+    // (A helper agent's result object, Claude Code's AgentOutput, is what the Agent call's PostToolUse hooks get as
+    // tool_response, not its text: the "result" event's agentResult. 2026-11-24.)
+    const emitK = (e) => { if (e && e.type === "result" && e.agentResult && typeof e.agentResult === "object" && e.id) toolFacts.set(e.id, e.agentResult); return emit(e); };
     return {
-      emit, reply, budget: agentBudget, agents: agentsStarted, runs: workflowRuns, isSub: isSubHere(), stopped, now,
+      emit: emitK, reply, budget: agentBudget, agents: agentsStarted, runs: workflowRuns, isSub: isSubHere(), stopped, now,
       chat: { model, effort }, bg: agentBg, early: agentEarly, pluginAgents: Array.isArray(pluginAgents) ? pluginAgents : [],
       customAgents: () => (customAgentsP = customAgentsP || (typeof deps.customAgents === "function" ? Promise.resolve(deps.customAgents()) : shRun(agentFilesScript(), 20).then((r) => customAgentsFrom(agentFilesOf(r && r.output)).defs)).catch(() => [])),
       worktree: {
@@ -7519,6 +7529,28 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         ranAt.set(c.id, now());
         try { r = (await early.take(c.id, JSON.stringify(req))) || await toolRun(c, req, args); }
         catch (e) { r = { code: -1, output: "the tool could not be run: " + String((e && e.message) || e).slice(0, 200) }; }
+        // A PATH OUTSIDE THE WORKING FOLDERS (Claude Code asks before Read, Grep, Glob, Write or Edit work outside its working
+        // directories, and then does it; Coder's tools had refused at once, "that path is outside the project", with no card:
+        // the spreadsheet's rows 139, 256 and 408, 2026-11-24): the owner's card, then the same call once more with `outside`.
+        // Bypass permissions skips the card, as Claude Code's does. Never in Gloopy's runs nor a job from GitHub.
+        if (r && r.code !== 0 && !offered && !github && OUTSIDE_TOOLS.has(c.name) && /^(error: )?that path is outside the project\b/.test(String(r.output || "").trim())) {
+          const where = scrub(visibleChars(String(targetFor(c.name, args) || ""))).slice(0, 300);
+          let ok = modeNow() === "bypassPermissions";
+          if (!ok) {
+            const card = { tool: c.name, id: c.id, path: where, why: outsideWhy(c.name, where), told: outsideTold(c.name, where) };
+            const a = canAsk() ? await askOwner(card) : await noOneHooks(card);
+            if (!a) { emit({ type: "result", id: c.id, code: -1, ran: false, output: card.told }); reply(card.told); continue; }
+            const o = answerOutcome(a);
+            if (o === "stop") { emit({ type: "result", id: c.id, code: -1, ran: false, output: "Not run: stopped." }); return stopNow(reply); }
+            if (o === "said") { emit({ type: "result", id: c.id, code: -1, ran: false, output: saidShown(a), ...saidMarks(a) }); reply(saidReply(a)); continue; }
+            if (o === "no" || o === "time") { emit({ type: "result", id: c.id, code: -1, ran: false, output: "Not run: you said no." }); reply(REJECTED); return noEnd(i, "stopped: the owner said no"); }
+            ok = true;
+          }
+          if (ok) {
+            try { r = await toolRun(c, { ...req, outside: true }, args); }
+            catch (e) { r = { code: -1, output: "the tool could not be run: " + String((e && e.message) || e).slice(0, 200) }; }
+          }
+        }
         // The folder Grok's commands were in was gone, so this counted from the project's folder: said first.
         const cwdSaid = r && typeof r.cwdNote === "string" && r.cwdNote ? r.cwdNote + "\n" : "";
         let raw = String((r && r.output) || "");
@@ -7899,7 +7931,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           }
           const said = remove ? "Exited and removed the worktree at " + st.top + (st.branch ? " and its branch " + st.branch : "") + (risk ? " (discarded " + risk + ")" : "") + ". Your commands now start in " + st.main + "." : "Exited the worktree. Your work is preserved at " + st.top + (st.branch ? " on branch " + st.branch : "") + ". Your commands now start in " + st.main + ".";
           emit({ type: "result", id: c.id, code: 0, output: said, label: remove ? "Removed the worktree" : "Left the worktree (kept)" });
-          reply(exitResult({ action: v.args.action, originalCwd: st.main, worktreePath: st.top, worktreeBranch: st.branch, discardedFiles: remove && risk ? st.files : 0, discardedCommits: remove && risk ? st.commits : 0, message: said }));
+          reply(exitResult({ action: v.args.action, originalCwd: st.main, worktreePath: st.top, worktreeBranch: st.branch, discardedFiles: remove && risk ? Math.max(0, st.files) : 0, discardedCommits: remove && risk ? st.commits : 0, message: said }));
         }
       } else if (c.name === "send_user_file") {
         // CLAUDE CODE'S SENDUSERFILE (batch 8, MISS-55): each file read as `dev` from inside the chat's folders (coder-tools.mjs
@@ -8027,7 +8059,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         if (o === "no") return noEnd(i, "stopped: the owner said no");
       } else if (c.name === PROJECTS_TOOL_NAME && !github && !offered) {
         // (Claude Code's Projects: the owner's project attached to their chats, coder-projects.mjs, 2026-11-23.)
-        await projectsTool({ args: c.args || {}, id: c.id, deps, emit, reply, scrub, root: deps.root });
+        await projectsTool({ args: c.args || {}, id: c.id, deps, emit, reply, scrub, root: deps.root, facts: (o) => toolFacts.set(c.id, o) });
       } else if (CHROME_TOOL_NAMES.includes(c.name) && !github && !offered) {
         // (Claude in Chrome's browser tools, on Coder's own browser, not Gloopy's: coder-chrome.mjs, 2026-11-23.)
         const o = await chromeTool(c.name, { args: c.args || {}, id: c.id, deps, emit, reply, scrub, root: deps.root, plan: modeNow() === "plan", canAsk, askOwner, answerOutcome,
@@ -8164,7 +8196,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         reply(CONNECTOR_DATA + told);
       } else if (RESOURCE_TOOL_NAMES.includes(c.name)) {
         // CLAUDE CODE'S Artifact, ListMcpResourcesTool, ReadMcpResourceTool, ReadMcpResourceDirTool, RefreshMcpTools AND WaitForMcpServers (coder-resources.mjs, 2026-11-23).
-        const o = await resourceToolCall(c, { emit, reply, deps, github, scrub, plain, readFile: readOwnFile, ownRules, wholeRule, canAsk, askOwner, noOneHooks, answerOutcome, saidReply, REJECTED, askedWhy, approved: artifactsOk, seen: artifactsSeen, saveFile: async (name, data) => { const r = await appTool(deps, "save_upload", { name, data }); return r.code === 0 ? r.output.trim() : ""; } });
+        const o = await resourceToolCall(c, { facts: (o) => toolFacts.set(c.id, o), emit, reply, deps, github, scrub, plain, readFile: readOwnFile, ownRules, wholeRule, canAsk, askOwner, noOneHooks, answerOutcome, saidReply, REJECTED, askedWhy, approved: artifactsOk, seen: artifactsSeen, saveFile: async (name, data) => { const r = await appTool(deps, "save_upload", { name, data }); return r.code === 0 ? r.output.trim() : ""; } });
         if (o && o.end === "stop") return stopNow(reply);
         if (o && o.end === "no") return noEnd(i, "stopped: the owner said no");
       } else if (AGENT_TOOL_NAMES.includes(c.name)) {

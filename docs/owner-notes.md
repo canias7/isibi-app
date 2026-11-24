@@ -5,6 +5,20 @@ The owner's running log, newest first, in plain English. Started fresh on
 log (81,000 lines) is in git history.
 
 
+## 2026-11-24: Fixes for the tool parameters tab's "differs" and "partly" rows
+
+Made the rows that differed from Claude Code (and the "partly" ones that were Coder's fault) work the way Claude Code does. Not deployed yet: it's on the work-diffpartly branch.
+
+- **Helper results for hooks:** a hook now gets a helper agent's full result (its answer, model, tool counts, usage, time, worktree branch and so on) as an object, not a block of text. Same for Projects and Artifact results.
+- **Leaving a worktree:** removing one with unsaved files is refused unless Coder says to throw them away, in Claude Code's words. If git can't say whether there are unsaved files, that counts as unsaved too (this is what went wrong in the live test).
+- **`sleep`:** a command that is only `sleep 2` or longer is refused, telling Coder to run it in the background or use a monitor.
+- **Skills:** a saved or plugin skill that sets allowed-tools (or disallowed-tools or hooks) now asks on a card before it loads, like a repository skill already did.
+- **Question auto-continue:** the countdown now also runs on a question card whose job paused to wait for you, and "you may be away" reaches Coder when the card closes by itself.
+- **Files outside the project:** read, grep, glob, write and edit on a path outside the working folders now ask on a card (Bypass doesn't ask) and then do it, instead of refusing outright.
+- **Web fetch redirects:** the code already returns a redirect to another site with its address instead of following it; a test now proves it. The live "too many redirects" on github.com looks like GitHub sending the test machine round in a loop on its own site, so it needs another look in the browser.
+
+Left alone (Grok's choice or not testable): Grok not sending extra keys to exit_plan_mode, grep's -l/-c/-r (Claude Code's own Grep doesn't list them either; Coder already accepts them), task id "#1", the 1-character search, and the rows that were simply not tried.
+
 ## 2026-11-24: Third live pass on the tool parameters tab
 
 Tried live on gofarther.dev with Grok on Low, in three test chats on canias7/testingforclaude, each started from a test branch with its own `.claude/settings.json`. Screenshots only. About 20 Grok messages and 2 helpers were used.

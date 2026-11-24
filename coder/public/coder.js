@@ -57,10 +57,14 @@
   function askIdle(now, focused) {
     const ms = S.askTimeout || 0;
     const x = S.ask && S.events ? S.events[S.ask.at] : null;
-    if (!ms || GLOOPY || !x || x.type !== 'question' || !x.pid || !S.running || (S.permSent && S.permSent[x.pid]) || S.events.some((y) => y.type === 'permanswer' && y.pid === x.pid)) { S.askIdleAt = null; return null; }
+    // (A card whose job paused to wait for it, `parked`, counts down too: the live test of 2026-11-24 kept "Needs your input"
+    // for 150 seconds because only a running job's card counted.)
+    if (!ms || GLOOPY || !x || x.type !== 'question' || !x.pid || !askWaitsOn(x.pid) || (S.permSent && S.permSent[x.pid]) || S.events.some((y) => y.type === 'permanswer' && y.pid === x.pid)) { S.askIdleAt = null; return null; }
     if (!S.askIdleAt || S.askIdleAt.pid !== x.pid || focused) S.askIdleAt = { pid: x.pid, at: now };
     return { pid: x.pid, left: Math.max(0, ms - (now - S.askIdleAt.at)), ms };
   }
+  /** Whether Coder waits on the question card `pid`: its job runs, or paused to wait for it. */
+  const askWaitsOn = (pid) => !!(S.running || (S.project && S.project.parked && S.project.parked.pid === pid));
   /** The card's "Needs your input" line, or its countdown in the last 20 seconds (kept across redraws). */
   function askWaitLabel(pid) {
     const ms = S.askTimeout || 0, a = S.askIdleAt;

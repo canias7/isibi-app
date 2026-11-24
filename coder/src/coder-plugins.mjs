@@ -122,7 +122,9 @@ export function cleanSkill(raw) {
   const name = String(raw.name || "").trim();
   const body = clip(raw.body ?? raw.instructions, SKILL_BODY_MAX).trim();
   if (!NAME_RE.test(name) || !body) return null;
-  return { name, description: clip(raw.description, 250).replace(/\s+/g, " ").trim() || body.split("\n")[0].slice(0, 250), body };
+  // (What makes loading it ask first: its allowed-tools, disallowed-tools or hooks, kept from its SKILL.md. 2026-11-24.)
+  const asks = typeof raw.asks === "string" && /^[a-z, -]{1,60}$/.test(raw.asks) ? raw.asks : "";
+  return { name, description: clip(raw.description, 250).replace(/\s+/g, " ").trim() || body.split("\n")[0].slice(0, 250), body, ...(asks ? { asks } : {}) };
 }
 
 /** Each hook handler as "Event (matcher)", for the page. */
@@ -249,10 +251,10 @@ export async function removeSkill(bucket, uid, name) {
 
 /** Every skill the owner has outside the repository: saved ones, then installed plugins' skills and commands ("plugin:skill"). */
 export async function ownerSkills(bucket, uid) {
-  const out = (await readSavedSkills(bucket, uid)).map((s) => ({ name: s.name, description: s.description, body: s.body, source: "saved" }));
+  const out = (await readSavedSkills(bucket, uid)).map((s) => ({ name: s.name, description: s.description, body: s.body, ...(s.asks ? { asks: s.asks } : {}), source: "saved" }));
   for (const p of await readPlugins(bucket, uid)) for (const s of [...(p.skills || []), ...(p.commands || [])]) {
     const c = cleanSkill(s);
-    if (c) out.push({ name: p.name + ":" + c.name, description: c.description, body: c.body, source: "plugin " + p.name });
+    if (c) out.push({ name: p.name + ":" + c.name, description: c.description, body: c.body, ...(c.asks ? { asks: c.asks } : {}), source: "plugin " + p.name });
   }
   return out.slice(0, SAVED_SKILLS_MAX * 2);
 }

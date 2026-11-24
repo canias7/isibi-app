@@ -965,7 +965,9 @@ test("R6R5 (round 6) read, write, edit and lsp take their path as Claude Code 2.
   assert.deepEqual(asked, [" src/a.txt ", " .env", "~/notes.md", " .bashrc"]);
   // A ~ path outside the project: the step in full, the tool's refusal.
   const o = await realLoop(d, [sayR("", [callR("read", { path: "~/n2.md" }, "h1")]), sayR("Done.")], { here: join(d, "sub"), home: outHome });
-  assert.equal(o.told("h1"), "error: that path is outside the project");
+  // (Since 2026-11-24 a path outside the working folders asks on a card, as Claude Code's does; the yes reads it there.)
+  assert.ok(o.events.some((e) => e.type === "permission" && e.tool === "read" && /outside the working folders/.test(e.why)));
+  assert.match(o.told("h1"), /^error: no such file: .*n2\.md/);
   assert.deepEqual(o.events.filter((e) => e.type === "bash").map((e) => e.command), [join(outHome, "n2.md")]);
 });
 

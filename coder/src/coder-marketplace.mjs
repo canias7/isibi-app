@@ -127,6 +127,12 @@ function frontmatter(text) {
 }
 
 /**
+ * The frontmatter fields that make loading a skill ask first, as Claude Code's Skill tool does ("Using a skill that sets
+ * allowed-tools, disallowed-tools or hooks can bring a permission prompt"): "" when none. 2026-11-24.
+ */
+export const asksOf = (fields) => ["allowed-tools", "disallowed-tools", "hooks"].filter((k) => fields && Object.prototype.hasOwnProperty.call(fields, k)).join(", ");
+
+/**
  * A PLUGIN FROM A ZIP: its folder is `root` (or, left out, the folder holding .claude-plugin/plugin.json, else the zip's own
  * top folder). Skills (skills/<name>/SKILL.md), commands (commands/*.md), agents (agents/*.md) and hooks (hooks/hooks.json).
  */
@@ -155,10 +161,10 @@ export async function pluginFromZip(bytes, { root, name: wantName = "" } = {}) {
     let m;
     if ((m = /^skills\/([^/]+)\/SKILL\.md$/.exec(rel)) && plugin.skills.length < 50) {
       const f = frontmatter(await text(e));
-      plugin.skills.push({ name: clip(f.fields.name || m[1], 64), description: clip(f.fields.description, 250), body: clip(f.body.trim(), 20_000) });
+      plugin.skills.push({ name: clip(f.fields.name || m[1], 64), description: clip(f.fields.description, 250), body: clip(f.body.trim(), 20_000), ...(asksOf(f.fields) ? { asks: asksOf(f.fields) } : {}) });
     } else if ((m = /^commands\/([^/]+)\.md$/.exec(rel)) && plugin.commands.length < 50) {
       const f = frontmatter(await text(e));
-      plugin.commands.push({ name: clip(m[1], 64), description: clip(f.fields.description, 250), body: clip(f.body.trim(), 20_000) });
+      plugin.commands.push({ name: clip(m[1], 64), description: clip(f.fields.description, 250), body: clip(f.body.trim(), 20_000), ...(asksOf(f.fields) ? { asks: asksOf(f.fields) } : {}) });
     } else if ((m = /^agents\/([^/]+\.md)$/.exec(rel)) && plugin.agents.length < 30) {
       plugin.agents.push({ file: clip(m[1], 120), text: clip(await text(e), 20_000) });
     } else if (rel === "hooks/hooks.json") {

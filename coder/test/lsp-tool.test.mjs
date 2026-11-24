@@ -565,7 +565,7 @@ test("LS10 what the servers report after a write or an edit is taken once per st
   try {
     // An edit, then a step that takes a second: the step right after the edit has nothing yet; the next one takes the report,
     // the edited file's and the one a lookup opened, in Claude Code's note inside the round's note, and the chat's row.
-    let t = await run([say("", [call("lsp", { operation: "hover", filePath: "o.py", line: 1, character: 1 }, "l1")]), say("", [call("edit", { path: "s.py", old_string: "ok = 1", new_string: "ok = 1\nBAD new\nHINT x" }, "e1")]), say("", [call("bash", { command: "sleep 4", description: "Wait" }, "b1")]), say("done")]);
+    let t = await run([say("", [call("lsp", { operation: "hover", filePath: "o.py", line: 1, character: 1 }, "l1")]), say("", [call("edit", { path: "s.py", old_string: "ok = 1", new_string: "ok = 1\nBAD new\nHINT x" }, "e1")]), say("", [call("bash", { command: "sleep 4 && true", description: "Wait" }, "b1")]), say("done")]);
     assert.equal(t.r.messages.find((m) => m.tool_call_id === "l1").content, "x");
     const at = t.r.messages.findIndex((m) => m.tool_call_id === "e1");
     assert.equal(t.r.messages[at].content, "The file s.py has been updated successfully.");
