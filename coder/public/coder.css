@@ -1662,3 +1662,36 @@ button.cd-vault-tab:hover:not(.is-on){background:#f6f6f6}
 #gfApp .cd-changes-loading { display: flex; align-items: center; gap: 8px; color: #8a857d; font-size: 13px; margin: 10px 2px; }
 #gfApp .cd-st-why { flex: 0 1 auto; min-width: 0; margin-left: 6px; color: #8a857d; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 320px; }
 
+
+/* THE CONTEXT WINDOW CARD (design 3, 2026-11-25): the chip at the end of the composer's row, the card above it. Greyscale,
+   no blue; the chip amber from 80%. */
+#gfApp .cd-ctxw { position: relative; display: inline-flex; }
+#gfApp .cd-ctxchip { display: inline-flex; align-items: center; gap: 6px; border: 0; background: #f1efea; border-radius: 999px; padding: 3px 10px 3px 7px; font: 500 12.5px Inter, system-ui, sans-serif; color: #1f1e1d; cursor: pointer; font-variant-numeric: tabular-nums; }
+#gfApp .cd-ctxchip:hover, #gfApp .cd-ctxchip[aria-expanded="true"] { background: #e8e5de; }
+#gfApp .cd-ctxchip.is-amber { background: #f6e2b8; color: #7a4d06; }
+#gfApp .cd-ctxc { position: absolute; right: 0; bottom: calc(100% + 10px); z-index: 30; width: 400px; max-width: calc(100vw - 32px); background: #fff; border: 1px solid #e5e3dd; border-radius: 18px; box-shadow: 0 10px 32px rgba(0,0,0,.12); padding: 20px 22px 16px; color: #1f1e1d; text-align: left; cursor: default; }
+#gfApp .cd-ctxc-h { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
+#gfApp .cd-ctxc-h b { flex: 1; font-size: 16px; font-weight: 600; }
+#gfApp .cd-ctxc-h span { font-size: 14px; color: #6b6a68; font-variant-numeric: tabular-nums; }
+#gfApp .cd-ctxc-fold { border: 0; background: transparent; color: #1f1e1d; padding: 4px; border-radius: 6px; cursor: pointer; display: inline-flex; }
+#gfApp .cd-ctxc-fold:hover { background: #f3f1ed; }
+#gfApp .cd-ctxc-bar { display: flex; gap: 2px; height: 8px; border-radius: 4px; overflow: hidden; background: #efede8; }
+#gfApp .cd-ctxc-s { display: block; height: 100%; min-width: 3px; }
+#gfApp .cd-ctxc-free { display: block; flex: 1; }
+#gfApp .cd-ctxc-buf { display: block; height: 100%; background: repeating-linear-gradient(135deg, #a8a6a0 0 2px, transparent 2px 4px); }
+#gfApp .cd-ctxc-n { margin: 10px 0 0; font-size: 13.5px; color: #6b6a68; font-variant-numeric: tabular-nums; }
+#gfApp .cd-ctxc-list { list-style: none; margin: 14px 0 0; padding: 12px 0 0; border-top: 1px solid #e5e3dd; }
+#gfApp .cd-ctxc-list li { display: flex; align-items: center; gap: 12px; padding: 4px 0; font-size: 14px; }
+#gfApp .cd-ctxc-list span { flex: 1; min-width: 0; }
+#gfApp .cd-ctxc-list b { font-weight: 500; font-variant-numeric: tabular-nums; }
+#gfApp .cd-ctxc-list em { font-style: normal; color: #8b8a86; width: 52px; text-align: right; font-variant-numeric: tabular-nums; }
+#gfApp .cd-ctxc-sq { flex: none; width: 11px; height: 11px; border-radius: 3px; }
+#gfApp .cd-ctxc-g0 { background: #1f1e1d; } #gfApp .cd-ctxc-g1 { background: #3d3c3a; } #gfApp .cd-ctxc-g2 { background: #5c5b58; } #gfApp .cd-ctxc-g3 { background: #7a7975; } #gfApp .cd-ctxc-g4 { background: #9a9893; } #gfApp .cd-ctxc-g5 { background: #b8b6b0; } #gfApp .cd-ctxc-g6 { background: #d3d1cb; }
+#gfApp .cd-ctxc-sqfree { background: #fff; box-shadow: inset 0 0 0 1.5px #8b8a86; }
+#gfApp .cd-ctxc-sqbuf { background: repeating-linear-gradient(135deg, #8b8a86 0 2px, transparent 2px 4px); }
+#gfApp .cd-ctxc-foot { display: flex; align-items: center; gap: 10px; margin: 12px 0 0; padding-top: 12px; border-top: 1px solid #e5e3dd; font-size: 13px; color: #6b6a68; line-height: 1.4; }
+#gfApp .cd-ctxc-foot span { flex: 1; }
+#gfApp .cd-ctxc-compact { flex: none; border: 1px solid #e5e3dd; background: #fff; color: #1f1e1d; border-radius: 8px; padding: 5px 10px; font: 500 12.5px Inter, system-ui, sans-serif; cursor: pointer; }
+#gfApp .cd-ctxc-compact:hover { background: #f3f1ed; }
+#gfApp .cd-ctxc.is-folded { padding-bottom: 16px; }
+#gfApp .cd-ctx-res { background: #a78bfa; }

@@ -106,7 +106,7 @@ test("MISS-62 /context as Claude Code's: the machine counts what fills the conve
   const L = K.compactLimits({ contextWindow: 500_000, enabled: true });
   const msgs = [{ role: "user", content: "x".repeat(4000) }, { role: "assistant", content: "y".repeat(400) }, { role: "user", appNote: true, skillsList: "s", content: "z".repeat(800) }];
   const u = K.contextUsage({ system: "a".repeat(4000), tools: [{ type: "function", function: { name: "bash", description: "b".repeat(3960) } }], connectors: [{ name: "mcp__docs__search", description: "c".repeat(396) }], memory: [{ name: "Project (CLAUDE.md)", text: "m".repeat(2000) }, { name: "Auto memory", text: "" }], messages: msgs, limits: L, window: 500_000, model: "grok-4.7" });
-  assert.deepEqual(u.parts.map((p) => p.name), ["System prompt", "System tools", "MCP tools", "Memory files", "Skills", "Messages"]);
+  assert.deepEqual(u.parts.map((p) => p.name), ["System prompt", "System tools", "MCP tools", "Memory files", "Skills", "Messages", "Tool results"]);
   const by = Object.fromEntries(u.parts.map((p) => [p.name, p.tokens]));
   assert.equal(by["System prompt"], 1000);
   assert.ok(by["System tools"] > 990 && by["System tools"] < 1100);

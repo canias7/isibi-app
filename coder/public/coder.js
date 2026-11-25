@@ -4586,7 +4586,7 @@
   // the memory files and connector tools it loaded): the chat's breakdown from Coder's last answer (S.project.context).
   const CTX_FMT = (n) => (n < 1000 ? String(n) : n < 100000 ? (n / 1000).toFixed(1).replace(/\.0$/, '') + 'k' : Math.round(n / 1000) + 'k');
   const CTX_PCT = (n, w) => { const p = (n / Math.max(1, w)) * 100; return (p >= 10 ? p.toFixed(0) : p.toFixed(1)).replace(/\.0$/, '') + '%'; };
-  const CTX_KINDS = { 'System prompt': 'sys', 'System tools': 'tools', 'MCP tools': 'mcp', 'Memory files': 'mem', Skills: 'skills', Messages: 'msgs' };
+  const CTX_KINDS = { 'System prompt': 'sys', 'System tools': 'tools', 'MCP tools': 'mcp', 'Memory files': 'mem', Skills: 'skills', Messages: 'msgs', 'Tool results': 'res' };
   function contextText(c) {
     const model = (MODELS.find((x) => x.id === c.model) || {}).name || c.model || 'Grok';
     const lines = ['Context Usage', model + ' · ' + CTX_FMT(c.used) + '/' + CTX_FMT(c.window) + ' tokens (' + CTX_PCT(c.used, c.window).replace(/\.\d+%$/, '%') + ')'];
@@ -4610,6 +4610,33 @@
     const parts = (c.parts || []).filter((p) => p.tokens > 0).map((p) => row(CTX_KINDS[p.name] || 'msgs', p.name, p.tokens, true)).join('') + row('free', 'Free space', c.free, false) + (c.buffer > 0 ? row('buf', 'Autocompact buffer', c.buffer, true) : '');
     const list = (title, arr) => (arr && arr.length ? '<p class="cd-ctx-h">' + esc(title) + '</p><ul class="cd-ctx-items">' + arr.map((x) => '<li>└ ' + esc(x.name) + ': ' + esc(CTX_FMT(x.tokens)) + ' tokens</li>').join('') + '</ul>' : '');
     return '<div class="cd-ctx" role="group" aria-label="Context usage"><p class="cd-ctx-h">Context Usage</p><div class="cd-ctx-top">' + grid + '<div><p class="cd-ctx-sum">' + esc(model) + ' · ' + esc(CTX_FMT(c.used)) + '/' + esc(CTX_FMT(c.window)) + ' tokens (' + esc(CTX_PCT(c.used, c.window).replace(/\.\d+%$/, '%')) + ')</p><ul class="cd-ctx-parts">' + parts + '</ul></div></div>' + list('MCP tools', c.connectors) + list('Memory files', c.memory) + (c.warning ? '<p class="cd-ctx-warn">' + esc(c.warning) + '</p>' : '') + '</div>';
+  }
+  // THE CONTEXT WINDOW CARD (the owner picked design 3, 2026-11-25): a chip at the end of the composer's row with the share of
+  // Grok's window in use, amber from 80%; clicked, a card above it (Esc or a click outside closes it) with a greyscale bar,
+  // one segment per part and the autocompact buffer hatched at its end, "X of Y tokens", the parts by name, and when Coder
+  // summarises. The numbers are /context's (S.project.context, from Coder's last answer); the chevron folds it to the bar.
+  const CTX_CARD = [['System prompt', 'System prompt'], ['System tools', 'Tools (built-in)'], ['MCP tools', 'Connector / MCP tools'], ['Skills', 'Skills'], ['Memory files', 'Memory / CLAUDE.md'], ['Messages', 'Messages'], ['Tool results', 'Files read / tool results']];
+  const ctxPctUsed = (c) => (c && Number(c.window) > 0 ? Math.min(100, Math.round((Number(c.used) / Number(c.window)) * 100)) : 0);
+  function ctxChipHTML() {
+    const c = S.project && S.project.context, p = ctxPctUsed(c), r = 5.5, len = 2 * Math.PI * r;
+    const ring = '<svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><circle cx="7" cy="7" r="' + r + '" fill="none" stroke="currentColor" stroke-opacity=".25" stroke-width="2"/><circle cx="7" cy="7" r="' + r + '" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-dasharray="' + ((len * p) / 100).toFixed(2) + ' ' + len.toFixed(2) + '" transform="rotate(-90 7 7)"/></svg>';
+    return '<div class="cd-ctxw">' + (S.ctxOpen ? ctxCardHTML(c) : '') + '<button type="button" class="cd-pick cd-ctxchip' + (p >= 80 ? ' is-amber' : '') + '" id="cdCtxChip" aria-haspopup="dialog" aria-expanded="' + (S.ctxOpen ? 'true' : 'false') + '" title="Context window">' + ring + '<span>' + p + '%</span></button></div>';
+  }
+  function ctxCardHTML(c) {
+    const fold = !!S.ctxFolded, has = c && Number(c.window) > 0;
+    const chev = '<button type="button" class="cd-ctxc-fold" id="cdCtxFold" aria-label="' + (fold ? 'Show the breakdown' : 'Hide the breakdown') + '" aria-expanded="' + (!fold) + '"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="' + (fold ? 'M6 9l6 6 6-6' : 'M18 15l-6-6-6 6') + '"/></svg></button>';
+    if (!has) return '<div class="cd-ctxc" role="dialog" aria-label="Context window"><div class="cd-ctxc-h"><b>Context window</b><span>0% used</span>' + chev + '</div><div class="cd-ctxc-bar"></div><p class="cd-ctxc-n">No messages yet</p>' + (fold ? '' : '<p class="cd-ctxc-foot">The breakdown shows after Coder\'s first answer.</p>') + '</div>';
+    const w = Number(c.window), by = Object.fromEntries((c.parts || []).map((x) => [x.name, Number(x.tokens) || 0]));
+    const rows = CTX_CARD.map(([k, label], i) => ({ k, label, n: by[k] || 0, i }));
+    const pc = (n) => ((n / w) * 100).toFixed(1) + '%';
+    const segs = rows.filter((x) => x.n > 0).map((x) => '<i class="cd-ctxc-s cd-ctxc-g' + x.i + '" style="width:' + ((x.n / w) * 100).toFixed(3) + '%"></i>').join('');
+    const bar = '<div class="cd-ctxc-bar" aria-hidden="true">' + segs + '<i class="cd-ctxc-free"></i>' + (c.buffer > 0 ? '<i class="cd-ctxc-buf" style="width:' + ((c.buffer / w) * 100).toFixed(3) + '%"></i>' : '') + '</div>';
+    const row = (cls, label, n) => '<li><i class="cd-ctxc-sq ' + cls + '"></i><span>' + esc(label) + '</span><b>' + esc(CTX_FMT(n)) + '</b><em>' + pc(n) + '</em></li>';
+    const list = '<ul class="cd-ctxc-list">' + rows.map((x) => row('cd-ctxc-g' + x.i, x.label, x.n)).join('') + row('cd-ctxc-sqfree', 'Free space', c.free) + (c.buffer > 0 ? row('cd-ctxc-sqbuf', 'Autocompact buffer', c.buffer) : '') + '</ul>';
+    const at = Number(c.autoPct) || (c.buffer > 0 ? Math.round(((w - c.buffer) / w) * 100) : 0);
+    const can = !!(S.project && S.project.turn && !S.running && !S.sending);
+    const foot = '<div class="cd-ctxc-foot"><span>' + (at ? 'Coder summarises the chat at ' + at + '%, keeping your files and decisions.' : 'Auto-compact is off for this chat.') + '</span>' + (can ? '<button type="button" class="cd-ctxc-compact" id="cdCtxCompact">Compact now</button>' : '') + '</div>';
+    return '<div class="cd-ctxc' + (fold ? ' is-folded' : '') + '" role="dialog" aria-label="Context window"><div class="cd-ctxc-h"><b>Context window</b><span>' + ctxPctUsed(c) + '% used</span>' + chev + '</div>' + bar + '<p class="cd-ctxc-n">' + esc(CTX_FMT(Number(c.used))) + ' of ' + esc(CTX_FMT(w)) + ' tokens</p>' + (fold ? '' : list + foot) + '</div>';
   }
   // THE SCHEDULES VIEW (/scheduled): the Worker's list (src/coder-schedules.mjs schedulesRoute), drawn in the chat.
   const whenOf = (ms) => { try { return new Date(ms).toLocaleString(); } catch (x) { return ''; } };
@@ -5594,6 +5621,8 @@
         (S.project && !GLOOPY ? modeHTML() : '') +
         // THIS CHAT'S CONNECTORS (Claude: "+", then "Connectors", for each conversation).
         (S.project && !GLOOPY ? '<button type="button" class="cd-pick cd-connchip" id="cdConnChip" title="Connectors in this chat"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 2v6M15 2v6M6 8h12v4a6 6 0 0 1-12 0zM12 18v4"/></svg>Connectors</button>' : '') +
+        // THE CONTEXT WINDOW CHIP, last in the row (design 3).
+        (S.project && !GLOOPY ? ctxChipHTML() : '') +
       '</div>' +
     '</div>';
   }
@@ -6530,6 +6559,10 @@
     on('[data-rewind-to]', 'click', (e) => { rewind(Number(e.currentTarget.dataset.rewindTo), null, e.currentTarget.dataset.rewindQ ? { qid: e.currentTarget.dataset.rewindQ } : {}); });
     // THE MODE MENU, AND THE CARDS A STEP WAITS ON (the permission modes): a click, or the card's number keys.
     on('#cdMode', 'click', (e) => { e.stopPropagation(); S.modeMenu = !S.modeMenu; draw(); });
+    on('#cdCtxChip', 'click', (e) => { e.stopPropagation(); S.ctxOpen = !S.ctxOpen; draw(); });
+    on('.cd-ctxc', 'click', (e) => e.stopPropagation());
+    on('#cdCtxFold', 'click', () => { S.ctxFolded = !S.ctxFolded; draw(); });
+    on('#cdCtxCompact', 'click', () => { S.ctxOpen = false; send('/compact'); });
     on('.cd-modes', 'click', (e) => e.stopPropagation());
     on('[data-mode]', 'click', (e) => setChatMode(e.currentTarget.dataset.mode));
     on('[data-rules-open]', 'click', () => showRules());
@@ -6620,7 +6653,7 @@
       if (side) S.side = side;
       pressRepair();
       if (!S.pick) S.pick = { model: MODELS[0].id, effort: MODELS[0].effort };
-      if (!S.menuCloser) { S.menuCloser = true; document.addEventListener('click', () => { if (S.reviewMenu || S.modeMenu) { S.reviewMenu = false; S.modeMenu = false; draw(); } }); }
+      if (!S.menuCloser) { S.menuCloser = true; document.addEventListener('click', () => { if (S.reviewMenu || S.modeMenu || S.ctxOpen) { S.reviewMenu = false; S.modeMenu = false; S.ctxOpen = false; draw(); } }); document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && S.ctxOpen) { S.ctxOpen = false; draw(); } }); }
       // Escape closes a file's preview (the audit, 2026-11-10).
       if (GLOOPY && !S.viewCloser) { S.viewCloser = true; document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && S.view) { S.view = null; draw(); } }); }
       // THE MODE MENU FROM THE KEYBOARD (Claude Code's desktop app: Cmd+Shift+M "Open permission mode menu", 1–9 "Select item in an open menu").

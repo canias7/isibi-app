@@ -528,9 +528,14 @@ export function contextUsage({ system = "", tools = [], connectors = [], memory 
   const conv = list.reduce((n, m) => n + messageTokens(m), 0);
   const real = conversationTokens(list, { overhead: sys + own + mcpAll });
   const msgs = Math.max(0, conv - memAll - skills, real - sys - own - mcpAll - memAll - skills);
+  // (Files read and tool results, Coder's context card: the tool messages' share of the messages, by the same estimate, so the
+  // parts still add up to the real count.)
+  const said = Math.max(0, conv - memAll - skills);
+  const toolTok = list.filter((m) => m && m.role === "tool").reduce((n, m) => n + messageTokens(m), 0);
+  const results = said > 0 ? Math.min(msgs, Math.round((msgs * Math.min(toolTok, said)) / said)) : 0;
   const total = sys + own + mcpAll + memAll + skills + msgs;
   const win = Math.max(1, Math.round(Number(window) || 0));
   const buffer = limits && limits.enabled ? Math.max(0, win - limits.threshold) : 0;
   const free = Math.max(0, win - buffer - total);
-  return { model: String(model || ""), window: win, used: total, parts: [["System prompt", sys], ["System tools", own], ["MCP tools", mcpAll], ["Memory files", memAll], ["Skills", skills], ["Messages", msgs]].map(([name, tokens]) => ({ name, tokens })), free, buffer, memory: mem.slice(0, 50), connectors: mcp.sort((a, b) => b.tokens - a.tokens).slice(0, 50), ...(limits ? { level: compactLevel(total, limits), warning: contextWarning(total, limits) } : {}) };
+  return { model: String(model || ""), window: win, used: total, parts: [["System prompt", sys], ["System tools", own], ["MCP tools", mcpAll], ["Memory files", memAll], ["Skills", skills], ["Messages", msgs - results], ["Tool results", results]].map(([name, tokens]) => ({ name, tokens })), free, buffer, autoPct: buffer > 0 ? Math.round(((win - buffer) / win) * 100) : 0, memory: mem.slice(0, 50), connectors: mcp.sort((a, b) => b.tokens - a.tokens).slice(0, 50), ...(limits ? { level: compactLevel(total, limits), warning: contextWarning(total, limits) } : {}) };
 }

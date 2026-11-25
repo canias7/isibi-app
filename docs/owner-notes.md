@@ -5,6 +5,17 @@ The owner's running log, newest first, in plain English. Started fresh on
 log (81,000 lines) is in git history.
 
 
+## 2026-11-25: A "Context window" card in Coder's chat (design 3)
+
+At the end of the row under the message box there is now a small chip showing how much of Grok 4.7's 500k-token window
+the chat uses (it turns amber at 80%). Click it and a card opens above it: a grey bar split by part (system prompt,
+built-in tools, connector tools, skills, memory/CLAUDE.md, messages, files read and tool results) with the autocompact
+buffer hatched at the end, "X of Y tokens", one row per part with its tokens and share, and a note that Coder summarises
+the chat at 92%, with a "Compact now" button (the same as typing /compact). The chevron folds it to just the bar; Esc or a
+click outside closes it. A new chat says "No messages yet". The numbers are the ones /context already used, made on
+Coder's machine after each answer, with Grok's real token count for the total; "files read and tool results" is new,
+split out of "messages". Gloopy is unchanged. Tested in a browser on Claude's side; not deployed yet.
+
 ## 2026-11-25 — For later: three things from the approval-card test
 
 Found live on gofarther.dev; the owner said "note it" (not fixing yet):

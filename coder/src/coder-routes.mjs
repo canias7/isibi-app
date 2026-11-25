@@ -160,7 +160,7 @@ export function contextKept(c) {
   const named = (arr, max) => (Array.isArray(arr) ? arr : []).filter((x) => x && typeof x.name === "string").slice(0, max).map((x) => ({ name: scrub(x.name).slice(0, 200), tokens: n(x.tokens) }));
   const window = n(c.window);
   if (!window) return null;
-  return { model: typeof c.model === "string" ? c.model.slice(0, 60) : "", window, used: n(c.used), parts: named(c.parts, 10), free: n(c.free), buffer: n(c.buffer), memory: named(c.memory, 50), connectors: named(c.connectors, 50), level: ["ok", "warn", "compact", "blocked"].includes(c.level) ? c.level : "ok", warning: typeof c.warning === "string" ? c.warning.slice(0, 200) : "", at: Date.now() };
+  return { model: typeof c.model === "string" ? c.model.slice(0, 60) : "", window, used: n(c.used), parts: named(c.parts, 10), free: n(c.free), buffer: n(c.buffer), autoPct: Math.min(100, n(c.autoPct)), memory: named(c.memory, 50), connectors: named(c.connectors, 50), level: ["ok", "warn", "compact", "blocked"].includes(c.level) ? c.level : "ok", warning: typeof c.warning === "string" ? c.warning.slice(0, 200) : "", at: Date.now() };
 }
 import { normMode, ruleProblem, ruleWarning, ruleSaved, MODES } from "../container/coder-perms.mjs";
 import { TOOL_ROWS, TOOL_CHOICE_GROUPS, GITHUB_ROWS, cleanToolChoices, changeToolChoice } from "../container/coder-toolchoices.mjs";
