@@ -269,9 +269,23 @@ export async function openPullRequest(token, repo, { head, base, title, body, dr
   const owner = repo.split("/")[0];
   const open = await gh(token, "/repos/" + repo + "/pulls?state=open&head=" + encodeURIComponent(owner + ":" + head), { fetchFn });
   const pr = open.ok && Array.isArray(open.data) ? open.data[0] : null;
-  if (pr) return { url: pr.html_url, number: pr.number };
+  if (pr) return { url: pr.html_url, number: pr.number, existed: true };
   // GITHUB'S OWN REASON (like Claude Code: "they now give the reason or a link to GitHub instead of saying Try again").
   return { why: prRefusal(made.data) };
+}
+/**
+ * A PULL REQUEST'S TITLE AND DESCRIPTION CHANGED (live, 2026-11-25: Coder said "updated" and GitHub kept the old ones; the
+ * update path never called GitHub). PATCH /repos/{repo}/pulls/{n}, then GitHub's answer is checked: its title must be the
+ * one sent. → { ok: true, url, number } or { ok: false, why }.
+ */
+export async function editPullRequest(token, repo, number, { title, body }, fetchFn = fetch) {
+  const send = { ...(typeof title === "string" && title ? { title } : {}), ...(typeof body === "string" ? { body } : {}) };
+  if (!Object.keys(send).length) return { ok: false, why: "nothing to change" };
+  const r = await gh(token, "/repos/" + repo + "/pulls/" + Number(number), { method: "PATCH", body: send, fetchFn }).catch(() => null);
+  if (!r) return { ok: false, why: "GitHub could not be reached" };
+  if (!r.ok || !r.data) return { ok: false, why: prRefusal(r.data) || "GitHub answered " + r.status };
+  if (send.title && r.data.title !== send.title) return { ok: false, why: "GitHub kept the title \"" + String(r.data.title || "").slice(0, 200) + "\"" };
+  return { ok: true, url: r.data.html_url || "", number: r.data.number || Number(number) };
 }
 /** GitHub's words for a refused pull request ("Validation Failed: No commits between main and x"), cut short, or "". */
 export function prRefusal(data) {

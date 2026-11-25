@@ -1783,6 +1783,8 @@ export const MANUAL_ASKS = Object.freeze(Object.setPrototypeOf({
   ...PLAN_ASKS,
   workflow: (a) => "Run a workflow" + (a && typeof a.name === "string" && a.name ? " (" + String(a.name).slice(0, 80) + ")" : a && typeof a.scriptPath === "string" && a.scriptPath ? " (" + String(a.scriptPath).slice(0, 160) + ")" : a && a.resumeFromRunId ? " (resume " + String(a.resumeFromRunId).slice(0, 40) + ")" : ""),
 }, null));
+/** The card's line when auto-fix asks by its GitHub connector row's default (Ask). */
+export const GH_AUTOFIX_ASK_WHY = "Your GitHub connector asks before Coder turns on auto-fix (Connectors, GitHub, Auto-fix a pull request: Ask).";
 export const manualCallWhy = (tool) => "Coder wants to use " + tool + ".";
 /** A file edit's ask in Manual mode, in Claude Code's words for its edit prompt: "Do you want to make this edit to <file>?" */
 export const manualWriteWhy = (path) => "Do you want to make this edit to " + ccPath(path) + "?";
@@ -4249,9 +4251,12 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
 
   // THE PUSH MADE NOW (push_branch, pull_request): the machine commits what is on the disk and pushes it (deps.pushNow); the
   // commit is kept with the result (`midPushes`) for Undo and the chat's line. → { ok, text } or { ok: false, why } or null.
-  const pushNowStep = async (id, message) => {
+  // (kind "pull_request": the step is the pull request's, "GitHub · Create pull request", with the push as its detail line; its
+  // result is shown once the pull request is opened or updated. Live, 2026-11-25: it showed "GitHub · Push branch".)
+  const pushNowStep = async (id, message, kind = "push_branch") => {
     if (typeof deps.pushNow !== "function") return null;
-    emit({ type: "bash", id, tool: "push_branch", verb: "Push", command: "git push (the chat's branch)" });
+    const forPr = kind === "pull_request";
+    emit({ type: "bash", id, tool: forPr ? "pull_request" : "push_branch", verb: forPr ? "Create pull request" : "Push", command: "git push (the chat's branch)" });
     let p;
     try { p = (await deps.pushNow(scrub(message))) || {}; } catch (e) { p = { ok: false, why: String((e && e.message) || e) }; }
     if (!p.ok) {
@@ -4267,7 +4272,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     // second): Claude Code pushes each repository itself and sees each push's own result.
     const good = (Array.isArray(p.extra) ? p.extra : []).filter((x) => x.ok).map((x) => x.repo + ": " + (x.pushed ? "pushed" + (x.sha ? " (commit " + String(x.sha).slice(0, 7) + ")" : "") : "nothing new to push"));
     const text = (p.pushed ? "ok: pushed to GitHub now" + (p.sha ? " (commit " + String(p.sha).slice(0, 7) + ")" : "") : "ok: nothing new to push; GitHub already has the branch") + (good.length ? "; " + good.join("; ") : "") + (bad.length ? "; not pushed in " + bad.join("; ") : "") + ".";
-    emit({ type: "result", id, code: 0, output: text.slice(3) });
+    if (!forPr) emit({ type: "result", id, code: 0, output: text.slice(3) });
     return { ok: true, text };
   };
   // CODER'S PUSH AND PULL REQUEST AS THE COMMANDS THEY ARE (the audit, 2026-11-20; Claude Code's auto-mode docs: "These rules
@@ -5792,14 +5797,19 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // mcp__claude-code-remote__…, which its privacy check reads as any MCP call; coder-privacy.mjs REMOTE_TOOLS. 2026-11-14.)
         // (Checked by Claude Code's name, but Coder is told its own tool's name, as in all it is shown: it never sees mcp__… names.)
         if (emailMark && !offered && REMOTE_TOOLS[c.name] && refusedNow(REMOTE_TOOLS[c.name], c.args, emailMark)) { const m = accountEmailRefused(c.name); emit({ type: "bash", id: c.id, tool: c.name, verb: c.name, command: "" }); emit({ type: "result", id: c.id, code: -1, ran: false, output: m }); reply(m); continue; }
-        const askRule = c.name === "ask_user" || c.name === "exit_plan_mode" ? "" : wholeRule(ownRules, "ask", cc) || tsRule("ask") || (pickedFor(picked.ask, c.name) ? cc : "");
+        // (THE GITHUB CONNECTOR'S AUTO-FIX ASKS BY DEFAULT, its row's default on the Connectors page, as a connector tool whose
+        // choice is Ask does: live, 2026-11-25, turning it on showed no card. Claude Code's subscribe_pr_activity is an MCP tool
+        // that asks unless allowed. Always allow on its row or an allow rule lets it through; turning it off
+        // never asks.)
+        const ghDefaultAsk = c.name === "auto_fix" && !(c.args && c.args.on === false) && !(readOnly && readOnly.main === true) && !pickedFor(picked.allow, c.name) && !wholeRule(ownRules, "allow", cc) && !wholeRule(ownRules, "allow", "auto_fix");
+        const askRule = c.name === "ask_user" || c.name === "exit_plan_mode" ? "" : wholeRule(ownRules, "ask", cc) || tsRule("ask") || (pickedFor(picked.ask, c.name) || ghDefaultAsk ? cc : "");
         if (askRule) {
           // (In Claude Code's words since round 6: its dialog's line for a rule, "Permission rule … requires confirmation for this
           // tool." (in Auto "Ask rule … overrides auto mode …"); where no one can answer, Coder is told its ask, "Coder requested
           // permissions to use <tool>, but you haven't granted it yet.".)
           // (A connector tool its server marks requiresUserInteraction: no PermissionRequest hook's allow answers it; any other
           // connector tool: an allow with a changed input does not, as the rule still asks about it: hookYesIgnored.)
-          const ruleCard = { tool: c.name, id: c.id, what: scrub(PLAN_ASKS[c.name] ? PLAN_ASKS[c.name](c.args) : "Use " + cc).slice(0, 300), why: ruleAskWhy(askRule, modeNow(), "tool"), told: askedWhy(cc), ...(mcpByName.has(c.name) ? (mcpByName.get(c.name).always ? { hooksMayAllow: false } : { askStays: true }) : {}) };
+          const ruleCard = { tool: c.name, id: c.id, what: scrub(PLAN_ASKS[c.name] ? PLAN_ASKS[c.name](c.args) : "Use " + cc).slice(0, 300), why: ghDefaultAsk && !wholeRule(ownRules, "ask", cc) && !pickedFor(picked.ask, c.name) ? GH_AUTOFIX_ASK_WHY : ruleAskWhy(askRule, modeNow(), "tool"), told: askedWhy(cc), ...(mcpByName.has(c.name) ? (mcpByName.get(c.name).always ? { hooksMayAllow: false } : { askStays: true }) : {}) };
           // (Where no one can answer, its PermissionRequest hooks still decide: noOneHooks, fix round 4, D5.)
           const a = canAsk() ? await askOwner(ruleCard) : await noOneHooks(ruleCard);
           if (!a) { reply(ruleCard.told); continue; }
@@ -8019,6 +8029,9 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         const pr = String(c.args.pr || "").trim().slice(0, 300);
         if (!pr) { reply("error: give the pull request's address or number"); continue; }
         autofixRequest = { pr, on: c.args.on !== false };
+        // (Its step, "GitHub · Auto-fix", as Claude Code shows its subscribe_pr_activity call. Live, 2026-11-25: none was shown.)
+        emit({ type: "bash", id: c.id, tool: "auto_fix", verb: autofixRequest.on ? "Turn on" : "Turn off", command: "Auto-fix " + (autofixRequest.on ? "on" : "off") + " for pull request " + scrub(pr).slice(0, 200) });
+        emit({ type: "result", id: c.id, code: 0, output: "Auto-fix is turned " + (autofixRequest.on ? "on" : "off") + " for " + scrub(pr).slice(0, 200) + " when this turn ends." });
         emit({ type: "pr", text: "Auto-fix " + (autofixRequest.on ? "on" : "off") + " for " + pr });
         reply("ok: auto-fix is turned " + (autofixRequest.on ? "on" : "off") + " for that pull request when your turn ends (the chat says whether it worked). Finish by telling the owner.");
       } else if (c.name === "reply_review") {
@@ -8056,13 +8069,17 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         if (!github && typeof deps.pushNow === "function" && typeof deps.envApi === "function") {
           const g = await pushGate(c.id, "pull_request", one.title);
           if (!g.go) { if (g.outcome === "stop") return stopNow(reply); if (g.outcome === "no") { reply(REJECTED); return noEnd(i, "stopped: the owner said no"); } pushRefused(c.id, "pull_request", g, reply); continue; }
-          const p = await pushNowStep(c.id, one.title);
+          const p = await pushNowStep(c.id, one.title, "pull_request");
           if (p.ok) {
             let r;
             try { r = (await deps.envApi({ action: "pull_request", ...one, ...(repo ? { repo } : {}) })) || {}; } catch { r = { error: "error: Coder's server could not be reached" }; }
+            const pushed = p.text.replace(/^ok: /, "");
             if (Number.isInteger(r.number) && r.number > 0) {
               const said = (r.existed ? "Pull request #" + r.number + " updated" : (r.draft ? "Draft pull request #" : "Pull request #") + r.number + " opened") + (repo ? " in " + repo : "") + ": " + String(r.url || "").slice(0, 300);
               midNotes.push(said);
+              // (The step says what was done: "GitHub · Update pull request" when it was already open; the push is its detail.)
+              emit({ type: "bash", id: c.id, tool: "pull_request", verb: r.existed ? "Update pull request" : "Create pull request", command: "pull request #" + r.number + (repo ? " in " + repo : "") + " · git push (the chat's branch)" });
+              emit({ type: "result", id: c.id, code: 0, output: (said + "\n" + pushed).slice(0, 2000) });
               emit({ type: "pr", text: said });
               // (THE OFFER TO WATCH IT, CLAUDE CODE'S WAY: its instructions say "After creating a PR, ask the user if they'd like
               // you to watch it". Live, group 3, 2026-11-18: Grok missed the line in the instructions, so it is said here too.)
@@ -8071,7 +8088,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
             }
             // (Only GitHub's or the server's own refusal is said; when the server could not be reached or gave no answer, the
             // pull request is queued for the turn's end, which opens it.)
-            if (typeof r.error === "string" && !/could not be reached|did not answer|could not read that/.test(r.error)) { reply(r.error); continue; }
+            if (typeof r.error === "string" && !/could not be reached|did not answer|could not read that/.test(r.error)) { emit({ type: "result", id: c.id, code: 1, output: (r.error + "\n" + pushed).slice(0, 2000) }); reply(r.error); continue; }
+            emit({ type: "result", id: c.id, code: 0, output: (pushed + " The pull request is opened or updated when the turn ends.").slice(0, 2000) });
           }
         }
         if (repo) prExtra = [...prExtra.filter((x) => x.repo !== repo), { ...one, repo }].slice(-3); else prRequest = one;

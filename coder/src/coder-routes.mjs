@@ -206,7 +206,7 @@ import { watchJob, watchKey, watchBackground, WATCH_PREFIX } from "./coder-watch
 import { livePass, LIVE_PATH, readLive, dropLive, wholeSteps, interruptedSteps, prunePics, dropPics } from "./coder-live.mjs";
 import { gitAccess } from "./coder-git.mjs";
 import { readConnectors, connectorOut, setPerms, CATALOG, CATALOG_LATER, addConnector, removeConnector, finishSignIn, toolsFor as connectorTools, keepJobTools, refreshTools, clientDoc, jobConnectors, expandConnectorRefs, readConnectorSettings, writeConnectorSettings, setConnectorState, STATE_COOKIE as MCP_COOKIE, CALLBACK_PATH as MCP_CALLBACK, jobTool, callTool } from "./coder-mcp.mjs";
-import { githubReady, makeState, readState, newNonce, STATE_COOKIE, signInUrl, installUrl, exchangeCode, saveConnection, forgetConnection, userToken, gh, ghRead, repoAccess, listRepos, openPullRequest, prFailNote, postReview, OWN_MARK, REPO, BRANCH, seal, unseal } from "./coder-github.mjs";
+import { githubReady, makeState, readState, newNonce, STATE_COOKIE, signInUrl, installUrl, exchangeCode, saveConnection, forgetConnection, userToken, gh, ghRead, repoAccess, listRepos, openPullRequest, editPullRequest, prFailNote, postReview, OWN_MARK, REPO, BRANCH, seal, unseal } from "./coder-github.mjs";
 
 const MAX_PROJECTS = 50;
 const MAX_TEXT = 20000;
@@ -2742,9 +2742,15 @@ export async function handleCoder(request, env, ctx, deps) {
       if (want && meta.readOnly) pushNote = (pushNote ? pushNote + " · " : "") + noPrNote(meta.repo);
       else if (want && t && pushed) {
         const open = pr ? await prStillOpen(t.token, meta.repo, pr, fetchFn) : null;
-        if (open) { pr = open; pushNote = (pushNote ? pushNote + " · " : "") + "Pull request #" + pr.number + " updated: " + pr.url; }
+        const wantBody = String(want.body || "").slice(0, 8000) + madeWith(chatLink, attribution);
+        if (open) {
+          pr = open;
+          // (Its title and description changed on GitHub, checked: live, 2026-11-25, "updated" was said for nothing.)
+          const e = await editPullRequest(t.token, meta.repo, pr.number, { title: String(want.title || "Changes by Coder").slice(0, 200), body: wantBody }, fetchFn).catch(() => ({ ok: false, why: "GitHub could not be reached" }));
+          pushNote = (pushNote ? pushNote + " · " : "") + (e.ok ? "Pull request #" + pr.number + " updated: " + pr.url : "Pull request #" + pr.number + " was pushed to, but GitHub did not change its title and description: " + String(e.why || "no answer").slice(0, 200));
+        }
         else {
-          const made = await openPullRequest(t.token, meta.repo, { head: meta.branch, base: meta.base, title: String(want.title || "Changes by Coder").slice(0, 200), body: String(want.body || "").slice(0, 8000) + madeWith(chatLink, attribution), draft: want.draft === true }, fetchFn).catch(() => null);
+          const made = await openPullRequest(t.token, meta.repo, { head: meta.branch, base: meta.base, title: String(want.title || "Changes by Coder").slice(0, 200), body: wantBody, draft: want.draft === true }, fetchFn).catch(() => null);
           pr = made && made.number ? made : null;
           pushNote = (pushNote ? pushNote + " · " : "") + (pr ? (want.draft === true ? "Draft pull request #" : "Pull request #") + pr.number + " opened: " + pr.url : "The pull request could not be opened on GitHub: " + prFailNote(meta.repo, meta.base, meta.branch, made));
         }

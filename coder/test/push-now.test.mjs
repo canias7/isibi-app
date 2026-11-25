@@ -76,6 +76,7 @@ test("PN4 the server opens the pull request with the owner's token, draft as ask
   const fetchFn = async (url, init = {}) => {
     sent.push({ url: String(url), method: init.method || "GET", body: init.body ? JSON.parse(init.body) : null });
     if (new URL(url).pathname === "/repos/o/r/pulls" && init.method === "POST") return Response.json({ number: 12, html_url: "https://github.com/o/r/pull/12" }, { status: 201 });
+    if (new URL(url).pathname === "/repos/o/r/pulls/12" && init.method === "PATCH") { const b = JSON.parse(init.body); return Response.json({ number: 12, state: "open", title: b.title, body: b.body, html_url: "https://github.com/o/r/pull/12" }); }
     if (new URL(url).pathname === "/repos/o/r/pulls/12") return Response.json({ state: "open", merged: false });
     return Response.json({ message: "no" }, { status: 404 });
   };

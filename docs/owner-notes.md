@@ -5,6 +5,27 @@ The owner's running log, newest first, in plain English. Started fresh on
 log (81,000 lines) is in git history.
 
 
+## 2026-11-25: Fixed the three pull request problems found in the live test
+
+**Wrong step name.** Opening a pull request showed "GitHub · Push branch", because the push Coder makes first drew its own
+step. Now the step is "GitHub · Create pull request" (or "GitHub · Update pull request" when one was already open), with
+the push as the line under it.
+
+**Update that didn't happen.** When a pull request was already open, Coder's server only said "updated" and never asked
+GitHub to change anything, so the title and description stayed the old ones. Now it really changes them on GitHub, checks
+GitHub's answer (the title must come back as the one sent), and if GitHub refuses, Coder is told the real reason and says
+so, instead of a false "done". The same fix is in the path that opens the pull request at the end of a turn.
+
+**Auto-fix with no card.** Its "Ask" default on the Connectors page was never applied: defaults only counted once you had
+changed a choice. Now turning auto-fix on shows the one-line card with the GitHub mark first (Always allow on its row, or an
+allow rule, skips it), like Claude Code's PR watch, which asks like any connector tool. Turning it off doesn't ask. Its
+step "GitHub · Auto-fix" now shows too.
+
+Not changed, as asked: a review comment Coder posted itself doesn't start an auto-fix, because Coder marks its own comments.
+
+Tests: new `coder/test/pr-fixes-1125.test.mjs` (with a stand-in GitHub that records the PATCH); two older tests updated (autofix, push-now)
+for the new behaviour; full `npm test`: 1952 passed, 0 failed. Not yet tried live in the browser.
+
 ## 2026-11-25: Live test of the GitHub connector's tools, and the sheet updated
 
 Tried live on gofarther.dev with Grok on Low, in two test chats on canias7/testingforclaude, 9 Grok messages, screenshots only.

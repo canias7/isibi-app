@@ -2635,7 +2635,7 @@
     const notYet = state === 'wait' || (state === 'bad' && neverRan(r));
     // File and web tools say what they did: Read, Edited, Wrote, Searched… (2026-11-05).
     // (A GitHub connector tool's step: "GitHub · Create pull request", as a connector tool's.)
-    const ghVerb = !GLOOPY && GH_STEP[e.tool] ? 'GitHub · ' + (e.tool === 'review' && /^Security/.test(String(e.verb || '')) ? 'Security review' : GH_STEP[e.tool]) : '';
+    const ghVerb = !GLOOPY && GH_STEP[e.tool] ? 'GitHub · ' + (e.tool === 'review' && /^Security/.test(String(e.verb || '')) ? 'Security review' : e.tool === 'pull_request' && /^Update pull request$/.test(String(e.verb || '')) ? 'Update pull request' : GH_STEP[e.tool]) : '';
     const verbOwn = e.verb ? (state === 'run' ? e.verb.replace(/^Read$/, 'Reading').replace(/^Wrote$/, 'Writing').replace(/^Edited$/, 'Editing').replace(/^Searched/, 'Searching').replace(/^Found$/, 'Finding').replace(/^Fetched$/, 'Fetching').replace(/^Opened$/, 'Opening').replace(/^Looked at$/, 'Looking at').replace(/^Clicked$/, 'Clicking').replace(/^Hovered$/, 'Hovering').replace(/^Typed into$/, 'Typing into').replace(/^Typed$/, 'Typing').replace(/^Pressed$/, 'Pressing').replace(/^Chose in$/, 'Choosing in').replace(/^Chose$/, 'Choosing').replace(/^Scrolled$/, 'Scrolling').replace(/^Went back$/, 'Going back') : notYet ? presentVerb(e.verb) : e.verb) : state === 'run' ? 'Running' : notYet ? 'Run' : 'Ran';
     const verb = ghVerb ? esc(ghVerb) : verbOwn;
     // WHAT A BROWSER STEP DID, said in words once it is done ("Clicked “Go”"), in place of its verb and the element's number.

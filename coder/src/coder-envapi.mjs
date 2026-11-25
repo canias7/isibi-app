@@ -12,7 +12,7 @@
  * Values of variables and network secrets never leave here for the machine.
  */
 import { modelPass } from "./coder-model-gate.mjs";
-import { userToken, readPullRequestComments, openPullRequest, prFailNote, postReview, updatePullRequest } from "./coder-github.mjs";
+import { userToken, readPullRequestComments, openPullRequest, prFailNote, postReview, updatePullRequest, editPullRequest } from "./coder-github.mjs";
 import { chatLinkFor, madeWith, prStillOpen, noPrNote } from "./coder-routes.mjs";
 import { listEnvs, saveEnvList, readEnvData, writeEnvData, envIdFor, envIdOf, markUsed, envListOut } from "./coder-environments.mjs";
 import { egressPass, machineKeyRules, EGRESS_PATH } from "./coder-egress.mjs";
@@ -258,11 +258,20 @@ export async function prOpenNow(env, bucket, uid, id, meta, body, { fetchFn = fe
   const had = x ? meta.prs && meta.prs[repo] : meta.pr;
   const open = had ? await prStillOpen(t.token, repo, had, fetchFn) : null;
   let pr = open, existed = !!open;
+  const link = await chatLinkFor(env, bucket, uid, meta, id).catch(() => "");
+  const text = String(body.body || "").slice(0, 8000) + madeWith(link, meta.attribution);
   if (!pr) {
-    const link = await chatLinkFor(env, bucket, uid, meta, id).catch(() => "");
-    pr = await openPullRequest(t.token, repo, { head: meta.branch, base, title, body: String(body.body || "").slice(0, 8000) + madeWith(link, meta.attribution), draft: body.draft === true }, fetchFn).catch(() => null);
+    pr = await openPullRequest(t.token, repo, { head: meta.branch, base, title, body: text, draft: body.draft === true }, fetchFn).catch(() => null);
+    if (pr && pr.existed) existed = true;
   }
   if (!pr || !pr.number) return { error: "error: GitHub did not open the pull request: " + prFailNote(repo, base, meta.branch, pr, "is there a commit on " + meta.branch + " that " + base + " lacks?") };
+  // AN OPEN PULL REQUEST IS UPDATED FOR REAL (live, 2026-11-25): its title and description are changed on GitHub and GitHub's
+  // answer checked, so "updated" is never said for a change GitHub did not make.
+  if (existed) {
+    const e = await editPullRequest(t.token, repo, pr.number, { title, body: text }, fetchFn).catch(() => ({ ok: false, why: "GitHub could not be reached" }));
+    if (!e.ok) return { error: "error: GitHub did not update pull request #" + pr.number + "'s title and description: " + String(e.why || "no answer").slice(0, 300) + ". The branch was pushed; tell the owner the title and description are unchanged." };
+    if (e.url) pr = { ...pr, url: e.url };
+  }
   const cur = (await getJson(bucket, metaKey(uid, id), null)) || meta;
   const next = x ? { ...cur, prs: { ...(cur.prs || {}), [repo]: pr } } : { ...cur, pr, pushed: true };
   await bucket.put(metaKey(uid, id), JSON.stringify(next), { httpMetadata: { contentType: "application/json" } });

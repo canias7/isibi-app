@@ -50,8 +50,9 @@ test("CD170 Coder's tools: auto_fix only when the owner asks in the chat (never 
   const run = async (calls, opts) => {
     let i = 0;
     const steps = [{ message: { role: "assistant", content: "", tool_calls: calls } }, { message: { role: "assistant", content: "Done." } }];
-    return runCoder({ send: async () => steps[i++], exec: async () => ({ code: 0, output: "" }) }, { text: "go", ...opts });
+    return runCoder({ send: async () => steps[i++], exec: async () => ({ code: 0, output: "" }), ask: async () => ({ choice: "yes" }) }, { text: "go", ...opts });
   };
+  // (Turning it on asks first, by its GitHub connector row's default: the owner says yes here. 2026-11-25.)
   let r = await run([call("auto_fix", { pr: "https://github.com/ana/shop/pull/12" }, "a1")]);
   assert.deepEqual(r.autofixRequest, { pr: "https://github.com/ana/shop/pull/12", on: true });
   assert.match(r.messages.find((m) => m.tool_call_id === "a1").content, /^ok: auto-fix is turned on for that pull request when your turn ends/);
