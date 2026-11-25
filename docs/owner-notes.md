@@ -5,6 +5,20 @@ The owner's running log, newest first, in plain English. Started fresh on
 log (81,000 lines) is in git history.
 
 
+## 2026-11-25: Live test of the GitHub connector's tools, and the sheet updated
+
+Tried live on gofarther.dev with Grok on Low, in two test chats on canias7/testingforclaude, 9 Grok messages, screenshots only.
+
+**GitHub connector:** push_branch, pr_read, pr_update (reply), pr_comments and review worked, each with a "GitHub · …" step. reply_review refused outside an auto-fix job, as designed. On Never, push_branch and pr_comments were refused; on Ask, pr_read showed the one-line card with the GitHub mark. All 7 choices are back to default.
+
+**Found (not fixed, for later):**
+- pull_request opened draft PR #42, but its step said "GitHub · Push branch", not "Create pull request". Asked to update the title and body, Coder said it did, but GitHub kept the old ones.
+- auto_fix turned on and off, but showed no step and no card, although its default is Ask. A review comment Coder posted itself started no fix job.
+
+**Sheet** ([`docs/claude-code-vs-coder-tools.xlsx`](claude-code-vs-coder-tools.xlsx)): the Tools tab has a new column H "Tried live (2026-11-25)" and new rows for pr_comments, review, auto_fix and the connector's choices. It now has 79 worked, 4 partly, 1 broke, 1 not tested and 18 n/a. The two "partly" rows (reads side by side, read_mcp_resource) and WebSearch retries are unchanged. On the parameters tab, rows 8, 24 and 376 are now ✓, so it has 361 working, 24 partly, 0 differ, 103 not tested and 26 n/a.
+
+**Cleaned up:** PR #42 closed, both test chats deleted, settings back to default.
+
 ## 2026-11-25: A "Context window" card in Coder's chat (design 3)
 
 At the end of the row under the message box there is now a small chip showing how much of Grok 4.7's 500k-token window
