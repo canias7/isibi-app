@@ -5,6 +5,15 @@ The owner's running log, newest first, in plain English. Started fresh on
 log (81,000 lines) is in git history.
 
 
+## 2026-11-25 — For later: three things from the approval-card test
+
+Found live on gofarther.dev; the owner said "note it" (not fixing yet):
+1. After you deny a card, the next message sometimes gets lost or ends at once with "Stopped". It worked on the third try.
+2. After a deny, Coder stops without saying anything.
+3. The card for commands is 3 to 4 lines tall: its grey line spells out the whole reason it asks, instead of one short line.
+
+Also still waiting: the test branches in canias7/testingforclaude (coder/testingforclaude-*, audit-p3a/b/c) need deleting by the owner.
+
 ## 2026-11-25: Each message shows once, and Esc denies the waiting card from the box
 
 Not deployed yet: it's on the work-dupesc branch. Tried in a test browser with real keys, not yet live on gofarther.dev.
