@@ -1893,6 +1893,30 @@
   // your own bubble, and the timer started again at 0s): the saved chat has it only once the job is saved, so it is drawn from
   // the chat's record of it (`asked`, or `starting` while the machine is still being set up), with when it was sent. The
   // machine's own copy of it replaces it when it comes (applyState).
+  // EACH STEP ONCE (live, 2026-11-25: every message and answer of a chat showed twice). A step the machine sends carries the
+  // time it was made, so the same step sent again is the same object: it is drawn once. `uniqEvents`: a saved chat's list,
+  // for chats saved with a step twice; `mergeEvents`: what a look brings that the page does not have yet. The message's
+  // own bubble shown when it was sent (`local`) is replaced by the machine's copy of it, once.
+  const evKey = (e) => (e && typeof e === 'object' && Number(e.at) > 0 && !e.local ? JSON.stringify(e, (k, v) => (k === 'thumbs' ? undefined : v)) : '');
+  function uniqEvents(list) {
+    const seen = new Set();
+    return (Array.isArray(list) ? list : []).filter((e) => { const k = evKey(e); if (!k) return true; if (seen.has(k)) return false; seen.add(k); return true; });
+  }
+  function mergeEvents(have, incoming) {
+    const seen = new Set(have.map(evKey).filter(Boolean));
+    const out = [];
+    for (const e of Array.isArray(incoming) ? incoming : []) {
+      const k = evKey(e);
+      if (k && seen.has(k)) continue;
+      if (k) seen.add(k);
+      if (e && e.type === 'user') {
+        const i = have.findIndex((x) => x && x.local && x.text === e.text);
+        if (i >= 0) { have[i] = have[i].thumbs ? { ...e, thumbs: have[i].thumbs } : e; continue; }
+      }
+      out.push(e);
+    }
+    return out;
+  }
   function withPending(p, events) {
     if (GLOOPY || !p || p.status !== 'running') return events;
     const a = p.asked && Number(p.asked.turn) === Number(p.turn) ? p.asked : p.starting && typeof p.starting.text === 'string' ? p.starting : null;
@@ -1919,7 +1943,7 @@
     const after = S.sendAfterOpen && S.sendAfterOpen.id === id ? S.sendAfterOpen : null;
     if (S.sendAfterOpen && S.sendAfterOpen.id !== id) S.sendAfterOpen = null;
     if (r.status !== 200) { S.sendAfterOpen = null; S.error = (r.data && r.data.error) || 'The project could not be opened.'; return draw(); }
-    S.project = r.data.project; S.events = withPending(S.project, r.data.events || []); S.queue = r.data.queue || []; S.shellHist = Array.isArray(r.data.shellHistory) ? r.data.shellHistory : []; fbTake(r.data.fbCards);
+    S.project = r.data.project; S.events = withPending(S.project, uniqEvents(r.data.events || [])); S.queue = r.data.queue || []; S.shellHist = Array.isArray(r.data.shellHistory) ? r.data.shellHistory : []; fbTake(r.data.fbCards);
     S.running = S.project.status === 'running';
     S.background = undefined; startBgWatch();
     S.envInfo = null; loadEnvInfo();
@@ -2042,6 +2066,7 @@
     const mkey = sendKey(S.project.id, text, pics, comments, att);
     const mid = midFor(mkey);
     S.sending = true; S.error = ''; boxEmpty(); S.unsent = text; S.sendingFor = S.project.id;
+    stopBgWatch();
     const base = S.events.length;
     // The owner's own command (shell mode) is shown as the machine will show it: "! " and the command.
     const shellText = /^!/.test(text) && !pics.length && !comments.length && text.replace(/^!\s*/, '') ? '! ' + text.replace(/^!\s*/, '') : '';
@@ -2113,7 +2138,7 @@
     sent.gone = true; S.sendWatch = null;
     S.sending = false; S.sendingFor = null; S.unsent = ''; S.running = false; S.project = p; syncEntry();
     if (d.reload) { draw(); return reloadChat(sent.id); }
-    const fresh = evs.filter((e) => { if (e.type !== 'user') return true; const mine = S.events.find((x) => x.local && x.text === e.text); if (mine) { mine.local = false; return false; } return true; });
+    const fresh = mergeEvents(S.events, evs);
     S.events = S.events.concat(fresh);
     draw(true);
     startBgWatch();
@@ -2230,13 +2255,8 @@
     S.fails = 0;
     if (r.status === 200 && r.data) {
       if (r.data.reload) { if (r.data.project) S.project = r.data.project; S.running = false; syncEntry(); draw(); reloadChat(id); return false; }
-      // The message shown when it was sent is not drawn twice.
-      const fresh = (r.data.events || []).filter((e) => {
-        if (e.type !== 'user') return true;
-        const mine = S.events.find((x) => x.local && x.text === e.text);
-        if (mine) { mine.local = false; return false; }
-        return true;
-      });
+      // The message shown when it was sent is not drawn twice, nor a step the page already has (mergeEvents).
+      const fresh = mergeEvents(S.events, r.data.events || []);
       if (fresh.length) S.events = S.events.concat(fresh);
       // CODER RENAMED THE CHAT (rename_chat): the new name at once, in the top bar and the sidebar.
       for (const e of fresh) if (e.type === 'renamed' && e.text && S.project) { S.project.title = String(e.text).slice(0, 80); syncEntry(); drawSide(); }
@@ -2294,7 +2314,7 @@
     // after 15 s the page gave up, and the chat kept its old title and its "working" dot in the sidebar until a reload: the
     // frontend audit of 2026-11-24.)
     if (ended && r.data.project.status === 'running') { if (tries < 20) setTimeout(() => reloadChat(id, { ended: true, tries: tries + 1 }), Math.min(3000 + tries * 1000, 10000)); return; }
-    S.project = keepWanted(r.data.project); S.events = withPending(S.project, r.data.events || []); S.queue = r.data.queue || []; if (Array.isArray(r.data.shellHistory)) S.shellHist = r.data.shellHistory; fbTake(r.data.fbCards);
+    S.project = keepWanted(r.data.project); S.events = withPending(S.project, uniqEvents(r.data.events || [])); S.queue = r.data.queue || []; if (Array.isArray(r.data.shellHistory)) S.shellHist = r.data.shellHistory; fbTake(r.data.fbCards);
     if (GLOOPY) S.sched = null;
     S.running = S.project.status === 'running';
     S.background = undefined;
@@ -4820,12 +4840,15 @@
   const turnMark = (p) => (p ? Number(p.turn) || 0 : 0) + ':' + (p ? Number(p.saved) || 0 : 0) + ':' + (p ? p.status || '' : '');
   async function bgTick() {
     S.bgWatch = 0;
-    if (!S.project || S.running) return;
+    // (Not while a message of this chat is on its way: its own answer starts the look at the job. Live, 2026-11-25: the idle
+    // look saw the new turn first, loaded the chat and followed it; the message's answer then followed it again from the
+    // start, so every step of the turn, the message too, was drawn twice.)
+    if (!S.project || S.running || (S.sending && S.sendingFor === S.project.id)) return;
     const id = S.project.id;
     if (!bgBusy()) {
       const was = turnMark(S.project);
       const l = await call('/projects/' + encodeURIComponent(id));
-      if (!S.project || S.project.id !== id || S.running) return;
+      if (!S.project || S.project.id !== id || S.running || (S.sending && S.sendingFor === id)) return;
       if (l.status === 200 && l.data && l.data.project && turnMark(l.data.project) !== was) return reloadChat(id);
       return startBgWatch();
     }
@@ -5497,7 +5520,35 @@
   // as Deny, with the reply as what Coder should do instead.
   function permWaiting() {
     if (GLOOPY || !S.project || !Array.isArray(S.events)) return null;
-    return S.events.find((x) => x && x.type === 'permission' && x.tool !== 'plan' && x.pid && !(S.permSent && S.permSent[x.pid]) && (S.running || !!(S.project.parked && S.project.parked.pid === x.pid)) && !S.events.some((y) => y.type === 'permanswer' && y.pid === x.pid)) || null;
+    return [...S.events].reverse().find((x) => x && x.type === 'permission' && x.tool !== 'plan' && x.pid && !(S.permSent && S.permSent[x.pid]) && (S.running || !!(S.project.parked && S.project.parked.pid === x.pid)) && !S.events.some((y) => y.type === 'permanswer' && y.pid === x.pid)) || null;
+  }
+  /** The newest waiting approval line on the page, or null. */
+  function liveCardEl() {
+    if (!S.root || !S.root.isConnected || !S.root.getClientRects().length) return null;
+    const all = S.root.querySelectorAll('.cd-perm.cd-pl.is-live');
+    return all.length ? all[all.length - 1] : null;
+  }
+  /** Esc, Enter and Cmd/Ctrl+Enter for the waiting card when the key is not on it (see the listener in mount). */
+  function cardKey(e) {
+    if (e.defaultPrevented || e.isComposing || e.altKey || e.shiftKey || S.phase !== 'chat' || !S.project) return;
+    const esc0 = e.key === 'Escape' && !e.ctrlKey && !e.metaKey, enter = e.key === 'Enter';
+    if (!esc0 && !enter) return;
+    const card = liveCardEl();
+    if (!card) return;
+    const a = document.activeElement, t = e.target;
+    if (t && t.closest && t.closest('.cd-perm')) return;
+    if (document.querySelector('.cd-sure, #cdPageView') || S.titleMenu || S.rowMenu || S.showEnv || S.modeMenu || S.reviewMenu) return;
+    if (a && a.id === 'cdIn') { if (String(a.value || '').trim()) return; }
+    else if (a && a !== document.body && a !== document.documentElement) {
+      if (!S.root.contains(a)) return;
+      if (a.isContentEditable || (a.matches && a.matches('input, textarea, select'))) return;
+      if (enter && a.matches && a.matches('button, a, summary, [role=button]')) return;
+    }
+    const pick = (c) => card.querySelector('[data-perm-choice="' + c + '"]:not(:disabled)');
+    const b = esc0 ? pick('no') : e.ctrlKey || e.metaKey ? pick('always') : pick('yes');
+    if (!b) return;
+    e.preventDefault(); e.stopPropagation();
+    b.click();
   }
   function composerHTML() {
     const busy = (S.running && !S.ending) || S.sending;
@@ -6584,6 +6635,11 @@
           if (k >= 1 && k <= modeList().length && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); setChatMode(modeList()[k - 1].id); }
         });
       }
+      // THE WAITING APPROVAL CARD'S KEYS FROM ANYWHERE ON THE PAGE (live, 2026-11-25: after sending, focus stayed in the box and
+      // Esc did nothing until the card was clicked). As Claude Code's terminal while a prompt waits: Esc denies the newest
+      // waiting card, Enter allows it once, Cmd or Ctrl+Enter always; unless something else is being typed in (the box with
+      // text in it keeps its own Esc and Enter), a window or menu is open, or the key is on the card itself (its own handler).
+      if (!S.cardKeys) { S.cardKeys = true; document.addEventListener('keydown', (e) => cardKey(e), true); }
       // The notifications panel opens from the tab that's showing (live test, 2026-11-13: opened straight into Gloopy, the
       // menu's Notifications did nothing, as only Coder's view listened). GitHub's return is Coder's.
       if (!S.notifyHook) { S.notifyHook = true; window.addEventListener('gf:notify', () => { if (S.root && S.root.isConnected && S.root.getClientRects().length) showNotifications(); }); }

@@ -755,6 +755,15 @@ export async function hiddenValues(env, bucket, uid, meta, { keep = false } = {}
   return [...Object.entries(envNow.vars).filter(([k, v]) => secretVar(k, v)).map(([, v]) => String(v)), ...envNow.secrets.flatMap((x) => [...x.headers.flatMap((h) => { try { return [h.value, headerValue(h)]; } catch { return [h.value]; } }), ...configSecrets(x.kind, x.config)]), ...jobKeys].filter((v) => v.length >= 4);
 }
 /** Those values hidden in a job's steps: their text, the lines a write shows under its step (the owner, 2026-11-09), the files a command changed, and what the language servers reported. */
+/**
+ * THE STEPS NOT SAVED YET (live, 2026-11-25: every message and answer of a chat showed twice). A machine step carries the
+ * time it was made, so the same step sent again is equal to the saved one: it is left out. → `incoming`, without those.
+ */
+export function newSteps(old, incoming) {
+  const key = (e) => (e && typeof e === "object" && Number(e.at) > 0 ? JSON.stringify(e) : "");
+  const seen = new Set((Array.isArray(old) ? old : []).slice(-MAX_EVENTS).map(key).filter(Boolean));
+  return (Array.isArray(incoming) ? incoming : []).filter((e) => { const k = key(e); if (!k) return true; if (seen.has(k)) return false; seen.add(k); return true; });
+}
 export function hideIn(events, values) {
   const hide = (x) => { let t = String(x); for (const v of values) t = t.split(v).join("[hidden]"); return t; };
   if (values.length) for (const ev of events) {
@@ -2618,7 +2627,8 @@ export async function handleCoder(request, env, ctx, deps) {
         typeof res.memory === "string" ? bucket.get(memoryKey(uid, meta.repo)).then((o) => (o ? o.text() : null)).catch(() => null) : null,
         res.memoryFiles && typeof res.memoryFiles === "object" ? getJson(bucket, memoryFilesKey(uid, meta.repo), {}).catch(() => ({})) : null,
       ]);
-      const fresh = Array.isArray(all.events) ? all.events.slice() : [];
+      // (EACH STEP SAVED ONCE, 2026-11-25: a step the chat already holds, the same one sent again, is not added twice.)
+      const fresh = newSteps(old, Array.isArray(all.events) ? all.events : []);
       const own0 = fresh.length;
       // OWNER, 2026-11-05 (option A), and 2026-11-16: the work is committed after each job and PUSHED to Coder's branch at a
       // stopping point (pushWanted, the Push button, the safety net), and a pull request opens only when the user presses

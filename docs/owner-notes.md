@@ -5,6 +5,23 @@ The owner's running log, newest first, in plain English. Started fresh on
 log (81,000 lines) is in git history.
 
 
+## 2026-11-25: Each message shows once, and Esc denies the waiting card from the box
+
+Not deployed yet: it's on the work-dupesc branch. Tried in a test browser with real keys, not yet live on gofarther.dev.
+
+- **Messages and replies shown twice:** found the cause. While your first message was still starting (a new machine takes
+  20 seconds or more), the page's every-20-seconds look at the open chat saw the new job, loaded the chat and started
+  following it. When your message's own answer came back, the page followed the job again from its first step and added
+  every step a second time, your message too. Nothing was saved twice on the server (a test with Coder's real machine and a
+  card allowed, then denied, shows each step saved once). Now that look waits while a message is on its way, and the page
+  never adds a step it already has. As a safety net, the server also skips a step the chat already holds when it saves a job,
+  and a chat that already has a step twice shows it once.
+- **Esc on the approval card:** with a card waiting, Esc now denies it from anywhere on the page, the message box too,
+  without clicking the card first. Enter allows it and Cmd/Ctrl+Enter always allows it, but only while the box is empty, like
+  Claude Code's terminal. With text in the box, Esc and Enter do what they always did (Enter sends your reply, which denies
+  and tells Coder what to do instead). Several cards: the newest one is answered.
+- Tests: `coder/test/dupesc-1125.test.mjs`.
+
 ## 2026-11-24: Coder's approval card is now design 16
 
 The card shown when a tool is set to Ask is now one quiet indented line in the chat, in black and white: the tool's icon
