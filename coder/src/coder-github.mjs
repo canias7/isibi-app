@@ -262,6 +262,35 @@ export async function repoAccess(token, repo, { fetchFn = fetch } = {}) {
   return { ok: true, data: r.data, readOnly: !(r.data.permissions && r.data.permissions.push === true) };
 }
 
+/** A branch name GitHub would take ("main", "feature/x"), or "" (2026-11-25: pull_request's base and branch inputs). */
+export function branchNameOk(name) {
+  const b = typeof name === "string" ? name.trim() : "";
+  return b && b.length <= 200 && /^[A-Za-z0-9._\/-]+$/.test(b) && !/(^[-/.])|(\.\.)|(\/\/)|([/.]$)|(\.lock$)|@\{/.test(b) ? b : "";
+}
+/**
+ * THE REPOSITORY'S DEFAULT BRANCH (live, 2026-11-25: a pull request "into main" was opened into another coder/* branch, the
+ * chat's starting branch): what GitHub names, or `fallback` when it cannot say.
+ */
+export async function defaultBranchOf(token, repo, fallback = "", fetchFn = fetch) {
+  const r = await ghRead(token, "/repos/" + repo, { fetchFn }).catch(() => null);
+  const b = r && r.ok && r.data && typeof r.data.default_branch === "string" ? r.data.default_branch : "";
+  return b || fallback;
+}
+/**
+ * A NAMED BRANCH ON GITHUB AT THE CHAT BRANCH'S COMMIT (2026-11-25: "a new branch and a pull request into main"): made when it
+ * is missing, moved forward when it exists (never forced). → { ok: true } or { ok: false, why }.
+ */
+export async function branchAt(token, repo, from, to, fetchFn = fetch) {
+  if (from === to) return { ok: true };
+  const src = await gh(token, "/repos/" + repo + "/git/ref/heads/" + from, { fetchFn }).catch(() => null);
+  const sha = src && src.ok && src.data && src.data.object ? src.data.object.sha : "";
+  if (!sha) return { ok: false, why: "the chat's branch " + from + " is not on GitHub" };
+  const made = await gh(token, "/repos/" + repo + "/git/refs", { method: "POST", body: { ref: "refs/heads/" + to, sha }, fetchFn }).catch(() => null);
+  if (made && made.ok) return { ok: true };
+  const moved = await gh(token, "/repos/" + repo + "/git/refs/heads/" + to, { method: "PATCH", body: { sha, force: false }, fetchFn }).catch(() => null);
+  if (moved && moved.ok) return { ok: true };
+  return { ok: false, why: "GitHub would not put " + to + " at the chat's commit: " + (prRefusal((moved && moved.data) || (made && made.data)) || "no answer") };
+}
 /** The pull request for `head` into `base`: opened, or the one already open. `{ url, number }` or null. */
 export async function openPullRequest(token, repo, { head, base, title, body, draft = false }, fetchFn = fetch) {
   const made = await gh(token, "/repos/" + repo + "/pulls", { method: "POST", body: { head, base, title, body, ...(draft ? { draft: true } : {}) }, fetchFn });
@@ -278,8 +307,8 @@ export async function openPullRequest(token, repo, { head, base, title, body, dr
  * update path never called GitHub). PATCH /repos/{repo}/pulls/{n}, then GitHub's answer is checked: its title must be the
  * one sent. → { ok: true, url, number } or { ok: false, why }.
  */
-export async function editPullRequest(token, repo, number, { title, body }, fetchFn = fetch) {
-  const send = { ...(typeof title === "string" && title ? { title } : {}), ...(typeof body === "string" ? { body } : {}) };
+export async function editPullRequest(token, repo, number, { title, body, base }, fetchFn = fetch) {
+  const send = { ...(typeof title === "string" && title ? { title } : {}), ...(typeof body === "string" ? { body } : {}), ...(typeof base === "string" && base ? { base } : {}) };
   if (!Object.keys(send).length) return { ok: false, why: "nothing to change" };
   const r = await gh(token, "/repos/" + repo + "/pulls/" + Number(number), { method: "PATCH", body: send, fetchFn }).catch(() => null);
   if (!r) return { ok: false, why: "GitHub could not be reached" };

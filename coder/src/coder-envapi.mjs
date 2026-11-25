@@ -12,7 +12,7 @@
  * Values of variables and network secrets never leave here for the machine.
  */
 import { modelPass } from "./coder-model-gate.mjs";
-import { userToken, readPullRequestComments, openPullRequest, prFailNote, postReview, updatePullRequest, editPullRequest } from "./coder-github.mjs";
+import { userToken, readPullRequestComments, openPullRequest, prFailNote, postReview, updatePullRequest, editPullRequest, branchNameOk, defaultBranchOf, branchAt } from "./coder-github.mjs";
 import { chatLinkFor, madeWith, prStillOpen, noPrNote } from "./coder-routes.mjs";
 import { listEnvs, saveEnvList, readEnvData, writeEnvData, envIdFor, envIdOf, markUsed, envListOut } from "./coder-environments.mjs";
 import { egressPass, machineKeyRules, EGRESS_PATH } from "./coder-egress.mjs";
@@ -251,29 +251,45 @@ export async function prOpenNow(env, bucket, uid, id, meta, body, { fetchFn = fe
   const want = String(body.repo || "").trim();
   const x = want ? (Array.isArray(meta.repos) ? meta.repos : []).find((r) => r && String(r.repo).toLowerCase() === want.toLowerCase()) : null;
   if (want && !x && want.toLowerCase() !== String(meta.repo).toLowerCase()) return { error: "error: " + want.slice(0, 100) + " is not one of this chat's repositories" };
-  const repo = x ? x.repo : meta.repo, base = x ? x.base : meta.base;
+  const repo = x ? x.repo : meta.repo, baseWas = x ? x.base : meta.base;
   if (x ? x.readOnly : meta.readOnly) return { error: "error: " + noPrNote(repo) };
   const t = token ? { token } : await userToken(env, bucket, uid, { fetchFn });
   if (!t) return { error: "error: the owner's GitHub connection has ended; they sign in to GitHub again on gofarther.dev" };
-  const had = x ? meta.prs && meta.prs[repo] : meta.pr;
+  // THE BASE AND BRANCH ASKED FOR (live, 2026-11-25: "a new branch and a pull request into main" used the chat's branch and
+  // went into another coder/* branch): an explicit base or branch is honoured; with none, the base is the repository's
+  // default branch, as `gh pr create` does, never the branch the chat started from.
+  if (body.base != null && body.base !== "" && !branchNameOk(body.base)) return { error: "error: " + String(body.base).slice(0, 100) + " is not a branch name" };
+  if (body.branch != null && body.branch !== "" && !branchNameOk(body.branch)) return { error: "error: " + String(body.branch).slice(0, 100) + " is not a branch name" };
+  const askedBase = branchNameOk(body.base);
+  const base = askedBase || (await defaultBranchOf(t.token, repo, baseWas, fetchFn));
+  const head = branchNameOk(body.branch) || meta.branch;
+  if (head === base) return { error: "error: the pull request's branch and base are both " + head + "; name another branch or base" };
+  if (head !== meta.branch) {
+    const b = await branchAt(t.token, repo, meta.branch, head, fetchFn);
+    if (!b.ok) return { error: "error: " + b.why };
+  }
+  const had = head === meta.branch ? (x ? meta.prs && meta.prs[repo] : meta.pr) : null;
   const open = had ? await prStillOpen(t.token, repo, had, fetchFn) : null;
   let pr = open, existed = !!open;
   const link = await chatLinkFor(env, bucket, uid, meta, id).catch(() => "");
   const text = String(body.body || "").slice(0, 8000) + madeWith(link, meta.attribution);
   if (!pr) {
-    pr = await openPullRequest(t.token, repo, { head: meta.branch, base, title, body: text, draft: body.draft === true }, fetchFn).catch(() => null);
+    pr = await openPullRequest(t.token, repo, { head, base, title, body: text, draft: body.draft === true }, fetchFn).catch(() => null);
     if (pr && pr.existed) existed = true;
   }
-  if (!pr || !pr.number) return { error: "error: GitHub did not open the pull request: " + prFailNote(repo, base, meta.branch, pr, "is there a commit on " + meta.branch + " that " + base + " lacks?") };
+  if (!pr || !pr.number) return { error: "error: GitHub did not open the pull request: " + prFailNote(repo, base, head, pr, "is there a commit on " + head + " that " + base + " lacks?") };
   // AN OPEN PULL REQUEST IS UPDATED FOR REAL (live, 2026-11-25): its title and description are changed on GitHub and GitHub's
-  // answer checked, so "updated" is never said for a change GitHub did not make.
+  // answer checked, so "updated" is never said for a change GitHub did not make. (A base asked for moves it too.)
   if (existed) {
-    const e = await editPullRequest(t.token, repo, pr.number, { title, body: text }, fetchFn).catch(() => ({ ok: false, why: "GitHub could not be reached" }));
+    const e = await editPullRequest(t.token, repo, pr.number, { title, body: text, ...(askedBase ? { base: askedBase } : {}) }, fetchFn).catch(() => ({ ok: false, why: "GitHub could not be reached" }));
     if (!e.ok) return { error: "error: GitHub did not update pull request #" + pr.number + "'s title and description: " + String(e.why || "no answer").slice(0, 300) + ". The branch was pushed; tell the owner the title and description are unchanged." };
     if (e.url) pr = { ...pr, url: e.url };
   }
   const cur = (await getJson(bucket, metaKey(uid, id), null)) || meta;
-  const next = x ? { ...cur, prs: { ...(cur.prs || {}), [repo]: pr } } : { ...cur, pr, pushed: true };
-  await bucket.put(metaKey(uid, id), JSON.stringify(next), { httpMetadata: { contentType: "application/json" } });
-  return { number: pr.number, url: pr.url, repo, draft: !existed && body.draft === true, existed };
+  // (Only the chat's own branch's pull request is the chat's: the one Auto-fix watches.)
+  if (head === meta.branch) {
+    const next = x ? { ...cur, prs: { ...(cur.prs || {}), [repo]: pr } } : { ...cur, pr, pushed: true };
+    await bucket.put(metaKey(uid, id), JSON.stringify(next), { httpMetadata: { contentType: "application/json" } });
+  }
+  return { number: pr.number, url: pr.url, repo, base, head, draft: !existed && body.draft === true, existed };
 }

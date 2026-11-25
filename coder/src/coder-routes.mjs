@@ -206,7 +206,7 @@ import { watchJob, watchKey, watchBackground, WATCH_PREFIX } from "./coder-watch
 import { livePass, LIVE_PATH, readLive, dropLive, wholeSteps, interruptedSteps, prunePics, dropPics } from "./coder-live.mjs";
 import { gitAccess } from "./coder-git.mjs";
 import { readConnectors, connectorOut, setPerms, CATALOG, CATALOG_LATER, addConnector, removeConnector, finishSignIn, toolsFor as connectorTools, keepJobTools, refreshTools, clientDoc, jobConnectors, expandConnectorRefs, readConnectorSettings, writeConnectorSettings, setConnectorState, STATE_COOKIE as MCP_COOKIE, CALLBACK_PATH as MCP_CALLBACK, jobTool, callTool } from "./coder-mcp.mjs";
-import { githubReady, makeState, readState, newNonce, STATE_COOKIE, signInUrl, installUrl, exchangeCode, saveConnection, forgetConnection, userToken, gh, ghRead, repoAccess, listRepos, openPullRequest, editPullRequest, prFailNote, postReview, OWN_MARK, REPO, BRANCH, seal, unseal } from "./coder-github.mjs";
+import { githubReady, makeState, readState, newNonce, STATE_COOKIE, signInUrl, installUrl, exchangeCode, saveConnection, forgetConnection, userToken, gh, ghRead, repoAccess, listRepos, openPullRequest, editPullRequest, prFailNote, postReview, branchNameOk, defaultBranchOf, branchAt, OWN_MARK, REPO, BRANCH, seal, unseal } from "./coder-github.mjs";
 
 const MAX_PROJECTS = 50;
 const MAX_TEXT = 20000;
@@ -2750,9 +2750,13 @@ export async function handleCoder(request, env, ctx, deps) {
           pushNote = (pushNote ? pushNote + " · " : "") + (e.ok ? "Pull request #" + pr.number + " updated: " + pr.url : "Pull request #" + pr.number + " was pushed to, but GitHub did not change its title and description: " + String(e.why || "no answer").slice(0, 200));
         }
         else {
-          const made = await openPullRequest(t.token, meta.repo, { head: meta.branch, base: meta.base, title: String(want.title || "Changes by Coder").slice(0, 200), body: wantBody, draft: want.draft === true }, fetchFn).catch(() => null);
+          // (The base and branch asked for, else the repository's default branch: live, 2026-11-25.)
+          const base = branchNameOk(want.base) || (await defaultBranchOf(t.token, meta.repo, meta.base, fetchFn));
+          const head = branchNameOk(want.branch) || meta.branch;
+          const moved = head === meta.branch ? { ok: true } : await branchAt(t.token, meta.repo, meta.branch, head, fetchFn);
+          const made = moved.ok ? await openPullRequest(t.token, meta.repo, { head, base, title: String(want.title || "Changes by Coder").slice(0, 200), body: wantBody, draft: want.draft === true }, fetchFn).catch(() => null) : { why: moved.why };
           pr = made && made.number ? made : null;
-          pushNote = (pushNote ? pushNote + " · " : "") + (pr ? (want.draft === true ? "Draft pull request #" : "Pull request #") + pr.number + " opened: " + pr.url : "The pull request could not be opened on GitHub: " + prFailNote(meta.repo, meta.base, meta.branch, made));
+          pushNote = (pushNote ? pushNote + " · " : "") + (pr ? (want.draft === true ? "Draft pull request #" : "Pull request #") + pr.number + " opened: " + pr.url : "The pull request could not be opened on GitHub: " + prFailNote(meta.repo, base, head, made));
         }
       } else if (want) pushNote = (pushNote ? pushNote + " · " : "") + (t ? "No pull request: there are no changes on this chat's branch yet." : "");
       // THE REVIEW ON THE PULL REQUEST Coder was asked for (like Claude Code's /code-review --comment).

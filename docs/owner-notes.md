@@ -5,6 +5,26 @@ The owner's running log, newest first, in plain English. Started fresh on
 log (81,000 lines) is in git history.
 
 
+## 2026-11-25: Auto-fix step and answer, pull request branch and base, honest update line
+
+Found in the live test of fa82c2d7 on gofarther.dev.
+
+**Auto-fix showed no step, and Deny ended the chat.** The "GitHub · Auto-fix" step was only drawn after a Yes, so with
+Deny there was a card and nothing else, and Deny stopped the whole turn without a word from Coder. Now the step is drawn
+before the card whatever you answer, and after Deny it says "Denied: auto-fix stays off", the turn goes on, and Coder
+tells you in words that auto-fix is still off.
+
+**Pull request went to the wrong branch.** Asked for "a new branch and a pull request into main", Coder used the chat's
+branch and opened the pull request into the branch the chat had started from (another coder/* branch). Now the pull
+request goes into the repository's default branch (usually main) unless you or Coder name another base, and the
+pull_request tool takes a `base` and a `branch`: a named branch is made on GitHub at the chat's latest commit and the pull
+request is opened from it. The same applies when the pull request is opened at the end of a turn.
+
+**"Update pull request" said git push when nothing was pushed.** The step's line now reads "pull request #N ·
+title/description updated", and names the push only when one actually happened.
+
+Tests: `coder/test/autofix-pr-1125b.test.mjs`. Not deployed yet.
+
 ## 2026-11-25: Fixed the three pull request problems found in the live test
 
 **Wrong step name.** Opening a pull request showed "GitHub · Push branch", because the push Coder makes first drew its own

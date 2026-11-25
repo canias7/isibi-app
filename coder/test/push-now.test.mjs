@@ -82,7 +82,7 @@ test("PN4 the server opens the pull request with the owner's token, draft as ask
   };
   const env = { CODER_PUBLIC_URL: "https://gofarther.dev" };
   const r = await prOpenNow(env, bucket, "u", "c1", meta, { title: "Add login", body: "Why.", draft: true }, { fetchFn, token: "tok" });
-  assert.deepEqual(r, { number: 12, url: "https://github.com/o/r/pull/12", repo: "o/r", draft: true, existed: false });
+  assert.deepEqual(r, { number: 12, url: "https://github.com/o/r/pull/12", repo: "o/r", base: "main", head: "coder/c1", draft: true, existed: false });
   const made = sent.find((x) => x.method === "POST");
   assert.deepEqual([made.body.head, made.body.base, made.body.draft], ["coder/c1", "main", true]);
   assert.match(made.body.body, /Made with Coder/);

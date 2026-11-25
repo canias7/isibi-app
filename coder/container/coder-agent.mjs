@@ -1501,7 +1501,7 @@ export const CODER_TOOLS = Object.freeze([
   { type: "function", function: {
     name: "pull_request",
     description: "Ask for a pull request of this chat's branch. Use it ONLY when the owner asks for a pull request (\"make a PR\", \"open a pull request\"). Write a clear title and a description: what changed, why, how to test it. Your changes are pushed and it opens now: the answer gives its number and address, so pr_read can read it right away; if one is already open, it is updated with your new work. draft true makes it a draft pull request (when the owner asks for a draft, or presses Create draft PR). repo: one of the chat's other repositories (owner/name), for a pull request there; leave it out for this chat's own repository." + " " + GH_MENTIONS,
-    parameters: { type: "object", properties: { title: { type: "string" }, body: { type: "string" }, draft: { type: "boolean" }, repo: { type: "string" } }, required: ["title", "body"] },
+    parameters: { type: "object", properties: { title: { type: "string" }, body: { type: "string" }, draft: { type: "boolean" }, repo: { type: "string" }, base: { type: "string", description: "The branch to merge into. Leave it out for the repository's default branch (usually main); set it only when the owner names another." }, branch: { type: "string", description: "A new branch name for the pull request, when the owner asks for one (\"on a new branch\"): the chat's work is pushed there. Leave it out to use the chat's branch." } }, required: ["title", "body"] },
   } },
   // PUSH AT A STOPPING POINT (owner, 2026-11-16; Claude Code's cloud session: "when Claude reaches a stopping point, it pushes
   // its branch to GitHub"): since 2026-11-17 a turn that changed files is pushed at its end; this tool pushes earlier.
@@ -1784,6 +1784,18 @@ export const MANUAL_ASKS = Object.freeze(Object.setPrototypeOf({
   workflow: (a) => "Run a workflow" + (a && typeof a.name === "string" && a.name ? " (" + String(a.name).slice(0, 80) + ")" : a && typeof a.scriptPath === "string" && a.scriptPath ? " (" + String(a.scriptPath).slice(0, 160) + ")" : a && a.resumeFromRunId ? " (resume " + String(a.resumeFromRunId).slice(0, 40) + ")" : ""),
 }, null));
 /** The card's line when auto-fix asks by its GitHub connector row's default (Ask). */
+/**
+ * THE PULL REQUEST STEP'S DETAIL (live, 2026-11-25: "git push (the chat's branch)" was shown when only the title and description
+ * changed): "pull request #N · title/description updated", or "pull request #N into main from x"; the push only when one happened.
+ */
+export const prStepDetail = (r, repo, pushed) => "pull request #" + r.number + (repo ? " in " + repo : "") + (r.existed ? " · title/description updated" : r.base ? " into " + r.base + (r.head ? " from " + r.head : "") : "") + (pushed ? " · git push (" + (r.head ? r.head : "the chat's branch") + ")" : "");
+/** Auto-fix's step in the chat, "GitHub · Auto-fix" (2026-11-25): drawn before its card, whatever the answer. */
+export const autofixStep = (args) => {
+  const on = !(args && args.on === false), pr = String((args && args.pr) || "").trim().slice(0, 200) || "a pull request";
+  return { tool: "auto_fix", verb: on ? "Turn on" : "Turn off", command: "Auto-fix " + (on ? "on" : "off") + " for pull request " + scrub(pr) };
+};
+/** What Coder reads after the owner denies auto-fix: it answers in words, never silently (live, 2026-11-25). */
+export const AUTOFIX_DENIED = "The owner said no: auto-fix was NOT turned on, and nothing else changed. Do not call auto_fix again in this turn. Answer the owner now in words: say auto-fix stays off and that they can turn it on later with the Auto-fix button.";
 export const GH_AUTOFIX_ASK_WHY = "Your GitHub connector asks before Coder turns on auto-fix (Connectors, GitHub, Auto-fix a pull request: Ask).";
 export const manualCallWhy = (tool) => "Coder wants to use " + tool + ".";
 /** A file edit's ask in Manual mode, in Claude Code's words for its edit prompt: "Do you want to make this edit to <file>?" */
@@ -5811,12 +5823,18 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           // connector tool: an allow with a changed input does not, as the rule still asks about it: hookYesIgnored.)
           const ruleCard = { tool: c.name, id: c.id, what: scrub(PLAN_ASKS[c.name] ? PLAN_ASKS[c.name](c.args) : "Use " + cc).slice(0, 300), why: ghDefaultAsk && !wholeRule(ownRules, "ask", cc) && !pickedFor(picked.ask, c.name) ? GH_AUTOFIX_ASK_WHY : ruleAskWhy(askRule, modeNow(), "tool"), told: askedWhy(cc), ...(mcpByName.has(c.name) ? (mcpByName.get(c.name).always ? { hooksMayAllow: false } : { askStays: true }) : {}) };
           // (Where no one can answer, its PermissionRequest hooks still decide: noOneHooks, fix round 4, D5.)
+          // (AUTO-FIX'S STEP, WHATEVER THE ANSWER: live, 2026-11-25, its card showed and no "GitHub · Auto-fix" step ever did.)
+          const fixStep = c.name === "auto_fix" ? autofixStep(c.args) : null;
+          if (fixStep) emit({ type: "bash", id: c.id, ...fixStep });
           const a = canAsk() ? await askOwner(ruleCard) : await noOneHooks(ruleCard);
-          if (!a) { reply(ruleCard.told); continue; }
+          if (!a) { if (fixStep) emit({ type: "result", id: c.id, code: -1, ran: false, output: "Not turned on: no one could answer the ask." }); reply(ruleCard.told); continue; }
           const o = answerOutcome(a);
           if (o === "stop") { return stopNow(reply); }
           if (o === "time") { reply("not run: Coder ran out of time waiting for the owner's answer"); emit({ type: "error", text: "Coder ran out of time waiting for your answer." }); return end("time"); }
-          if (o === "said") { reply(saidReply(a)); continue; }
+          if (o === "said") { if (fixStep) emit({ type: "result", id: c.id, code: -1, ran: false, output: "Not turned on: the owner answered in words." }); reply(saidReply(a)); continue; }
+          // (A DENIED AUTO-FIX, LIVE 2026-11-25: the chat ended at the card with no word from Coder. Turning on a watch changes
+          // no file, so the turn goes on and Coder answers the owner in words.)
+          if (o === "no" && fixStep) { emit({ type: "result", id: c.id, code: -1, ran: false, output: "Denied: auto-fix stays off." }); reply(AUTOFIX_DENIED); continue; }
           if (o === "no") { reply(REJECTED); return noEnd(i, "stopped: the owner said no"); }
           // (A PermissionRequest hook's new input, checked in askOwner: the call goes with it.)
           if (a.updatedInput) { const ni = toolInputFromHook(c.name, a.updatedInput); if (ni) c.args = ni; }
@@ -5829,11 +5847,14 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       // while in plan mode.")
       if (((PLAN_ASKS[c.name] && modeNow() === "plan") || (MANUAL_ASKS[c.name] && modeNow() === "default" && !subagent)) && canAsk() && !askedByRule) {
         const inPlan = modeNow() === "plan";
+        const fixStep = c.name === "auto_fix" ? autofixStep(c.args) : null;
+        if (fixStep) { emit({ type: "bash", id: c.id, ...fixStep }); askedByRule = true; }
         const a = await askOwner({ tool: c.name, id: c.id, what: scrub((inPlan ? PLAN_ASKS : MANUAL_ASKS)[c.name](c.args)).slice(0, 300), why: inPlan ? planCallWhy(ccTool(c.name)) : manualCallWhy(ccTool(c.name)) });
         const o = answerOutcome(a);
         if (o === "stop") { return stopNow(reply); }
         if (o === "time") { reply("not run: Coder ran out of time waiting for the owner's answer"); emit({ type: "error", text: "Coder ran out of time waiting for your answer." }); return end("time"); }
         if (o === "said") { reply(saidReply(a)); continue; }
+        if (o === "no" && fixStep) { emit({ type: "result", id: c.id, code: -1, ran: false, output: "Denied: auto-fix stays off." }); reply(AUTOFIX_DENIED); continue; }
         if (o === "no") { reply(REJECTED); return noEnd(i, "stopped: the owner said no"); }
         if (a.updatedInput) { const ni = toolInputFromHook(c.name, a.updatedInput); if (ni) c.args = ni; }
       }
@@ -8029,8 +8050,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         const pr = String(c.args.pr || "").trim().slice(0, 300);
         if (!pr) { reply("error: give the pull request's address or number"); continue; }
         autofixRequest = { pr, on: c.args.on !== false };
-        // (Its step, "GitHub · Auto-fix", as Claude Code shows its subscribe_pr_activity call. Live, 2026-11-25: none was shown.)
-        emit({ type: "bash", id: c.id, tool: "auto_fix", verb: autofixRequest.on ? "Turn on" : "Turn off", command: "Auto-fix " + (autofixRequest.on ? "on" : "off") + " for pull request " + scrub(pr).slice(0, 200) });
+        // (Its step, "GitHub · Auto-fix", as Claude Code shows its subscribe_pr_activity call; drawn already when a card asked.)
+        if (!askedByRule) emit({ type: "bash", id: c.id, ...autofixStep(c.args) });
         emit({ type: "result", id: c.id, code: 0, output: "Auto-fix is turned " + (autofixRequest.on ? "on" : "off") + " for " + scrub(pr).slice(0, 200) + " when this turn ends." });
         emit({ type: "pr", text: "Auto-fix " + (autofixRequest.on ? "on" : "off") + " for " + pr });
         reply("ok: auto-fix is turned " + (autofixRequest.on ? "on" : "off") + " for that pull request when your turn ends (the chat says whether it worked). Finish by telling the owner.");
@@ -8059,7 +8080,10 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         const title = String(c.args.title || "").trim().slice(0, 200);
         const body = String(c.args.body || "").trim().slice(0, 8000);
         if (!title) { reply("error: the pull request needs a title"); continue; }
-        const one = { title: scrub(title), body: scrub(body), ...(c.args.draft === true ? { draft: true } : {}) };
+        // (The base and branch asked for, live 2026-11-25: checked as branch names; the server honours them.)
+        const bOk = (v) => (typeof v === "string" && /^[A-Za-z0-9._\/-]{1,200}$/.test(v.trim()) ? v.trim() : "");
+        if ((c.args.base && !bOk(c.args.base)) || (c.args.branch && !bOk(c.args.branch))) { reply("error: base and branch must be branch names"); continue; }
+        const one = { title: scrub(title), body: scrub(body), ...(c.args.draft === true ? { draft: true } : {}), ...(bOk(c.args.base) ? { base: bOk(c.args.base) } : {}), ...(bOk(c.args.branch) ? { branch: bOk(c.args.branch) } : {}) };
         // One of the chat's other repositories (2026-11-06): its own pull request.
         const repo = typeof c.args.repo === "string" && /^[A-Za-z0-9-]{1,39}\/[A-Za-z0-9._-]{1,100}$/.test(c.args.repo.trim()) ? c.args.repo.trim() : "";
         // A REPOSITORY THE OWNER CAN ONLY READ (owner item 5): no pull request can be opened there.
@@ -8075,10 +8099,12 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
             try { r = (await deps.envApi({ action: "pull_request", ...one, ...(repo ? { repo } : {}) })) || {}; } catch { r = { error: "error: Coder's server could not be reached" }; }
             const pushed = p.text.replace(/^ok: /, "");
             if (Number.isInteger(r.number) && r.number > 0) {
-              const said = (r.existed ? "Pull request #" + r.number + " updated" : (r.draft ? "Draft pull request #" : "Pull request #") + r.number + " opened") + (repo ? " in " + repo : "") + ": " + String(r.url || "").slice(0, 300);
+              const into = !r.existed && r.base ? " into " + r.base + (r.head ? " from " + r.head : "") : "";
+              const said = (r.existed ? "Pull request #" + r.number + " updated" : (r.draft ? "Draft pull request #" : "Pull request #") + r.number + " opened" + into) + (repo ? " in " + repo : "") + ": " + String(r.url || "").slice(0, 300);
               midNotes.push(said);
-              // (The step says what was done: "GitHub · Update pull request" when it was already open; the push is its detail.)
-              emit({ type: "bash", id: c.id, tool: "pull_request", verb: r.existed ? "Update pull request" : "Create pull request", command: "pull request #" + r.number + (repo ? " in " + repo : "") + " · git push (the chat's branch)" });
+              // (The step says what was done: "GitHub · Update pull request" when it was already open. Live, 2026-11-25: its
+              // detail said "git push" when only the title and description changed; the push is named only when one happened.)
+              emit({ type: "bash", id: c.id, tool: "pull_request", verb: r.existed ? "Update pull request" : "Create pull request", command: prStepDetail(r, repo, /^ok: pushed/.test(p.text)) });
               emit({ type: "result", id: c.id, code: 0, output: (said + "\n" + pushed).slice(0, 2000) });
               emit({ type: "pr", text: said });
               // (THE OFFER TO WATCH IT, CLAUDE CODE'S WAY: its instructions say "After creating a PR, ask the user if they'd like
