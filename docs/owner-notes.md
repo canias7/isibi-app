@@ -5,6 +5,26 @@ The owner's running log, newest first, in plain English. Started fresh on
 log (81,000 lines) is in git history.
 
 
+## 2026-11-26: The card really names the pushed branch now, and read-only gh doesn't ask
+
+Found in the live test of e8a426ac on gofarther.dev.
+
+**The card still said the chat's branch.** The pull request tool opened #45 from live-1126-y, but the card said "Pushed to
+the branch coder/testingforclaude-…" and the step said "git push (the chat's branch)". Yesterday's fix was right but never
+got its information: when Coder's machine asked the server to open the pull request, it kept only the number and link from
+the answer and threw away which branch it was opened from. Now that is kept, so the card and the step both say live-1126-y.
+The step says the named branch from the start too. The new test goes through that same call, as the live run did.
+
+**Read-only gh asked every time.** Like Claude Code, commands that only read now run without a card in Ask and Accept-edits
+modes: gh api GET calls (with -X GET, --jq and so on), gh pr view/list/diff/checks/status, gh issue view/list, gh run
+view/list, gh repo view and gh search. Anything that changes GitHub still asks (and is still sent to Coder's GitHub tools).
+
+**gh pr view fails because GitHub's GraphQL is blocked.** It stays blocked: unlike the normal API, a GraphQL query isn't
+tied to one repository, so it couldn't be kept to the chat's own repositories safely. Instead, the refusal and Coder's
+instructions now name the plain API read for each one (gh pr view N becomes gh api repos/OWNER/REPO/pulls/N, and so on).
+
+Tests: `coder/test/gh-read-1126.test.mjs`.
+
 ## 2026-11-26: GitHub work goes through Coder's GitHub tools, and the card names the real branch
 
 Found in the live test of 39d77a37 on gofarther.dev.

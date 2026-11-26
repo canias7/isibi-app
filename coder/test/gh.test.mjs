@@ -93,5 +93,5 @@ test("CD174 on the machine: a GitHub chat's commands see GH_TOKEN and GITHUB_TOK
   assert.match(s, /px\.setGithub\(githubOn\);/);
   assert.match(s, /p0\.setGithub\(false\);/);
   const { MACHINE_TOOLS } = await import("../container/coder-agent.mjs");
-  assert.match(MACHINE_TOOLS, /gh, for reading only \(it uses the owner's GitHub login, added by Coder's server, for this chat's own repositories only: gh api GET calls .*gh pr and gh issue use GitHub's GraphQL, which is refused\)/);
+  assert.match(MACHINE_TOOLS, /gh, for reading only \(it uses the owner's GitHub login, added by Coder's server, for this chat's own repositories only: gh api GET calls .*gh pr, gh issue and gh repo view use GitHub's GraphQL, which is refused, so read with gh api REST instead.*read-only gh runs without asking\)/);
 });

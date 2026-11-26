@@ -608,6 +608,10 @@ export const declinedText = (card) => card.kind === "update" ? "I declined the c
 /** The machine's way to Coder's server for these tools (this job's pass, like a connector call): { text } | { card } | { error }. */
 /** The actions whose whole answer goes back to the tool that asked (coder-resources.mjs, coder-plugins.mjs, coder-projects.mjs). */
 export const WHOLE_ANSWER = new Set(["artifact", "mcp_resources", "mcp_wait", "plugins_list", "plugins_search", "plugins_install", "skills_owner", "skills_catalog", "guide_share", "feedback_queue", "projects"]);
+// (pull_request's base and head, kept: live, 2026-11-26, they were dropped here, so the card under the answer and the step's
+// detail named the chat's branch for a pull request opened from the branch the owner named.)
+const branchOk = (v) => (typeof v === "string" && /^[A-Za-z0-9._\/-]{1,250}$/.test(v) ? v : "");
+export const prBranches = (j) => ({ ...(branchOk(j && j.base) ? { base: j.base } : {}), ...(branchOk(j && j.head) ? { head: j.head } : {}) });
 export function envCaller(via, fetchFn = fetch) {
   const url = String(via.url).replace(/\/api\/coder\/model$/, "/api/coder/environment");
   return async (body) => {
@@ -623,7 +627,7 @@ export function envCaller(via, fetchFn = fetch) {
     if (body && WHOLE_ANSWER.has(body.action)) return j;
     // (pull_request's answer, mid-turn: the pull request's number and link. Before 2026-11-16's fix it was dropped here, and
     // Coder was told the server "did not answer", so no pull request opened, then or at the turn's end.)
-    if (body && body.action === "pull_request" && Number.isInteger(j.number) && j.number > 0) return { number: j.number, url: String(j.url || ""), repo: String(j.repo || ""), draft: j.draft === true, existed: j.existed === true };
+    if (body && body.action === "pull_request" && Number.isInteger(j.number) && j.number > 0) return { number: j.number, url: String(j.url || ""), repo: String(j.repo || ""), ...prBranches(j), draft: j.draft === true, existed: j.existed === true };
     // (`ok`: the server did it. pr_update and pr_comments show ✓ by it: dropped here before 2026-11-17, so ✕ showed on success.)
     return typeof j.text === "string" ? { text: j.text, ...(j.ok === true ? { ok: true } : {}) } : isObj(j.card) ? { card: j.card } : { error: "error: Coder's server did not answer; nothing was proposed" };
   };

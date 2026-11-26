@@ -458,6 +458,52 @@ export function readWords(words, { wrappers = false } = {}) {
   }
   return w;
 }
+// ── gh THAT ONLY READS (2026-11-26, Claude Code's way: read-only commands run without asking) ──────────────────────────
+// gh's reads go through Coder's GitHub gate, which serves only this chat's repositories; changes to GitHub go through Coder's
+// GitHub tools (coder-bashcheck.mjs refuses them in gh). Every option is on a list, with a value of its kind; none writes a
+// file, opens an editor or runs a program.
+const GH_OUT = { "--json": "string", "--jq": "string", "-q": "string", "--template": "string", "-t": "string", "-R": "string", "--repo": "string" };
+const GH_LIST = { ...GH_OUT, "-L": "number", "--limit": "number", "-s": "string", "--state": "string", "-A": "string", "--author": "string", "-a": "string", "--assignee": "string", "-l": "string", "--label": "string", "-S": "string", "--search": "string", "-B": "string", "--base": "string", "-H": "string", "--head": "string", "-m": "string", "--milestone": "string", "--app": "string", "-d": "none", "--draft": "none", "--mention": "string" };
+const GH_SUB = {
+  "pr view": { ...GH_OUT, "-c": "none", "--comments": "none" },
+  "pr list": GH_LIST,
+  "pr diff": { "-R": "string", "--repo": "string", "--color": "string", "--name-only": "none", "--patch": "none" },
+  "pr checks": { ...GH_OUT, "--required": "none", "--fail-fast": "none" },
+  "pr status": { ...GH_OUT, "-c": "none", "--conflict-status": "none" },
+  "issue view": { ...GH_OUT, "-c": "none", "--comments": "none" },
+  "issue list": GH_LIST,
+  "run view": { ...GH_OUT, "-a": "number", "--attempt": "number", "-j": "string", "--job": "string", "--log": "none", "--log-failed": "none", "-v": "none", "--verbose": "none", "--exit-status": "none" },
+  "run list": { ...GH_OUT, "-L": "number", "--limit": "number", "-b": "string", "--branch": "string", "-c": "string", "--commit": "string", "--created": "string", "-e": "string", "--event": "string", "-s": "string", "--status": "string", "-u": "string", "--user": "string", "-w": "string", "--workflow": "string", "-a": "none", "--all": "none" },
+  "repo view": { "--json": "string", "--jq": "string", "-q": "string", "--template": "string", "-t": "string", "-b": "string", "--branch": "string" },
+};
+const GH_SEARCH = new Set(["code", "commits", "issues", "prs", "repos"]);
+const GH_API = { "-X": "string", "--method": "string", "--jq": "string", "-q": "string", "--template": "string", "-t": "string", "--paginate": "none", "--slurp": "none", "-i": "none", "--include": "none", "--silent": "none", "--verbose": "none", "-H": "string", "--header": "string", "--cache": "string", "-f": "string", "--raw-field": "string", "-F": "string", "--field": "string", "-p": "string", "--preview": "string" };
+/** Whether a gh command only reads GitHub: `gh api` GET calls and the listed view/list commands (never --web, a file or a change). */
+export function ghReadOnly(args) {
+  const a = (args || []).map(String);
+  if (a[0] === "api") {
+    const rest = a.slice(1).flatMap((x) => (/^-X[A-Za-z]+$/.test(x) ? ["-X", x.slice(2)] : [x]));
+    if (!optionsOk(rest, { flags: GH_API, ddash: false }, "gh")) return false;
+    let method = "", fields = false;
+    const pos = [];
+    for (let i = 0; i < rest.length; i++) {
+      const x = rest[i], eq = x.indexOf("="), name = x.startsWith("-") ? (eq > 0 ? x.slice(0, eq) : x) : "";
+      if (!name) { pos.push(x); continue; }
+      const kind = GH_API[name];
+      if (kind === "none") continue;
+      const v = eq > 0 ? x.slice(eq + 1) : rest[++i] || "";
+      if (name === "-X" || name === "--method") method = v.toUpperCase();
+      if (["-f", "--raw-field", "-F", "--field"].includes(name)) { fields = true; if (/^[^=]*=@/.test(v) || !v.includes("=")) return false; }
+      if ((name === "-H" || name === "--header") && /method|override/i.test(v)) return false;
+    }
+    // (With fields and no method, gh sends a POST.)
+    if (method ? !["GET", "HEAD"].includes(method) : fields) return false;
+    return pos.length === 1 && !/^\/?graphql\b/i.test(pos[0]) && !pos[0].startsWith("-");
+  }
+  if (a[0] === "search") return GH_SEARCH.has(a[1] || "") && optionsOk(a.slice(2), { flags: { ...GH_LIST, "--owner": "string", "--language": "string", "--sort": "string", "--order": "string", "--match": "string", "--visibility": "string", "--filename": "string", "--extension": "string" } }, "gh");
+  const spec = GH_SUB[(a[0] || "") + " " + (a[1] || "")];
+  return !!spec && optionsOk(a.slice(2), { flags: spec }, "gh");
+}
 /** Whether one simple command (coder-shell.mjs's) only reads, as Claude Code's read-only check says. */
 export function commandReadOnly(cmd) {
   const w = readWords(cmd.words);
@@ -493,6 +539,7 @@ export function commandReadOnly(cmd) {
   if (prog === "uniq") return UNIQ.test(raw);
   if (prog === "[") return args.at(-1) === "]" && SAFE.test.danger(args.slice(0, -1)) === false && optionsOk(args.slice(0, -1), SAFE.test, "test");
   if (prog === "docker" && otherDaemon(args)) return false;
+  if (prog === "gh") return ghReadOnly(args);
   for (let n = Math.min(3, w.length); n >= 1; n--) {
     const key = w.slice(0, n).map((x) => x.text).join(" ");
     if (ANY_ARGS.has(key)) return true;

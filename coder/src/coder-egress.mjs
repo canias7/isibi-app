@@ -34,7 +34,9 @@ export const EGRESS_PATH = "/api/coder/egress";
 export const BODY_MAX = 10 * 1024 * 1024;
 
 /** Claude Code's own refusal, with Coder's name (its docs: "GitHub GraphQL is not available from Claude Code sessions", naming the REST fallback). */
-export const GRAPHQL_REFUSED = "GitHub GraphQL is not available from Coder's sessions. Use GitHub's REST API instead: gh api repos/{owner}/{repo}/... (gh pr and gh issue use GraphQL and are refused; gh api works).";
+// (Kept refused, 2026-11-26: a GraphQL query is not tied to one repository the way a REST path is, so the gate could not keep
+// it to the chat's own repositories. The note names the REST read for each gh command that needs GraphQL.)
+export const GRAPHQL_REFUSED = "GitHub GraphQL is not available from Coder's sessions. Use GitHub's REST API instead: gh api repos/{owner}/{repo}/... (gh pr view N: gh api repos/{owner}/{repo}/pulls/N; gh pr list: .../pulls; gh pr checks N: .../commits/{sha}/check-runs; gh issue view N: .../issues/N; gh issue list: .../issues; gh repo view: repos/{owner}/{repo}).";
 
 /**
  * GITHUB'S API FOR `gh` (owner, 2026-11-07, item 6: "gh: installed, but not logged in"). Like Claude Code's
