@@ -5,6 +5,23 @@ The owner's running log, newest first, in plain English. Started fresh on
 log (81,000 lines) is in git history.
 
 
+## 2026-11-26: GitHub work goes through Coder's GitHub tools, and the card names the real branch
+
+Found in the live test of 39d77a37 on gofarther.dev.
+
+**Grok changed a pull request with a command.** Asked to change PR #44's title and description, it ran
+`gh api -X PATCH …/pulls/44`, and earlier made a branch with gh, so the chat showed "Ran a command" instead of the GitHub
+step. Now, like Claude Code's cloud session, Coder's instructions say to use its GitHub tools (pull_request, pr_read,
+pr_update, pr_comments, reply_review, auto_fix, review, push_branch) for all GitHub work, and never gh or curl to change
+GitHub. gh stays for reading (gh api GET calls and searches). A gh command that would change GitHub (gh pr
+create/edit/merge/comment/close, gh api with -X or --method POST/PATCH/PUT/DELETE, or with fields) is not run: Grok is told
+which GitHub tool to use instead.
+
+**The card named the wrong branch.** It said "Pushed to the branch coder/…" when the pull request tool had pushed to the
+branch the owner named (live-1126-x). The card now names the branch really pushed, and each one when there were several.
+
+Tests: `coder/test/gh-tools-1126.test.mjs`.
+
 ## 2026-11-25: Auto-fix step and answer, pull request branch and base, honest update line
 
 Found in the live test of fa82c2d7 on gofarther.dev.

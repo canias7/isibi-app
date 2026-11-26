@@ -28,7 +28,7 @@ export { viewedFile };
 import { retryLine, apiErrorText, modelWindow, CUT_OFF_ERROR } from "./coder-model.mjs";
 import { gitOperationOf, noOutputExpected } from "./coder-bashfacts.mjs";
 import { commandProblem, capOutput, capText, readTimeout, scrub, splitSetup, MAX_OUTPUT_CHARS, MAX_COMMAND_CHARS, MAX_TIMEOUT_S, DEFAULT_TIMEOUT_S, bashResultText, BASH_INLINE_MAX, BASH_READ_BACK, ccDuration, secretVar } from "./coder-checks.mjs";
-import { SLEEP_BLOCK_S, exitMeaning, sleepBlocked, leadsWithSleep, writeTargets, dangerousRm, realPath, leadsTo, pathExists, RM_UNCHECKED, RM_UNCHECKED_NO_RM, rmCardReason } from "./coder-bashcheck.mjs";
+import { SLEEP_BLOCK_S, exitMeaning, sleepBlocked, leadsWithSleep, writeTargets, dangerousRm, realPath, leadsTo, pathExists, RM_UNCHECKED, RM_UNCHECKED_NO_RM, rmCardReason, ghWriteBlocked } from "./coder-bashcheck.mjs";
 import { textReasons } from "./coder-shell.mjs";
 import { accountEmailRefused, emailRefused, refusedNow, REMOTE_TOOLS } from "./coder-privacy.mjs";
 import { createHash, randomUUID } from "node:crypto";
@@ -1908,7 +1908,7 @@ export const GITHUB_NOTE = "THIS JOB WAS STARTED FROM GITHUB. Some things work o
 // installed and how to use it, like a developer who knows their machine. The
 // small image (Cloudflare's backup machines) says nothing of these.
 export const MACHINE_TOOLS = `THIS MACHINE: Ubuntu 24.04 with the same tools as Claude Code's machine (check-tools lists them with their versions).
-- Python 3.12 with pip, uv, poetry, pytest, mypy, black, ruff, conan. Node 22 (Node 20, 21 and 24 are in /opt/node20/bin, /opt/node21/bin and /opt/node24/bin: put that bin first on the PATH; any other: . /opt/nvm/nvm.sh && nvm install 18) with npm, yarn, pnpm, bun, eslint, prettier, TypeScript. Ruby 3.3 through rbenv (also 3.1.6 and 3.2.6: rbenv local 3.2.6), with gem and bundler. PHP 8.3 with Composer. Java 21 with Maven and Gradle. Go. Rust with cargo, rustfmt and clippy. C and C++: gcc, clang, cmake, ninja. git, git-lfs, gh (it uses the owner's GitHub login, added by Coder's server, for this chat's own repositories only, like Claude Code's: gh api repos/OWNER/REPO/... and other REST calls work; gh pr and gh issue use GitHub's GraphQL, which is refused, so use gh api repos/OWNER/REPO/pulls and .../issues instead; GitHub notifies the owner of any @name written in a pull request, issue or comment. Write a bare @name only for a real login you mean to notify; put roles, placeholders and code (@reviewer, @types/node) in backticks or drop the @.), jq, yq, ripgrep, sqlite3, tmux, vim, nano.
+- Python 3.12 with pip, uv, poetry, pytest, mypy, black, ruff, conan. Node 22 (Node 20, 21 and 24 are in /opt/node20/bin, /opt/node21/bin and /opt/node24/bin: put that bin first on the PATH; any other: . /opt/nvm/nvm.sh && nvm install 18) with npm, yarn, pnpm, bun, eslint, prettier, TypeScript. Ruby 3.3 through rbenv (also 3.1.6 and 3.2.6: rbenv local 3.2.6), with gem and bundler. PHP 8.3 with Composer. Java 21 with Maven and Gradle. Go. Rust with cargo, rustfmt and clippy. C and C++: gcc, clang, cmake, ninja. git, git-lfs, gh, for reading only (it uses the owner's GitHub login, added by Coder's server, for this chat's own repositories only: gh api GET calls such as gh api repos/OWNER/REPO/pulls, and gh api search/... for searches; gh pr and gh issue use GitHub's GraphQL, which is refused). Like Claude Code's cloud session, use Coder's GitHub tools (pull_request, pr_read, pr_update, pr_comments, reply_review, auto_fix, review, push_branch) for ALL GitHub work: viewing and reading pull requests and their comments, creating or editing a pull request (its title and description: pull_request again), commenting, replying, pushing and new branches (push_branch, or pull_request with branch). Never change GitHub with gh (gh pr create/edit/merge/comment, gh api -X POST/PATCH/PUT/DELETE or --method) or curl to api.github.com: such a gh command is not run. GitHub notifies the owner of any @name written in a pull request, issue or comment. Write a bare @name only for a real login you mean to notify; put roles, placeholders and code (@reviewer, @types/node) in backticks or drop the @.), jq, yq, ripgrep, sqlite3, tmux, vim, nano.
 - What you install for yourself (npm install -g, pip install, gem install, cargo install, go install) goes in your home folder, never in the project.
 - PostgreSQL 16 and Redis 7 are installed but not running: start them with service postgresql start and service redis-server start. Connect as yourself, no password: psql -d postgres, createdb myapp, redis-cli.
 - The master key's jobs are yours: install any Ubuntu package yourself, mid-job (apt-get install -y NAME, or sudo apt-get install -y NAME), and start, stop or restart any installed service (service NAME start). Ports 80 and 443 work. Nothing else needs it here: everything else runs as you.
@@ -5878,6 +5878,10 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         const psSleep = c.ps && !inBg ? psSleepWhat(command, SLEEP_BLOCK_S) : "";
         const blocked = inBg ? "" : sleepBlockFor(command, !!c.ps, psSleep);
         if (blocked) { refuse(blocked); continue; }
+        // A CHANGE TO GITHUB MADE WITH gh (2026-11-26, like Claude Code's cloud session: GitHub work goes through the GitHub
+        // tools): not run; the answer names Coder's GitHub tool for it.
+        const ghWrite = c.ps ? "" : ghWriteBlocked(command);
+        if (ghWrite) { refuse(ghWrite); continue; }
         const where0 = typeof deps.here === "function" ? String(deps.here() || "") : "";
         // THE SAME COMMAND, STILL RUNNING where its timeout moved it (Claude Code: "Not started: this same command, in this
         // directory, was moved to the background and has been running for …").
@@ -8102,6 +8106,10 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
               const into = !r.existed && r.base ? " into " + r.base + (r.head ? " from " + r.head : "") : "";
               const said = (r.existed ? "Pull request #" + r.number + " updated" : (r.draft ? "Draft pull request #" : "Pull request #") + r.number + " opened" + into) + (repo ? " in " + repo : "") + ": " + String(r.url || "").slice(0, 300);
               midNotes.push(said);
+              // (THE BRANCH REALLY PUSHED, 2026-11-26: the pull request's own branch when one was named, so the card under the answer
+              // names it, not the chat's branch. Live: "Pushed to the branch coder/…" for a push to live-1126-x.)
+              const lastPush = midPushes[midPushes.length - 1];
+              if (lastPush && typeof r.head === "string" && r.head && !repo) lastPush.branch = r.head.slice(0, 250);
               // (The step says what was done: "GitHub · Update pull request" when it was already open. Live, 2026-11-25: its
               // detail said "git push" when only the title and description changed; the push is named only when one happened.)
               emit({ type: "bash", id: c.id, tool: "pull_request", verb: r.existed ? "Update pull request" : "Create pull request", command: prStepDetail(r, repo, /^ok: pushed/.test(p.text)) });

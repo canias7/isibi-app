@@ -496,3 +496,57 @@ function mountShape(p) {
 }
 
 export { leadWords };
+
+// ── GITHUB CHANGES GO THROUGH CODER'S GITHUB TOOLS (2026-11-26) ──────────────
+// Claude Code's cloud session: "You do NOT have access to the gh CLI… use the GitHub MCP server tools (mcp__github__*) for
+// ALL GitHub interactions"; its environment hands gh no write access, so the model uses the tools. Coder's gh stays for
+// reading (gh api GET, searches); a change to GitHub made with it (gh pr create/edit/merge/comment/close/ready/reopen,
+// gh issue create/edit/comment/close, gh api with -X/--method POST/PATCH/PUT/DELETE or with fields, which make a POST)
+// is answered with the tool to use instead, so the chat shows the GitHub step.
+const GH_PR_TOOL = {
+  create: "pull_request (it pushes this chat's work and opens the pull request; branch, base and draft are its settings)",
+  edit: "pull_request (called again, it updates the open pull request's title and description)",
+  comment: "pr_update with op \"comment\" (or reply_review / op \"reply\" to answer a review comment)",
+  ready: "pr_update with op \"ready\"",
+  merge: "none: merging is the owner's to do on GitHub; tell them the pull request is ready",
+  close: "none: closing is the owner's to do on GitHub; tell them",
+  reopen: "none: reopening is the owner's to do on GitHub; tell them",
+  review: "pr_comments (findings on the pull request's lines)",
+};
+const ghWords = (text) => (String(text).match(/"[^"]*"|'[^']*'|\S+/g) || []).map((w) => w.replace(/^["']|["']$/g, ""));
+/** "" when the command makes no change to GitHub with gh; else Claude-Code-style words pointing to Coder's GitHub tool. */
+export function ghWriteBlocked(command) {
+  for (const part of topTexts(command)) {
+    let w = ghWords(part);
+    while (w.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(w[0])) w = w.slice(1);
+    if (w[0] === "command" || w[0] === "env") w = w.slice(1);
+    if (basename(w[0] || "") !== "gh") continue;
+    const sub = w[1], act = w[2];
+    let tool = "";
+    if (sub === "pr" && GH_PR_TOOL[act]) tool = GH_PR_TOOL[act];
+    else if (sub === "issue" && ["create", "edit", "comment", "close", "reopen", "delete"].includes(act)) tool = "none for issues: tell the owner what to write, or ask before anything else";
+    else if (sub === "api") {
+      let method = "";
+      let fields = false;
+      for (let k = 2; k < w.length; k++) {
+        const t = w[k];
+        const m = /^(?:-X|--method)(?:=|$)(.*)$/.exec(t);
+        if (m) { method = (m[1] || w[k + 1] || "").toUpperCase(); continue; }
+        if (/^-X[A-Za-z]+$/.test(t)) { method = t.slice(2).toUpperCase(); continue; }
+        if (/^(-f|-F|--field|--raw-field|--input)(=|$)/.test(t)) fields = true;
+      }
+      if (!method && fields) method = "POST";
+      if (method && method !== "GET" && method !== "HEAD") {
+        const path = w.slice(2).find((t) => /^\/?(repos|graphql)\b/.test(t)) || "";
+        tool = /\/pulls\/\d+\/comments\b|\/pulls\/comments\//.test(path) ? "reply_review (or pr_update op \"reply\")"
+          : /\/issues\/\d+\/comments\b/.test(path) ? "pr_update with op \"comment\""
+          : /\/pulls\/\d+\/reviews\b/.test(path) ? "pr_comments"
+          : /\/pulls\b/.test(path) ? "pull_request (it opens the pull request, or updates the open one's title and description)"
+          : /\/git\/refs\b|\/branches\b|\/contents\//.test(path) ? "push_branch (or pull_request with branch, for a new named branch)"
+          : "pull_request, pr_update, pr_comments, reply_review, auto_fix or push_branch, whichever fits";
+      }
+    }
+    if (tool) return "Not run: changes to GitHub go through Coder's GitHub tools, not gh or curl (gh here is for reading: gh api GET and searches). Use " + tool + ". The chat then shows the GitHub step.";
+  }
+  return "";
+}

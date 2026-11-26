@@ -315,6 +315,20 @@ export function pushAnswer(p) {
 }
 const pushErrorWords = (e) => (String(e) === "busy" ? "a job was still running on Coder's machine, so nothing was committed or pushed; send a message or press Push to try again" : String(e).slice(0, 200));
 /** The note a push leaves in the chat. */
+/**
+ * THE BRANCHES REALLY PUSHED IN THE MIDDLE OF THE TURN (2026-11-26; live: the card said "Pushed to the branch coder/…" when
+ * pull_request had pushed to the branch the owner named): each push's own branch (pull_request's `branch`), else the chat's.
+ */
+export function pushedBranchesNote(midPushes, chatBranch) {
+  const names = [];
+  for (const m of Array.isArray(midPushes) ? midPushes : []) {
+    if (!m || m.pushed !== true) continue;
+    const b = typeof m.branch === "string" && branchNameOk(m.branch) ? m.branch : chatBranch;
+    if (b && !names.includes(b)) names.push(b);
+  }
+  if (!names.length) names.push(chatBranch);
+  return names.length === 1 ? "Pushed to the branch " + names[0] : "Pushed to the branches " + names.slice(0, -1).join(", ") + " and " + names[names.length - 1];
+}
 export const pushedNote = (meta, pr) => "Pushed to the branch " + meta.branch + (pr ? " · pull request #" + pr.number + " updated" : "");
 /**
  * PUSH THE CHAT'S BRANCH NOW (the Push button, Create PR, a deleted chat, the safety net): the machine pushes what it
@@ -2663,7 +2677,7 @@ export async function handleCoder(request, env, ctx, deps) {
       if (!meta.readOnly && Array.isArray(res.midPushes) && res.midPushes.some((m) => m && m.pushed === true)) {
         commits = commits.map((c) => (c.local ? { ...c, local: undefined } : c));
         unpushed = 0; unpushedSince = 0;
-        extraNotes.push("Pushed to the branch " + meta.branch);
+        extraNotes.push(pushedBranchesNote(res.midPushes, meta.branch));
       }
       for (const n of meta.readOnly ? [] : Array.isArray(res.midNotes) ? res.midNotes.slice(0, 5) : []) if (typeof n === "string" && n) extraNotes.push(n.slice(0, 400));
       if (!gitWork) { /* nothing changed and nothing asked: no commit step (meta.unpushed stays as it is) */ }
@@ -2756,6 +2770,8 @@ export async function handleCoder(request, env, ctx, deps) {
           const moved = head === meta.branch ? { ok: true } : await branchAt(t.token, meta.repo, meta.branch, head, fetchFn);
           const made = moved.ok ? await openPullRequest(t.token, meta.repo, { head, base, title: String(want.title || "Changes by Coder").slice(0, 200), body: wantBody, draft: want.draft === true }, fetchFn).catch(() => null) : { why: moved.why };
           pr = made && made.number ? made : null;
+          // (The branch really pushed is the pull request's own: the card names it, 2026-11-26.)
+          if (pr && head !== meta.branch && pushNote.startsWith("Pushed to the branch " + meta.branch)) pushNote = "Pushed to the branch " + head + pushNote.slice(("Pushed to the branch " + meta.branch).length);
           pushNote = (pushNote ? pushNote + " · " : "") + (pr ? (want.draft === true ? "Draft pull request #" : "Pull request #") + pr.number + " opened: " + pr.url : "The pull request could not be opened on GitHub: " + prFailNote(meta.repo, base, head, made));
         }
       } else if (want) pushNote = (pushNote ? pushNote + " · " : "") + (t ? "No pull request: there are no changes on this chat's branch yet." : "");
