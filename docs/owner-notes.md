@@ -5,6 +5,10 @@ The owner's running log, newest first, in plain English. Started fresh on
 log (81,000 lines) is in git history.
 
 
+## 2026-11-27: Spreadsheet: every row from this round's live test filled in
+
+The 98 rows from this round that were left blank are now filled in the "Tried live (2026-11-27)" column, from the five test reports. The round's rows now stand at 98 ✓, 23 partly, 0 ✗ and 73 can't test, each with its reason (mostly: no connector with resources, test web pages blocked by Coder's network gate, long waits or caps, or Gloopy-only browser tools). Rows with no entry in that column were already tried live earlier.
+
 ## 2026-11-27: Retest on gofarther.dev after the fixes (commit 6607680a)
 
 Tried live with Grok on Low, in a new chat on canias7/testingforclaude. All seven fixed places now work: task ids "#1"
