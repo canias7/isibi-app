@@ -1502,9 +1502,7 @@ async function editFirst(a, { guard = false } = {}) {
   const changed = changedSince(seen, st, buf);
   const { at, newN, len } = editMatch(body, old_string, new_string);
   const applies = at.length === 1 || (all && at.length > 0);
-  // CHANGED SINCE READ, AND NOT READ AGAIN: refused, whether or not the old text still applies (2026-11-27, live: after
-  // `echo zz >> f` an edit went through; Claude Code's Edit refuses it, as its Write does).
-  if (changed) fail(WRITE_CHANGED + ".");
+  if (changed && !applies) fail(WRITE_CHANGED + ".");
   if (notText) fail(textRefusal(rel, notText));
   if (!at.length) fail(EDIT_NOT_FOUND + saidBack(old_string));
   if (!applies) fail(editMany(at.length) + saidBack(old_string));
@@ -1582,9 +1580,9 @@ export async function toolEdit(args) {
     at = [0]; len = body.length; newN = new_string.replace(/\r\n/g, "\n");
   } else {
     ({ at, len, newN } = editMatch(body, old_string, new_string));
-    // Changed since read: read it again first (Claude Code's own words), whether or not the old text still applies.
-    if (changed) fail(WRITE_CHANGED + ".");
     if (!(at.length === 1 || (all && at.length))) {
+      // Changed since read, and the old text not there once: read it again (Claude Code's own words for this).
+      if (changed) fail(WRITE_CHANGED + ".");
       if (!at.length) fail(EDIT_NOT_FOUND + saidBack(old_string));
       fail(editMany(at.length) + saidBack(old_string));
     }
@@ -2106,9 +2104,8 @@ async function changedNow({ reset = false, shown = null } = {}) {
   if (dir && Array.isArray(shown)) {
     const want = new Set(shown.map(String)), list = await seenList(dir);
     let n = 0;
-    // (2026-11-27: no longer lets write or edit through. Claude Code refuses a file changed since it was read until it is read
-    // again; its note about the change is no read. Counted only.)
-    for (const x of list) if (x.stale && want.has(showPath(x.abs))) n++;
+    for (const x of list) if (x.stale && want.has(showPath(x.abs))) { delete x.stale; n++; }
+    if (n) await seenSave(dir, list).catch(() => {});
     return JSON.stringify({ shown: n });
   }
   // A CHAT WITH NO HISTORY (new, or Rewind went back to its very start; the review, 2026-11-08): what Coder read before

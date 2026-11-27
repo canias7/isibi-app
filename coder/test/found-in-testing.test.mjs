@@ -514,7 +514,6 @@ test("CD213 a command that changes a file Coder read says so in its result, as C
   // after the round has shown it (the agent's `changed` with `shown`), it may.
   assert.match(await tool("write", { path: "a.js", content: "const a = 3;\n" }), /^error: File has been modified since read/);
   assert.equal(await tool("changed", { shown: ["a.js"] }), '{"shown":1}');
-  await tool("read", { path: "a.js" }); // (2026-11-27: the note is no read; read again before writing, as in Claude Code.)
   // Coder's own write and edit are no news to it.
   await tool("write", { path: "a.js", content: "const a = 3;\n" });
   await tool("edit", { path: "a.js", old_string: "3", new_string: "4" });
@@ -1573,10 +1572,7 @@ test("CD249 write does not replace a file that has changed since Coder read or w
   assert.deepEqual(note.changed.map((c) => c.path).sort(), ["s.txt", "w.txt"], "s.txt too: changed, and not read again");
   // Told, but not shown yet (the note comes after the round): still refused; once shown, allowed.
   assert.equal(await tool("write", { path: "w.txt", content: "again\n" }), refused("w.txt"));
-  // (2026-11-27: the note showing it is no read, as in Claude Code: still refused until read again.)
   await tool("changed", { shown: ["w.txt"] });
-  assert.equal(await tool("write", { path: "w.txt", content: "again\n" }), refused("w.txt"));
-  await tool("read", { path: "w.txt" });
   assert.match(await tool("write", { path: "w.txt", content: "again\n" }), /^The file w\.txt has been updated successfully\./);
   assert.equal(await readFile(join(dir, "w.txt"), "utf8"), "again\n");
   // Never read: no record, so nothing to compare (as before).
@@ -2042,8 +2038,8 @@ test("CD260 a command that changes a file Coder read, and a write over it in the
   assert.match(told("b1"), /\[This command changed 1 file you read before: mod\.txt\. Read it again before editing\.\]/);
   assert.equal(told("w1"), "error: File has been modified since read, either by the user or by a linter. Read it again before attempting to write it.");
   assert.ok(out.messages.some((m) => m.appNote && /mod\.txt changed on disk since you last read it[\s\S]*Here are the relevant changes/.test(m.content)), "the note shows the change after the round");
-  assert.match(told("w2"), /^error: File has been modified since read/, "after the note, not read again: still refused, as in Claude Code (2026-11-27)");
-  assert.equal(await readFile(join(dir, "mod.txt"), "utf8"), "mod line one\nadded by a command\n");
+  assert.match(told("w2"), /^The file mod\.txt has been updated successfully\./, "after the note: allowed, as in Claude Code");
+  assert.equal(await readFile(join(dir, "mod.txt"), "utf8"), "replaced after the note\n");
   // Between messages (no note, as in Claude Code): the next message's write waits for a read.
   await writeFile(join(dir, "mod.txt"), "changed between messages\n");
   const plan2 = [[call("write", { path: "mod.txt", content: "x\n" }, "w3")], [call("read", { path: "mod.txt" }, "r2"), call("write", { path: "mod.txt", content: "y\n" }, "w4")]];
@@ -2152,9 +2148,8 @@ test("CD263 edit as Claude Code's Edit, tried side by side (tool 3; the owner, 2
   await put("changed.txt", "keep me\nchange me\nadded by someone else\n");
   await put("stale.txt", "new line\nother\n");
   await put("dup.txt", "first\nsecond\nfirst\n");
-  // (2026-11-27: refused even where the old text is there once, as Claude Code's Edit refuses it; nothing written.)
-  assert.equal(await tool("edit", { path: "changed.txt", old_string: "change me", new_string: "changed by edit" }), "error: " + CHANGED);
-  assert.equal(await has("changed.txt"), "keep me\nchange me\nadded by someone else\n");
+  assert.equal(await tool("edit", { path: "changed.txt", old_string: "change me", new_string: "changed by edit" }), "The file changed.txt has been updated successfully." + EDIT_OTHER_CHANGES);
+  assert.equal(await has("changed.txt"), "keep me\nchanged by edit\nadded by someone else\n");
   assert.equal(await tool("edit", { path: "stale.txt", old_string: "old line", new_string: "edited line" }), "error: " + CHANGED);
   assert.equal(await tool("edit", { path: "dup.txt", old_string: "first", new_string: "FIRST" }), "error: " + CHANGED);
   // Windows line endings: matched with plain line breaks, written in the ending most lines have.

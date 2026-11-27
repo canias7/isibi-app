@@ -7,10 +7,10 @@ log (81,000 lines) is in git history.
 
 ## 2026-11-27: Five more places Coder now does what Claude Code does
 
-**A file changed since it was read.** After `echo zz >> f`, Coder still let an edit through (and said the file was current
-in its context). Now edit and write both refuse it until the file is read again, in Claude Code's own words: "File has been
-modified since read, either by the user or by a linter. Read it again before attempting to write it." Coder's note about
-the change after a command no longer counts as a read.
+**A file changed since it was read.** This already worked like Claude Code: once Coder's note has shown the change, edit
+and write may go through, as Claude Code's do (that is what the live "file state is current" was). Only the wording
+changed: when Coder still refuses, it now says exactly Claude Code's words, "File has been modified since read, either by
+the user or by a linter. Read it again before attempting to write it.", with no file name in front.
 
 **Zip limits.** Claude Code's Read doesn't open zips either, so "This tool cannot read binary files" was right. The limits
 row (100,000 entries, 512 MiB a file, 1 GiB in all, 50x) is about installing a plugin from a zip, and Coder checks it there.

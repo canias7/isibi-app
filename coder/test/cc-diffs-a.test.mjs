@@ -21,7 +21,7 @@ const runner = (dir, follow) => (name, args = {}) => {
   try { return execFileSync("node", ["--no-warnings", toolsScript, Buffer.from(JSON.stringify({ tool: name, args })).toString("base64")], { cwd: dir, encoding: "utf8", env: { ...process.env, CODER_SEEN_DIR: follow } }); } catch (e) { return String(e.stdout || ""); }
 };
 
-test("DA1 edit and write refuse a file changed since it was read, in Claude Code's words, even where the edit would apply and after the note that shows the change; a read again lets them through", async () => {
+test("DA1 edit and write refuse a changed file in Claude Code's exact words, with no path before them; an edit whose old text is still there once goes through with Claude Code's note; once the change note has shown it, write may", async () => {
   assert.equal(T.WRITE_CHANGED, "File has been modified since read, either by the user or by a linter. Read it again before attempting to write it");
   const dir = await mkdtemp(join(tmpdir(), "cc-da1-")), follow = await mkdtemp(join(tmpdir(), "cc-da1-f-"));
   const tool = runner(dir, follow);
@@ -29,18 +29,14 @@ test("DA1 edit and write refuse a file changed since it was read, in Claude Code
   await writeFile(join(dir, "f"), "aa\n");
   tool("read", { path: "f" });
   await writeFile(join(dir, "f"), "aa\nzz\n"); // as `echo zz >> f`
-  assert.equal(tool("edit", { path: "f", old_string: "aa", new_string: "bb" }), CHANGED, "the old text is there once: still refused");
   assert.equal(tool("write", { path: "f", content: "new\n" }), CHANGED);
-  assert.equal(await readFile(join(dir, "f"), "utf8"), "aa\nzz\n", "nothing written");
-  // The note after the round (`changed`, then `shown`) is no read.
+  assert.equal(tool("edit", { path: "f", old_string: "gone", new_string: "x" }), CHANGED, "old text not there: refused");
+  assert.equal(tool("edit", { path: "f", old_string: "aa", new_string: "bb" }), "The file f has been updated successfully." + T.EDIT_OTHER_CHANGES);
+  await writeFile(join(dir, "f"), "bb\nzz\nyy\n");
+  assert.equal(tool("write", { path: "f", content: "new\n" }), CHANGED);
   JSON.parse(tool("changed", {}));
   tool("changed", { shown: ["f"] });
-  assert.equal(tool("edit", { path: "f", old_string: "aa", new_string: "bb" }), CHANGED);
-  assert.doesNotMatch(tool("edit", { path: "f", old_string: "aa", new_string: "bb" }), /file state is current/);
-  // Read again: allowed.
-  tool("read", { path: "f" });
-  assert.match(tool("edit", { path: "f", old_string: "aa", new_string: "bb" }), /^The file f has been updated successfully\./);
-  assert.equal(await readFile(join(dir, "f"), "utf8"), "bb\nzz\n");
+  assert.match(tool("write", { path: "f", content: "new\n" }), /^The file f has been updated successfully\./, "the note counts as a read");
 });
 
 /** A zip with just its end records: a Zip64 end record of `n` entries, its locator, and the old end record (count 0xffff). */

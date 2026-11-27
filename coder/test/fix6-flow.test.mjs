@@ -362,7 +362,7 @@ test("FV3 the tools script's part, for real (its file_check and each run, the sa
     tool("read", { path: "a.txt" });
     writeFileSync(join(dir, "a.txt"), "hello world\nchanged line\n");
     assert.equal(chk("edit", { path: "a.txt", old_string: "nope", new_string: "b" }), "error: " + T.WRITE_CHANGED + ".");
-    assert.equal(chk("edit", { path: "a.txt", old_string: "changed line", new_string: "b" }), "error: " + T.WRITE_CHANGED + ".", "refused even where it applies (2026-11-27, as Claude Code)");
+    assert.equal(chk("edit", { path: "a.txt", old_string: "changed line", new_string: "b" }), "ok");
     // The run's own order is the same (its checks first): a changed file whose old text is gone.
     assert.equal(tool("edit", { path: "a.txt", old_string: "nope", new_string: "b" }), "error: " + T.WRITE_CHANGED + ".");
     // Its path's own checks: Claude Code's words, before anything else on the machine.
