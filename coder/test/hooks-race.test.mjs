@@ -78,7 +78,7 @@ const denyPR = (message) => out("PermissionRequest", { decision: { behavior: "de
 
 // ── CL4: MCP_TOOL HOOKS ─────────────────────────────────────────────────────────────────────────────────────────────
 
-test("F4H1 mcp_tool hooks in settings as Claude Code reads them: server and tool, input an object of arguments, no onFailure; on every event Coder has (SessionStart: command and mcp_tool); their timeouts; one server, tool and input runs once", () => {
+test("F4H1 mcp_tool hooks in settings as Claude Code reads them: server and tool, input an object of arguments, onFailure (Claude Code 2.1.328, 2026-11-27); on every event Coder has (SessionStart: command and mcp_tool); their timeouts; one server, tool and input runs once", () => {
   const s = H.hooksFrom({ hooks: {
     PreToolUse: [{ matcher: "Write|Edit", hooks: [{ type: "mcp_tool", server: "my_server", tool: "security_scan", input: { file_path: "${tool_input.file_path}" }, timeout: 20, statusMessage: "Scanning…" }] }],
     SessionStart: [{ hooks: [{ type: "mcp_tool", server: "Linear", tool: "whoami" }, { type: "http", url: "https://x.example.com" }] }],
@@ -91,7 +91,7 @@ test("F4H1 mcp_tool hooks in settings as Claude Code reads them: server and tool
     { event: "SessionStart", matcher: "", type: "mcp_tool", timeout: 600, source: "settings", server: "Linear", tool: "whoami" },
     { event: "UserPromptSubmit", matcher: "", type: "mcp_tool", timeout: 30, source: "settings", server: "Notes", tool: "lookup" },
     { event: "SessionEnd", matcher: "", type: "mcp_tool", timeout: 1.5, source: "settings", server: "Slack", tool: "post", input: { text: "${reason}" } },
-    { event: "Stop", matcher: "", type: "mcp_tool", timeout: 600, source: "settings", server: "a", tool: "b" },
+    { event: "Stop", matcher: "", type: "mcp_tool", timeout: 600, source: "settings", server: "a", tool: "b", onFailure: "block" },
   ]);
   assert.deepEqual(s.problems, ["SessionStart doesn't take http hooks", "Stop: an mcp_tool hook needs its server and tool", "Stop: an mcp_tool hook's input is an object of the tool's arguments"]);
   // (Claude Code: "Events that support all five hook types", "PermissionRequest supports command, http, mcp_tool, and prompt",

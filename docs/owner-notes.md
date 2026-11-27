@@ -13,6 +13,28 @@ address up itself before asking the network gate, and inside the machine that lo
 through the gate the same way web_fetch does (the gate looks the site up and decides), so an allowed site just works and no
 variable is needed. The CODER_PROXY_RESOLVES_HOSTS variable no longer does anything and can be deleted from the test account.
 It still asks you first, and local and private addresses are still refused. Tests: coder/test/ws-monitor-1127.test.mjs.
+## 2026-11-27: Coder's hooks now match Claude Code's hooks
+
+Coder's hooks were checked against Claude Code's full hooks reference, and the missing pieces were added the Claude Code way:
+
+- **New hook events:** WorktreeCreate and WorktreeRemove (a hook can make the worktree itself and give its path, for
+  enter_worktree and for an agent's own worktree; a remove hook cleans it up), PreModelSwitch and PostModelSwitch (around
+  /model and the model picker, checked when your next message starts; a hook can refuse the switch), InstructionsLoaded
+  (when CLAUDE.md, CODER.md or rules files load), ConfigChange (when the repository's settings change while Coder works, or
+  your Settings changed since the last message), DirectoryAdded (a working folder you add) and UserPromptExpansion (/init,
+  /review, /security-review, /team-onboarding and your /skill-name).
+- **Hooks inside an agent** now say which agent they ran in (agent_id and agent_type).
+- **SubagentStop** now gets the agent's own transcript, the chat's running background work and its scheduled prompts. Stop
+  hooks get the same fuller lists. A bug was fixed on the way: an agent's hooks used to overwrite the chat's transcript file.
+- **PostToolUseFailure** says is_interrupt true when you pressed Stop.
+- **MCP tool hooks** take onFailure "block".
+- The 12-at-once limit for prompt and agent hooks was already there.
+
+Left out on purpose, as they don't fit a cloud chat: MessageDisplay (terminal display), Setup (CLI flags), TeammateIdle (no
+agent teams), PreSkillShellCommand (Coder's skills don't run shell commands), and the model-switch cost fields (they price
+Claude's cache, not Grok's). A Settings change's ConfigChange block can't undo the change, since Settings already saved it.
+
+The spreadsheet's Hooks, Hook details and Hook input fields tabs are updated. Not tried live in the browser yet.
 
 ## 2026-11-27: A test connector and test websites for the "can't test" rows
 

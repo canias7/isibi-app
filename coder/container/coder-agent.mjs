@@ -45,7 +45,8 @@ import { LSP_DESCRIPTION, LSP_PROPERTIES, LSP_REQUIRED, LSP_RESULT_MAX, needsKee
 import { WEB_SEARCH_TOOL, WEB_SEARCH_MODE_TOOL, WEB_SEARCH_NAME, SEARCH_UNGRANTED, searchDecision, searchAskText, searchBudget, searchMaxOf, searchRefillsOf, usedUpText, searchText, searchShown, runWebSearch, checkInput as checkSearchInput, searchModeTools, SEARCH_MODE_NOTE, hookParamsFor } from "./coder-websearch.mjs";
 // (Claude Code's task list: its TaskCreate, TaskGet, TaskList and TaskUpdate, in place of Coder's todo; the owner, 2026-11-14.)
 // CLAUDE CODE'S SCHEDULING TOOLS (2026-11-23): CronCreate, CronDelete, CronList, ScheduleWakeup, RemoteTrigger (coder-schedule.mjs).
-import { CRON_TOOLS, CRON_TOOL_NAMES, cronState, cronResult, cronTool } from "./coder-schedule.mjs";
+import { CRON_TOOLS, CRON_TOOL_NAMES, cronState, cronResult, cronTool, sessionCrons } from "./coder-schedule.mjs";
+import { worktreeHookPath, worktreeRemoveFailed, enterHookWorktreeScript, hookWorktreeHereScript, leaveHookWorktreeScript, goneScript, gitRemoveScript, instructionFiles, lazyInstructionFiles, modelSwitchFields, modelBlockedText, backgroundTasks, expansionOf } from "./coder-hookevents.mjs";
 import { TASK_TOOLS, isTaskTool, checkTaskInput, readTasks, emptyTasks, createTask, findTask, deleteTask, updateTask, listTasks, createdText, createdFacts, getText, getFacts, updateText, listText, taskReminderDue, taskReminderNote, pageItems, TODO_WRITE_TOOL, TODO_WRITE_RESULT, checkTodoInput, readTodos, todoItems, todoReminderDue, todoReminderNote } from "./coder-tasks.mjs";
 import { GOAL_JUDGE, GOAL_MAX, GOAL_IDLE_MAX, goalAsk, goalNotMetNote } from "./coder-goal.mjs";
 import { ASK_USER_DESCRIPTION, ASK_USER_PROPERTIES, shownInput, answerKeys, cardAnswers, allUnanswered, checkHookRewrite, previewOf, previewKind, PREVIEW_WITHHELD, hasPreviews, AFK_MS, afkNote } from "./coder-askuser.mjs";
@@ -2335,7 +2336,7 @@ export function ruleHoldsSecret(rule) {
   }
   return false;
 }
-export async function runCoder(deps, { notices = [], lost = [], stalls = [], promptNotify = true, timeouts = null, outLimits = null, noBg = false, respondToBash = true, shell = "", cmdShell = "", compactVars = null, messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, mode = "auto", rules = null, editDiff = false, readBlock = false, writeBlock = false, checker = false, checkerInPlan = true, checkWhere = null, emailMark = "", diskWarnGib = 0, memWarnGib = 0, hooks = null, autoMode = null, denyInstead = false, autoOff = false, planExit = "auto", hostLists = null, powershell = null, connectors = [], connectorNotes = [], connectorsWaiting = [], connectorsFailed = [], connectorsGone = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS , rmChecksOff = null, fileEdits = true, startMode = "", resumed = false, lastAt = 0, sessionRules = null, language = "", cleanupDays = 0, customTitle = "", compact = null, system = CODER_SYSTEM, tools = null, nudges = true, who = "Coder", browserRules: rulesIn = [], granted: grantedIn = [], schedules = [], opening = "user", permissions: permsIn = null, sites: sitesIn = [], monitor = false, ownerSaid: ownerSaidList = null, asHelper = false, helper = null, pages = [], savedLogins = [], savedCards = [], contacts = [], webhooks = [], hookBase = "/api/coder/gloopy-hook/", attached = [], attachedLeft = 0, workNote = "", marked = null, taught = null, files: keptFiles = [], background = false, checkWrites = false, denied: deniedIn = [], zone = "", searchLimits = null, takeUp = null, tasksOff = false, mentionsOff = false, holdBack = null, suggest = false, stopCap = STOP_BLOCK_CAP, box = false, skills = [], pluginAgents = null, checkpoints = true, searchTools = false, cleared = false, schedule = null, subagent = null, refreshTools = false, mcpHeadersHelper = "", goal = null } = {}) {
+export async function runCoder(deps, { notices = [], lost = [], stalls = [], promptNotify = true, timeouts = null, outLimits = null, noBg = false, respondToBash = true, shell = "", cmdShell = "", compactVars = null, messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, mode = "auto", rules = null, editDiff = false, readBlock = false, writeBlock = false, checker = false, checkerInPlan = true, checkWhere = null, emailMark = "", diskWarnGib = 0, memWarnGib = 0, hooks = null, autoMode = null, denyInstead = false, autoOff = false, planExit = "auto", hostLists = null, powershell = null, connectors = [], connectorNotes = [], connectorsWaiting = [], connectorsFailed = [], connectorsGone = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS , rmChecksOff = null, fileEdits = true, startMode = "", resumed = false, lastAt = 0, sessionRules = null, language = "", cleanupDays = 0, customTitle = "", compact = null, system = CODER_SYSTEM, tools = null, nudges = true, who = "Coder", browserRules: rulesIn = [], granted: grantedIn = [], schedules = [], opening = "user", permissions: permsIn = null, sites: sitesIn = [], monitor = false, ownerSaid: ownerSaidList = null, asHelper = false, helper = null, pages = [], savedLogins = [], savedCards = [], contacts = [], webhooks = [], hookBase = "/api/coder/gloopy-hook/", attached = [], attachedLeft = 0, workNote = "", marked = null, taught = null, files: keptFiles = [], background = false, checkWrites = false, denied: deniedIn = [], zone = "", searchLimits = null, takeUp = null, tasksOff = false, mentionsOff = false, holdBack = null, suggest = false, stopCap = STOP_BLOCK_CAP, box = false, skills = [], pluginAgents = null, checkpoints = true, searchTools = false, cleared = false, hookFacts = null, schedule = null, subagent = null, refreshTools = false, mcpHeadersHelper = "", goal = null } = {}) {
   // (A connector's headersHelper, the environment's CODER_MCP_HEADERS_HELPER: its headers go with each connector call, and a
   // helper that fails stops the call. coder-mcphelper.mjs; 2026-11-23.)
   if (mcpHeadersHelper && typeof deps.mcp === "function" && typeof deps.exec === "function") deps = { ...deps, mcp: withHeadersHelper(deps.mcp, headersHelperFor(mcpHeadersHelper, deps.exec)) };
@@ -2546,7 +2547,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   // looked at before each tool call; the job's own "don't ask again" rules kept.
   let rulesSeen = null;
   // (And THE REPOSITORY'S HOOKS AND BLOCKS when its settings files change mid-job, Bash docs pass 9: from the next step on.)
-  let hooksSeen = null, blocksSeen = null;
+  let hooksSeen = null, blocksSeen = null, configPending = null;
   // (And WORKING FOLDERS THE OWNER ADDED meanwhile, audit M-r2-40: the machine adds them to deps.otherRoots; from the next
   // tool call on they are working folders here too. Set once `workdirs` exists, below.)
   let syncDirsNow = () => {};
@@ -2557,9 +2558,19 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     try { nr = deps.rulesNow(); } catch { nr = null; }
     let nh = null, nb = null;
     try { nh = typeof deps.hooksNow === "function" ? deps.hooksNow() : null; } catch { nh = null; }
-    if (Array.isArray(nh) && nh !== hooksSeen) { hooksSeen = nh; hookList = okHooks(nh); }
+    // (A change after the first look waits for the ConfigChange hooks when there are any: configNow.)
+    const applyHooks = Array.isArray(nh) && nh !== hooksSeen ? ((v) => () => { hookList = okHooks(v); })(nh) : null;
+    const firstLook = hooksSeen === null;
+    if (applyHooks) hooksSeen = nh;
     try { nb = typeof deps.blocksNow === "function" ? deps.blocksNow() : null; } catch { nb = null; }
-    if (nb && typeof nb === "object" && nb !== blocksSeen) { blocksSeen = nb; readBlock = !!(readBlock || nb.read); writeBlock = !!nb.write; }
+    const applyBlocks = nb && typeof nb === "object" && nb !== blocksSeen ? ((v) => () => { readBlock = !!(readBlock || v.read); writeBlock = !!v.write; })(nb) : null;
+    const firstBlocks = blocksSeen === null;
+    if (applyBlocks) blocksSeen = nb;
+    const changed = (applyHooks && !firstLook) || (applyBlocks && !firstBlocks);
+    if (changed && hookList.some((h) => h && h.event === "ConfigChange")) {
+      const was = configPending;
+      configPending = { apply: () => { if (was) was.apply(); if (applyHooks) applyHooks(); if (applyBlocks) applyBlocks(); } };
+    } else { if (applyHooks) applyHooks(); if (applyBlocks) applyBlocks(); }
     if (!nr || typeof nr !== "object" || nr === rulesSeen) return;
     rulesSeen = nr;
     for (const k of ["allow", "ask", "deny"]) { ownRules[k] = []; for (const r of Array.isArray(nr[k]) ? nr[k].slice(0, 200) : []) if (typeof r === "string" && r.length <= RULE_MAX + 20 && parseRule(r)) ownRules[k].push(r); }
@@ -2580,7 +2591,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   const autoPsRules = (rs) => ({ ...rs, allow: (rs.allow || []).filter((r) => !droppedInAuto(r, { classifyAllShell: !!(autoMode && autoMode.classifyAllShell === true) })) });
   // WHERE COMMANDS MAY CHANGE FILES WITHOUT ASKING in Accept edits: the project and the chat's other repositories.
   const workdirs = [deps.root, ...(Array.isArray(deps.otherRoots) ? deps.otherRoots : [])].filter((x) => typeof x === "string" && x);
-  syncDirsNow = () => { for (const d of Array.isArray(deps.otherRoots) ? deps.otherRoots : []) if (typeof d === "string" && d.startsWith("/") && !workdirs.includes(d)) workdirs.push(d); };
+  // (A folder the owner added while Coder works: its DirectoryAdded hooks too, 2026-11-27.)
+  syncDirsNow = () => { for (const d of Array.isArray(deps.otherRoots) ? deps.otherRoots : []) if (typeof d === "string" && d.startsWith("/") && !workdirs.includes(d)) { workdirs.push(d); try { directoryAddedHook(d); } catch { /* before the hooks are set up */ } } };
   // (The folder Coder's commands are in, where a relative file rule's path counts from first, as Claude Code's current folder:
   // round 4, 2026-11-14; coder-filerules.mjs relativeBases.)
   const ruleCwd = () => (typeof deps.here === "function" && String(deps.here() || "")) || deps.root || "/";
@@ -2986,7 +2998,10 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   };
   // (How much one read gives, when the owner set CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS: its tokens at 4 characters each. Batch 8.)
   const readChars = readTokensChars(deps.readTokens);
-  const hookCtx = () => ({ session: String(deps.chatId || ""), cwd: String((typeof deps.here === "function" && deps.here()) || deps.root || ""), mode: hookMode(), effort: String(effort || ""), promptId });
+  // (`agent`: in one of Coder's subagents, its id and type, Claude Code's agent_id and agent_type on every hook that fires there.)
+  // (The model a PreModelSwitch hook kept, for the turn's result: the Worker keeps it as the chat's model. 2026-11-27.)
+  let modelKept = "";
+  const hookCtx = () => ({ session: String(deps.chatId || ""), cwd: String((typeof deps.here === "function" && deps.here()) || deps.root || ""), mode: hookMode(), effort: String(effort || ""), promptId, ...(subagent && typeof subagent === "object" && subagent.id ? { agent: { id: subagent.id, type: subagent.type || "" } } : {}) });
   // (Where a file tool's short path and ~ lead, for its hooks: read's, write's and edit's path in full, as Claude Code's hooks get
   // it, coder-hooks.mjs hookPath. Round 6.)
   const pathAt = () => ({ cwd: hookCtx().cwd, home: String(deps.home || "") });
@@ -3171,6 +3186,20 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     // (A prompt hook's "ok": false that ends the turn: "the reason appears in the chat as a warning line".)
     if (o.endTurn) emit({ type: "note", text: scrub(event + " hook: " + o.endTurn).slice(0, 2000), hook: event, warn: true });
     return o;
+  };
+  // (InstructionsLoaded: "runs asynchronously", nothing waits for it. DirectoryAdded: "Claude Code doesn't wait for the hook",
+  // its systemMessage reaches Coder on the next round, as a background hook's news does. 2026-11-27, coder-hookevents.mjs.)
+  const instructionsLoadedHooks = (files) => { if (!hookList.some((h) => h && h.event === "InstructionsLoaded")) return; for (const f of (Array.isArray(files) ? files : []).slice(0, 50)) Promise.resolve().then(() => runHooks("InstructionsLoaded", f.load_reason, f)).catch(() => {}); };
+  const directoryAddedHook = (dir) => { if (!hookList.some((h) => h && h.event === "DirectoryAdded")) return; Promise.resolve().then(() => runHooks("DirectoryAdded", "slash_command", { directory: dir, source: "slash_command" })).then((o) => { if (o && o.context.length) asyncNews.push({ event: "DirectoryAdded", texts: o.context }); }).catch(() => {}); };
+  // THE REPOSITORY'S SETTINGS FILES CHANGED WHILE CODER WORKS (freshRules found new hooks or blocks in .claude/settings.json or
+  // .claude/settings.local.json): its ConfigChange hooks run first, with the hooks as they were ("When blocked, the new
+  // settings are not applied to the running session"; a block says nothing). 2026-11-27.
+  const configNow = async () => {
+    const p = configPending;
+    if (!p) return;
+    configPending = null;
+    const o = await runHooks("ConfigChange", "project_settings", { source: "project_settings", file_path: String(deps.root || "").replace(/\/+$/, "") + "/.claude/settings.json" });
+    if (!(o && o.decision === "block")) p.apply();
   };
   /**
    * A CONNECTOR'S QUESTIONS FOR THE OWNER (MCP elicitation, coder-elicit.mjs; X1 of the recheck of 2026-11-14, the owner: "yes
@@ -3377,6 +3406,9 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     const failed = Number.isInteger(res.code) && res.code !== 0 && !res.ok && !res.background;
     const tool = callTool(c);
     const input = callInput(c);
+    // (A file's instructions this tool's answer brought, Claude Code's lazy loads: InstructionsLoaded with path_glob_match or
+    // nested_traversal and the file that triggered them. 2026-11-27.)
+    if (content.includes("THE REPO'S INSTRUCTIONS FOR THIS FILE")) instructionsLoadedHooks(lazyInstructionFiles(content, deps.root || "", String((input && (input.file_path || input.notebook_path || input.path)) || "")));
     const ev = failed ? "PostToolUseFailure" : "PostToolUse";
     // (Claude Code's bashEditDiff: the files a command changed, when Coder took them: CODER_BASH_EDIT_DIFF.)
     // (A git command that moves the work tree takes none: Claude Code says so with `skipped: true`. Bash docs pass 9.)
@@ -3393,7 +3425,10 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     // (A hook's new output, checked against the tool's output shape and shown through the tool's own text: coder-hookcheck.mjs.)
     // (tool_search's: its text for a result object, and the tools that rewrite loads, `tsTaken`. 2026-11-14.)
     const rewrite = failed ? null : outputRewrite(tool, { shownPath: (p) => projectPath(deps, p), monitorText: monitorStarted, ...(typeof c.tsAnswer === "function" ? { toolSearchText: (v) => { const a = c.tsAnswer(v); c.tsTaken = a; return a.text; } } : {}) }, typeof response === "object" ? response : null);
-    const o = await runHooks(ev, tool, failed ? { tool_name: tool, tool_input: input, tool_use_id: c.id, error: content, is_interrupt: false, ...(ranAt.has(c.id) ? { duration_ms: Math.max(0, (doneAt.get(c.id) || now()) - ranAt.get(c.id)) } : {}) } : { tool_name: tool, tool_input: input, tool_use_id: c.id, ...(ranAt.has(c.id) ? { duration_ms: Math.max(0, (doneAt.get(c.id) || now()) - ranAt.get(c.id)) } : {}), tool_response: response }, { tool, input, ctx: { cwd: hookCtx().cwd, root: deps.root || "/", home: deps.home || "" }, ...(rewrite ? { rewrite } : {}) });
+    // (is_interrupt: "True when the failure reached Claude Code as an abort rather than as an error the tool reported": the
+    // owner's Stop while the call ran. 2026-11-27.)
+    const interrupted = failed ? !!(res.interrupted || (await stopped())) : false;
+    const o = await runHooks(ev, tool, failed ? { tool_name: tool, tool_input: input, tool_use_id: c.id, error: content, is_interrupt: interrupted, ...(ranAt.has(c.id) ? { duration_ms: Math.max(0, (doneAt.get(c.id) || now()) - ranAt.get(c.id)) } : {}) } : { tool_name: tool, tool_input: input, tool_use_id: c.id, ...(ranAt.has(c.id) ? { duration_ms: Math.max(0, (doneAt.get(c.id) || now()) - ranAt.get(c.id)) } : {}), tool_response: response }, { tool, input, ctx: { cwd: hookCtx().cwd, root: deps.root || "/", home: deps.home || "" }, ...(rewrite ? { rewrite } : {}) });
     if (o && o.classifierContext) checkerNotes.set(c.id, scrub(o.classifierContext));
     let text = content, pics = null;
     // (A fix its input check made is still said after it, and what the call's answer carried for Coder beside the tool's own
@@ -3972,6 +4007,39 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     const o = await runHooks("SessionStart", source, { source, ...(model ? { model } : {}), ...cost, ...titleOn() });
     if (o && o.context.length) convo.push({ role: "user", appNote: true, content: hookNote("SessionStart", o.context) });
   }
+  // INSTRUCTIONSLOADED HOOKS (Claude Code: "Fires when a CLAUDE.md or .claude/rules/*.md file is loaded into context … at
+  // session start for eagerly loaded files"; "It runs asynchronously for observability purposes"; matched on load_reason):
+  // the instruction files in the chat's context when it starts or its machine started again, as SessionStart. 2026-11-27.
+  if (hookList.length && (!hadChat || resumed === true) && Array.isArray(ctxNow)) instructionsLoadedHooks(instructionFiles(ctxNow, deps.root || ""));
+  // CONFIGCHANGE HOOKS FOR A SETTINGS CHANGE MADE BETWEEN MESSAGES (Claude Code: "Runs when a configuration file changes during
+  // a session"; matched on source): the owner's Settings dialog (user_settings), said by the Worker (hookFacts.configChanges).
+  // Settings saved there apply when they are saved, so a block from these hooks is not honored; the repository's settings
+  // files changing while Coder works are checked before they apply (configNow). 2026-11-27.
+  for (const cc of hookFacts && Array.isArray(hookFacts.configChanges) ? hookFacts.configChanges.slice(0, 5) : []) {
+    if (!hookList.length || !cc || !["user_settings", "project_settings", "local_settings", "skills"].includes(cc.source)) continue;
+    await runHooks("ConfigChange", cc.source, { source: cc.source, ...(typeof cc.file_path === "string" && cc.file_path ? { file_path: cc.file_path.slice(0, 500) } : {}) });
+  }
+  // DIRECTORYADDED HOOKS (Claude Code: "Runs after you add a working directory mid-session with the /add-dir command";
+  // "doesn't wait for the hook"; its systemMessage goes to Claude "as context on the next conversation turn"): the working
+  // folders the owner added since the chat's last message (hookFacts.dirsAdded), source "slash_command". Mid-job: syncDirsNow.
+  for (const d of hookFacts && Array.isArray(hookFacts.dirsAdded) ? hookFacts.dirsAdded.slice(0, 20) : []) if (typeof d === "string" && d.startsWith("/")) directoryAddedHook(d);
+  // PREMODELSWITCH AND POSTMODELSWITCH HOOKS (Claude Code: "Runs before Claude Code applies a model switch that you or a client
+  // requested"; "Runs after the session's model changes"; matched on the model switched to): the owner's /model or model
+  // picker since the chat's last message (hookFacts.modelSwitch, the Worker's), checked as this message starts. A refusal
+  // ("deny", exit 2, a block; "ask" is a refusal where no /model prompt can show it) keeps the chat's model.
+  {
+    const sw = hookList.length ? modelSwitchFields(hookFacts && hookFacts.modelSwitch) : null;
+    if (sw) {
+      const pre = await runHooks("PreModelSwitch", sw.to_model, sw);
+      if (pre && (pre.decision === "deny" || pre.decision === "ask")) {
+        model = sw.from_model; modelKept = sw.from_model;
+        emit({ type: "note", text: scrub(modelBlockedText(sw.from_model, sw.to_model, pre.reason)).slice(0, 2000), hook: "PreModelSwitch", warn: true });
+      } else {
+        const post = await runHooks("PostModelSwitch", sw.to_model, sw);
+        if (post && post.context.length) convo.push({ role: "user", appNote: true, content: hookNote("PostModelSwitch", post.context) });
+      }
+    }
+  }
   // USERPROMPTSUBMIT HOOKS (Claude Code: "Runs when you submit a prompt, before Claude processes it"): one that blocks keeps
   // the message from Coder, and the chat says so in Claude Code's words ("UserPromptSubmit operation blocked by hook:" …
   // "Original prompt:"); what they add goes with the message.
@@ -3985,6 +4053,18 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       emit({ type: "note", text: "UserPromptSubmit operation blocked by hook:\n" + scrub(String(why || "")).slice(0, 2000) + (up.suppressPrompt ? "" : "\n\nOriginal prompt: " + typed.slice(0, 2000)), hook: "UserPromptSubmit" });
       promptBlocked = why || "";
     } else {
+      // USERPROMPTEXPANSION HOOKS (Claude Code: "Runs when a user-typed command expands into a prompt before reaching Claude";
+      // matched on command_name; decision "block" "prevents the command from expanding", additionalContext goes with it):
+      // the owner's /init, /review, /code-review, /security-review and /team-onboarding, and their own /skill-name. 2026-11-27.
+      const slEarly = skillList.length ? slashSkill(text, skillList) : null;
+      const expIn = hookList.length ? expansionOf(typed, slEarly ? slEarly.skill : null) : null;
+      const ex = expIn ? await runHooks("UserPromptExpansion", expIn.command_name, expIn) : null;
+      if (ex && (ex.stop || ex.decision === "block")) {
+        emit({ type: opening === "note" ? "note" : "user", text: typed });
+        const whyX = ex.stop ? ex.stop.reason : ex.reason;
+        emit({ type: "note", text: "UserPromptExpansion operation blocked by hook:\n" + scrub(String(whyX || "")).slice(0, 2000), hook: "UserPromptExpansion" });
+        promptBlocked = whyX || "";
+      } else {
       // (A picture too small for Grok goes enlarged, or not at all, with a note: fitOwnerPics.)
       const fitted = pics.length ? await fitOwnerPics(pics, (x) => appTool(deps, "fit_picture", { type: x.type, data: x.data }).then((r) => (r.code === 0 ? r.output : JSON.stringify({ why: "it could not be enlarged" })))) : { send: [], notes: [] };
       const picNote = fitted.notes.length ? "\n\n(Note from Coder's app: " + fitted.notes.join(" ") + ")" : "";
@@ -3997,10 +4077,12 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       // 2026-11-09, opens with a note in the chat, not as the owner's own message.)
       emit({ type: opening === "note" ? "note" : "user", text: typed, ...(pics.length ? { images: pics.length } : {}), ...(Array.isArray(attached) && attached.length ? { files: attached.slice(0, who === "Gloopy" ? 10 : 20).map((f) => ({ id: String(f.id || ""), name: plain(String(f.name || "")).slice(0, 120), size: Number(f.size) || 0 })) } : {}) });
       if (up && up.context.length) convo.push({ role: "user", appNote: true, content: hookNote("UserPromptSubmit", up.context) });
+      if (ex && ex.context.length) convo.push({ role: "user", appNote: true, content: hookNote("UserPromptExpansion", ex.context) });
       // THE OWNER'S /skill-name (Claude Code: "invoke it directly with /skill-name"): the skill's whole text goes to Coder with
       // the message, as Claude Code loads it, unless a rule denies that skill.
       const sl = skillList.length ? slashSkill(text, skillList) : null;
       if (sl && !toolDenied("skill") && !skillRule(ownRules, "deny", sl.skill.name, parseRule)) { convo.push({ role: "user", appNote: true, content: "<command-name>/" + sl.skill.name + "</command-name>\n" + skillLoaded(sl.skill, sl.args) }); emit({ type: "note", text: "Loaded the skill " + sl.skill.name + "." }); }
+      }
     }
     // (No "Not signed in yet" note on every message: owner, 2026-11-16. Like Claude Code, Coder knows which connectors
     // wait for a sign-in and says so only when a request needs one.)
@@ -4357,6 +4439,22 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   // (A subagent's loop: runCoder's `subagent`. Not whether it has subagent_handback, which only auto mode gives.)
   const isSubHere = () => !!(subagent && typeof subagent === "object");
   const shRun = async (command, timeoutS = 60) => { try { return await deps.exec({ command, timeoutS, tool: true }); } catch (e) { return { code: -1, output: String((e && e.message) || e) }; } };
+  // WORKTREECREATE AND WORKTREEREMOVE HOOKS (Claude Code's; 2026-11-27, coder-hookevents.mjs): "Configuring a WorktreeCreate
+  // hook replaces that default git behavior" for enter_worktree's new worktree and an agent's isolation "worktree"; the hook
+  // gives the path. Each hook's raw run, the event's input on its stdin as for any hook.
+  const hasHooksFor = (event) => hookList.some((h) => h && h.event === event);
+  const rawHookRuns = async (event, extra) => {
+    const list = hooksFor(hookList, event, "");
+    const input = hookInput(event, { ...hookCtx(), transcript: transcriptNow() }, extra);
+    return Promise.all(list.map((h) => Promise.resolve().then(() => runHook(h, input)).catch((e) => ({ code: -1, stdout: "", stderr: String((e && e.message) || e) }))));
+  };
+  const worktreeByHook = async (name) => {
+    const w = worktreeHookPath(await rawHookRuns("WorktreeCreate", { name }), hookCtx().cwd);
+    if (w.error) return { error: w.error };
+    const g = markOf((await shRun(goneScript(w.path), 20)).output);
+    if (!g || g.rest.trim() !== "0") return { error: "the WorktreeCreate hook's path " + w.path + " is not a directory Coder can enter" };
+    return { path: w.path, branch: "", byHook: true };
+  };
   /** What coder-agents.mjs needs of this loop for one call (`reply`: that call's answer). */
   const agentKit = (reply) => {
     const left = Math.max(30_000, maxMs - (now() - started) - 30_000);
@@ -4369,20 +4467,26 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       chat: { model, effort }, bg: agentBg, early: agentEarly, pluginAgents: Array.isArray(pluginAgents) ? pluginAgents : [],
       customAgents: () => (customAgentsP = customAgentsP || (typeof deps.customAgents === "function" ? Promise.resolve(deps.customAgents()) : shRun(agentFilesScript(), 20).then((r) => customAgentsFrom(agentFilesOf(r && r.output)).defs)).catch(() => [])),
       worktree: {
-        create: async (name) => { if (typeof deps.worktree === "function") { const w = await makeWorktreeByService(deps, (cmd) => shRun("(\n" + cmd + "\n)", 120), name); if (w.error) return { error: w.error }; const m = markOf(w.r && w.r.output); if (!m || m.kind !== "OK") return { error: m && m.kind === "ERR" ? m.rest : "could not set up the worktree" }; const [path, branch] = m.rest.split("|"); return { path, branch, main: w.main }; } const r = await shRun(agentWorktreeScript(name), 120); const m = markOf(r && r.output); if (!m || m.kind !== "OK") return { error: m && m.kind === "ERR" ? m.rest : "git could not create the worktree" }; const [path, branch] = m.rest.split("|"); return { path, branch }; },
-        finish: async (wt) => { const m = markOf((await shRun(agentWorktreeFinishScript(wt, { service: typeof deps.worktree === "function" }), 120)).output); if (m && m.kind === "CLEAN" && typeof deps.worktree === "function") { const w = await deps.worktree({ op: "remove", main: m.rest.trim(), path: wt.path, branch: wt.branch }).catch(() => null); return { kept: !(w && w.ok) }; } return { kept: !(m && (m.kind === "REMOVED" || m.kind === "GONE")) }; },
+        // (A WorktreeCreate hook makes it instead; "When a subagent or a workflow agent finishes, Claude Code keeps the worktree
+        // your WorktreeCreate hook made for it and doesn't run your WorktreeRemove hook".)
+        create: async (name) => { if (hasHooksFor("WorktreeCreate")) return worktreeByHook(name); if (typeof deps.worktree === "function") { const w = await makeWorktreeByService(deps, (cmd) => shRun("(\n" + cmd + "\n)", 120), name); if (w.error) return { error: w.error }; const m = markOf(w.r && w.r.output); if (!m || m.kind !== "OK") return { error: m && m.kind === "ERR" ? m.rest : "could not set up the worktree" }; const [path, branch] = m.rest.split("|"); return { path, branch, main: w.main }; } const r = await shRun(agentWorktreeScript(name), 120); const m = markOf(r && r.output); if (!m || m.kind !== "OK") return { error: m && m.kind === "ERR" ? m.rest : "git could not create the worktree" }; const [path, branch] = m.rest.split("|"); return { path, branch }; },
+        finish: async (wt) => { if (wt && wt.byHook) return { kept: true }; const m = markOf((await shRun(agentWorktreeFinishScript(wt, { service: typeof deps.worktree === "function" }), 120)).output); if (m && m.kind === "CLEAN" && typeof deps.worktree === "function") { const w = await deps.worktree({ op: "remove", main: m.rest.trim(), path: wt.path, branch: wt.branch }).catch(() => null); return { kept: !(w && w.ok) }; } return { kept: !(m && (m.kind === "REMOVED" || m.kind === "GONE")) }; },
       },
       // (SubagentStart: matched on the agent's type; its additionalContext goes to the agent. SubagentStop: a block or
       // additionalContext keeps the agent going with that as its next instruction.)
       hookStart: async (id, type) => { const o = hookList.length ? await runHooks("SubagentStart", type, { agent_id: id, agent_type: type }) : null; return o ? o.context : []; },
-      hookStop: async ({ agentId, type, active, last }) => {
+      hookStop: async ({ agentId, type, active, last, messages: subMsgs }) => {
         if (!hookList.length) return "";
-        const o = await runHooks("SubagentStop", type, { stop_hook_active: active, agent_id: agentId, agent_type: type, agent_transcript_path: "", last_assistant_message: scrub(last).slice(0, 20000), background_tasks: [], session_crons: [] });
+        // (agent_transcript_path: "the subagent's own transcript stored in a nested subagents/ folder", written now;
+        // background_tasks and session_crons: "scoped to the parent session, not the subagent". 2026-11-27.)
+        let agentTranscript = "";
+        if (typeof deps.transcript === "function" && Array.isArray(subMsgs)) { try { agentTranscript = String(deps.transcript(subMsgs, { model, agent: String(agentId || "") }) || ""); } catch { agentTranscript = ""; } }
+        const o = await runHooks("SubagentStop", type, { stop_hook_active: active, agent_id: agentId, agent_type: type, agent_transcript_path: agentTranscript, last_assistant_message: scrub(last).slice(0, 20000), background_tasks: backgroundTasks(jobs, agentBg), session_crons: sessionCrons(cronSt) });
         if (!o || o.stop) return "";
         if (o.decision === "block") return o.blocks.join("\n") || o.reason || "";
         return o.context.length ? "SubagentStop hook feedback:\n" + o.context.join("\n") : "";
       },
-      startSub: ({ type, prompt, messages: past, label, emit: subEmit, model: m, effort: ef, toolNames, system: sys, maxRounds: mr, cwd, agentId, stopReq }) => runCoder({ ...deps, emit: subEmit, subagentBudget: agentBudget, ...(cwd ? inFolder(deps, cwd) : {}), ...(typeof stopReq === "function" ? { stopped: async () => stopReq() || (await stopped()) } : {}) }, { text: prompt, messages: past || [], system: (sys || SUBAGENT_SYSTEM + (AGENT_TYPES[type] && AGENT_TYPES[type].note ? "\n\n" + AGENT_TYPES[type].note : "")) + (cwd ? "\n\n" + worktreeNotice(deps.root || "", cwd) : ""), tools: subagentTools(subTools, type, toolNames, { mode: modeNow() }), context, base, model: m || model, effort: ef || effort, mode: modeNow(), rules, hooks, denyInstead, nudges: false, who: "Coder's agent “" + label + "”", asHelper: true, github: false, tasksOff: true, maxRounds: mr || SUBAGENT_ROUNDS, maxMs: Math.min(SUBAGENT_MS, left), subagent: { id: agentId || "", type } }),
+      startSub: ({ type, prompt, messages: past, label, emit: subEmit, model: m, effort: ef, toolNames, system: sys, maxRounds: mr, cwd, agentId, stopReq }) => runCoder({ ...deps, emit: subEmit, subagentBudget: agentBudget, ...(typeof deps.transcript === "function" ? { transcript: (c, o = {}) => { if (o && o.agent) return deps.transcript(c, o); try { deps.transcript(c, { ...o, agent: String(agentId || "") }); } catch { /* the main one still */ } return transcriptNow(); } } : {}), ...(cwd ? inFolder(deps, cwd) : {}), ...(typeof stopReq === "function" ? { stopped: async () => stopReq() || (await stopped()) } : {}) }, { text: prompt, messages: past || [], system: (sys || SUBAGENT_SYSTEM + (AGENT_TYPES[type] && AGENT_TYPES[type].note ? "\n\n" + AGENT_TYPES[type].note : "")) + (cwd ? "\n\n" + worktreeNotice(deps.root || "", cwd) : ""), tools: subagentTools(subTools, type, toolNames, { mode: modeNow() }), context, base, model: m || model, effort: ef || effort, mode: modeNow(), rules, hooks, denyInstead, nudges: false, who: "Coder's agent “" + label + "”", asHelper: true, github: false, tasksOff: true, maxRounds: mr || SUBAGENT_ROUNDS, maxMs: Math.min(SUBAGENT_MS, left), subagent: { id: agentId || "", type } }),
       step: typeof deps.workflowStep === "function" ? deps.workflowStep : async (a) => { const r = await appTool(deps, "workflow_step", a, { timeoutS: WORKFLOW_PASS_S }); try { return JSON.parse(r.output); } catch { return { status: "error", error: r.output.trim().slice(0, 400) || "the script's pass failed" }; } },
       writeText: async (p, text) => { const b64 = Buffer.from(String(text), "utf8").toString("base64"); const q = "'" + String(p).replace(/'/g, "'\\''") + "'"; const r = await shRun("mkdir -p -- \"$(dirname -- " + q + ")\" && printf %s '" + b64 + "' | base64 -d > " + q, 20); if (!r || r.code !== 0) throw new Error("could not write " + p); },
       readText: async (p) => { try { const r = await deps.exec({ command: "cat -- '" + String(p).replace(/'/g, "'\\''") + "'", timeoutS: 15, tool: true }); return r && r.code === 0 ? { text: String(r.output || "") } : { error: "could not read " + p }; } catch { return { error: "could not read " + p }; } },
@@ -4497,7 +4601,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   // end, as the whole conversation was.)
   // (What fills the conversation as the job ends, for the page's /context: usageNow, made once the job's limits are known.)
   const ctxUsage = () => { try { return usageNow(); } catch { return null; } };
-  const end = (status, extra = {}) => ((jobOver = true), { status, messages: convo.map(saved), rounds, usage, summary: "", ...(() => { const c = ctxUsage(); return c ? { context: c } : {}; })(), ...(autoCompacted ? { compact: { done: true, auto: true, from: 0, to: (Array.isArray(messages) ? messages.length : 0) + 1 } } : {}), ...(approvalRequest ? { approvalRequest } : {}), ...(signinRequest ? { signinRequest } : {}), ...(cardRequest ? { cardRequest } : {}), ...(handoffRequest ? { handoffRequest } : {}), ...(keyRequest ? { keyRequest } : {}), ...(scheduleRemovals.length ? { scheduleRemovals } : {}), ...(scheduleAdds.length ? { scheduleAdds } : {}), ...(scheduleEdits.length ? { scheduleEdits } : {}), ...(schedulePauses.length ? { schedulePauses } : {}), ...(signedIn.length ? { signedIn } : {}), ...(webhookAdds.length ? { webhookAdds } : {}), ...(webhookRemovals.length ? { webhookRemovals } : {}), ...(pageRequests.length ? { pageRequests } : {}), edited: [...edited], ...(editedCut ? { editedCut: true } : {}), ...(checkpoints ? {} : { checkpointsOff: true }), ...(prRequest ? { prRequest } : {}), ...(pushRequest ? { push: true } : {}), ...(midPushes.length ? { midPushes } : {}), ...(midNotes.length ? { midNotes } : {}), ...(undoRequest ? { undoRequest } : {}), ...(reviewPost ? { reviewPost } : {}), ...(prExtra.length ? { prExtra } : {}), ...(autofixRequest ? { autofixRequest } : {}), ...(reviewReplies.length ? { reviewReplies } : {}), ...(github ? {} : { mode: modeNow() }), ...(rulesAdded.length ? { rulesAdded } : {}), ...(hadSession || ["allow", "ask", "deny"].some((k) => hookSession[k].length) ? { sessionRules: { allow: hookSession.lost ? [] : hookSession.allow, ask: hookSession.ask, deny: hookSession.deny } } : {}), ...(Object.values(hookSaved).some((l) => l.length) ? { rulesSaved: hookSaved } : {}), ...(sessionTitle ? { sessionTitle } : {}), ...(planTitle && !sessionTitle ? { planTitle } : {}), ...cronResult(cronSt), ...(goalState ? { goal: { ...goalState, turns: goalTurns, tokens: usage.reduce((n, u) => n + (u && typeof u === "object" ? ["in", "out"].reduce((k, f) => k + (Number(u[f]) > 0 ? Math.round(Number(u[f])) : 0), 0) : 0), 0) } } : {}), ...extra });
+  const end = (status, extra = {}) => ((jobOver = true), { status, messages: convo.map(saved), rounds, usage, summary: "", ...(() => { const c = ctxUsage(); return c ? { context: c } : {}; })(), ...(autoCompacted ? { compact: { done: true, auto: true, from: 0, to: (Array.isArray(messages) ? messages.length : 0) + 1 } } : {}), ...(approvalRequest ? { approvalRequest } : {}), ...(signinRequest ? { signinRequest } : {}), ...(cardRequest ? { cardRequest } : {}), ...(handoffRequest ? { handoffRequest } : {}), ...(keyRequest ? { keyRequest } : {}), ...(scheduleRemovals.length ? { scheduleRemovals } : {}), ...(scheduleAdds.length ? { scheduleAdds } : {}), ...(scheduleEdits.length ? { scheduleEdits } : {}), ...(schedulePauses.length ? { schedulePauses } : {}), ...(signedIn.length ? { signedIn } : {}), ...(webhookAdds.length ? { webhookAdds } : {}), ...(webhookRemovals.length ? { webhookRemovals } : {}), ...(pageRequests.length ? { pageRequests } : {}), edited: [...edited], ...(editedCut ? { editedCut: true } : {}), ...(checkpoints ? {} : { checkpointsOff: true }), ...(prRequest ? { prRequest } : {}), ...(pushRequest ? { push: true } : {}), ...(midPushes.length ? { midPushes } : {}), ...(midNotes.length ? { midNotes } : {}), ...(undoRequest ? { undoRequest } : {}), ...(reviewPost ? { reviewPost } : {}), ...(prExtra.length ? { prExtra } : {}), ...(autofixRequest ? { autofixRequest } : {}), ...(reviewReplies.length ? { reviewReplies } : {}), ...(github ? {} : { mode: modeNow() }), ...(rulesAdded.length ? { rulesAdded } : {}), ...(hadSession || ["allow", "ask", "deny"].some((k) => hookSession[k].length) ? { sessionRules: { allow: hookSession.lost ? [] : hookSession.allow, ask: hookSession.ask, deny: hookSession.deny } } : {}), ...(Object.values(hookSaved).some((l) => l.length) ? { rulesSaved: hookSaved } : {}), ...(sessionTitle ? { sessionTitle } : {}), ...(planTitle && !sessionTitle ? { planTitle } : {}), ...cronResult(cronSt), ...(modelKept ? { modelKept } : {}), ...(goalState ? { goal: { ...goalState, turns: goalTurns, tokens: usage.reduce((n, u) => n + (u && typeof u === "object" ? ["in", "out"].reduce((k, f) => k + (Number(u[f]) > 0 ? Math.round(Number(u[f])) : 0), 0) : 0), 0) } } : {}), ...extra });
   // A ROUND THAT ENDS EARLY (round 5; the owner, 2026-11-14: "Yes pls"; coder-parallel.mjs). Claude Code 2.1.325, in its cloud
   // sessions: the owner's No without words is its deny with "interrupt", which aborts the turn; their Stop aborts it as
   // "remote-cancel". Its executor keeps what each call of the reply had returned by then, gives a call still running its
@@ -4785,7 +4889,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     // re-injects CLAUDE.md and its memory "from disk" after compaction.)
     if (ctxOn) {
       if (typeof deps.freshContext === "function") {
-        try { const c = await deps.freshContext(); if (Array.isArray(c) || (typeof c === "string" && c.trim())) { ctxNow = [...piecesOf(c), ...ctxNow.filter((p) => jobPieces.has(p.key))]; context = piecesText(ctxNow); } } catch { /* the one it had stays */ }
+        try { const c = await deps.freshContext(); if (Array.isArray(c) || (typeof c === "string" && c.trim())) { ctxNow = [...piecesOf(c), ...ctxNow.filter((p) => jobPieces.has(p.key))]; context = piecesText(ctxNow); instructionsLoadedHooks(instructionFiles(ctxNow, deps.root || "", "compact")); } } catch { /* the one it had stays */ }
       }
       convo.push(...contextNotes(convo, ctxNow, { reason: "compaction" }));
       await markShownStart(deps, context);
@@ -4863,6 +4967,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
                 ctxNow = [...piecesOf(c), ...ctxNow.filter((p) => jobPieces.has(p.key))];
                 context = piecesText(ctxNow);
                 convo.push(...contextNotes(convo, ctxNow, { reason: "compaction" }));
+                instructionsLoadedHooks(instructionFiles(ctxNow, deps.root || "", "compact"));
                 await markShownStart(deps, context);
               } else if (typeof c === "string" && c.trim()) { context = c; await markShownStart(deps, c); }
             } catch { /* the one it had stays */ }
@@ -5119,7 +5224,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     // its reason given as Claude Code gives it ("Stop hook feedback"); at most STOP_BLOCK_CAP times in a row ("after stop hooks
     // have continued the turn eight times in a row, Claude Code overrides the next block and ends the turn").
     // (The repository's settings, looked at again before its Stop hooks too, as before each step: freshRules.)
-    if (!calls.length) freshRules();
+    if (!calls.length) { freshRules(); await configNow(); }
     // /goal, CLAUDE CODE'S (2026-11-23; coder-goal.mjs): at the end of each turn, a model at Low effort checks the chat's goal
     // against the conversation. Not yet met: Coder goes on with the reason. Met or impossible: the goal clears. Not checked
     // while a background command or agent still runs. GOAL_IDLE_MAX not-met answers in a row with no tool use stop the loop.
@@ -5159,7 +5264,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     // CLAUDE_CODE_STOP_HOOK_BLOCK_CAP.)
     // (Not in one of Coder's subagents: its end runs the chat's SubagentStop hooks instead, from its agent call; coder-agents.mjs.)
     if (!calls.length && hookList.length && !subagent) {
-      const o = await runHooks("Stop", "", { stop_hook_active: stopHookActive, last_assistant_message: scrub(said).slice(0, 20000), background_tasks: [...jobs.entries()].filter(([, j]) => !j.done).map(([id, j]) => ({ id, type: j.monitor ? "monitor" : "shell", status: "running", description: String(j.desc || "").slice(0, 1000), command: String(j.command || "").slice(0, 1000) })), session_crons: [] });
+      const o = await runHooks("Stop", "", { stop_hook_active: stopHookActive, last_assistant_message: scrub(said).slice(0, 20000), background_tasks: backgroundTasks(jobs, agentBg), session_crons: sessionCrons(cronSt) });
       if (o && o.stop) { if (said) { emit({ type: "text", text: scrub(said) }); lastSaid = scrub(said).slice(0, 4000); } return stopByHook(o); }
       if (o && (o.decision === "block" || o.context.length) && stopCap > 0 && stopRun >= stopCap) {
         emit({ type: "note", text: "Stop hooks blocked " + stopRun + " times in a row; ending the turn anyway.", hook: "Stop" });
@@ -5591,6 +5696,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     for (let i = back ? back.at : 0; i < calls.length; i++) {
       try {
       freshRules();
+      await configNow();
       await runPost();
       settleStopAfter();
       // (ROUND 5, Coder's own runs, coder-parallel.mjs: the owner's Stop seen between two calls ends the round; a call answered
@@ -7958,6 +8064,21 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           const name = v.args.path ? "" : v.args.name || randomWorktreeName();
           emit({ type: "bash", id: c.id, tool: "worktree", verb: "Entered a worktree", command: plain(v.args.path || name).slice(0, 200) });
           let r, m;
+          if (!v.args.path && hasHooksFor("WorktreeCreate")) {
+            // (A WorktreeCreate hook makes the worktree: its path, and the chat's shell moves there. No branch, and
+            // .worktreeinclude "is not processed".)
+            const here = markOf((await run(hookWorktreeHereScript(), "Check the worktree")).output);
+            if (here && here.kind === "HOOKWT") { no("error: Already in a worktree session: from inside a worktree only path works, under .claude/worktrees/"); continue; }
+            const w = await worktreeByHook(name);
+            if (w.error) { no("error: " + w.error); continue; }
+            const e = markOf((await run(enterHookWorktreeScript(w.path), "Enter worktree")).output);
+            if (!e || e.kind !== "OK") { no("error: " + (e && e.kind === "ERR" ? e.rest : "could not enter the worktree")); continue; }
+            const wtp = e.rest.split("|")[0];
+            const saidH = "Created worktree at " + wtp + " (made by the WorktreeCreate hook). Your commands now start in the worktree. Use exit_worktree to leave it.";
+            emit({ type: "result", id: c.id, code: 0, output: saidH, label: "Created worktree " + plain(name).slice(0, 80) });
+            reply(enterResult(wtp, "", saidH));
+            continue;
+          }
           if (!v.args.path && typeof deps.worktree === "function") {
             // (Coder's machines: the git folder is root's, so Coder's service makes the branch and the worktree: worktreeNow.)
             const w = await makeWorktreeByService(deps, run, name);
@@ -7983,6 +8104,34 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         } else {
           const remove = v.args.action === "remove";
           emit({ type: "bash", id: c.id, tool: "worktree", verb: remove ? "Removed the worktree" : "Left the worktree", command: v.args.action });
+          // (A worktree a WorktreeCreate hook made: Coder can't check it for work at risk ("expect ExitWorktree to refuse
+          // unless Claude passes discard_changes: true"); its WorktreeRemove hooks remove it, else git as `git worktree remove
+          // --force` would, and one git doesn't know stays on disk. 2026-11-27.)
+          const hw = hasHooksFor("WorktreeCreate") ? markOf((await run(hookWorktreeHereScript(), "Check the worktree")).output) : null;
+          if (hw && hw.kind === "HOOKWT") {
+            const [hp, ho] = hw.rest.split("|");
+            if (remove && !v.args.discard_changes) { no("Worktree at " + hp + " was made by a WorktreeCreate hook, so Coder can't check it for uncommitted files or commits. Removing may discard work permanently. Confirm with the user, then re-invoke with discard_changes: true — or use action: \"keep\" to preserve the worktree."); continue; }
+            const left = markOf((await run(leaveHookWorktreeScript({ path: hp, origin: ho }), "Leave the worktree")).output);
+            const back = left && left.kind === "LEFT" ? left.rest.split("|")[0] : ho;
+            let saidW = "Exited the worktree. Your work is preserved at " + hp + ". Your commands now start in " + back + ".";
+            if (remove) {
+              let gone = false, why = "";
+              if (hasHooksFor("WorktreeRemove")) {
+                const runs = await rawHookRuns("WorktreeRemove", { worktree_path: hp });
+                const g = markOf((await shRun(goneScript(hp), 20)).output);
+                gone = !!(g && g.rest.trim() === "1");
+                why = worktreeRemoveFailed(runs, gone);
+              } else {
+                const g = markOf((await shRun(gitRemoveScript(hp), 120)).output);
+                gone = !!(g && g.rest.trim() === "1");
+              }
+              if (why) { no("error: the WorktreeRemove hook " + why + "; the worktree stays at " + hp + ". The chat's commands are back in " + back + "."); continue; }
+              saidW = gone ? "Exited and removed the worktree at " + hp + ". Your commands now start in " + back + "." : "Exited the worktree; " + hp + " is still on disk (" + (hasHooksFor("WorktreeRemove") ? "the WorktreeRemove hook left it" : "git doesn't know it as a worktree") + "). Your commands now start in " + back + ".";
+            }
+            emit({ type: "result", id: c.id, code: 0, output: saidW, label: remove ? "Removed the worktree" : "Left the worktree (kept)" });
+            reply(exitResult({ action: v.args.action, originalCwd: back, worktreePath: hp, message: saidW }));
+            continue;
+          }
           const f = markOf((await run(exitFactsScript(), "Check the worktree")).output);
           if (f && f.kind === "NONE") { emit({ type: "result", id: c.id, code: 0, output: NO_WORKTREE }); reply(NO_WORKTREE); continue; }
           if (!f || f.kind !== "STATE") { no("error: " + (f && f.kind === "ERR" ? f.rest : "could not check the worktree")); continue; }

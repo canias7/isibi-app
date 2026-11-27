@@ -2007,7 +2007,7 @@
     if (!GLOOPY && /^\/export(?:\s|$)/i.test(text)) { boxEmpty(); exportCmd(text.replace(/^\/export\s*/i, '')); return; }
     // /model <name> AND /effort <level>, CLAUDE CODE'S (batch 2 of "Go Claude Code way", 2026-11-22): set them at once, as the
     // two pickers on the box do; alone, they say the current one and the choices. Nothing goes to the AI.
-    if (!GLOOPY && /^\/(model|effort)(?:\s|$)/i.test(text)) { boxEmpty(); const r = pickCmd(text, MODELS, S.pick); if (r.pick) { S.pick = r.pick; S.pickTouched = true; savePick(); } note(r.text); return; }
+    if (!GLOOPY && /^\/(model|effort)(?:\s|$)/i.test(text)) { boxEmpty(); const r = pickCmd(text, MODELS, S.pick); if (r.pick) { if (r.pick.model !== (S.pick && S.pick.model)) S.modelVia = 'command'; S.pick = r.pick; S.pickTouched = true; savePick(); } note(r.text); return; }
     // AN UNKNOWN COMMAND, AS IN CLAUDE CODE (its docs: "Enter submits your text as typed and reports Unknown command"): the box
     // empties and the chat says "Unknown command: /name", with a "Did you mean" when one is close; nothing goes to the AI.
     { const u = !GLOOPY ? unknownSlash(text) : null; if (u) { boxEmpty(); note('Unknown command: /' + u.name + (u.near ? ' · Did you mean ' + u.near + '?' : '')); return; } }
@@ -2078,12 +2078,12 @@
     const sent = { id: S.project.id, turn: Number(S.project.turn) || 0, gone: false };
     S.sendWatch = sent;
     setTimeout(() => watchSend(sent), SEND_WATCH_FIRST_MS);
-    const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/message', { method: 'POST', body: JSON.stringify({ mid, text, comments, images: pics.map((x) => ({ type: x.type, data: x.data })), ...(att.length ? { files: att.map((f) => f.id) } : {}), model: S.pick.model, effort: S.pick.effort, ...(GLOOPY ? {} : { mode: chatMode() }), ...(opts && opts.card ? { card: true } : {}), ...(opts && opts.marked ? { marked: opts.marked } : {}), ...(opts && opts.taught ? { taught: opts.taught } : {}), tz: deviceZone() }) });
+    const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/message', { method: 'POST', body: JSON.stringify({ mid, text, comments, images: pics.map((x) => ({ type: x.type, data: x.data })), ...(att.length ? { files: att.map((f) => f.id) } : {}), model: S.pick.model, effort: S.pick.effort, ...(!GLOOPY && S.modelVia ? { modelVia: S.modelVia } : {}), ...(GLOOPY ? {} : { mode: chatMode() }), ...(opts && opts.card ? { card: true } : {}), ...(opts && opts.marked ? { marked: opts.marked } : {}), ...(opts && opts.taught ? { taught: opts.taught } : {}), tz: deviceZone() }) });
     if (S.sendWatch === sent) S.sendWatch = null;
     // (Already shown as ended by watchSend: this late answer changes nothing.)
     if (sent.gone) return;
     if (S.sendingFor === sent.id) { S.sendingFor = null; S.sending = false; S.unsent = ''; }
-    if (r.status !== 200) keepMid(mkey, mid, r); else S.unsentMid = null;
+    if (r.status !== 200) keepMid(mkey, mid, r); else { S.unsentMid = null; S.modelVia = ''; }
     // THE ANSWER BELONGS TO THE CHAT IT WAS SENT FROM (Claude Code: typed text never goes to another conversation; an unsent
     // message and its attachments stay with their own session). If another chat is open now, nothing on its screen or in its
     // box changes: a failed message goes back into its own chat's kept draft, with the error shown when that chat is opened.
@@ -6575,7 +6575,7 @@
     on('#cdCompare', 'change', (e) => { const v = e.currentTarget.value; S.compareAgainst = v === ((S.project && S.project.base) || 'main') ? '' : v; loadChanges(); });
     // (The pick keeps its other parts, the mode new chats start in too: before, changing the model dropped it, and the
     // settings read at load could put back an older pick over one just made. The frontend audit of 2026-11-24.)
-    on('#cdModel', 'change', (e) => { const m = MODELS.find((x) => x.id === e.target.value) || MODELS[0]; S.pick = { ...S.pick, model: m.id, effort: m.efforts.includes(S.pick.effort) ? S.pick.effort : m.effort }; S.pickTouched = true; savePick(); draw(); });
+    on('#cdModel', 'change', (e) => { const m = MODELS.find((x) => x.id === e.target.value) || MODELS[0]; if (m.id !== S.pick.model) S.modelVia = 'picker'; S.pick = { ...S.pick, model: m.id, effort: m.efforts.includes(S.pick.effort) ? S.pick.effort : m.effort }; S.pickTouched = true; savePick(); draw(); });
     on('#cdEffort', 'change', (e) => { S.pick = { ...S.pick, effort: e.target.value }; S.pickTouched = true; savePick(); });
     on('#cdConnChip', 'click', () => { showChatConnectors(); });
     on('#cdRpToggle', 'click', () => { rpSet(!rpOpen()); draw(); });

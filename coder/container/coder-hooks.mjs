@@ -20,18 +20,20 @@ import { CRON_TOOL_CC } from "./coder-schedule.mjs";
 // owner: "Do all the talk to you tools execpt for the notify one"; coder-tasks.mjs.)
 // (Elicitation and ElicitationResult: Claude Code's, around a connector's question for the owner, MCP elicitation; their
 // matcher is the connector's name as in its tools' names, mcp__<server>__<tool>; coder-elicit.mjs, X1 of 2026-11-14.)
-export const HOOK_EVENTS = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PermissionRequest", "PostToolUse", "PostToolUseFailure", "PostToolBatch", "PermissionDenied", "TaskCreated", "TaskCompleted", "Notification", "SubagentStart", "SubagentStop", "Stop", "StopFailure", "PreCompact", "PostCompact", "CwdChanged", "FileChanged", "Elicitation", "ElicitationResult", "SessionEnd"];
+export const HOOK_EVENTS = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PermissionRequest", "PostToolUse", "PostToolUseFailure", "PostToolBatch", "PermissionDenied", "TaskCreated", "TaskCompleted", "Notification", "SubagentStart", "SubagentStop", "Stop", "StopFailure", "PreCompact", "PostCompact", "CwdChanged", "FileChanged", "Elicitation", "ElicitationResult", "SessionEnd", "InstructionsLoaded", "UserPromptExpansion", "PreModelSwitch", "PostModelSwitch", "ConfigChange", "DirectoryAdded", "WorktreeCreate", "WorktreeRemove"];
+// (InstructionsLoaded, UserPromptExpansion, PreModelSwitch, PostModelSwitch, ConfigChange, DirectoryAdded, WorktreeCreate and
+// WorktreeRemove: Claude Code's, 2026-11-27, the hooks round "make Coder's hooks match Claude Code's"; coder-hookevents.mjs.)
 export const TOOL_EVENTS = new Set(["PreToolUse", "PermissionRequest", "PostToolUse", "PostToolUseFailure", "PermissionDenied"]);
 /** The events whose matcher Claude Code ignores ("If you add a matcher field to an event without matcher support, it is silently ignored"). */
-const NO_MATCHER = new Set(["UserPromptSubmit", "Stop", "PostToolBatch", "CwdChanged", "TaskCreated", "TaskCompleted"]);
+const NO_MATCHER = new Set(["UserPromptSubmit", "Stop", "PostToolBatch", "CwdChanged", "TaskCreated", "TaskCompleted", "WorktreeCreate", "WorktreeRemove"]);
 /** The task list's events (Claude Code: "TaskCreated hooks don't support matchers and fire on every occurrence"; TaskCompleted's the same). */
 export const TASK_EVENTS = new Set(["TaskCreated", "TaskCompleted"]);
 /** The events whose examples on Claude Code's hooks page carry no permission_mode ("Not all events receive this field"). */
-export const NO_MODE_EVENTS = new Set(["SessionStart", "SubagentStart", "Notification", "StopFailure", "CwdChanged", "FileChanged", "PreCompact", "PostCompact", "SessionEnd", "Elicitation", "ElicitationResult", "TaskCreated"]);
+export const NO_MODE_EVENTS = new Set(["SessionStart", "SubagentStart", "Notification", "StopFailure", "CwdChanged", "FileChanged", "PreCompact", "PostCompact", "SessionEnd", "Elicitation", "ElicitationResult", "TaskCreated", "InstructionsLoaded", "PreModelSwitch", "PostModelSwitch", "ConfigChange", "DirectoryAdded", "WorktreeCreate", "WorktreeRemove"]);
 /** "FileChanged and StopFailure use a narrower exact-match set of letters, digits, _, and | only." */
 const NARROW = new Set(["FileChanged", "StopFailure"]);
 /** The events whose hooks can block or change an action (never under the memory cap: Claude Code's "Permission-gating hooks"). */
-export const GATING_EVENTS = new Set(["PreToolUse", "PermissionRequest", "UserPromptSubmit", "Stop", "SubagentStop", "PreCompact", "PostToolBatch", "PostToolUse", "PostToolUseFailure", "TaskCreated", "TaskCompleted"]);
+export const GATING_EVENTS = new Set(["PreToolUse", "PermissionRequest", "UserPromptSubmit", "Stop", "SubagentStop", "PreCompact", "PostToolBatch", "PostToolUse", "PostToolUseFailure", "TaskCreated", "TaskCompleted", "UserPromptExpansion", "PreModelSwitch", "ConfigChange", "WorktreeCreate"]);
 /** The events whose hooks get the chat's hook env file (Claude Code: "CLAUDE_ENV_FILE is available for SessionStart, Setup, CwdChanged, and FileChanged hooks"). */
 export const ENV_FILE_EVENTS = new Set(["SessionStart", "CwdChanged", "FileChanged"]);
 
@@ -45,7 +47,7 @@ const ALL_TYPES = ["command", "http", "mcp_tool", "prompt", "agent"];
 export function typesFor(event) {
   if (event === "SessionStart") return ["command", "mcp_tool"];
   // (TaskCreated and TaskCompleted too: Claude Code's "Events that support all five hook types".)
-  if (["PermissionDenied", "PostToolBatch", "PostToolUse", "PostToolUseFailure", "PreToolUse", "Stop", "SubagentStop", "UserPromptSubmit", "TaskCreated", "TaskCompleted"].includes(event)) return ALL_TYPES;
+  if (["PermissionDenied", "PostToolBatch", "PostToolUse", "PostToolUseFailure", "PreToolUse", "Stop", "SubagentStop", "UserPromptSubmit", "TaskCreated", "TaskCompleted", "UserPromptExpansion"].includes(event)) return ALL_TYPES;
   if (event === "PermissionRequest") return ["command", "http", "mcp_tool", "prompt"];
   return ["command", "http", "mcp_tool"];
 }
@@ -63,7 +65,8 @@ export function timeoutFor(event, given, type = "command") {
   if (type === "prompt") return 30;
   if (type === "agent") return 60;
   if (event === "SessionEnd") return 1.5;
-  return event === "UserPromptSubmit" ? 30 : HOOK_TIMEOUT_S;
+  // (Claude Code "lowers the command, http, and mcp_tool default to 30 on UserPromptSubmit, PreModelSwitch, and PostModelSwitch".)
+  return event === "UserPromptSubmit" || event === "PreModelSwitch" || event === "PostModelSwitch" ? 30 : HOOK_TIMEOUT_S;
 }
 /**
  * SESSIONEND'S BUDGET, in seconds (Claude Code: "SessionEnd hooks have a default timeout of 1.5 seconds … The overall budget
@@ -180,10 +183,11 @@ export function hooksFrom(settings, source = "settings") {
           out.list.push({ ...base, url: String(h.url), ...(headers ? { headers } : {}), ...(strList(h.allowedEnvVars) ? { allowedEnvVars: strList(h.allowedEnvVars) } : {}), ...onFailure });
         } else if (type === "mcp_tool") {
           // (Claude Code's fields: `server` "Name of an already-configured MCP server to invoke", `tool` "Name of the tool on
-          // that server to call", `input` "Arguments passed to the MCP tool", an object; no onFailure.)
+          // that server to call", `input` "Arguments passed to the MCP tool", an object; and `onFailure`, "continue" or "block",
+          // as on command and http hooks: Claude Code 2.1.328, 2026-11-27.)
           if (typeof h.server !== "string" || !h.server.trim() || typeof h.tool !== "string" || !h.tool.trim()) { out.problems.push(event + ": an mcp_tool hook needs its server and tool"); continue; }
           if (h.input !== undefined && (!h.input || typeof h.input !== "object" || Array.isArray(h.input))) { out.problems.push(event + ": an mcp_tool hook's input is an object of the tool's arguments"); continue; }
-          out.list.push({ ...base, server: h.server, tool: h.tool, ...(h.input !== undefined ? { input: h.input } : {}) });
+          out.list.push({ ...base, server: h.server, tool: h.tool, ...(h.input !== undefined ? { input: h.input } : {}), ...onFailure });
         } else {
           if (typeof h.prompt !== "string" || !h.prompt.trim()) { out.problems.push(event + ": a " + type + " hook needs its prompt"); continue; }
           out.list.push({ ...base, prompt: h.prompt.slice(0, 20_000), ...(typeof h.model === "string" && h.model.trim() ? { model: h.model.trim() } : {}), ...(type === "prompt" && h.continueOnBlock === true ? { continueOnBlock: true } : {}) });
@@ -583,6 +587,7 @@ export function badShape(event, json) {
   if (sp !== undefined && (sp === null || typeof sp !== "object" || Array.isArray(sp))) checks.push(["hookSpecificOutput", sp, "object"]);
   else if (sp) {
     const at = (k, want) => { if (sp[k] !== undefined) checks.push(["hookSpecificOutput." + k, sp[k], want]); };
+    if (event === "PreModelSwitch") { at("permissionDecision", ["allow", "deny", "ask"]); at("permissionDecisionReason", "string"); }
     if (event === "PreToolUse") { at("permissionDecision", ["allow", "deny", "ask", "defer"]); at("permissionDecisionReason", "string"); at("updatedInput", "object"); }
     if (event === "PermissionRequest") {
       at("decision", "object");
@@ -651,14 +656,19 @@ export function hookResult(event, run, hook = {}) {
   // the tool returns isError: true, the hook produces a non-blocking error and execution continues"): one that could not
   // be read or was refused (`withheld`) refuses the call on PreToolUse, in Claude Code's words ("refusing rather than skipping
   // that gate"; `bare`: the words stand alone after "PreToolUse:<tool> hook error: "), and is an error notice elsewhere; one
-  // that timed out says nothing ("Timed out"); otherwise its text is read as a command hook's stdout on exit 0. (No onFailure.)
+  // that timed out says nothing ("Timed out"); otherwise its text is read as a command hook's stdout on exit 0. With
+  // onFailure "block" (Claude Code 2.1.328: "an mcp_tool hook's server isn't connected, or its tool returns an error. With
+  // "block" set on an event such as PreToolUse or UserPromptSubmit, a non-empty answer also counts unless it's {} or JSON
+  // that sets a hook output field other than reason"), a failure does what exit 2 does. 2026-11-27.
   if (hook.type === "mcp_tool") {
     const m = run && run.mcp && typeof run.mcp === "object" ? run.mcp : {};
     const err = String((run && run.stderr) || "");
     if (m.withheld && event === "PreToolUse") return { kind: "block", json: null, text: "", reason: "a PreToolUse mcp_tool hook could not run (" + err + "); refusing rather than skipping that gate", notice: "", bare: true };
-    if ((run && run.timedOut) || m.aborted) return { kind: "error", json: null, text: "", reason: "", notice: "Timed out" };
-    if (m.ok !== true) return { kind: "error", json: null, text: "", reason: "", notice: err || "MCP tool returned an error" };
-    return hookResult(event, { code: 0, stdout: String((run && run.stdout) || ""), stderr: "" }, { type: "command" });
+    if ((run && run.timedOut) || m.aborted) return fail("timed out") || { kind: "error", json: null, text: "", reason: "", notice: "Timed out" };
+    if (m.ok !== true) return fail("failed", err) || { kind: "error", json: null, text: "", reason: "", notice: err || "MCP tool returned an error" };
+    const said = String((run && run.stdout) || "");
+    if (blocks && GATING_EVENTS.has(event) && !mcpAnswerCounts(said)) return fail("failed", "the tool's answer is not a hook output: " + said.trim().slice(0, 300));
+    return hookResult(event, { code: 0, stdout: said, stderr: "" }, { type: "command" });
   }
   // An HTTP hook (Claude Code's "HTTP response handling").
   if (run && run.http) {
@@ -746,6 +756,9 @@ export function hooksOutcome(event, runs, { tool = "", rewrite = null } = {}) {
   let rewrites = 0, lastValue;
   // (StopFailure and SessionEnd: "Claude Code ignores the hook's output and exit code"; "discards their JSON output fields".)
   if (event === "StopFailure" || event === "SessionEnd") return out;
+  // (InstructionsLoaded: "Claude Code discards their JSON output fields". WorktreeCreate and WorktreeRemove: their success and
+  // the path decide, worktreeHookPath and worktreeRemoveOutcome; "discards systemMessage and continue". 2026-11-27.)
+  if (event === "InstructionsLoaded" || event === "WorktreeCreate" || event === "WorktreeRemove") return out;
   const rank = { deny: 4, ask: 2, allow: 1, "": 0 };
   for (const { hook, result } of Array.isArray(runs) ? runs : []) {
     if (!result) continue;
@@ -768,7 +781,7 @@ export function hooksOutcome(event, runs, { tool = "", rewrite = null } = {}) {
       else if (event === "PreToolUse") { out.decision = "deny"; out.reason = line; out.blocks.push(line); if (!goOn) out.endTurn = out.endTurn || why; }
       else if (event === "PostToolUse") { if (goOn) { out.decision = "block"; out.blocks.push(line); out.reason = out.reason || why; } else out.endTurn = out.endTurn || why; }
       else if (event === "PostToolUseFailure") { out.decision = "block"; out.blocks.push(line); out.reason = out.reason || why; }
-      else if (event === "PostToolBatch" || event === "UserPromptSubmit") { out.decision = "block"; out.blocks.push(line); out.reason = out.reason || why; out.endTurn = out.endTurn || why; }
+      else if (event === "PostToolBatch" || event === "UserPromptSubmit" || event === "UserPromptExpansion") { out.decision = "block"; out.blocks.push(line); out.reason = out.reason || why; out.endTurn = out.endTurn || why; }
       // (TaskCreated and TaskCompleted: the task is not made, or not completed, and the call's answer is Claude Code's
       // "<Event> hook feedback:" and a new line, then the hook's words; the turn goes on, continueOnBlock or not. 2026-11-14.)
       else if (TASK_EVENTS.has(event)) { out.decision = "block"; out.blocks.push(event + " hook feedback:\n" + err); out.reason = out.reason || why; }
@@ -776,6 +789,30 @@ export function hooksOutcome(event, runs, { tool = "", rewrite = null } = {}) {
     }
     const j = result.json || {};
     const spec = j.hookSpecificOutput && typeof j.hookSpecificOutput === "object" ? j.hookSpecificOutput : {};
+    // THE EVENTS OF 2026-11-27 (coder-hookevents.mjs), as Claude Code's hooks reference reads them:
+    // PreModelSwitch: exit 2 or decision "block" cancels; permissionDecision allow, deny or ask ("deny > ask > allow"); "ask"
+    // is a refusal where no /model prompt can show it (Coder checks the switch when the message is sent); its systemMessage
+    // is shown "regardless of the decision".
+    if (event === "PreModelSwitch") {
+      if (typeof j.systemMessage === "string" && j.systemMessage.trim()) out.messages.push(cap(j.systemMessage));
+      let d = result.kind === "block" || j.decision === "block" ? "deny" : typeof spec.permissionDecision === "string" && rank[spec.permissionDecision] !== undefined ? spec.permissionDecision : "";
+      const why = result.kind === "block" && !(typeof j.reason === "string" && j.reason.trim()) ? result.reason : typeof spec.permissionDecisionReason === "string" ? cap(spec.permissionDecisionReason) : typeof j.reason === "string" ? cap(j.reason) : "";
+      if (rank[d] > rank[out.decision]) { out.decision = d; out.reason = why; }
+      continue;
+    }
+    // ConfigChange: a block (exit 2 or decision "block") keeps the change from applying; "A blocked change surfaces no
+    // message"; systemMessage and continue discarded.
+    if (event === "ConfigChange") { if (result.kind === "block" || j.decision === "block") out.decision = "block"; continue; }
+    // DirectoryAdded: no decision; "delivers the hook's systemMessage to Claude as context on the next conversation turn, rather
+    // than showing it to you"; continue discarded.
+    if (event === "DirectoryAdded") { if (typeof j.systemMessage === "string" && j.systemMessage.trim()) out.context.push(cap(j.systemMessage)); continue; }
+    // PostModelSwitch: "plain-text stdout on exit 0, or additionalContext from JSON output", delivered to Claude; no block.
+    if (event === "PostModelSwitch") {
+      if (typeof j.systemMessage === "string" && j.systemMessage.trim()) out.messages.push(cap(j.systemMessage));
+      if (typeof spec.additionalContext === "string" && spec.additionalContext.trim()) out.context.push(cap(spec.additionalContext));
+      if (result.kind === "ok" && result.text && result.text.trim()) out.context.push(cap(result.text.trim()));
+      continue;
+    }
     // (CwdChanged and FileChanged: "Claude Code reads watchPaths and systemMessage from their JSON output and discards continue".)
     const observe = event === "CwdChanged" || event === "FileChanged";
     const compact = event === "PreCompact" || event === "PostCompact";
@@ -1037,6 +1074,17 @@ export async function runMcpToolHook(h, hookIn, { call = null } = {}) {
     return run(r);
   } finally { clearTimeout(timer); }
 }
+/** An mcp_tool hook's answer with onFailure "block": empty, {}, or JSON setting a hook output field other than reason. */
+const OUTPUT_FIELDS = ["continue", "suppressOutput", "stopReason", "decision", "systemMessage", "terminalSequence", "hookSpecificOutput"];
+export function mcpAnswerCounts(text) {
+  const t = String(text || "").trim();
+  if (!t) return true;
+  let v = null;
+  try { v = JSON.parse(t); } catch { return false; }
+  if (!v || typeof v !== "object" || Array.isArray(v)) return false;
+  const keys = Object.keys(v);
+  return !keys.length || keys.some((k) => OUTPUT_FIELDS.includes(k));
+}
 /** The line a failed hook's notice shows: a Node crash's error line, a Python traceback's last line, else the first line. */
 export function crashLine(stderr) {
   const lines = String(stderr || "").split("\n").map((l) => l.trim()).filter(Boolean);
@@ -1054,12 +1102,14 @@ export function crashLine(stderr) {
  * `sessionId`, `cwd`, `timestamp`, `isSidechain` false, `userType` "external"; a note from Coder's app is `isMeta`, as Claude
  * Code's reminders are. Coder's own instructions (the system message) are not in it, as Claude Code's system prompt is not.
  */
-export function transcriptLines(messages, { session = "", cwd = "", model = "", from = 0, parent = null, at = Date.now() } = {}) {
+export function transcriptLines(messages, { session = "", cwd = "", model = "", from = 0, parent = null, at = Date.now(), agent = "" } = {}) {
+  // (`agent`: a subagent's own transcript, Claude Code's agent_transcript_path in a nested subagents/ folder: its lines are
+  // the sidechain, isSidechain true, with its agentId. 2026-11-27.)
   const list = Array.isArray(messages) ? messages : [];
   // (The same message keeps its uuid when the file is written again: made from the chat and its place, four FNV-1a hashes,
   // as this module also runs in Coder's Worker, which has no Node modules.)
   const fnv = (str, seed) => { let h = seed >>> 0; for (let k = 0; k < str.length; k++) { h ^= str.charCodeAt(k); h = Math.imul(h, 16777619) >>> 0; } return h.toString(16).padStart(8, "0"); };
-  const uuidOf = (i) => { const key = String(session) + ":" + i; const h = [2166136261, 3735928559, 1540483477, 2654435761].map((seed) => fnv(key, seed)).join(""); return h.slice(0, 8) + "-" + h.slice(8, 12) + "-4" + h.slice(13, 16) + "-a" + h.slice(17, 20) + "-" + h.slice(20, 32); };
+  const uuidOf = (i) => { const key = String(session) + (agent ? ":" + agent : "") + ":" + i; const h = [2166136261, 3735928559, 1540483477, 2654435761].map((seed) => fnv(key, seed)).join(""); return h.slice(0, 8) + "-" + h.slice(8, 12) + "-4" + h.slice(13, 16) + "-a" + h.slice(17, 20) + "-" + h.slice(20, 32); };
   const part = (p) => {
     if (typeof p === "string") return { type: "text", text: p };
     if (!p || typeof p !== "object") return { type: "text", text: String(p ?? "") };
@@ -1096,15 +1146,19 @@ export function transcriptLines(messages, { session = "", cwd = "", model = "", 
       entry = { type: "user", ...(m.appNote ? { isMeta: true } : {}), message: { role: "user", content: content(m.content) } };
     } else continue;
     const uuid = uuidOf(i);
-    out.push(JSON.stringify({ parentUuid: prev, isSidechain: false, userType: "external", cwd: String(cwd), sessionId: String(session), ...entry, uuid, timestamp: stamp }));
+    out.push(JSON.stringify({ parentUuid: prev, isSidechain: !!agent, ...(agent ? { agentId: String(agent) } : {}), userType: "external", cwd: String(cwd), sessionId: String(session), ...entry, uuid, timestamp: stamp }));
     prev = uuid;
   }
   return { lines: out, last: prev };
 }
 /** The input every hook gets (Claude Code's common fields), with the event's own. */
-export function hookInput(event, { session = "", transcript = "", cwd = "", mode = "auto", effort = "", promptId = "", scratch = "/tmp/coder-scratch" } = {}, extra = {}) {
+export function hookInput(event, { session = "", transcript = "", cwd = "", mode = "auto", effort = "", promptId = "", scratch = "/tmp/coder-scratch", agent = null } = {}, extra = {}) {
+  // (`agent`: the subagent the hook fires in, { id, type }: Claude Code's agent_id and agent_type, "Present when … the hook
+  // fires inside a subagent", on every event there, not only SubagentStart and SubagentStop. 2026-11-27. The event's own
+  // fields, SubagentStart's and SubagentStop's, come after and win.)
+  const inAgent = agent && typeof agent === "object" && agent.id ? { agent_id: String(agent.id), agent_type: String(agent.type || "") } : {};
   // (`scratchpad_dir`: the chat's scratch folder, as Claude Code's common fields give it: Bash docs pass 9.)
   // (No permission_mode for the events whose examples on Claude Code's hooks page have none; TaskCompleted's has one. 2026-11-19.)
   // (`transcript_path`: the chat's conversation as Claude Code's JSON lines, transcriptLines; batch 8.)
-  return { session_id: String(session), ...(transcript ? { transcript_path: String(transcript) } : {}), ...(promptId ? { prompt_id: String(promptId) } : {}), cwd: String(cwd), ...(scratch ? { scratchpad_dir: String(scratch) } : {}), ...(NO_MODE_EVENTS.has(event) ? {} : { permission_mode: String(mode) }), hook_event_name: event, ...(effort ? { effort: { level: String(effort) } } : {}), ...extra };
+  return { session_id: String(session), ...(transcript ? { transcript_path: String(transcript) } : {}), ...(promptId ? { prompt_id: String(promptId) } : {}), cwd: String(cwd), ...(scratch ? { scratchpad_dir: String(scratch) } : {}), ...(NO_MODE_EVENTS.has(event) ? {} : { permission_mode: String(mode) }), hook_event_name: event, ...(effort ? { effort: { level: String(effort) } } : {}), ...inAgent, ...extra };
 }
