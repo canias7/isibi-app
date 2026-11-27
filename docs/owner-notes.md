@@ -5,6 +5,31 @@ The owner's running log, newest first, in plain English. Started fresh on
 log (81,000 lines) is in git history.
 
 
+## 2026-11-27: A test connector and test websites for the "can't test" rows
+
+So more rows could be tried live, two things were set up on the test account (aniascristian) only, through the gofarther.dev page:
+
+- **A connector "mcpdemo"**: the free demo MCP server at https://example-server.modelcontextprotocol.io/mcp (no sign-up, no
+  payment; its sign-in is a click-through test page). It has 9 tools, 3 prompts and 100 resources (test://static/resource/1..100,
+  even ones binary). Connectors page, Yours.
+- **The test account's Default environment**: network access now allows example.com, postman-echo.com, echo.websocket.org and
+  ws.postman-echo.com, and three variables: CODER_ENABLE_REFRESH_MCP_TOOLS=1, CODER_MCP_HEADERS_HELPER (prints a harmless
+  X-S01-Test header) and CODER_PROXY_RESOLVES_HOSTS=1.
+
+How to remove them: Connectors, mcpdemo, Disconnect; Environment, Network access, remove the four sites; Environment variables,
+delete the three lines. They are left in place for future tests.
+
+Tried live with Grok on Low (13 messages, two new chats, both deleted afterwards). 21 rows moved off "can't test": all the
+connector resource rows (list, read, binary saved to a file, folder listing), refresh_mcp_tools, a connector tool's input and
+result in the hook, the headers helper (its 500-character limit and 10-second limit both stop the call), and web_fetch's
+offset, request headers and style/script removal. Partly: the 15-minute cache and http-to-https (they work, but nothing in the
+result shows them), "fetch again for what was missed", and an unknown resource folder (empty list, no error).
+
+Still can't test: the WebSocket rows. echo.websocket.org is allowed, but Monitor says "could not resolve echo.websocket.org"
+and tells you to set CODER_PROXY_RESOLVES_HOSTS=1, which was set and changed nothing. That looks like a bug worth a fix.
+
+New counts for the round: 115 ✓, 27 partly, 0 ✗, 52 can't test.
+
 ## 2026-11-27: Spreadsheet: every row from this round's live test filled in
 
 The 98 rows from this round that were left blank are now filled in the "Tried live (2026-11-27)" column, from the five test reports. The round's rows now stand at 98 ✓, 23 partly, 0 ✗ and 73 can't test, each with its reason (mostly: no connector with resources, test web pages blocked by Coder's network gate, long waits or caps, or Gloopy-only browser tools). Rows with no entry in that column were already tried live earlier.
