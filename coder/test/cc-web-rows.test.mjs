@@ -184,18 +184,9 @@ test("WR9 an MCP tool's result for the PostToolUse hooks is the server's list of
   assert.deepEqual(MCP.withBlocks(r).content.length, 2, "spelled out for the machine");
 });
 
-test("WR10 a WebSocket watch behind the gate: the address the proxy finds isn't checked; Coder looks the host up itself first and fails with \"could not resolve <host>\" unless CODER_PROXY_RESOLVES_HOSTS is 1, when the proxy looks it up; only the environment's own variables set it", async () => {
-  const lines = [];
-  const out = (t) => lines.push(JSON.parse(t));
-  await T.toolWsWatch({ url: "wss://nowhere.example/feed" }, { out, proxy: "http://127.0.0.1:9", resolves: "", lookup: (h, cb) => cb(new Error("ENOTFOUND")) });
-  assert.match(lines[0].error, /^could not resolve nowhere\.example /);
-  lines.length = 0;
-  await T.toolWsWatch({ url: "wss://nowhere.example/feed" }, { out, proxy: "http://127.0.0.1:9", resolves: "1", lookup: () => { throw new Error("not looked up"); } });
-  assert.doesNotMatch(lines[0].error, /could not resolve/, "the proxy was asked instead");
-  assert.equal(T.proxyResolvesHosts("true"), true);
-  assert.equal(T.proxyResolvesHosts("0"), false);
-  const srv = readFileSync(new URL("../container/server.mjs", import.meta.url), "utf8");
-  assert.match(srv, /hasOwnProperty\.call\(ownerVars, "CODER_PROXY_RESOLVES_HOSTS"\)\)\) delete extraEnv\.CODER_PROXY_RESOLVES_HOSTS;/);
+test("WR10 a WebSocket watch behind the gate asks the gate, never looks the host up itself (ws-monitor-1127.test.mjs)", () => {
+  assert.equal(typeof T.proxyResolvesHosts, "undefined");
+  assert.equal(typeof T.couldNotResolve, "undefined");
 });
 
 test("WR11 WebFetch and the network list: like Claude Code's sandbox allowedDomains, the list doesn't decide whether a fetch asks (only WebFetch rules and the pre-approved documentation sites do), and the gate never takes the documentation sites for commands", async () => {

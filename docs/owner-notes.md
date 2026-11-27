@@ -5,6 +5,15 @@ The owner's running log, newest first, in plain English. Started fresh on
 log (81,000 lines) is in git history.
 
 
+## 2026-11-27: WebSocket monitors now reach allowed sites
+
+A Monitor watching a WebSocket (for example wss://echo.websocket.org) said "could not resolve" even though the site was on the
+environment's allowed list, and setting CODER_PROXY_RESOLVES_HOSTS=1 did not help. The cause: Coder tried to look the site's
+address up itself before asking the network gate, and inside the machine that lookup can fail. Now the WebSocket monitor goes
+through the gate the same way web_fetch does (the gate looks the site up and decides), so an allowed site just works and no
+variable is needed. The CODER_PROXY_RESOLVES_HOSTS variable no longer does anything and can be deleted from the test account.
+It still asks you first, and local and private addresses are still refused. Tests: coder/test/ws-monitor-1127.test.mjs.
+
 ## 2026-11-27: A test connector and test websites for the "can't test" rows
 
 So more rows could be tried live, two things were set up on the test account (aniascristian) only, through the gofarther.dev page:

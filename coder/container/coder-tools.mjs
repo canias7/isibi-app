@@ -2411,15 +2411,11 @@ export async function toolStamps({ paths }) {
 export const WS_MAX = 1024 * 1024;
 const WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 /**
- * BEHIND THE GATE'S PROXY (Claude Code's "Addresses and hosts denied to WebSocket watches", 2026-11-23): the address the proxy
- * finds isn't checked (the gate's own lists decide: its blocked sites, Claude Code's deniedDomains, and the network list,
- * its managed allowlist); Coder looks the host up itself first, as Claude Code does, and a host it can't resolve fails with
- * "could not resolve <host>", unless the environment's CODER_PROXY_RESOLVES_HOSTS is 1 (or true), Claude Code's
- * CLAUDE_CODE_PROXY_RESOLVES_HOSTS: then the proxy looks the hostname up. Only from the environment, never a repository's
- * settings ("settings files can no longer set it where the host manages the network").
+ * BEHIND THE GATE'S PROXY: the same path web_fetch takes (coder-webfetch.mjs requestOnce). The host name goes to the gate
+ * as it is, in the CONNECT line and its Host header, and the gate looks it up and decides (its own lists and the chat's
+ * network list). Coder no longer looks the host up itself first: inside the room a name may not resolve at all, so an
+ * allowed host failed with "could not resolve" (live, 2026-11-27). No variable is needed.
  */
-export const proxyResolvesHosts = (v) => /^(?:1|true)$/i.test(String(v ?? "").trim());
-export const couldNotResolve = (host) => "could not resolve " + host + " (behind the network gate, Coder looks the host up itself; set CODER_PROXY_RESOLVES_HOSTS=1 in the environment's variables so the gate looks it up instead)";
 /** Claude Code's cloud answer for a private address ("Destination IP is in a private/reserved range", x-deny-reason private_dest_ip). */
 export const PRIVATE_DEST = "Destination IP is in a private/reserved range";
 /** A WebSocket address whose host is a private or the machine's own address, written as one (or localhost). */
@@ -2430,7 +2426,13 @@ export function wsPrivateHost(url) {
   if (host === "localhost" || host.endsWith(".localhost")) return true;
   return !!isIP(host) && privateAddress(host);
 }
-export async function toolWsWatch({ url, protocols = [] }, { out = (t) => process.stdout.write(t), allowPrivate = false, proxy = null, resolves = null, lookup = null } = {}) {
+/** The gate's no, in web_fetch's words: a private address, a host not on the list, or any other refusal. */
+export function wsGateRefusal(res, host) {
+  const h = (res && res.headers) || {}, reason = String(h["x-deny-reason"] || ""), perr = String(h["x-proxy-error"] || "");
+  if (res && res.statusCode === 403 && reason === "private_dest_ip") return PRIVATE_DEST;
+  return res && res.statusCode === 403 ? "request blocked: no rule or allowlist entry allows host " + host : "the proxy refused " + host;
+}
+export async function toolWsWatch({ url, protocols = [] }, { out = (t) => process.stdout.write(t), allowPrivate = false, proxy = null } = {}) {
   const say = (v) => out(JSON.stringify(v) + "\n");
   let u;
   try { u = new URL(String(url)); } catch { say({ error: "not a WebSocket address" }); return ""; }
@@ -2440,18 +2442,13 @@ export async function toolWsWatch({ url, protocols = [] }, { out = (t) => proces
   // 2026-11-24, ws://127.0.0.1 was refused by the gate's "no rule allows host" instead.)
   if (!allowPrivate && wsPrivateHost(url)) { say({ error: PRIVATE_DEST }); return ""; }
   const px = proxy !== null ? proxy : process.env.CODER_NET_LIMITED === "1" && (process.env.HTTPS_PROXY || "");
-  // (Behind the proxy: the host looked up here first, unless the proxy is to do it. proxyResolvesHosts.)
-  if (px && !isIP(host) && !proxyResolvesHosts(resolves !== null ? resolves : process.env.CODER_PROXY_RESOLVES_HOSTS)) {
-    const look = typeof lookup === "function" ? lookup : lookupCb;
-    const found = await new Promise((r) => { try { look(host, (e) => r(!e)); } catch { r(false); } });
-    if (!found) { say({ error: couldNotResolve(host) }); return ""; }
-  }
   // 1. ITS CONNECTION: through the proxy (CONNECT), or straight, refusing a private address.
   const got = await new Promise((done) => {
     if (px) {
       const p = new URL(px);
-      const c = http.request({ host: p.hostname, port: p.port, method: "CONNECT", path: (host.includes(":") ? "[" + host + "]" : host) + ":" + port });
-      c.on("connect", (res, sock) => { if (res.statusCode !== 200) { sock.destroy(); return done({ error: res.statusCode === 403 ? "request blocked: no rule or allowlist entry allows host " + host : "the proxy refused " + host }); } done({ sock }); });
+      const target = (host.includes(":") ? "[" + host + "]" : host) + ":" + port;
+      const c = http.request({ host: p.hostname, port: p.port || 80, method: "CONNECT", path: target, headers: { host: target } });
+      c.on("connect", (res, sock) => { if (res.statusCode !== 200) { sock.destroy(); return done({ error: wsGateRefusal(res, host) }); } done({ sock }); });
       c.on("error", (e) => done({ error: String((e && e.message) || e).slice(0, 300) }));
       c.end();
       return;

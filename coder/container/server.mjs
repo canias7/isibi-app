@@ -5400,9 +5400,6 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     const extraEnv = { ...withoutOtel(repoSet.env), ...withoutOtel(ownerVars), GIT_EDITOR: "true", ...(extras.length ? { CODER_EXTRA_ROOTS: extras.map((x) => x.dir).join(":") } : {}) };
     // CODER'S OWN MARKS IN EVERY COMMAND (see coderMarks, AGENT_MARK): after the owner's, so one of theirs cannot hide them.
     Object.assign(extraEnv, coderMarks(project, body.chatUrl, body.model ? pickModel(body.model, body.effort).effort : ""), AGENT_MARK, REMOTE_MARK);
-    // (CODER_PROXY_RESOLVES_HOSTS only from the environment's own variables, never a repository's settings: Claude Code's
-    // "settings files can no longer set it where the host manages the network". coder-tools.mjs toolWsWatch; 2026-11-23.)
-    if (!(ownerVars && typeof ownerVars === "object" && Object.prototype.hasOwnProperty.call(ownerVars, "CODER_PROXY_RESOLVES_HOSTS"))) delete extraEnv.CODER_PROXY_RESOLVES_HOSTS;
     t.extraEnv = extraEnv; // a network change during the job adds the proxy here (/network)
     // WHERE THE COMMANDS ARE (the owner, 2026-11-08: "lets do it the claude code way"): where the chat's last command left
     // them (body.cwd, kept by the Worker), while that is still the project's folder, one of the other repositories', or a
