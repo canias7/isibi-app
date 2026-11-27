@@ -196,7 +196,7 @@ test("M-a-07 Claude Code's NotebookEdit as notebook_edit, for real: one cell rep
   assert.equal(readFileSync(file, "utf8"), before);
   // Changed since it was read: read it again first.
   writeFileSync(file, before.replace("Some notes", "Other notes"));
-  assert.match(tool("notebook_edit", { notebook_path: file, cell_id: "intro01", new_source: "x" }), /^error: work\.ipynb has been modified since read/);
+  assert.match(tool("notebook_edit", { notebook_path: file, cell_id: "intro01", new_source: "x" }), /^error: File has been modified since read/);
   // An older notebook (no ids): cell-N, and an inserted cell gets none; CRLF line endings kept.
   const old = join(dir, "old.ipynb");
   writeFileSync(old, JSON.stringify({ cells: [{ cell_type: "code", metadata: {}, execution_count: 1, outputs: [], source: ["a = 1"] }], metadata: {}, nbformat: 4, nbformat_minor: 2 }, null, 1).replace(/\n/g, "\r\n") + "\r\n");

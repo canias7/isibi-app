@@ -262,7 +262,7 @@ test("CK1 the auto mode checker's tenth response in a row with no verdict ends t
 test("FV1 the file tools' own checks before their hooks, in Claude Code 2.1.325's order and words (its Read, Write and Edit validateInput): the inputs, a null byte, a path over 4,096 characters or ending in white space once resolved, read's pages, edit's 'No changes to make' (before the deny rules), read's binary kinds (after them); pages as its Read takes them", () => {
   const f = T.fileInputProblem;
   assert.equal(f("read", { path: "" }), "give a path");
-  assert.equal(f("read", { path: "a\0.txt" }), "read path cannot contain null bytes (\\0). Remove the null byte and try again.");
+  assert.equal(f("read", { path: "a\0.txt" }), "Read file_path cannot contain null bytes (\\0). Remove the null byte and try again.");
   // A path over 4,096 characters, and one that ends in white space once its "." and ".." are resolved (Claude Code's own two
   // checks after the null byte; white space around what was given is trimmed, as its tools take a path: toolPath).
   assert.equal(T.PATH_MAX, 4096);
@@ -270,18 +270,18 @@ test("FV1 the file tools' own checks before their hooks, in Claude Code 2.1.325'
   assert.equal(f("write", { path: "notes /.", content: "x" }), "write path ends in white space once its \".\" and \"..\" are resolved, and write refuses such a path. If the white space is not meant, send the path without it. write cannot open a file whose own name ends in white space.");
   assert.ok(f("edit", { path: "a.txt /x/..", old_string: "a", new_string: "b" }).startsWith("edit path ends in white space once its \".\" and \"..\" are resolved, and edit refuses such a path."));
   assert.deepEqual([f("read", { path: " a.txt " }), f("edit", { path: "d /..", old_string: "a", new_string: "b" }), f("read", { path: "~/notes.md" })], ["", "", ""], "trimmed, or a white space that a \"..\" takes away: taken");
-  assert.equal(f("read", { path: "a\0" + "x".repeat(5000) }).slice(0, 34), "read path cannot contain null byte", "the null byte first");
+  assert.equal(f("read", { path: "a\0" + "x".repeat(5000) }).slice(0, 34), "Read file_path cannot contain null", "the null byte first");
   assert.equal(f("read", { path: " pic.bmp " }, "after"), T.BINARY_REFUSED(".bmp"), "its kind from the path as the tool opens it");
   assert.equal(f("read", { path: "doc.pdf", pages: "1,3" }), 'Invalid pages parameter: "1,3". Give one page ("3") or one range ("1-5"), not a list. To read several pages or ranges, read each one separately. Pages are 1-indexed.');
   assert.equal(f("read", { path: "a.zip", pages: "0" }).slice(0, 25), "Invalid pages parameter: ", "pages before the binary kind, as there");
   assert.equal(f("read", { path: "pic.bmp" }), "", "the binary kinds come after the deny rules");
   assert.deepEqual(["pic.bmp", "scan.TIF", "fax.tiff", "app.zip", "x.png", "x.webp", "doc.pdf", "notes.txt"].map((p) => f("read", { path: p }, "after")), [T.BINARY_REFUSED(".bmp"), T.BINARY_REFUSED(".tif"), T.BINARY_REFUSED(".tiff"), T.BINARY_REFUSED(".zip"), "", "", "", ""]);
   assert.equal(f("edit", { path: "a.txt", new_string: "b" }), "give old_string: the exact text to replace");
-  assert.equal(f("edit", { path: "a\0", old_string: "x", new_string: "x" }), "edit path cannot contain null bytes (\\0). Remove the null byte and try again.", "a null byte before 'No changes', as there");
+  assert.equal(f("edit", { path: "a\0", old_string: "x", new_string: "x" }), "Edit file_path cannot contain null bytes (\\0). Remove the null byte and try again.", "a null byte before 'No changes', as there");
   assert.equal(f("edit", { file_path: "a.txt", old_str: "x", new_str: "x" }), "No changes to make: old_string and new_string are exactly the same.");
   assert.equal(f("write", { path: "a.txt" }), "give the file's content");
   assert.equal(f("write", { path: "a.txt", content: "x", file_text: "y" }), "write failed due to the following issue: An unexpected parameter `file_text` was provided");
-  assert.equal(f("write", { path: "b\0.txt", content: "x" }), "write path cannot contain null bytes (\\0). Remove the null byte and try again.");
+  assert.equal(f("write", { path: "b\0.txt", content: "x" }), "Write file_path cannot contain null bytes (\\0). Remove the null byte and try again.");
   assert.equal(f("write", { path: "ok.txt", content: "x" }), "");
   // Read's pages, as Claude Code's Read takes them: one page or one range ("3-" to the end), at most 20; "" as none.
   assert.deepEqual(["3", "1-20", " 2 - 4 ", "", null].map(T.pagesProblem), ["", "", "", "", ""]);
@@ -361,10 +361,10 @@ test("FV3 the tools script's part, for real (its file_check and each run, the sa
     // Changed since read: refused where its old text is not there once (before 'not text' and 'not found'); applied where it is.
     tool("read", { path: "a.txt" });
     writeFileSync(join(dir, "a.txt"), "hello world\nchanged line\n");
-    assert.equal(chk("edit", { path: "a.txt", old_string: "nope", new_string: "b" }), "error: a.txt " + T.WRITE_CHANGED + ".");
-    assert.equal(chk("edit", { path: "a.txt", old_string: "changed line", new_string: "b" }), "ok");
+    assert.equal(chk("edit", { path: "a.txt", old_string: "nope", new_string: "b" }), "error: " + T.WRITE_CHANGED + ".");
+    assert.equal(chk("edit", { path: "a.txt", old_string: "changed line", new_string: "b" }), "error: " + T.WRITE_CHANGED + ".", "refused even where it applies (2026-11-27, as Claude Code)");
     // The run's own order is the same (its checks first): a changed file whose old text is gone.
-    assert.equal(tool("edit", { path: "a.txt", old_string: "nope", new_string: "b" }), "error: a.txt " + T.WRITE_CHANGED + ".");
+    assert.equal(tool("edit", { path: "a.txt", old_string: "nope", new_string: "b" }), "error: " + T.WRITE_CHANGED + ".");
     // Its path's own checks: Claude Code's words, before anything else on the machine.
     assert.equal(tool("read", { path: "sub /." }), "error: read path ends in white space once its \".\" and \"..\" are resolved, and read refuses such a path. If the white space is not meant, send the path without it. read cannot open a file whose own name ends in white space.");
     assert.match(tool("write", { path: "x".repeat(5000), content: "a" }), /^error: write path has 5000 characters, and write takes at most 4096\./);

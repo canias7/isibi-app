@@ -86,7 +86,16 @@ export function zipEntries(bytes) {
   let eocd = -1;
   for (let i = bytes.length - 22; i >= Math.max(0, bytes.length - 22 - 65535); i--) if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
   if (eocd < 0) return { error: "the download is not a zip archive" };
-  const count = dv.getUint16(eocd + 10, true), cdOff = dv.getUint32(eocd + 16, true);
+  let count = dv.getUint16(eocd + 10, true), cdOff = dv.getUint32(eocd + 16, true);
+  // ZIP64 (2026-11-27): a zip of more than 65,535 entries keeps its real count in the Zip64 end record, found through the
+  // locator just before the end record; read only from the 16-bit count, the 100,000-entry limit could never be reached.
+  if ((count === 0xffff || cdOff === 0xffffffff) && eocd >= 20 && dv.getUint32(eocd - 20, true) === 0x07064b50) {
+    const z = Number(dv.getBigUint64(eocd - 20 + 8, true));
+    if (z + 56 > bytes.length || dv.getUint32(z, true) !== 0x06064b50) return { error: "the zip archive's directory is damaged" };
+    const n64 = dv.getBigUint64(z + 32, true), off64 = dv.getBigUint64(z + 48, true);
+    if (n64 > BigInt(ZIP_ENTRIES_MAX)) return { error: "the archive has more than 100,000 files and folders" };
+    count = Number(n64); cdOff = Number(off64);
+  }
   if (count > ZIP_ENTRIES_MAX) return { error: "the archive has more than 100,000 files and folders" };
   const out = [];
   let p = cdOff, total = 0;

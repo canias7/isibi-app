@@ -7706,7 +7706,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // APPROVED: plan mode ends (unless a hook already set the mode), an edited plan is saved to the plan file, and Coder
         // is told Claude Code's result; its PostToolUse hooks get Claude Code's result object (plan, isAgent, filePath,
         // planWasEdited).
-        const approve = async (txt, edited, to, how) => {
+        const approve = async (txt, edited, to, how, byOwner = false) => {
           // (Saved as Claude Code 2.1.325 saves it, coder-plan-file.mjs: a plan in the repository's plansDirectory folder that
           // cannot be saved there goes to the chat's default plans folder under a new name, kept from now on; its warning,
           // Claude Code's own, shows in the chat. 2026-11-14.)
@@ -7731,7 +7731,9 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           if (!planBox) planExitDue = planExitedNote("", false);
           // (What Coder and the hooks get of it, with the owner's values hidden, as before.)
           const said = scrub(String(txt).replace(/\r\n?/g, "\n"));
-          toolFacts.set(c.id, { plan: file && !edited && fromFile === null ? null : said, isAgent: false, hasTaskTool: chatTools.some((t) => t && t.function && t.function.name === "agent") && !toolDenied("agent"), ...(file && !unsaved ? { filePath: savedAt } : {}), ...(file && edited ? { planWasEdited: true } : {}) });
+          toolFacts.set(c.id, { plan: file && !edited && fromFile === null ? null : said, isAgent: false, hasTaskTool: chatTools.some((t) => t && t.function && t.function.name === "agent") && !toolDenied("agent"), ...(file && !unsaved ? { filePath: savedAt } : {}), ...((file && edited) || byOwner ? { planWasEdited: true } : {}) });
+          // (planWasEdited also with no plan file, when the owner edited the plan on the card, as Claude Code sets it: "true
+          // when the user edited the plan before approving". 2026-11-27: it was left out without a plan file.)
           // THE CHAT NAMED AFTER ITS PLAN (Claude Code: "Accepting a plan also gives the session a generated title based on the
           // plan, unless you've already named the session"; 2026-11-20): its first heading, else its first line, no model call.
           if (!github && !sessionTitle && !String(customTitle || "").trim()) { const pt = planTitleOf(said); if (pt) { planTitle = pt; emit({ type: "renamed", text: pt, by: "plan" }); } }
@@ -7769,7 +7771,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         const final = ownerEdit !== null ? ownerEdit : asked;
         // (The owner's words with their approval: Claude Code's plan approval sends them as it sends a Yes's, yesNote. 2026-11-14.)
         if (a.comment && !offered) yesWords.set(c.id, a.comment);
-        reply(await approve(final, !!file && (ownerEdit !== null || asked !== (fromFile === null ? "" : fromFile)), a.choice, "plan") + (a.comment && offered ? "\n\n(The owner approved it with a note: " + a.comment + ")" : ""));
+        reply(await approve(final, !!file && (ownerEdit !== null || asked !== (fromFile === null ? "" : fromFile)), a.choice, "plan", ownerEdit !== null) + (a.comment && offered ? "\n\n(The owner approved it with a note: " + a.comment + ")" : ""));
       } else if (c.name === "todo") {
         // (Gloopy's own checklist: Coder has Claude Code's task list instead, below.)
         const items = (Array.isArray(c.args.items) ? c.args.items : []).slice(0, 30).map((x) => ({ text: scrub(String((x && x.text) || "")).slice(0, 200), status: ["pending", "in_progress", "done"].includes(x && x.status) ? x.status : "pending" })).filter((x) => x.text);

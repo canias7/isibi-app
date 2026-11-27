@@ -76,7 +76,8 @@ function schemaProblem(tool, input, props) {
   return issues.length ? failedText(tool, issues) : "";
 }
 /** A null byte in one of these, refused in Claude Code's words ("Grep pattern cannot contain null bytes (\0). …"). */
-const nulProblem = (tool, pairs) => { const hit = pairs.find(([, s]) => typeof s === "string" && s.includes("\u0000")); return hit ? tool + " " + hit[0] + " cannot contain null bytes (\\0). Remove the null byte and try again." : ""; };
+// (The text \u0000 standing for one counts too, 2026-11-27, but not in Grep's pattern, where it is a regex's own escape.)
+const nulProblem = (tool, pairs) => { const hit = pairs.find(([k, s]) => typeof s === "string" && (s.includes("\u0000") || (!(tool === "Grep" && k === "pattern") && /\\u0000/i.test(s)))); return hit ? tool + " " + hit[0] + " cannot contain null bytes (\\0). Remove the null byte and try again." : ""; };
 /**
  * GREP'S FIXES (Claude Code 2.1.292: "Grep accepts `file_path` for `path`"; 2.1.295: "a search sent with grep's `-l`, `-c`
  * or `-r` flag now runs instead of failing the call"; its coerceInput, word for word): the input fixed, and what Coder is

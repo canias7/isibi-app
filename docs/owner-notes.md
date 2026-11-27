@@ -5,6 +5,31 @@ The owner's running log, newest first, in plain English. Started fresh on
 log (81,000 lines) is in git history.
 
 
+## 2026-11-27: Five more places Coder now does what Claude Code does
+
+**A file changed since it was read.** After `echo zz >> f`, Coder still let an edit through (and said the file was current
+in its context). Now edit and write both refuse it until the file is read again, in Claude Code's own words: "File has been
+modified since read, either by the user or by a linter. Read it again before attempting to write it." Coder's note about
+the change after a command no longer counts as a read.
+
+**Zip limits.** Claude Code's Read doesn't open zips either, so "This tool cannot read binary files" was right. The limits
+row (100,000 entries, 512 MiB a file, 1 GiB in all, 50x) is about installing a plugin from a zip, and Coder checks it there.
+One gap: a zip of more than 65,535 entries keeps its real count in a "Zip64" record Coder never read, so the 100,000 limit
+could never fire. Now it reads it.
+
+**A null byte in a path.** Read, Write and Edit now say "Read file_path cannot contain null bytes (\0). Remove the null byte
+and try again." (and Write…, Edit…), like Claude Code; Grep and Glob already did. The text `\u0000` counts as a null byte
+too, except inside a Grep pattern, where it is a normal regex escape.
+
+**What hooks get from a picture or PDF read.** This was already what Claude Code sends (the picture as `type: 'image'`
+with its base64, and the "parts" form for PDF pages, without the page pictures). Only the spreadsheet said otherwise; it is
+corrected.
+
+**Approving a plan.** When you edit the plan on the card, the result now says `planWasEdited: true` even when the chat has
+no plan file. Before, it was only there with a plan file.
+
+Tests: coder/test/cc-diffs-a.test.mjs. Not yet tried live on gofarther.dev.
+
 ## 2026-11-26: The card really names the pushed branch now, and read-only gh doesn't ask
 
 Found in the live test of e8a426ac on gofarther.dev.

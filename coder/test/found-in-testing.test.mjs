@@ -475,7 +475,7 @@ test("CD212 the file tools refuse a null byte in a path or a pattern as Claude C
   const run = machine(dir);
   const tool = async (name, args) => (await run({ command: "node --no-warnings " + toolsScript + " " + Buffer.from(JSON.stringify({ tool: name, args })).toString("base64") })).output;
   // (Read's named too since round 6, as Claude Code's "Read file_path cannot contain null bytes …", before its hooks.)
-  for (const [name, args, what] of [["read", { path: "a.txt\0.png" }, "read path"], ["write", { path: "b\0.txt", content: "x" }, "write path"], ["edit", { path: "a.txt\0", old_string: "hi", new_string: "yo" }, "edit path"], ["grep", { pattern: "h\0i" }, "Grep pattern"], ["glob", { pattern: "*\0.txt" }, "Glob pattern"]]) {
+  for (const [name, args, what] of [["read", { path: "a.txt\0.png" }, "Read file_path"], ["write", { path: "b\0.txt", content: "x" }, "Write file_path"], ["edit", { path: "a.txt\0", old_string: "hi", new_string: "yo" }, "Edit file_path"], ["grep", { pattern: "h\0i" }, "Grep pattern"], ["glob", { pattern: "*\0.txt" }, "Glob pattern"]]) {
     assert.equal(await tool(name, args), "error: " + what + " cannot contain null bytes (\\0). Remove the null byte and try again.", name);
   }
   assert.match(await tool("read", { path: "fake.pdf" }), POPPLER ? /^error: fake\.pdf is not a valid PDF; it could not be opened.*\. If it should be one, try its text with bash \(pdftotext\)$/s : /^error: this machine has no PDF reader \(poppler\); use bash$/);
@@ -512,8 +512,9 @@ test("CD213 a command that changes a file Coder read says so in its result, as C
   assert.deepEqual((await changed()).changed, [], "only touched: the same bytes");
   // Changed and not shown yet: write refuses it (as Claude Code's Write did in the same answer as the command); once the note
   // after the round has shown it (the agent's `changed` with `shown`), it may.
-  assert.match(await tool("write", { path: "a.js", content: "const a = 3;\n" }), /^error: a\.js has been modified since read/);
+  assert.match(await tool("write", { path: "a.js", content: "const a = 3;\n" }), /^error: File has been modified since read/);
   assert.equal(await tool("changed", { shown: ["a.js"] }), '{"shown":1}');
+  await tool("read", { path: "a.js" }); // (2026-11-27: the note is no read; read again before writing, as in Claude Code.)
   // Coder's own write and edit are no news to it.
   await tool("write", { path: "a.js", content: "const a = 3;\n" });
   await tool("edit", { path: "a.js", old_string: "3", new_string: "4" });
@@ -1538,13 +1539,13 @@ test("CD249 write does not replace a file that has changed since Coder read or w
   const { mkdtemp, writeFile, readFile, utimes } = await import("node:fs/promises");
   const { tmpdir } = await import("node:os");
   const { join } = await import("node:path");
-  assert.equal(WRITE_CHANGED, "has been modified since read, either by a command or by something running in the background. Read it again before attempting to write it");
+  assert.equal(WRITE_CHANGED, "File has been modified since read, either by the user or by a linter. Read it again before attempting to write it");
   const dir = await mkdtemp(join(tmpdir(), "coder-wchanged-"));
   const follow = await mkdtemp(join(tmpdir(), "coder-wchanged-follow-"));
   const run = machine(dir, undefined, { ...process.env, CODER_SEEN_DIR: follow });
   const tool = async (name, args) => (await run({ command: "node --no-warnings " + toolsScript + " " + Buffer.from(JSON.stringify({ tool: name, args })).toString("base64") })).output;
   const later = async (f) => { const t = new Date(Date.now() + 5000); await utimes(join(dir, f), t, t); };
-  const refused = (f) => "error: " + f + " has been modified since read, either by a command or by something running in the background. Read it again before attempting to write it.";
+  const refused = (f) => "error: File has been modified since read, either by the user or by a linter. Read it again before attempting to write it.";
   // Read, then changed: refused, and untouched.
   await writeFile(join(dir, "a.txt"), "one\ntwo\n");
   await tool("read", { path: "a.txt" });
@@ -1572,7 +1573,10 @@ test("CD249 write does not replace a file that has changed since Coder read or w
   assert.deepEqual(note.changed.map((c) => c.path).sort(), ["s.txt", "w.txt"], "s.txt too: changed, and not read again");
   // Told, but not shown yet (the note comes after the round): still refused; once shown, allowed.
   assert.equal(await tool("write", { path: "w.txt", content: "again\n" }), refused("w.txt"));
+  // (2026-11-27: the note showing it is no read, as in Claude Code: still refused until read again.)
   await tool("changed", { shown: ["w.txt"] });
+  assert.equal(await tool("write", { path: "w.txt", content: "again\n" }), refused("w.txt"));
+  await tool("read", { path: "w.txt" });
   assert.match(await tool("write", { path: "w.txt", content: "again\n" }), /^The file w\.txt has been updated successfully\./);
   assert.equal(await readFile(join(dir, "w.txt"), "utf8"), "again\n");
   // Never read: no record, so nothing to compare (as before).
@@ -1720,7 +1724,7 @@ test("CD253 write's last two from Claude Code's docs (the owner, 2026-11-09: \"l
   await mkdir(dir);
   const run = machine(dir);
   const write = async (path, content = "x\n") => (await run({ command: "node --no-warnings " + toolsScript + " " + Buffer.from(JSON.stringify({ tool: "write", args: { path, content } })).toString("base64") })).output;
-  assert.equal(await write("a\0.txt"), "error: write path cannot contain null bytes (\\0). Remove the null byte and try again.");
+  assert.equal(await write("a\0.txt"), "error: Write file_path cannot contain null bytes (\\0). Remove the null byte and try again.");
   await symlink("loopb", join(dir, "loopa"));
   await symlink("loopa", join(dir, "loopb"));
   await symlink("/nonexistent/dir", join(dir, "nowhere"));
@@ -2036,17 +2040,17 @@ test("CD260 a command that changes a file Coder read, and a write over it in the
   const out = await runCoder({ seen: true, exec, emit: () => {}, afterFile: async () => "", send: async () => { k++; return k <= plan.length ? say("", plan[k - 1]) : say("Done."); } }, { text: "work" });
   const told = (id) => out.messages.find((m) => m.role === "tool" && m.tool_call_id === id).content;
   assert.match(told("b1"), /\[This command changed 1 file you read before: mod\.txt\. Read it again before editing\.\]/);
-  assert.equal(told("w1"), "error: mod.txt has been modified since read, either by a command or by something running in the background. Read it again before attempting to write it.");
+  assert.equal(told("w1"), "error: File has been modified since read, either by the user or by a linter. Read it again before attempting to write it.");
   assert.ok(out.messages.some((m) => m.appNote && /mod\.txt changed on disk since you last read it[\s\S]*Here are the relevant changes/.test(m.content)), "the note shows the change after the round");
-  assert.match(told("w2"), /^The file mod\.txt has been updated successfully\./, "after the note: allowed, as in Claude Code");
-  assert.equal(await readFile(join(dir, "mod.txt"), "utf8"), "replaced after the note\n");
+  assert.match(told("w2"), /^error: File has been modified since read/, "after the note, not read again: still refused, as in Claude Code (2026-11-27)");
+  assert.equal(await readFile(join(dir, "mod.txt"), "utf8"), "mod line one\nadded by a command\n");
   // Between messages (no note, as in Claude Code): the next message's write waits for a read.
   await writeFile(join(dir, "mod.txt"), "changed between messages\n");
   const plan2 = [[call("write", { path: "mod.txt", content: "x\n" }, "w3")], [call("read", { path: "mod.txt" }, "r2"), call("write", { path: "mod.txt", content: "y\n" }, "w4")]];
   let k2 = 0;
   const out2 = await runCoder({ seen: true, exec, emit: () => {}, afterFile: async () => "", send: async () => { k2++; return k2 <= plan2.length ? say("", plan2[k2 - 1]) : say("Done."); } }, { messages: out.messages, text: "more" });
   const told2 = (id) => out2.messages.find((m) => m.role === "tool" && m.tool_call_id === id).content;
-  assert.match(told2("w3"), /^error: mod\.txt has been modified since read/);
+  assert.match(told2("w3"), /^error: File has been modified since read/);
   assert.match(told2("w4"), /^The file mod\.txt has been updated successfully\./, "read again: allowed");
 });
 
@@ -2114,7 +2118,7 @@ test("CD263 edit as Claude Code's Edit, tried side by side (tool 3; the owner, 2
   const has = (f) => readFile(join(dir, f), "utf8");
   const put = (f, x) => writeFile(join(dir, f), x);
   const MANY = "error: Found 2 matches of the string to replace, but replace_all is false. To replace all occurrences, set replace_all to true. To replace only one occurrence, please provide more context to uniquely identify the instance.\nString: ";
-  const CHANGED = " has been modified since read, either by a command or by something running in the background. Read it again before attempting to write it.";
+  const CHANGED = "File has been modified since read, either by the user or by a linter. Read it again before attempting to write it.";
   // Its words (Claude Code 2.1.319's own Edit, tried in /home/user/cc-edit1 and cc-edit2).
   await put("a.txt", "alpha\nbeta\ngamma\n");
   assert.equal(await tool("edit", { path: "a.txt", old_string: "beta", new_string: "BETA" }), "The file a.txt has been updated successfully.", "never read: no 'file state is current'");
@@ -2148,10 +2152,11 @@ test("CD263 edit as Claude Code's Edit, tried side by side (tool 3; the owner, 2
   await put("changed.txt", "keep me\nchange me\nadded by someone else\n");
   await put("stale.txt", "new line\nother\n");
   await put("dup.txt", "first\nsecond\nfirst\n");
-  assert.equal(await tool("edit", { path: "changed.txt", old_string: "change me", new_string: "changed by edit" }), "The file changed.txt has been updated successfully." + EDIT_OTHER_CHANGES);
-  assert.equal(await has("changed.txt"), "keep me\nchanged by edit\nadded by someone else\n");
-  assert.equal(await tool("edit", { path: "stale.txt", old_string: "old line", new_string: "edited line" }), "error: stale.txt" + CHANGED);
-  assert.equal(await tool("edit", { path: "dup.txt", old_string: "first", new_string: "FIRST" }), "error: dup.txt" + CHANGED);
+  // (2026-11-27: refused even where the old text is there once, as Claude Code's Edit refuses it; nothing written.)
+  assert.equal(await tool("edit", { path: "changed.txt", old_string: "change me", new_string: "changed by edit" }), "error: " + CHANGED);
+  assert.equal(await has("changed.txt"), "keep me\nchange me\nadded by someone else\n");
+  assert.equal(await tool("edit", { path: "stale.txt", old_string: "old line", new_string: "edited line" }), "error: " + CHANGED);
+  assert.equal(await tool("edit", { path: "dup.txt", old_string: "first", new_string: "FIRST" }), "error: " + CHANGED);
   // Windows line endings: matched with plain line breaks, written in the ending most lines have.
   await put("crlf.txt", "first\r\nsecond\r\nthird\r\n");
   assert.equal(await tool("edit", { path: "crlf.txt", old_string: "first\nsecond", new_string: "FIRST\nSECOND\ninserted" }), "The file crlf.txt has been updated successfully.");
@@ -2207,7 +2212,7 @@ test("CD263 edit as Claude Code's Edit, tried side by side (tool 3; the owner, 2
   // Claude Code's other names; a null byte; a file past the old 5 MB.
   assert.equal(await tool("edit", { path: "a.txt", old_str: "alpha", new_str: "ALPHA" }), "The file a.txt has been updated successfully." + WRITE_FRESH);
   assert.equal(await has("a.txt"), "ALPHA\nBETA\ngamma\n");
-  assert.equal(await tool("edit", { path: "a.txt\0", old_string: "a", new_string: "b" }), "error: edit path cannot contain null bytes (\\0). Remove the null byte and try again.");
+  assert.equal(await tool("edit", { path: "a.txt\0", old_string: "a", new_string: "b" }), "error: Edit file_path cannot contain null bytes (\\0). Remove the null byte and try again.");
   await put("huge.txt", "h".repeat(6 * 1024 * 1024) + "\nend\n");
   assert.equal(await tool("edit", { path: "huge.txt", old_string: "end", new_string: "END" }), "The file huge.txt has been updated successfully.");
   // What changed, for the chat (`show_change`), as write's.

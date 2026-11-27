@@ -73,7 +73,15 @@ export const SCRATCH = "/tmp/coder-scratch";
 export function notTextKind(p) { const e = extname(String(p || "")).toLowerCase(); return !!(PIC_KINDS[e] || e === ".pdf" || e === ".ipynb" || binaryExt(p)); }
 /** A NULL BYTE in a path or pattern (Claude Code's errors page: "Read file_path cannot contain null bytes (\0). Remove
  * the null byte and try again."): no file system or search tool takes one. */
-const noNul = (s, what) => { if (String(s).includes("\0")) fail(what + " cannot contain null bytes (\\0). Remove the null byte and try again."); };
+const noNul = (s, what) => { if (hasNul(s)) fail(what + " cannot contain null bytes (\\0). Remove the null byte and try again."); };
+/**
+ * A NULL BYTE, OR THE TEXT \u0000 STANDING FOR ONE (2026-11-27: a model that escapes its JSON twice sends the six characters
+ * `\u0000`, which Claude Code's JSON reading turns into the byte itself before its check).
+ */
+export const hasNul = (s) => { const t = String(s ?? ""); return t.includes("\0") || /\\u0000/i.test(t); };
+/** Claude Code's tool and argument names for Coder's file tools, as its null-byte error names them ("Read file_path …"). */
+const CC_PATH_NAME = { read: "Read file_path", write: "Write file_path", edit: "Edit file_path", notebook_edit: "NotebookEdit notebook_path", search: "Grep path" };
+export const nulPathName = (tool) => CC_PATH_NAME[tool] || (tool ? tool + " path" : "the path");
 /**
  * A PATH AS CLAUDE CODE 2.1.325'S FILE TOOLS OPEN IT (its St: its Read, Write, Edit and LSP take their path with it before
  * they use it, as its Grep and Glob take theirs, coder-search.mjs fullPath; round 6, 2026-11-14, the owner: "do what claude
@@ -96,7 +104,7 @@ async function inside(p, { mustExist = false, tool = "", output = false } = {}) 
   if (typeof p !== "string" || !p.trim()) fail("give a path");
   // Named by its tool and argument, as Claude Code's are ("Read file_path cannot contain null bytes …"): write's so far
   // (the owner, 2026-11-09, write's docs pass); the other tools keep "the path" until their turn.
-  noNul(p, tool ? tool + " path" : "the path");
+  noNul(p, nulPathName(tool));
   // A short path counts from where Grok's commands are (BASE); trimmed, and ~ is the home folder, as Claude Code's tools take
   // a path (toolPath, round 6).
   const abs = toolPath(p);
@@ -867,7 +875,7 @@ export const PATH_MAX = 4096;
  * not of a part a "." or ".." leaves last, such as "notes /."): toolPath taken twice gives another path. → the refusal, or "".
  */
 export function pathProblem(tool, p) {
-  if (p.includes("\0")) return tool + " path cannot contain null bytes (\\0). Remove the null byte and try again.";
+  if (hasNul(p)) return nulPathName(tool) + " cannot contain null bytes (\\0). Remove the null byte and try again.";
   if (p.length > PATH_MAX) return tool + " path has " + p.length + " characters, and " + tool + " takes at most " + PATH_MAX + ". Resolve any \"./\" and \"../\" parts, drop any white space around the path, and send it again.";
   const q = toolPath(p);
   if (toolPath(q) !== q) return tool + " path ends in white space once its \".\" and \"..\" are resolved, and " + tool + " refuses such a path. If the white space is not meant, send the path without it. " + tool + " cannot open a file whose own name ends in white space.";
@@ -1066,7 +1074,9 @@ export const WRITE_NOT_READ = "has not been read yet. Read it first before writi
  *   "(file state is current in your context — no need to Read it back)". Coder said "wrote a.txt (2 lines)", counting
  *   the line break at the end as one more line.
  */
-export const WRITE_CHANGED = "has been modified since read, either by a command or by something running in the background. Read it again before attempting to write it";
+// (2026-11-27: Claude Code's own words, whole: "File has been modified since read, either by the user or by a linter. Read it
+// again before attempting to write it." Coder had put the path first and its own reasons in the middle.)
+export const WRITE_CHANGED = "File has been modified since read, either by the user or by a linter. Read it again before attempting to write it";
 export const WRITE_FRESH = " (file state is current in your context — no need to Read it back)";
 /** Claude Code's own words (tried for real, 2026-11-09), with Coder's tool names. */
 export const WRITE_START = "You were given only the start of this file, and nothing shows that you have since read all of it in one call, so a write could lose the rest. To change part of it, use edit. To replace it whole, first read it in one call with no offset or limit. If read returns only a page or says the file is too large, read it again with allow_large: true. If even that cannot return all of it, use edit.";
@@ -1286,9 +1296,9 @@ async function writeFirst(args, { guard = false } = {}) {
   // (Not read in this chat, where reading it would need a card or be refused, `guard` (Coder's loop knows): Claude Code 2.1.325's
   // read-first rule, which it waives for newer models only where the file could be read without asking. Round 6's follow-up.)
   if (seen === null && guard) fail(rel + " " + WRITE_NOT_READ + ".");
-  if (seen && seen.stale) fail(rel + " " + WRITE_CHANGED + ".");
+  if (seen && seen.stale) fail(WRITE_CHANGED + ".");
   // Changed since Coder last read or wrote it, and not shown to it since: only its time changing is no change.
-  if (seen && (st.mtimeMs !== seen.mtime || st.size !== seen.size) && (st.size !== seen.size || st.size > READ_WHOLE_MAX || fingerprint(await readFile(abs)) !== seen.hash)) fail(rel + " " + WRITE_CHANGED + ".");
+  if (seen && (st.mtimeMs !== seen.mtime || st.size !== seen.size) && (st.size !== seen.size || st.size > READ_WHOLE_MAX || fingerprint(await readFile(abs)) !== seen.hash)) fail(WRITE_CHANGED + ".");
 }
 export async function toolWrite(args) {
   const { path, content, note: namesNote } = writeInputs(args);
@@ -1492,7 +1502,9 @@ async function editFirst(a, { guard = false } = {}) {
   const changed = changedSince(seen, st, buf);
   const { at, newN, len } = editMatch(body, old_string, new_string);
   const applies = at.length === 1 || (all && at.length > 0);
-  if (changed && !applies) fail(rel + " " + WRITE_CHANGED + ".");
+  // CHANGED SINCE READ, AND NOT READ AGAIN: refused, whether or not the old text still applies (2026-11-27, live: after
+  // `echo zz >> f` an edit went through; Claude Code's Edit refuses it, as its Write does).
+  if (changed) fail(WRITE_CHANGED + ".");
   if (notText) fail(textRefusal(rel, notText));
   if (!at.length) fail(EDIT_NOT_FOUND + saidBack(old_string));
   if (!applies) fail(editMany(at.length) + saidBack(old_string));
@@ -1570,9 +1582,9 @@ export async function toolEdit(args) {
     at = [0]; len = body.length; newN = new_string.replace(/\r\n/g, "\n");
   } else {
     ({ at, len, newN } = editMatch(body, old_string, new_string));
+    // Changed since read: read it again first (Claude Code's own words), whether or not the old text still applies.
+    if (changed) fail(WRITE_CHANGED + ".");
     if (!(at.length === 1 || (all && at.length))) {
-      // Changed since read, and the old text not there once: read it again (Claude Code's own words for this).
-      if (changed) fail(rel + " " + WRITE_CHANGED + ".");
       if (!at.length) fail(EDIT_NOT_FOUND + saidBack(old_string));
       fail(editMany(at.length) + saidBack(old_string));
     }
@@ -1672,7 +1684,7 @@ async function notebookFirst(a) {
   if (!st.isFile()) fail(rel + " " + NOT_REGULAR + " notebook_edit only changes regular files.");
   if (st.size > NOTEBOOK_MAX_BYTES) fail(rel + " is " + kb(st.size) + ", over the " + ccSize(NOTEBOOK_MAX_BYTES) + " a notebook may be: change it with a short python3 script that loads it with the json module");
   const buf = await readFile(abs);
-  if (changedSince(seen, st, buf)) fail(rel + " " + WRITE_CHANGED + ".");
+  if (changedSince(seen, st, buf)) fail(WRITE_CHANGED + ".");
   // (UTF-8 only: Claude Code's NotebookEdit "refuses a notebook file that doesn't decode as UTF-8", UTF-16 too.)
   const notText = notTextOf(buf) || (buf[0] === 0xff && buf[1] === 0xfe ? "not_utf8" : "");
   if (notText) fail(textRefusal(rel, notText));
@@ -2094,8 +2106,9 @@ async function changedNow({ reset = false, shown = null } = {}) {
   if (dir && Array.isArray(shown)) {
     const want = new Set(shown.map(String)), list = await seenList(dir);
     let n = 0;
-    for (const x of list) if (x.stale && want.has(showPath(x.abs))) { delete x.stale; n++; }
-    if (n) await seenSave(dir, list).catch(() => {});
+    // (2026-11-27: no longer lets write or edit through. Claude Code refuses a file changed since it was read until it is read
+    // again; its note about the change is no read. Counted only.)
+    for (const x of list) if (x.stale && want.has(showPath(x.abs))) n++;
     return JSON.stringify({ shown: n });
   }
   // A CHAT WITH NO HISTORY (new, or Rewind went back to its very start; the review, 2026-11-08): what Coder read before
