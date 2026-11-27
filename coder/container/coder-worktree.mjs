@@ -36,8 +36,9 @@ export const OUTCOMES = Object.freeze(["fixed", "skipped", "no_change_needed"]);
 
 // ── WHAT CODER IS TOLD ─────────────────────────────────────────────────────────────────────────────────────────────────
 // (Claude Code's own descriptions, word for word where they fit; "the user" is the owner, "session" the chat, and Coder's
-// names for its tools. Coder has no worktree.baseRef setting and no WorktreeCreate/WorktreeRemove hooks: a new worktree
-// branches from the current HEAD.)
+// names for its tools. Coder has no worktree.baseRef setting: a new worktree branches from the current HEAD. Since
+// 2026-11-27 Coder has Claude Code's WorktreeCreate and WorktreeRemove hooks: a WorktreeCreate hook replaces the git step
+// and gives the path, and WorktreeRemove hooks remove that worktree; coder-hookevents.mjs and coder-agent.mjs.)
 export const ENTER_WORKTREE_DESCRIPTION = `Use this tool ONLY when explicitly instructed to work in a worktree — either by the owner directly, or by project instructions (CLAUDE.md / memory). This tool creates an isolated git worktree and switches the current chat into it.
 
 ## When to Use
@@ -59,6 +60,7 @@ export const ENTER_WORKTREE_DESCRIPTION = `Use this tool ONLY when explicitly in
 ## Behavior
 
 - In a git repository: creates a new git worktree inside \`${WORKTREE_DIR}/\` on a new branch worktree-<name>, from your current local HEAD
+- With a WorktreeCreate hook configured, the hook makes the worktree instead and gives its path (no branch, and .worktreeinclude is not processed)
 - Copies the gitignored files that the repository's \`.worktreeinclude\` names (in .gitignore syntax: such as .env) into the new worktree
 - Switches the chat's working directory to the new worktree
 - Use exit_worktree to leave the worktree mid-chat (keep or remove)

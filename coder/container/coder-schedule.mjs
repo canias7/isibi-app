@@ -394,6 +394,20 @@ export function cronState({ crons = [], wake = null, triggers = [], limits = nul
   if (cleared) { for (const c of st.crons) if (!c.durable) st.removals.push(c.id); if (st.wake) st.wakeup = { stop: true }; }
   return st;
 }
+/**
+ * THE CHAT'S SESSION-SCOPED SCHEDULED WAKEUPS FOR STOP AND SUBAGENTSTOP HOOKS (Claude Code's session_crons: "Each entry …
+ * describes one session-scoped scheduled wakeup, sourced from CronCreate, ScheduleWakeup, and /loop": id, schedule, recurring,
+ * prompt capped at 1000 characters with "… [+N chars]"). The live crons that are not durable, and a pending wake-up as a
+ * one-shot schedule at its minute in the chat's zone. 2026-11-27.
+ */
+const capK = (t) => { const s = String(t || ""); return s.length > 1000 ? s.slice(0, 1000) + "… [+" + (s.length - 1000) + " chars]" : s; };
+export function sessionCrons(st) {
+  if (!st || typeof st !== "object") return [];
+  const out = liveCrons(st).filter((c) => c && !c.durable).map((c) => ({ id: String(c.id), schedule: String(c.cron), recurring: c.recurring === true, prompt: capK(c.prompt) }));
+  const w = st.wakeup !== undefined ? (st.wakeup && !st.wakeup.stop ? st.wakeup : null) : st.wake;
+  if (w && Number.isFinite(Number(w.at))) { const p = localParts(Number(w.at), st.zone || "UTC"); out.push({ id: "wakeup", schedule: p.mi + " " + p.h + " " + p.d + " " + p.m + " *", recurring: false, prompt: capK(w.prompt) }); }
+  return out;
+}
 /** What the turn's result carries for the Worker. */
 export const cronResult = (st) => ({ ...(st.adds.length ? { cronAdds: st.adds } : {}), ...(st.removals.length ? { cronRemovals: st.removals } : {}), ...(st.wakeup !== undefined ? { wakeup: st.wakeup } : {}), ...(st.triggerOps.length ? { triggerOps: st.triggerOps } : {}) });
 const liveCrons = (st) => [...st.crons.filter((c) => !st.removals.includes(c.id)), ...st.adds];

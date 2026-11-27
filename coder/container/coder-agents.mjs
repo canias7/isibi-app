@@ -552,6 +552,8 @@ const lastWords = (r) => { const m = ((r && r.messages) || []).filter((x) => x &
  * run itself within the caps, then Claude Code's completed result (AgentOutput) and its text. → { code, text, label, usage,
  * stop, result }.
  */
+/** The Agent call's content for a subagent that handed its report back with subagent_handback (read it from that call's PreToolUse or PostToolUse hook, tool_input.message). */
+export const HANDBACK_CONTENT = "The subagent delivered its report through SubagentHandback.";
 async function runAgent(entry, prompt, past, k) {
   const emit = typeof k.emit === "function" ? k.emit : () => {};
   const t0 = nowOf(k);
@@ -579,7 +581,7 @@ async function runAgent(entry, prompt, past, k) {
   // the subagent running with the reason as its next instruction; at most STOP_AGAIN_MAX times in a row, as for Stop hooks).
   for (let n = 0; typeof k.hookStop === "function" && res.status === "done" && n < STOP_AGAIN_MAX; n++) {
     let again = "";
-    try { again = String((await k.hookStop({ agentId: entry.id, type: entry.type, active: n > 0, last: lastWords(res) })) || ""); } catch { again = ""; }
+    try { again = String((await k.hookStop({ agentId: entry.id, type: entry.type, active: n > 0, last: lastWords(res), messages: Array.isArray(res.messages) ? res.messages : [] })) || ""); } catch { again = ""; }
     if (!again.trim()) break;
     const more = (await once(again, resumable(res.messages))) || { status: "error", messages: [], usage: [] };
     for (const u of Array.isArray(more.usage) ? more.usage : []) allUsage.push(u);
@@ -601,7 +603,9 @@ async function runAgent(entry, prompt, past, k) {
   const toolUses = Object.entries(stats).filter(([n]) => n.endsWith("Count")).reduce((n, [, v]) => n + v, 0);
   const swaps = modelsUsedOf(res.usage, entry.model);
   const result = {
-    status: "completed", agentId: entry.id, agentType: entry.type, content: [{ type: "text", text: report }],
+    // (Claude Code's content: "The subagent's final text blocks, or, for a subagent whose report goes through SubagentHandback,
+    // a short note about that hand-back in their place". 2026-11-27.)
+    status: "completed", agentId: entry.id, agentType: entry.type, content: [{ type: "text", text: res && typeof res.handback === "string" && res.handback.trim() ? HANDBACK_CONTENT : report }],
     resolvedModel: entry.model, ...(swaps ? { modelsUsed: swaps } : {}), totalToolUseCount: toolUses, totalDurationMs: Math.max(0, nowOf(k) - t0), totalTokens: u.totalTokens,
     usage: u.usage, toolStats: stats, prompt: String(prompt).slice(0, 20_000),
     ...(kept ? { worktreePath: kept.path, ...(kept.branch ? { worktreeBranch: kept.branch } : {}) } : {}),
