@@ -5,6 +5,18 @@ The owner's running log, newest first, in plain English. Started fresh on
 log (81,000 lines) is in git history.
 
 
+## 2026-11-27: More rows of the tools comparison tried live
+
+On gofarther.dev (commit 3ade89aa), with Grok on Low, I tried the remaining rows that could be done and updated
+docs/claude-code-vs-coder-tools.xlsx. Now working: WebSocket monitors (they reach echo.websocket.org and show the subprotocol
+on the card), a Bash deny rule hiding the Monitor tool, Projects results, question auto-continue, a skill asking before it
+loads, the credential form's "username and password" default, PowerShell not loading profiles, a flooding monitor being
+stopped, artifact force, background Agent results, MCP resources from mcpdemo, and a full auto-fix of a review comment on a
+draft PR. Still partly: Grep's -l/-c/-r (Grok won't send them), several searches in one WebSearch call, and seeing reads run
+side by side. Can't test: WebSocket binary, close and over-1 MiB messages (no allowed site sends them), and fetching an
+artifact's public link (gofarther.dev isn't on the test account's allowed sites). Test chats, the draft PR, the test project
+and the PowerShell setting were removed afterwards.
+
 ## 2026-11-27: WebSocket monitors now reach allowed sites
 
 A Monitor watching a WebSocket (for example wss://echo.websocket.org) said "could not resolve" even though the site was on the
