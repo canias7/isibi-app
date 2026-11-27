@@ -205,7 +205,7 @@ import { keepBackup, readBackup, forgetSite, WORK_MAX, BROWSER_MAX } from "./glo
 import { watchJob, watchKey, watchBackground, WATCH_PREFIX } from "./coder-watch.mjs";
 import { livePass, LIVE_PATH, readLive, dropLive, wholeSteps, interruptedSteps, prunePics, dropPics } from "./coder-live.mjs";
 import { gitAccess } from "./coder-git.mjs";
-import { readConnectors, connectorOut, setPerms, CATALOG, CATALOG_LATER, addConnector, removeConnector, finishSignIn, toolsFor as connectorTools, keepJobTools, refreshTools, clientDoc, jobConnectors, expandConnectorRefs, readConnectorSettings, writeConnectorSettings, setConnectorState, STATE_COOKIE as MCP_COOKIE, CALLBACK_PATH as MCP_CALLBACK, jobTool, callTool } from "./coder-mcp.mjs";
+import { readConnectors, connectorOut, setPerms, suggestConnectors, CATALOG, CATALOG_LATER, addConnector, removeConnector, finishSignIn, toolsFor as connectorTools, keepJobTools, refreshTools, clientDoc, jobConnectors, expandConnectorRefs, readConnectorSettings, writeConnectorSettings, setConnectorState, STATE_COOKIE as MCP_COOKIE, CALLBACK_PATH as MCP_CALLBACK, jobTool, callTool } from "./coder-mcp.mjs";
 import { githubReady, makeState, readState, newNonce, STATE_COOKIE, signInUrl, installUrl, exchangeCode, saveConnection, forgetConnection, userToken, gh, ghRead, repoAccess, listRepos, openPullRequest, editPullRequest, prFailNote, postReview, branchNameOk, defaultBranchOf, branchAt, OWN_MARK, REPO, BRANCH, seal, unseal } from "./coder-github.mjs";
 
 const MAX_PROJECTS = 50;
@@ -2451,7 +2451,9 @@ export async function handleCoder(request, env, ctx, deps) {
       meta.connectorsOff = off; meta.toolsOff = toolsOff;
     }
     const off = Array.isArray(meta.connectorsOff) ? meta.connectorsOff : [], toolsOff = Array.isArray(meta.toolsOff) ? meta.toolsOff : [];
-    return json({ ok: true, allOff: (await readConnectorSettings(bucket, uid)).allOff, connectors: list.map((c) => ({ id: c.id, name: c.name, status: c.disabled ? "disabled" : c.status || "ok", on: !off.includes(c.id),
+    // (With ?q=, the Suggested connectors card's query: which of them, and which of the catalog's others, match it.)
+    const q = request.method === "GET" ? String(url.searchParams.get("q") || "").slice(0, 100) : "";
+    return json({ ok: true, ...(q ? { suggest: suggestConnectors(q, list) } : {}), allOff: (await readConnectorSettings(bucket, uid)).allOff, connectors: list.map((c) => ({ id: c.id, name: c.name, status: c.disabled ? "disabled" : c.status || "ok", on: !off.includes(c.id),
       tools: (c.tools || []).map((t) => ({ name: t.name, title: t.title || "", on: !toolsOff.includes(c.id + ":" + t.name), blocked: (c.perms || {})[t.name] === "block" })) })) });
   }
   // THE OWNER'S ANSWER ON A CARD A STEP WAITS ON (Claude Code's permission prompt; a plan's approval), for the running job.

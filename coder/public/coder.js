@@ -5244,10 +5244,22 @@
   // connectors, each with its logo, its name and one button: Connect (not signed in), Use (working but off in this chat),
   // Reconnect (can't be reached, with a red line), On for one already in use; then "Browse more connectors". States come
   // from this chat's connectors (S.sgConn), loaded once per chat and again after a press.
-  function sgLoad(force) {
+  function sgLoad(force, q) {
     const id = S.project && S.project.id;
+    q = String(q || '');
+    // (Each card's query has its own suggestions: Claude Code suggests the connectors that match it. Live 2026-11-27.)
+    if (id && q && !(S.sgConn && S.sgConn.id === id && S.sgConn.q && (q in S.sgConn.q))) {
+      if (!S.sgConn || S.sgConn.id !== id) S.sgConn = { id, list: null, note: '' };
+      S.sgConn.q = S.sgConn.q || {}; S.sgConn.q[q] = null;
+      call('/projects/' + encodeURIComponent(id) + '/connectors?q=' + encodeURIComponent(q)).then((r) => {
+        if (!S.sgConn || S.sgConn.id !== id) return;
+        S.sgConn.q[q] = r && r.status === 200 && r.data && r.data.suggest ? r.data.suggest : { generic: true };
+        if (r && r.status === 200 && r.data && Array.isArray(r.data.connectors)) S.sgConn.list = r.data.connectors;
+        draw();
+      });
+    }
     if (!id || (!force && S.sgConn && S.sgConn.id === id)) return;
-    S.sgConn = { id, list: (S.sgConn && S.sgConn.id === id && S.sgConn.list) || null, note: (S.sgConn && S.sgConn.note) || '' };
+    S.sgConn = { id, list: (S.sgConn && S.sgConn.id === id && S.sgConn.list) || null, note: (S.sgConn && S.sgConn.note) || '', q: (S.sgConn && S.sgConn.id === id && S.sgConn.q) || {} };
     call('/projects/' + encodeURIComponent(id) + '/connectors').then((r) => {
       if (!S.sgConn || S.sgConn.id !== id) return;
       S.sgConn.list = r && r.status === 200 && r.data && Array.isArray(r.data.connectors) ? r.data.connectors : [];
@@ -5257,21 +5269,38 @@
   }
   const sgState = (c) => c.status === 'auth' ? 'connect' : c.status === 'error' ? 'reconnect' : (c.on === false || c.status === 'disabled') ? 'use' : 'on';
   function suggestHTML(e) {
-    sgLoad(false);
-    const list = S.sgConn && S.sgConn.list;
+    const q = String((e && e.query) || '');
+    sgLoad(false, q);
+    const sg = q && S.sgConn && S.sgConn.q ? S.sgConn.q[q] : { generic: true };
+    const all = S.sgConn && S.sgConn.list;
+    // (Only the connectors that match the query, best first, then the catalog's others that match: Connect adds one.)
+    const list = all && sg && !sg.generic ? (sg.owned || []).map((id) => all.find((c) => c.id === id)).filter(Boolean) : all;
+    const extra = sg && !sg.generic ? (sg.catalog || []) : [];
     const btn = { connect: 'Connect', use: 'Use', reconnect: 'Reconnect' };
-    const rows = list === null || list === undefined ? '<div class="cd-sg-wait">Loading your connectors…</div>' : list.map((c) => {
+    const extraRows = extra.map((k) => '<div class="cd-sg-row" data-sg-state="connect">' + cxBadge(k.name) + '<div class="cd-sg-name"><b>' + esc(k.name) + '</b></div><button type="button" class="cd-sg-btn" data-sg-act="add" data-sg-url="' + esc(k.url) + '" data-sg-name="' + esc(k.name) + '">Connect</button></div>').join('');
+    const rows = list === null || list === undefined || sg === null ? '<div class="cd-sg-wait">Loading your connectors…</div>' : (!list.length && !extra.length ? '<div class="cd-sg-wait">No connector matches “' + esc(q) + '”.</div>' : '') + list.map((c) => {
       const st = sgState(c);
       return '<div class="cd-sg-row" data-sg-state="' + st + '">' + cxBadge(c.name) + '<div class="cd-sg-name"><b>' + esc(c.name) + '</b>' +
         (st === 'reconnect' ? '<span class="cd-sg-err">Can’t reach ' + esc(c.name) + ' right now. It may need to be reconnected.</span>' : '') + '</div>' +
         (st === 'on' ? '<span class="cd-sg-on">On</span>' : '<button type="button" class="cd-sg-btn" data-sg-act="' + st + '" data-sg-id="' + esc(c.id) + '">' + btn[st] + '</button>') + '</div>';
-    }).join('');
+    }).join('') + (list === null || list === undefined || sg === null ? '' : extraRows);
     return '<div class="cd-sg"><div class="cd-sg-head"><b>Suggested connectors</b></div>' + rows +
       (S.sgConn && S.sgConn.note ? '<div class="cd-sg-note" role="status">' + esc(S.sgConn.note) + '</div>' : '') +
       '<button type="button" class="cd-sg-more" data-sg-act="browse">Browse more connectors <span aria-hidden="true">↗</span></button></div>';
   }
   async function sgPress(act, id) {
     if (act === 'browse') return showConnectors();
+    if (act === 'add') {
+      // (A catalog connector the owner has not added yet: the Connectors page's own Connect.)
+      const say2 = (t) => { if (S.sgConn) S.sgConn.note = t; draw(); };
+      say2('Connecting ' + id.name + '…');
+      const x = await call('/connectors', { method: 'POST', body: JSON.stringify({ name: id.name, url: id.url }) });
+      if (x.status !== 200) return say2((x.data && x.data.error) || id.name + ' could not be connected.');
+      if (x.data && x.data.signIn) { say2('Opening its sign-in…'); window.location.href = x.data.signIn; return; }
+      if (S.sgConn) S.sgConn.q = {};
+      S.sgConn.note = id.name + ' is connected.';
+      return sgLoad(true);
+    }
     const pid = S.project && S.project.id, list = (S.sgConn && S.sgConn.list) || [], c = list.find((y) => y.id === id);
     if (!pid || !c) return;
     const say = (t) => { if (S.sgConn) S.sgConn.note = t; draw(); };
@@ -6399,7 +6428,7 @@
       const a = await call('/projects/' + encodeURIComponent(S.project.id) + '/answer', { method: 'POST', body: JSON.stringify({ pid: card.dataset.elicitPid, choice, ...(content ? { content } : {}) }) });
       if (a.status !== 200) { btns.forEach((b) => { b.disabled = false; }); elSay(card, (a.data && a.data.error) || 'Your answer could not be sent. Try again.'); }
     };
-    on('.cd-sg [data-sg-act]', 'click', (e) => { const b = e.currentTarget; sgPress(b.dataset.sgAct, b.dataset.sgId || ''); });
+    on('.cd-sg [data-sg-act]', 'click', (e) => { const b = e.currentTarget; sgPress(b.dataset.sgAct, b.dataset.sgAct === 'add' ? { name: b.dataset.sgName || '', url: b.dataset.sgUrl || '' } : b.dataset.sgId || ''); });
     on('.cd-elicit [data-el-decline]', 'click', (e) => { const c = elCard(e.currentTarget); if (c) elSend(c, 'decline'); });
     on('.cd-elicit [data-el-accept]', 'click', (e) => {
       const c = elCard(e.currentTarget), ev = c && elEvent(c);

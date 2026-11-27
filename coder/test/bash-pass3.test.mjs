@@ -172,7 +172,7 @@ test("CD345 a stop ends what the command started outside its process group too (
   // (Its own process group was just signalled as a whole: those are not signalled twice; Bash docs pass 9, CD477.)
   assert.match(server, /try \{ process\.kill\(-j\.pid, hard \? "SIGKILL" : "SIGTERM"\); \} catch \{ \/\* gone \*\/ \}\n  if \(!keep\) endMarked\(j\.mark, hard \? "SIGKILL" : "SIGTERM", \{ skipGroup: j\.pid \}\);/);
   assert.match(server, /try \{ process\.kill\(-j\.pid, "SIGKILL"\); \} catch \{ \/\* gone \*\/ \}\n    if \(!keep\) endMarked\(j\.mark, "SIGKILL"\);/);
-  assert.match(server, /process\.kill\(-pid, "SIGTERM"\); \} catch \{ \/\* gone \*\/ \}\n            endMarked\(j\.mark, "SIGTERM", \{ skipGroup: pid \}\);/);
+  assert.match(server, /signalTree\(tree, "SIGTERM"\);\n            endMarked\(j\.mark, "SIGTERM", \{ skipGroup: pid \}\);/);
   // Each of the chat's commands carries one (after the owner's own variables), and its background job keeps it.
   assert.match(server, /const mark = tool \? "" : newMark\(\);/);
   assert.match(server, /: \{ \.\.\.\(extraEnv \|\| \{\}\), \.\.\.\(pass \? px\.env\(pass\) : \{\}\), \[TASK_MARK\]: mark \},/);

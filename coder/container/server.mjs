@@ -25,7 +25,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { createHash, randomUUID, randomBytes, randomInt } from "node:crypto";
 import { mkdir, readdir, readFile, writeFile, stat, chown, open, unlink, rm, lstat, realpath, lchown, chmod, rename, rmdir, symlink } from "node:fs/promises";
 import { constants } from "node:fs";
-import { createWriteStream, realpathSync, readlinkSync, openSync, closeSync, readSync, writeSync, ftruncateSync, fstatSync, fchownSync, lstatSync, lchownSync, existsSync, readdirSync, mkdirSync, chownSync, chmodSync, writeFileSync, readFileSync, statfsSync, truncateSync, rmdirSync, unlinkSync } from "node:fs";
+import { createWriteStream, realpathSync, readlinkSync, openSync, closeSync, readSync, writeSync, ftruncateSync, fstatSync, fchownSync, lstatSync, lchownSync, existsSync, readdirSync, mkdirSync, chownSync, chmodSync, writeFileSync, readFileSync, statfsSync, statSync, truncateSync, rmdirSync, unlinkSync } from "node:fs";
 import { join, dirname, relative, resolve, basename, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runCoder, connectorTools, connectorCaller, connectorHookCaller, MACHINE_TOOLS, MACHINE_ADMIN, CWD_MARK, CWD_WORDS, monitorMs, TOOLS_SCRIPT, hookModeName, boxDownTold, boxDownShown } from "./coder-agent.mjs";
@@ -207,9 +207,22 @@ export const SNAPSHOT_FILE = ".cache/coder/shell-snapshot.sh";
 /** The homes whose snapshot this machine process already took, with the shell it was taken for (L-ops-29). */
 export const SNAPSHOT_TAKEN = new Map();
 /** Whether a job takes the snapshot again: not yet on this machine, after the setup ran, the shell changed, or the file is gone. */
-export function snapshotDue(taken, { home, shell, setupRan = false, exists = true }) {
-  return setupRan || !exists || taken.get(home) !== shell;
+export function snapshotDue(taken, { home, shell, setupRan = false, exists = true, rc, rcTaken }) {
+  // (And when the startup file of that shell changed since: the snapshot is the file "as it was when the message started",
+  // so an alias added in one message is there in the next. Live 2026-11-27: an alias added to the startup file was still
+  // "command not found".)
+  return setupRan || !exists || taken.get(home) !== shell || (rc !== undefined && rcTaken !== undefined && rc !== rcTaken.get(home));
 }
+/** The startup file the shell Coder's commands run in reads: ~/.zshrc for zsh ($ZDOTDIR's when set), ~/.bashrc for bash. */
+export function startupFileOf(home, shell, zdotdir = process.env.ZDOTDIR) {
+  return /(^|\/)zsh$/.test(String(shell || "")) ? join(zdotdir || home, ".zshrc") : join(home, ".bashrc");
+}
+/** That file's stamp (size and change time), "" when it is not there: a changed stamp takes the snapshot again. */
+export function startupStamp(file) {
+  try { const st = statSync(file); return st.size + ":" + st.mtimeMs; } catch { return ""; }
+}
+/** The stamp each home's snapshot was taken at. */
+export const SNAPSHOT_RC = new Map();
 export const SNAPSHOT_MAX = 256 * 1024;
 /**
  * (Like Claude Code's own script: shell options first, each function by itself (one named with a leading dash given to eval
@@ -1596,8 +1609,11 @@ export function diskFullBefore(outDir, { statfs = statfsSync, probe = probeWrite
   } catch { return null; }
   const code = probe(outDir);
   const where = outDir + " (Coder's folder for command output)";
-  if (code === "ENOSPC") return "The command was not started: Disk full: a test write on the volume holding " + where + " failed with ENOSPC (no space left on device). " + FREE_SPACE;
-  if (code === "EDQUOT") return "The command was not started: Disk quota used up: a test write on the volume holding " + where + " failed with EDQUOT. Delete files there that are no longer needed, then retry. If this is the owner's own computer, tell them before deleting anything to make room.";
+  // (Claude Code's words, errors.md "Disk full or disk quota used up", checked 2026-11-27; Coder had said "Disk full: a test
+  // write …" here.)
+  const tail = ", so the file that captures command output could not be created there and nothing ran. " + FREE_SPACE;
+  if (code === "ENOSPC") return "The command was not started: this computer's disk is full (ENOSPC) on the volume holding " + where + tail;
+  if (code === "EDQUOT") return "The command was not started: the user's disk quota is used up (EDQUOT) on the volume holding " + where + tail;
   return null;
 }
 /** Only the newest `n` files of a folder are kept. */
@@ -4793,6 +4809,42 @@ export function safeVars(vars) {
 }
 
 /** Is anything of this process group (a background command and all it started) still running? */
+/**
+ * A JOB'S WHOLE TREE (Claude Code's TaskStop: SIGTERM, then SIGKILL after 1.5 s, to the whole process group): the job's pid,
+ * every process below it (from /proc's parent links) and their process groups, so one that left the job's group (setsid, a
+ * shell with job control) is stopped too. Live 2026-11-27: a loop that ignores TERM was still alive 3 s after "stopped".
+ * `{ pids, groups }`.
+ */
+export function treeOf(pid, { list = procTable } = {}) {
+  const rows = list();
+  const kids = new Map();
+  for (const r of rows) { if (!kids.has(r.ppid)) kids.set(r.ppid, []); kids.get(r.ppid).push(r); }
+  const pids = new Set([pid]), groups = new Set([pid]);
+  const todo = [pid];
+  while (todo.length) { const p = todo.pop(); for (const r of kids.get(p) || []) if (!pids.has(r.pid)) { pids.add(r.pid); if (r.pgrp > 1) groups.add(r.pgrp); todo.push(r.pid); } }
+  for (const r of rows) if (groups.has(r.pgrp)) pids.add(r.pid);
+  return { pids: [...pids], groups: [...groups] };
+}
+/** This machine's processes: { pid, ppid, pgrp }, from /proc/<pid>/stat. */
+export function procTable() {
+  const out = [];
+  let names = [];
+  try { names = readdirSync("/proc").filter((x) => /^\d+$/.test(x)); } catch { return out; }
+  for (const n of names) {
+    try { const st = readFileSync("/proc/" + n + "/stat", "utf8"); const rest = st.slice(st.lastIndexOf(")") + 2).split(" "); if (rest[0] === "Z") continue; out.push({ pid: Number(n), ppid: Number(rest[1]), pgrp: Number(rest[2]) }); } catch { /* gone */ }
+  }
+  return out;
+}
+/** A signal to every group and process of a tree. */
+export function signalTree(tree, sig, kill = process.kill.bind(process)) {
+  for (const g of tree.groups) { try { kill(-g, sig); } catch { /* gone */ } }
+  for (const p of tree.pids) { try { kill(p, sig); } catch { /* gone */ } }
+}
+/** Whether any process of the tree is still alive (a zombie is not). */
+export function treeAlive(tree, { list = procTable } = {}) {
+  const live = new Set(list().map((r) => r.pid));
+  return tree.pids.some((p) => live.has(p));
+}
 function groupAlive(pid) {
   try { process.kill(-pid, 0); return true; } catch (e) { return !!(e && e.code === "EPERM"); }
 }
@@ -5701,8 +5753,9 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     // THE SHELL STARTUP FILE'S ALIASES, FUNCTIONS AND OPTIONS, taken now, after the setup script (see SNAPSHOT_TAKE).
     // (Once per machine start, like Claude Code's "at session start"; again after the setup ran, a shell switch, or when the
     // file is gone: L-ops-29.)
-    if (home && snapshotDue(SNAPSHOT_TAKEN, { home, shell: isZsh(t.shell) ? "zsh" : "bash", setupRan, exists: existsSync(join(home, isZsh(t.shell) ? SNAPSHOT_FILE.replace(/\.sh$/, ".zsh") : SNAPSHOT_FILE)) })) {
-      try { await execIn(dir, isZsh(t.shell) ? SNAPSHOT_TAKE_ZSH : SNAPSHOT_TAKE, 20, { bgDir, kill: true, home, room: t.room, box: t.box, onStart: (pid) => t.fg.add(pid) }); SNAPSHOT_TAKEN.set(home, isZsh(t.shell) ? "zsh" : "bash"); } catch { /* commands run without it */ }
+    const rcNow = home ? startupStamp(startupFileOf(home, t.shell)) : "";
+    if (home && snapshotDue(SNAPSHOT_TAKEN, { home, shell: isZsh(t.shell) ? "zsh" : "bash", setupRan, exists: existsSync(join(home, isZsh(t.shell) ? SNAPSHOT_FILE.replace(/\.sh$/, ".zsh") : SNAPSHOT_FILE)), rc: rcNow, rcTaken: SNAPSHOT_RC })) {
+      try { await execIn(dir, isZsh(t.shell) ? SNAPSHOT_TAKE_ZSH : SNAPSHOT_TAKE, 20, { bgDir, kill: true, home, room: t.room, box: t.box, onStart: (pid) => t.fg.add(pid) }); SNAPSHOT_TAKEN.set(home, isZsh(t.shell) ? "zsh" : "bash"); SNAPSHOT_RC.set(home, rcNow); } catch { /* commands run without it */ }
     }
     // ITS BACKGROUND COMMANDS THAT ENDED SINCE CODER'S LAST ANSWER (Claude Code tells Claude when one ends): told when the job
     // begins, once. And those this machine no longer knows (Claude Code's cloud docs: when the machine goes, "Claude Code tells
@@ -6256,13 +6309,16 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
             const j = JOBS.get(pid);
             if (!j || j.project !== project) return false;
             if (!j.stopping) j.stopping = "coder";
-            try { process.kill(-pid, "SIGTERM"); } catch { /* gone */ }
+            const tree = treeOf(pid);
+            signalTree(tree, "SIGTERM");
             endMarked(j.mark, "SIGTERM", { skipGroup: pid });
-            for (let i = 0; i < 15 && groupAlive(pid); i++) await new Promise((ok) => setTimeout(ok, 100));
-            try { process.kill(-pid, "SIGKILL"); } catch { /* gone */ }
+            for (let i = 0; i < 15 && (groupAlive(pid) || treeAlive(tree)); i++) await new Promise((ok) => setTimeout(ok, 100));
+            // (SIGKILL 1.5 s after SIGTERM, to the tree as it is now: what it started meanwhile too.)
+            const tree2 = treeOf(pid); for (const g of tree.groups) if (!tree2.groups.includes(g)) tree2.groups.push(g); for (const p of tree.pids) if (!tree2.pids.includes(p)) tree2.pids.push(p);
+            signalTree(tree2, "SIGKILL");
             endMarked(j.mark, "SIGKILL");
-            for (let i = 0; i < 10 && groupAlive(pid); i++) await new Promise((ok) => setTimeout(ok, 100));
-            const gone = !groupAlive(pid);
+            for (let i = 0; i < 10 && (groupAlive(pid) || treeAlive(tree2)); i++) await new Promise((ok) => setTimeout(ok, 100));
+            const gone = !groupAlive(pid) && !treeAlive(tree2);
             if (gone) { jobEnded(pid, BG_EXITS.has(pid) ? BG_EXITS.get(pid) : null); j.told = true; }
             return gone;
           },

@@ -29,6 +29,17 @@ corrected.
 no plan file. Before, it was only there with a plan file.
 
 Tests: coder/test/cc-diffs-a.test.mjs. Not yet tried live on gofarther.dev.
+## 2026-11-27: Six more places Coder now works like Claude Code
+
+- **Shell startup file.** Coder's commands read the startup file of the shell they run in (~/.zshrc for zsh, ~/.bashrc for bash). When that file changes, Coder takes it again at the start of the next message, so an alias added in one message works in the next.
+- **Leaving a worktree with something still running in it.** Removing a worktree is now refused while any process is still running inside it, even one started with a `cd` into it from elsewhere (a background `sleep 300` was removed before).
+- **Task ids.** "#1" and " 1 " now mean task 1 in the task tools, as in Claude Code.
+- **Full disk.** The "command was not started" message now uses Claude Code's exact words. A write to /dev/full still gets no "Disk full:" line, which matches Claude Code: it adds that line only when the disk holding command output is really full.
+- **Stopping a job.** Stop sends SIGTERM, then SIGKILL 1.5 seconds later, to the job's whole process tree, including anything that moved into a process group of its own. It says "stopped" only when nothing is left running.
+- **Suggested connectors.** The card now shows only the connectors that match what was asked for, taken from the full list. Asking for "Linear issues" now offers Linear, not Neon and Railway.
+
+Tests: coder/test/cc-diffs-b.test.mjs. Not tried live yet.
+
 
 ## 2026-11-26: The card really names the pushed branch now, and read-only gh doesn't ask
 

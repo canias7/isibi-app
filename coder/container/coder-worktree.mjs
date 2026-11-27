@@ -336,6 +336,22 @@ export function exitFactsScript() {
     "echo \"" + MARK + " STATE $__top|$__br|$__main|$__files|$__commits\"",
   ].join("\n");
 }
+/**
+ * The script that counts the processes still running in the worktree (their folder inside it), from / so it is not one of
+ * them: "<MARK> BUSY <n>". (Live 2026-11-27: a background `sleep 300` started there with a cd in the command was still running
+ * and the worktree was removed; the job had been started from the main checkout, so its recorded folder was not the worktree.)
+ */
+export function busyScript(top) {
+  // (In a subshell, so the chat's shell stays where it is; the shell running this and those above it are not counted.)
+  return "( cd / || exit 3\n" + [
+    "__t=" + shq(top) + "; __n=0; __up=\" \"; __q=$$",
+    "while [ -n \"$__q\" ] && [ \"$__q\" -gt 1 ] 2>/dev/null; do __up=\"$__up$__q \"; __q=$(awk '/^PPid:/{print $2}' \"/proc/$__q/status\" 2>/dev/null); done",
+    "for __p in /proc/[0-9]*; do __i=${__p#/proc/}; case \"$__up\" in *\" $__i \"*) continue;; esac; __c=$(readlink \"$__p/cwd\" 2>/dev/null) || continue; case \"$__c\" in \"$__t\"|\"$__t\"/*) __n=$((__n+1));; esac; done",
+    "echo \"" + MARK + " BUSY $__n\" )",
+  ].join("\n");
+}
+/** A job of the chat's that may run in the worktree: started there, or its command names the worktree's folder. */
+export const jobInWorktree = (j, top) => !!(j && !j.done && top && ((j.cwd && (j.cwd === top || j.cwd.startsWith(top + "/"))) || String(j.command || "").includes(top)));
 /** The script that leaves: back to the main checkout, removing the worktree and its branch for "remove". */
 export function exitScript({ top, main, branch, remove, service = false }) {
   // (`service`: Coder's service removes the worktree afterwards, as root; the shell only goes back.)
