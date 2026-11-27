@@ -143,6 +143,32 @@ export const CATALOG_LATER = Object.freeze([
   { group: "Security", name: "Aikido", why: "no official hosted server yet" },
   { group: "Databases", name: "Redis", why: "no official hosted server yet" },
 ]);
+/**
+ * CLAUDE CODE'S SUGGESTED CONNECTORS, FOR A QUERY: the connectors that match what the owner wants, from the full catalog
+ * (those already added, then the catalog's others), best first. Live 2026-11-27: asked for "Linear issues", the card offered
+ * Neon and Railway (every connector the owner had, whatever the query). A query that names no service ("connector tools",
+ * "mcp") shows the owner's own connectors, as before. `{ owned: [ids], catalog: [entries], generic }`.
+ */
+const SUGGEST_FILLER = new Set(["connector", "connectors", "connect", "tool", "tools", "mcp", "integration", "integrations", "server", "servers", "the", "my", "a", "an", "to", "for", "and", "or", "with", "in", "on", "of", "use", "using", "access", "app", "apps", "some", "any", "me", "i", "want", "need"]);
+export function suggestConnectors(query, owned = [], catalog = CATALOG) {
+  const words = String(query || "").toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length > 1 && !SUGGEST_FILLER.has(w));
+  if (!words.length) return { owned: owned.map((c) => c.id), catalog: [], generic: true };
+  const stem = (w) => w.replace(/(ies|es|s)$/, "");
+  const score = (name, text) => {
+    const n = String(name || "").toLowerCase(), t = String(text || "").toLowerCase();
+    return words.reduce((sum, w) => sum + (n.split(/[^a-z0-9]+/).includes(w) || n === w ? 10 : n.includes(w) ? 5 : 0) + (t.includes(stem(w)) ? 1 : 0), 0);
+  };
+  const nameHit = (name) => words.some((w) => String(name || "").toLowerCase().includes(w));
+  const aboutOfName = (c) => { const k = catalog.find((x) => x.url === c.url || x.name === c.name); return k ? k.group + " " + k.about : ""; };
+  const ranked = (rows) => rows.map(([s, x]) => [s, x]).filter(([s]) => s > 0).sort((a, b) => b[0] - a[0]).map(([, x]) => x);
+  // (A name named wins: with "Linear" in the query, only connectors called Linear, not every one whose blurb says "issues".)
+  const anyName = owned.some((c) => nameHit(c.name)) || catalog.some((k) => nameHit(k.name));
+  const keep = (name, sc) => (anyName ? nameHit(name) : sc > 0);
+  const ownedHit = ranked(owned.map((c) => [keep(c.name, 1) ? score(c.name, aboutOfName(c)) : 0, c]));
+  const have = new Set(owned.flatMap((c) => [c.url, c.name].filter(Boolean)));
+  const catHit = ranked(catalog.filter((k) => !have.has(k.url) && !have.has(k.name)).map((k) => [keep(k.name, 1) ? score(k.name, k.group + " " + k.about) : 0, k]));
+  return { owned: ownedHit.map((c) => c.id), catalog: catHit.slice(0, 5).map((k) => ({ name: k.name, url: k.url, about: k.about, group: k.group })), generic: false };
+}
 const aboutOf = (url) => { const k = CATALOG.find((x) => x.url === url); return k ? k.about : ""; };
 
 /**

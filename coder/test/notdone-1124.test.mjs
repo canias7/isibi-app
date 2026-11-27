@@ -88,8 +88,8 @@ test("ND6 the page's mode menu lists Manual, and Manual's edit card offers the s
 test("ND7 a full disk before a command starts: the command is not started, in Claude Code's words; a volume with room says nothing", async () => {
   const S = await import("../container/server.mjs");
   const full = { blocks: 100n, bavail: 1n, bsize: 4096n };
-  assert.match(S.diskFullBefore("/out", { statfs: () => full, probe: () => "ENOSPC" }), /^The command was not started: Disk full: .*ENOSPC/);
-  assert.match(S.diskFullBefore("/out", { statfs: () => full, probe: () => "EDQUOT" }), /^The command was not started: Disk quota used up/);
+  assert.match(S.diskFullBefore("/out", { statfs: () => full, probe: () => "ENOSPC" }), /^The command was not started: this computer.s disk is full \(ENOSPC\)/);
+  assert.match(S.diskFullBefore("/out", { statfs: () => full, probe: () => "EDQUOT" }), /^The command was not started: the user.s disk quota is used up \(EDQUOT\)/);
   assert.equal(S.diskFullBefore("/out", { statfs: () => full, probe: () => "" }), null);
   let probed = false;
   assert.equal(S.diskFullBefore("/out", { statfs: () => ({ blocks: 100n, bavail: 100000n, bsize: 4096n }), probe: () => { probed = true; return "ENOSPC"; } }), null);

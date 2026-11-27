@@ -280,6 +280,20 @@ export function fixUpdateInput(input) {
   }
   return changed ? r : null;
 }
+/**
+ * A TASK ID REPAIRED (Claude Code's: trimmed, and a leading # taken off): "#1" and " 1 " are task 1. (Live 2026-11-27:
+ * task_update with "#1" or " 1 " said "Task not found".)
+ */
+export const fixTaskId = (v) => (typeof v === "string" ? v.trim().replace(/^#+\s*/, "") : v);
+/** taskId, addBlocks and addBlockedBy repaired so (a new object only when something changed). */
+export function fixTaskIds(a) {
+  if (!isObj(a)) return a;
+  let r = a;
+  const set = (k, v) => { if (r === a) r = { ...a }; r[k] = v; };
+  if (typeof a.taskId === "string" && fixTaskId(a.taskId) !== a.taskId) set("taskId", fixTaskId(a.taskId));
+  for (const k of ["addBlocks", "addBlockedBy"]) if (Array.isArray(a[k]) && a[k].some((x) => fixTaskId(x) !== x)) set(k, a[k].map(fixTaskId));
+  return r;
+}
 /** Each tool's inputs: a string, a list of strings, an object (Claude Code's record), or one of the statuses. */
 const SHAPES = {
   task_create: { subject: "string!", description: "string!", activeForm: "string", metadata: "record" },
@@ -334,7 +348,7 @@ function createSteer(input) {
 export function checkTaskInput(name, args) {
   if (!isTaskTool(name)) return { args };
   const fixed = name === "task_create" ? fixCreateInput(args) : name === "task_update" ? fixUpdateInput(args) : null;
-  const a = fixed || (isObj(args) ? args : {});
+  const a = fixTaskIds(fixed || (isObj(args) ? args : {}));
   const bad = taskSchemaProblem(name, a);
   if (!bad) return { args: a };
   const steer = name === "task_create" ? createSteer(args) : "";

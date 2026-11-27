@@ -37,7 +37,7 @@ import { wsPrivateHost, PRIVATE_DEST, PICS_MARK, WRITE_MARK, FACTS_MARK, WRITE_S
 import { okHost, HEADER_RE, PREFIXES, listProblem } from "./coder-secrets.mjs";
 import { credentialHost, credentialHeader, credentialPrefix, neverKeyWhy } from "./coder-secrets.mjs";
 import { inputCheckFor } from "./coder-inputs.mjs";
-import { CC_TOOLS as CC_EXTRA_TOOLS, checkEnterWorktree, checkExitWorktree, checkEndConversation, checkSendFeedback, checkReportFindings, randomWorktreeName, enterNewScript, enterPathScript, whereScript, whereOf, enterMadeScript, exitFactsScript, exitScript, markOf, exitState, atRiskWords, exitRefusedText, exitBusyText, NO_WORKTREE, findingsResult, findingsText, FEEDBACK_QUEUED, FEEDBACK_MAX, ENDED_RESULT, endConversationDenied, enterResult, exitResult, feedbackQuietText } from "./coder-worktree.mjs";
+import { CC_TOOLS as CC_EXTRA_TOOLS, checkEnterWorktree, checkExitWorktree, checkEndConversation, checkSendFeedback, checkReportFindings, randomWorktreeName, enterNewScript, enterPathScript, whereScript, whereOf, enterMadeScript, exitFactsScript, exitScript, markOf, exitState, atRiskWords, exitRefusedText, exitBusyText, busyScript, jobInWorktree, NO_WORKTREE, findingsResult, findingsText, FEEDBACK_QUEUED, FEEDBACK_MAX, ENDED_RESULT, endConversationDenied, enterResult, exitResult, feedbackQuietText } from "./coder-worktree.mjs";
 // (A reply's calls side by side, in Claude Code's groups: coder-parallel.mjs. 2026-11-14.)
 import { safeCall, groupEnd, earlyRuns, RoundClosing, closedAs, interruptedNote, SKIPPED_BY_CHECK, INTERRUPTED_TOOL_USE } from "./coder-parallel.mjs";
 import { searchToolDef, GREP_INLINE_MAX, GLOB_INLINE_MAX, SEARCH_TIMEOUT_MS, splitPattern, checkedAt } from "./coder-search.mjs";
@@ -6276,7 +6276,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           if (gone) j.done = true;
           stoppedNow = !!(gone && was);
         } else {
-          const cmd = "kill -TERM -- -" + j.pid + " 2>/dev/null; sleep 1.5; kill -KILL -- -" + j.pid + " 2>/dev/null; echo '[stopped " + name + "]'";
+          // (SIGTERM, SIGKILL 1.5 s later, to the whole group; "stopped" only when nothing of it is left: live 2026-11-27.)
+          const cmd = "kill -TERM -- -" + j.pid + " 2>/dev/null; sleep 1.5; kill -KILL -- -" + j.pid + " 2>/dev/null; sleep 0.2; if ps -o stat= -g " + j.pid + " 2>/dev/null | grep -qv '^Z'; then echo '[" + name + " could not be stopped]'; exit 1; fi; echo '[stopped " + name + "]'";
           try { r = await deps.exec({ command: cmd, timeoutS: 15, tool: true }); }
           catch (e) { r = { code: -1, output: String((e && e.message) || e).slice(0, 200) }; }
         }
@@ -7987,7 +7988,9 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           const risk = remove ? atRiskWords(st) : "";
           // (Claude Code refuses removing while a background subagent or shell command may still run in the worktree, unless
           // discard_changes: a command started there, or any background agent.)
-          const busyHere = remove ? [...jobs.values()].filter((j) => !j.done && j.cwd && (j.cwd === st.top || j.cwd.startsWith(st.top + "/"))).length + agentBg.size : 0;
+          // (And any process still running with its folder in the worktree, however it got there: a `cd` inside the command.)
+          let busyHere = remove ? [...jobs.values()].filter((j) => jobInWorktree(j, st.top)).length + agentBg.size : 0;
+          if (remove && !busyHere && !v.args.discard_changes) { const b = markOf((await run(busyScript(st.top), "Check the worktree")).output); if (b && b.kind === "BUSY") busyHere = Number(b.rest) || 0; }
           if (busyHere && !v.args.discard_changes) { no(exitBusyText(busyHere)); continue; }
           if (risk && !v.args.discard_changes) { no(exitRefusedText(st)); continue; }
           // (Claude Code: "unless an allow rule, auto or bypass permissions mode allows it": no card then.)
