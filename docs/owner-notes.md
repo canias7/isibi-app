@@ -5,6 +5,17 @@ The owner's running log, newest first, in plain English. Started fresh on
 log (81,000 lines) is in git history.
 
 
+## 2026-11-27: Retest on gofarther.dev after the fixes (commit 6607680a)
+
+Tried live with Grok on Low, in a new chat on canias7/testingforclaude. All seven fixed places now work: task ids "#1"
+and " 1 ", removing a worktree that a background command is still using (refused), stopping a command that ignores the
+stop signal (gone after 3 s), the connector card for "Linear issues" (offers Linear), an alias in ~/.zshrc (works on the
+next message), the null-byte message for Read, and an edited plan (the result says planWasEdited true).
+
+Spreadsheet: new column "Tried live (2026-11-27)" on "Tool parameters & limits", 92 rows filled from this retest and
+this round's earlier slices: 75 ✓, 10 ~, 0 ✗, 7 can't test. On "Tools", pull_request and auto_fix are now ✓.
+The test chat was deleted.
+
 ## 2026-11-27: Five more places Coder now does what Claude Code does
 
 **A file changed since it was read.** This already worked like Claude Code: once Coder's note has shown the change, edit
