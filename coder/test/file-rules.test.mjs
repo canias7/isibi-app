@@ -317,7 +317,7 @@ test("CD382g the owner's additional working folders work with Coder's file tools
   // Coder's machine names them to the tools, from the folders it worked out (addDirs), never from a variable of the owner's or
   // the repository's (CODER_… names are dropped from both).
   const server = read("container/server.mjs");
-  assert.match(server, /CODER_OUTPUT_DIRS: bgDir \+ ":" \+ outDir, \.\.\.\(addDirs\.length \? \{ CODER_WORK_DIRS: addDirs\.join\(":"\) \} : \{\}\),/);
+  assert.match(server, /CODER_OUTPUT_DIRS: bgDir \+ ":" \+ outDir \+ ":" \+ AGENT_OUTPUT_DIR, \.\.\.\(addDirs\.length \? \{ CODER_WORK_DIRS: addDirs\.join\(":"\) \} : \{\}\),/);
   assert.match(server, /export const REPO_ENV_OFF = [^\n]*\|CODER_\\w\*\|/);
   // Coder's loop: the rules' decision and the search's own check get the working folders.
   const agent = read("container/coder-agent.mjs");

@@ -5,6 +5,24 @@ The owner's running log, newest first, in plain English. Started fresh on
 log (81,000 lines) is in git history.
 
 
+## 2026-11-28: "Always" on a helper's card now covers the next helper too
+
+From the live retest on gofarther.dev (Manual mode):
+- **"Always for reading /etc/" didn't reach the second helper.** The first helper's answer was kept by the chat, but
+  the next helper started with only the chat's rules from the start of the message, and then reloaded the rules
+  from the machine's copy, which didn't have the new one yet. Now each new helper starts with every lasting answer the
+  chat has given so far, and keeps it. The main chat and your next message were already covered; tests check all three.
+- **A background helper's output file asked for approval.** Coder's own folder for those files
+  (/tmp/coder-agents) is now readable without asking, like Claude Code's task output files.
+- **"A read failed" while loading a skill.** A saved skill has no folder on the machine, but its text began with
+  "Base directory for this skill: (saved: no folder)", so a helper tried to read from that made-up folder. Now such
+  a skill says it has no folder of its own.
+- **Checked, not changed: the push.** When a message ends with changed files, Coder always commits and pushes the
+  chat's branch, like Claude Code on the web. A "do not push" in your message doesn't stop that. The
+  "GitHub · Push branch" step means Coder called its push tool itself, and in Manual mode that tool doesn't ask
+  unless you have an ask or deny rule for `git push`.
+
+
 ## 2026-11-28: Helpers can find and use your connectors; better approval cards
 
 Two problems from the live test on gofarther.dev:
