@@ -3879,6 +3879,12 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   // (A tool its server marks `_meta["anthropic/alwaysLoad"]` is loaded at the start even with tool search.)
   const mcpUpfront = mcpDeferred ? mcpTools.filter((t) => t.alwaysLoad) : mcpTools;
   const mcpLoaded = new Set(mcpUpfront.map((t) => t.name));
+  // A SUBAGENT'S TOOL SEARCH (Claude Code: subagents inherit the main conversation's MCP tools, and tool search works for them
+  // too; 2026-11-28): when the chat that started it defers its connectors (its tool search on, `subagent.toolSearch`), the
+  // subagent's connector tools are deferred the same way, named in tool search's note, with tool_search to load them; those
+  // marked to load upfront are sent from the start. Before, a helper got every connector tool upfront and no tool_search.
+  const sTs = !!offered && !!subagent && typeof subagent === "object" && subagent.toolSearch === true && !toolDenied(TOOL_SEARCH) && mcpTools.some((t) => !t.alwaysLoad);
+  const sHold = sTs ? new Set(mcpTools.filter((t) => !t.alwaysLoad).map((t) => t.name)) : new Set();
   // (ask_user, Claude Code's AskUserQuestion, is not offered under permissions.denyInsteadOfPrompting: its isEnabled. The
   // owner, 2026-11-14: "Do all the talk to you tools execpt for the notify one". Nor enter_plan_mode and exit_plan_mode, its
   // EnterPlanMode and ExitPlanMode: "Claude Code leaves out AskUserQuestion, EnterPlanMode, and ExitPlanMode, so a session in
@@ -3979,7 +3985,19 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   // GLOOPY'S CONNECTORS (owner, 2026-11-13: "make gloopy use the connectors"): an agent with its own tools (`tools`) is
   // offered the owner's connector tools after them, as Coder is after its own (with the tool search when there are many;
   // the tools it finds are added here too).
-  const connectorFns = () => chatTools.filter((f) => f && f.function && (mcpByName.has(f.function.name) || (mcpDeferred && f.function.name === "connector_search")));
+  const connectorFns = () => {
+    const fns = chatTools.filter((f) => f && f.function && (mcpByName.has(f.function.name) || (mcpDeferred && f.function.name === "connector_search")));
+    if (!sTs) return fns;
+    // (A subagent's deferred connectors: tool_search first, then those upfront and those it loaded, in the found form.)
+    const loaded = toolSearchRecord(convo).loaded;
+    return [...(gTs ? [] : [TOOL_SEARCH_TOOL]), ...fns.filter((f) => !sHold.has(f.function.name)), ...[...loaded].filter((n) => sHold.has(n)).map((n) => asFn(mcpByName.get(n), true))];
+  };
+  /** Tool search's note for a subagent's deferred connectors (announcement), as the chat's. */
+  const sNote = () => {
+    const rec = toolSearchRecord(convo);
+    const up = new Set([...tools, ...connectorFns()].map((t) => (t && t.function ? t.function.name : "")).filter((n) => n && !sHold.has(n) && n !== TOOL_SEARCH));
+    return announcement({ deferred: [...sHold], loaded: rec.loaded, announced: rec.announced, listed: rec.listed, told: rec.told, upfront: up });
+  };
   /**
    * GLOOPY'S OWN TOOLS AS A REQUEST SENDS THEM (holding, 2026-11-15): with tools held back, those not loaded yet are left out
    * and tool_search comes after the rest, then the loaded ones in the order they were first loaded (the chat's record,
@@ -4637,7 +4655,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         const inl = agentDef && !agentDef.plugin && Array.isArray(agentDef.mcpServers) && agentDef.mcpServers.length ? await connectAgentServers(agentDef.mcpServers, { trusted: repoTrusted === true, connected: connectorTools(connectors).flatMap((t) => [t.server, t.connector, t.label && t.label.split(":")[0]]).filter(Boolean), ...(typeof deps.fetch === "function" ? { fetchFn: deps.fetch } : {}), ...(typeof deps.spawnStdio === "function" ? { spawnFn: deps.spawnStdio } : {}) }).catch(() => null) : null;
         for (const n of inl ? inl.notes : []) emit({ type: "note", text: scrub(String(n)).slice(0, 400), warn: true });
         const subMcp = inl && inl.call ? (name, args, o) => (inl.has(name) ? inl.call(name, args) : typeof deps.mcp === "function" ? deps.mcp(name, args, o) : Promise.resolve({ text: "error: no such connector tool", isError: true })) : deps.mcp;
-        try { return await runCoder({ ...deps, ...(subMcp ? { mcp: subMcp } : {}), ruleUp: upRule, ruleLink: (f) => { ruleSubs.add(f); return () => ruleSubs.delete(f); }, emit: subEmit, subagentBudget: agentBudget, ...(typeof deps.transcript === "function" ? { transcript: (c, o = {}) => { if (o && o.agent) return deps.transcript(c, o); try { deps.transcript(c, { ...o, agent: String(agentId || "") }); } catch { /* the main one still */ } return transcriptNow(); } } : {}), ...(cwd ? inFolder(deps, cwd) : {}), ...(typeof stopReq === "function" ? { stopped: async () => stopReq() || (await stopped()) } : {}) }, { text: prompt, messages: past || [], system: (sys || SUBAGENT_SYSTEM + (AGENT_TYPES[type] && AGENT_TYPES[type].note ? "\n\n" + AGENT_TYPES[type].note : "")) + (cwd ? "\n\n" + worktreeNotice(deps.root || "", cwd) : ""), tools: subagentTools(subTools, type, toolNames, { mode: subMode || modeNow() }), context: typeof contextOf === "function" ? contextOf(Array.isArray(ctxNow) ? ctxNow : context) : context, base, model: m || model, effort: ef || effort, mode: subMode || modeNow(), rules, hooks: Array.isArray(fmOwn) && fmOwn.length ? [...hookList, ...fmOwn] : hookList, denyInstead, nudges: false, who: "Coder's agent “" + label + "”", asHelper: true, github: false, tasksOff: true, maxRounds: mr || SUBAGENT_ROUNDS, maxMs: Math.min(SUBAGENT_MS, left), compactVars, sessionRules: { allow: [...hookSession.allow], ask: [...hookSession.ask], deny: [...hookSession.deny] }, subagent: { id: agentId || "", type, depth: Number(subDepth) || 1, ...(Number(compactWindow) > 0 ? { compactWindow: Number(compactWindow) } : {}) }, connectors: [...subagentConnectors(connectors, type, agentDef), ...(inl ? inl.tools : [])], connectorNotes, skills: Array.isArray(toolNames) && toolNames.includes("skill") && !toolDenied("skill") ? skillList : [] }); } finally { if (inl) await inl.close().catch(() => {}); } },
+        try { return await runCoder({ ...deps, ...(subMcp ? { mcp: subMcp } : {}), ruleUp: upRule, ruleLink: (f) => { ruleSubs.add(f); return () => ruleSubs.delete(f); }, emit: subEmit, subagentBudget: agentBudget, ...(typeof deps.transcript === "function" ? { transcript: (c, o = {}) => { if (o && o.agent) return deps.transcript(c, o); try { deps.transcript(c, { ...o, agent: String(agentId || "") }); } catch { /* the main one still */ } return transcriptNow(); } } : {}), ...(cwd ? inFolder(deps, cwd) : {}), ...(typeof stopReq === "function" ? { stopped: async () => stopReq() || (await stopped()) } : {}) }, { text: prompt, messages: past || [], system: (sys || SUBAGENT_SYSTEM + (AGENT_TYPES[type] && AGENT_TYPES[type].note ? "\n\n" + AGENT_TYPES[type].note : "")) + (cwd ? "\n\n" + worktreeNotice(deps.root || "", cwd) : ""), tools: subagentTools(subTools, type, toolNames, { mode: subMode || modeNow() }), context: typeof contextOf === "function" ? contextOf(Array.isArray(ctxNow) ? ctxNow : context) : context, base, model: m || model, effort: ef || effort, mode: subMode || modeNow(), rules, hooks: Array.isArray(fmOwn) && fmOwn.length ? [...hookList, ...fmOwn] : hookList, denyInstead, nudges: false, who: "Coder's agent “" + label + "”", asHelper: true, github: false, tasksOff: true, maxRounds: mr || SUBAGENT_ROUNDS, maxMs: Math.min(SUBAGENT_MS, left), compactVars, sessionRules: { allow: [...hookSession.allow], ask: [...hookSession.ask], deny: [...hookSession.deny] }, subagent: { id: agentId || "", type, depth: Number(subDepth) || 1, ...(tsOn || sTs ? { toolSearch: true } : {}), ...(Number(compactWindow) > 0 ? { compactWindow: Number(compactWindow) } : {}) }, connectors: [...subagentConnectors(connectors, type, agentDef), ...(inl ? inl.tools : [])], connectorNotes, skills: Array.isArray(toolNames) && toolNames.includes("skill") && !toolDenied("skill") ? skillList : [] }); } finally { if (inl) await inl.close().catch(() => {}); } },
       // (A LASTING APPROVAL IN A SUBAGENT COVERS THE SESSION, Claude Code's "applies your answer to the whole session, including
       // your main conversation": the session rules its run added join this chat's, and the rules it saved join this job's
       // rules at once (the Worker already has them from the agent's own rule steps). 2026-11-28.)
@@ -5211,6 +5229,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     // and task reminders): the chat's deferred tools not yet named, or named and gone, said before this step.
     if (tsOn) { const note = tsNote(tsPool(!!planBox)); if (note) convo.push(note); }
     else if (gTs) { const note = gNote(); if (note) convo.push(note); }
+    else if (sTs) { const note = sNote(); if (note) convo.push(note); }
     const modeRound = modeNow();
     // (The chat's plan file this round, in plan mode or just out of it: Claude Code's planFilePath and plan. 2026-11-14.)
     const planRound = modeRound === "plan" || toldMode === "plan" ? await planNow() : null;
@@ -5927,7 +5946,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       if (typeof c.args !== "object" || Array.isArray(c.args)) { reply("error: InputValidationError: The input must be an object of named parameters"); continue; }
       // A TOOL THIS AGENT WAS NOT OFFERED (Gloopy, 2026-11-09) is not run, even when its name is one of Coder's.
       if (!offered && (c.name === "browser" || c.name === "sign_in" || c.name === "pay" || c.name === "handoff" || c.name === "schedule" || c.name === "webhook" || c.name === "helpers" || c.name === "page" || c.name === "files" || c.name === "todo")) { reply("error: no such tool: " + c.name + (c.name === "browser" ? " (use Chrome or Playwright through bash)" : "")); continue; }
-      if (offered && !offered.has(c.name) && !mcpByName.has(c.name) && !(mcpDeferred && c.name === "connector_search") && !(gTs && c.name === TOOL_SEARCH)) { reply("error: no such tool: " + c.name.slice(0, 40) + " (your tools are " + [...offered].join(", ") + "; to finish, answer in words)"); continue; }
+      if (offered && !offered.has(c.name) && !mcpByName.has(c.name) && !(mcpDeferred && c.name === "connector_search") && !((gTs || sTs) && c.name === TOOL_SEARCH)) { reply("error: no such tool: " + c.name.slice(0, 40) + " (your tools are " + [...offered].join(", ") + "; to finish, answer in words)"); continue; }
       // ONE OF GLOOPY'S HELD-BACK TOOLS CALLED BEFORE TOOL_SEARCH LOADED IT (holding, 2026-11-15): run when its input fits its
       // definition, as Claude Code runs a deferred tool's call its schema accepts; refused otherwise in Claude Code's words,
       // with its note to load the tool first (coder-toolsearch.mjs heldBackRefusal).
@@ -8483,7 +8502,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         if (repo) prExtra = [...prExtra.filter((x) => x.repo !== repo), { ...one, repo }].slice(-3); else prRequest = one;
         emit({ type: "pr", text: (repo ? repo + ": " : "") + one.title });
         reply("ok: the pull request opens when your turn ends, after your changes are pushed. Finish by telling the owner.");
-      } else if (c.name === TOOL_SEARCH && (tsOn || gTs)) {
+      } else if (c.name === TOOL_SEARCH && (tsOn || gTs || sTs)) {
         // CLAUDE CODE'S ToolSearch (coder-toolsearch.mjs): the tools found, named in its words for tools whose definitions
         // were just delivered elsewhere (each definition goes once, in the request's tools: the owner, 2026-11-14, "fix it"),
         // or "No matching deferred tools found" (with the connectors that failed); the deferred ones found are kept with the
@@ -8491,10 +8510,11 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // PostToolUse hooks get its result object, and a rewrite of it that matches its shape is what Grok reads and what
         // loads (postHooks, `tsAnswer`). The chat shows no line for it, as Claude Code shows none.
         // (Gloopy's: its own tools, those held back to load; its connectors keep their connector_search. 2026-11-15.)
-        const pool = gTs ? tools : tsPool(modeNow() === "plan" ? !!(await planNow()) : !!planBox), deferred = gTs ? holding : tsDeferred(pool);
-        const r = runToolSearch(c.args, { pool, deferred, hints: gTs ? null : mcpHints, descMax: descUp, failed: gTs ? [] : mcpFailed });
+        // (A subagent's: its own tools and its connectors' found definitions, the connectors deferred.)
+        const pool = sTs ? [...tools, ...mcpTools.map((t) => asFn(t, true))] : gTs ? tools : tsPool(modeNow() === "plan" ? !!(await planNow()) : !!planBox), deferred = sTs ? sHold : gTs ? holding : tsDeferred(pool);
+        const r = runToolSearch(c.args, { pool, deferred, hints: gTs && !sTs ? null : mcpHints, descMax: descUp, failed: gTs || sTs ? [] : mcpFailed });
         toolFacts.set(c.id, r.facts);
-        if (!gTs && !github && suggestConnectorsFor(c.args && c.args.query, (r.loaded || []).length)) emit({ type: "connectors_suggest", id: c.id, query: scrub(String(c.args.query || "")).slice(0, 100) });
+        if (!gTs && !sTs && !github && suggestConnectorsFor(c.args && c.args.query, (r.loaded || []).length)) emit({ type: "connectors_suggest", id: c.id, query: scrub(String(c.args.query || "")).slice(0, 100) });
         c.tsAnswer = (v) => toolSearchAnswer(v, { pool, deferred });
         c.keepTail = r.note ? "\n\n(Note from Coder's app, not the owner: " + r.note + ")" : "";
         reply(r.text + c.keepTail, { toolsLoaded: r.loaded, ...(r.defs.length ? { toolDefs: r.defs } : {}) });
@@ -8540,7 +8560,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // other steps that need one do, and the turn ends there. Allowed, Coder's Worker makes that one call with the owner's
         // sign-in, and Gloopy hears its answer with the next message. One the owner said no to is not asked about again until
         // their own next message. (Always allow runs here at once; Blocked is never offered.)
-        if (offered) {
+        // (Not a subagent's: Claude Code's subagent asks on the chat's own permission card and waits for the answer. 2026-11-28.)
+        if (offered && !subagent) {
           const step = ("Use " + t.label).slice(0, 300);
           if (denied.has(step)) { emit({ type: "bash", id: c.id, tool: "connector", verb: "Used", command: scrub(t.label).slice(0, 200) }); emit({ type: "result", id: c.id, code: 1, output: noAgain(step) }); reply(noAgain(step)); continue; }
           if (t.perm === "ask" || t.always) {

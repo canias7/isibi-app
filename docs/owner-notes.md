@@ -5,6 +5,21 @@ The owner's running log, newest first, in plain English. Started fresh on
 log (81,000 lines) is in git history.
 
 
+## 2026-11-28: Helpers can find and use your connectors; better approval cards
+
+Two problems from the live test on gofarther.dev:
+- **Connectors in helpers**: a helper asked to use the mcpdemo connector couldn't. Your chat keeps connector tools
+  behind tool search (they load when Coder searches for them), but a helper got no search. Now a helper works like
+  Claude Code's: when your chat keeps them behind tool search, so does the helper, and it gets the same search to load
+  and use them. A connector that is off or blocked for the chat stays out of helpers too. And when a connector tool
+  needs your OK, a helper now asks on the chat's normal card and waits for your answer, instead of stopping.
+- **"Don't ask again" on helpers' cards**: the cards for helpers' file searches outside the project (for example
+  `find /tmp/data ...` or `cat /etc/hosts`) had only Allow, Switch to Auto and Deny. The chat's own card was the same
+  for these commands. Now both offer "Yes, and don't ask again for reading /tmp/data/" (the folder), like Claude Code's
+  "allow reading from this folder". Picked on a helper's card, it counts for the whole chat right away.
+- Tests: `coder/test/subagent-toolsearch-1128.test.mjs`. Not yet tried live on gofarther.dev.
+
+
 ## 2026-11-28: Helper agents now match Claude Code exactly
 
 - **Report frame**: a helper agent's report now reaches Coder under Claude Code's own "[Subagent hand-back] …" header,

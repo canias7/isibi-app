@@ -1886,6 +1886,9 @@ export function bashDecision(command, { mode = "auto", rules = {}, cwd = "/", wo
   // approves; a part in `parts` asks unless one of the owner's allow rules covers it (`partWhy`: its own reason).
   const needs = [], partWhy = new Map();
   const needFor = (c, why, safety = false) => needs.push({ c, why, safety });
+  // (A read out of the working folders: that need carries its folder Read rules for "Yes, and don't ask again" (`outRead`;
+  // Claude Code offers to allow reading from that folder, as a cd's Read rule); none when one of its paths can't have one.
+  // 2026-11-28.)
   // THE CHAT'S SCRATCH FOLDER (Bash docs pass 9; Claude Code: "Scratchpad files for current session are allowed for
   // writing", and for reading): read and written without asking, after the deny rules; through a link, no.
   const scr = (Array.isArray(scratch) ? scratch : []).filter((x) => typeof x === "string" && x.startsWith("/"));
@@ -2039,6 +2042,15 @@ export function bashDecision(command, { mode = "auto", rules = {}, cwd = "/", wo
         // (A folder it lists or searches counts as read when the rule opens what is in it.)
         if (readOk(a.full, true)) continue;
         needFor(c, inside && to ? linkOutWhy(a.full, to) : blockedWhy(uname || name, a.full, workdirs));
+        if (!inside) {
+          // (Its folder: the path itself for a command that lists or searches folders, else the file's folder; every other
+          // path of the part out of the working folders needs one too.)
+          const recurses = ["rg", "ag"].includes(uname || name) || (["grep", "egrep", "fgrep"].includes(uname || name) && (c.words || []).some((w) => /^(-[A-Za-z]*[rR][A-Za-z]*|--recursive|--dereference-recursive)$/.test(String(w && w.text))));
+          const dirOf = (p) => (DIR_READERS.has(uname || name) || recurses ? p : p.replace(/\/[^/]*$/, "") || "/");
+          const rest = pathArgs(c, { cwd, home }).filter((b) => !(b.full && (insideWork(b.full, workdirs) || isOwn(b.full) || isPlan(b.full) || isMem(b.full) || readOk(b.full, true))));
+          const rs = rest.map((b) => (b.tildeUser || b.dotdot || b.unknownDir || b.computed || !b.full ? "" : readRuleFor(dirOf(b.full))));
+          if (rs.length && rs.every(Boolean)) needs[needs.length - 1].outRead = [...new Set(rs)];
+        }
         break;
       }
     }
@@ -2073,9 +2085,13 @@ export function bashDecision(command, { mode = "auto", rules = {}, cwd = "/", wo
   // runs gets none, and then nothing is offered.)
   let suggest = null;
   const cdTo = (c) => { const w = readWords(c.words) || []; if (!w[0] || w[0].text !== "cd") return null; const to = w.length > 1 ? fullPath(w[1], c.dir === undefined ? cwd : c.dir) : ""; return to && !insideWork(to, workdirs) ? readRuleFor(to) : ""; };
-  if (!needs.length && left.length && left.length <= 5 && !gitAfterCd && !multiCd) {
+  // (A read out of the working folders asked about only for that: its folders' Read rules, with the Bash rules of the parts
+  // left. 2026-11-28.)
+  const outOnly = needs.length > 0 && needs.every((n) => !n.safety && Array.isArray(n.outRead));
+  if ((!needs.length || outOnly) && (left.length || outOnly) && left.length <= 5 && !gitAfterCd && !multiCd) {
     const s = left.map((c) => { const cd = cdTo(c); return cd === null ? (suggestFor(c) === null ? null : ruleText("Bash", suggestFor(c))) : cd || null; });
-    if (s.every((x) => typeof x === "string" && x.length && x.length <= RULE_MAX + 10)) suggest = [...new Set(s)];
+    const all = [...(outOnly ? needs.flatMap((n) => n.outRead) : []), ...s];
+    if (all.length && all.every((x) => typeof x === "string" && x.length && x.length <= RULE_MAX + 10) && new Set(all).size <= 5) suggest = [...new Set(all)];
   }
   return { verdict: "ask", why, suggest, ...(safety ? { safety: true } : {}) };
 }
@@ -2539,6 +2555,8 @@ Object.setPrototypeOf(READ_PATHS, null);
  */
 const RB_RUNNERS = new Map([["python", new Set(["-c"])], ["node", new Set(["-e", "--eval", "-p", "--print"])], ["nodejs", new Set(["-e", "--eval", "-p", "--print"])], ["bun", new Set(["-e", "--eval", "-p", "--print"])], ["perl", new Set(["-e", "-E"])], ["ruby", new Set(["-e"])], ["php", new Set(["-r"])], ["bash", new Set(["-c"])], ["sh", new Set(["-c"])], ["zsh", new Set(["-c"])], ["dash", new Set(["-c"])], ["ksh", new Set(["-c"])], ["lua", new Set(["-e"])], ["luajit", new Set(["-e"])], ["tsx", new Set(["-e", "--eval", "-p", "--print"])], ["deno", new Set(["eval"])], ["Rscript", new Set(["-e"])], ["julia", new Set(["-e", "-E"])], ["osascript", new Set(["-e"])]]);
 /** The programs whose words the read block never checks (Claude Code's own twelve, its mer). */
+/** Commands whose path is a folder they list or search (a read out of the working folders offers that folder's Read rule). */
+const DIR_READERS = new Set(["ls", "find", "tree", "du", "fd"]);
 const RB_EXEMPT = new Set(["echo", "printf", "test", "[", "[[", "true", "false", "which", "type", "basename", "dirname", "df"]);
 /** Settings in front that the read block lets through (Claude Code's own list, its FD), when their value is not a path. */
 const RB_SAFE_ENV = new Set(["GOEXPERIMENT", "GOOS", "GOARCH", "CGO_ENABLED", "GO111MODULE", "RUST_BACKTRACE", "RUST_LOG", "NODE_ENV", "PYTHONUNBUFFERED", "PYTHONDONTWRITEBYTECODE", "PYTEST_DISABLE_PLUGIN_AUTOLOAD", "PYTEST_DEBUG", "ANTHROPIC_API_KEY", "LANG", "LANGUAGE", "LC_ALL", "LC_CTYPE", "LC_TIME", "CHARSET", "TERM", "COLORTERM", "NO_COLOR", "FORCE_COLOR", "TZ", "LS_COLORS", "LSCOLORS", "GREP_COLOR", "GREP_COLORS", "GCC_COLORS", "TIME_STYLE", "BLOCK_SIZE", "BLOCKSIZE", "COLUMNS", "LINES", "CLICOLOR", "CLICOLOR_FORCE", "CI", "DEBIAN_FRONTEND", "GIT_TERMINAL_PROMPT"]);

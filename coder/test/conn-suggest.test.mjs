@@ -20,7 +20,7 @@ test("agent: a search naming connectors, or finding nothing, shows the card; sel
   assert.equal(suggestConnectorsFor("select:web_fetch", 0), false);
   assert.equal(suggestConnectorsFor("", 0), false);
   const src = read("container/coder-agent.mjs");
-  assert.match(src, /if \(!gTs && !github && suggestConnectorsFor\(c\.args && c\.args\.query, \(r\.loaded \|\| \[\]\)\.length\)\) emit\(\{ type: "connectors_suggest"/);
+  assert.match(src, /if \(!gTs && !sTs && !github && suggestConnectorsFor\(c\.args && c\.args\.query, \(r\.loaded \|\| \[\]\)\.length\)\) emit\(\{ type: "connectors_suggest"/);
 });
 
 test("page: Coder's tab only, styles under #gfApp", () => {

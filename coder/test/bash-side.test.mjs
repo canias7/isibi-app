@@ -40,8 +40,10 @@ test("CD362 a read outside the project asks in Accept edits and Plan, in Claude 
     "ls -la $HOME/../": "ls in '/home' was blocked. For security, Coder may only list files in the allowed working directories for this session: " + DIRS + ".",
     "ls /etc/*.conf": "ls in '/etc' was blocked. For security, Coder may only list files in the allowed working directories for this session: " + DIRS + ".",
   };
+  // (Its "don't ask again", since 2026-11-28: that folder's Read rule, as a cd out of the project gets; none for the root.)
+  const offer = { "cat /etc/hostname": ["Read(//etc/**)"], "ls /": null, "head -1 /etc/passwd": ["Read(//etc/**)"], "grep -c root /etc/passwd": ["Read(//etc/**)"], "wc -l /etc/hosts": ["Read(//etc/**)"], "ls ../": ["Read(//work/**)"], "cat ~/.bashrc": ["Read(//home/dev/**)"], "ls -la $HOME/../": ["Read(//home/**)"], "ls /etc/*.conf": ["Read(//etc/**)"] };
   for (const [c, w] of Object.entries(said)) {
-    for (const m of ["acceptEdits", "plan"]) { const r = P.bashDecision(c, ctx(m)); assert.deepEqual([c, m, r.verdict, r.why, r.suggest], [c, m, "ask", w, null]); }
+    for (const m of ["acceptEdits", "plan"]) { const r = P.bashDecision(c, ctx(m)); assert.deepEqual([c, m, r.verdict, r.why, r.suggest], [c, m, "ask", w, offer[c]]); }
     assert.equal(P.bashDecision(c, ctx("auto")).verdict, "allow", "Auto: " + c);
   }
   // Inside the project, and Coder's own folders (a long output's saved file, a background command's log): run.
