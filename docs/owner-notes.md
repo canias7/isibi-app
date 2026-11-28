@@ -5,6 +5,20 @@ The owner's running log, newest first, in plain English. Started fresh on
 log (81,000 lines) is in git history.
 
 
+## 2026-11-28: The hook fixes tried live
+
+On gofarther.dev (commit ddbf1d91), with Grok on Low (11 messages), in a new chat on the test repo:
+- A hook that blocks `rm -rf` stopped the command, and Grok saw the reason word for word.
+- A hook after Edit and Write got the file's full path and the old and new text, with no stray `path` field.
+- A hook for GitHub tools fired for the push and for a draft pull request, named `github` as the server.
+- A WorktreeCreate hook that prints a folder works: Coder's commands then ran inside that folder, and removing
+  the worktree fired WorktreeRemove.
+- Editing `.claude/settings.json` mid-job fired ConfigChange; `/add-dir` fired DirectoryAdded.
+- A skill's own hook marked "once" fired once over two commands.
+- Pressing Escape with nothing running no longer spoils the next message: it ran normally.
+- Not tried: the permission-request hook for GitHub tools, because the push and pull request asked no question.
+The test settings, skill, files, pull request and chat were cleaned up. The spreadsheet's hook tabs say what was tried.
+
 ## 2026-11-28: The new hooks tried live
 
 On gofarther.dev (commit ac00a917), with Grok on Low (13 messages), I put one logging hook per new event in the test
