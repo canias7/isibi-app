@@ -5,6 +5,19 @@ The owner's running log, newest first, in plain English. Started fresh on
 log (81,000 lines) is in git history.
 
 
+## 2026-11-28: Skills and subagents tried live
+
+I tried the skills and subagents changes on gofarther.dev with Grok (Low, 11 messages, 3 test chats, all deleted after):
+- **Works**: `/greet Ana` filled in the name, the first argument and the skill's folder; a `` !`date +%Y` `` line
+  ran and Grok said 2026; the / menu shows "/greet [name] · Greets someone by name"; a skill with a multi-line
+  description loads; a `context: fork` skill with `agent: Explore` ran as a helper agent; a helper agent kept in a
+  subfolder (`.claude/agents/sub/rev.md`) was found, had its preloaded skill, and wrote its memory file.
+- **Not confirmed**: whether `allowed-tools: Bash(echo *)` skips the card (plain `echo` never asks, and an echo
+  into /tmp still asked), and whether Explore really skips CLAUDE.md (it named the marker word, but the main agent
+  may have told it).
+- **To look at**: the helper agent set to `permissionMode: plan` still wrote its memory file (after asking you),
+  and the / menu showed no skills in a brand-new chat until the first message was sent.
+
 ## 2026-11-28: Skills and subagents work like Claude Code's
 
 I read Claude Code's skills, subagents and memory docs in full and made Coder's match them (not tried live yet):
