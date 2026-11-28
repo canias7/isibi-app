@@ -444,6 +444,25 @@ export function filesTouched(messages, max = REREAD_LIST_MAX) {
 }
 
 /** Is this one of those summary messages (marked, or one from before 2026-11-14, by how it starts)? */
+/**
+ * A SUBAGENT'S AUTO-COMPACTION (Claude Code's sub-agents.md "Auto-compaction": "Compaction triggers as the subagent's own context
+ * window fills, and CLAUDE_AUTOCOMPACT_PCT_OVERRIDE applies to subagents as well"; its autoCompactWindow field, v2.1.296, "to
+ * make one subagent compact earlier"). `vars`: the chat's compact settings (compactSettings's), `window`: the agent file's
+ * autoCompactWindow (0: none), `contextWindow`: the model's. The smaller of the two windows counts. → { tokens, chars } where
+ * it compacts (chars: what Coder's helper loop measures, CHARS_PER_TOKEN a token), or null when auto-compact is off.
+ * 2026-11-28.
+ */
+export function subagentCompactRoom({ vars = null, window = 0, contextWindow = 500_000 } = {}) {
+  const set = compactSettings(vars || {});
+  if (set.off || set.autoOff) return null;
+  const own = Number(window) > 0 ? Number(window) : null;
+  const w = [set.window, own].filter((x) => Number.isFinite(x) && x > 0);
+  const L = compactLimits({ contextWindow, window: w.length ? Math.min(...w) : null, pct: set.pct, enabled: true });
+  const tokens = Math.max(1, L.threshold);
+  return { tokens, chars: tokens * CHARS_PER_TOKEN };
+}
+/** The compactMetadata of the compact_boundary entry Claude Code logs in a (sub)agent's transcript ({"type":"system","subtype":"compact_boundary","compactMetadata":{"trigger":"auto","preTokens":N}}). */
+export const compactBoundary = (preTokens, trigger = "auto") => ({ trigger: trigger === "manual" ? "manual" : "auto", preTokens: Math.max(0, Math.round(Number(preTokens) || 0)) });
 export const isSummary = (m) => !!m && m.role === "user" && (m.compactSummary === true || (typeof m.content === "string" && m.content.startsWith(SUMMARY_TAG)));
 /**
  * THE SYSTEM PROMPT A CHAT'S REQUESTS USE (Claude Code records the prompt on a conversation's first request and keeps it

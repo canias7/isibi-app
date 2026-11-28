@@ -30,7 +30,7 @@ async function job(steps, { text = "go", skills = [], rules = null, mode = "acce
     here: () => ROOT, root: ROOT, home: "/home/dev", chatId: "shop-1128", where: (p) => (p.startsWith("/") ? p : ROOT + "/" + p),
     ask: async () => ({ choice: "yes" }), toolSearch: "false", nestedSkills: false, ...deps,
   }, { text, mode, skills, rules, ...opts });
-  const told = (id) => { for (const req of seen) for (const m of req.messages) if (m.role === "tool" && m.tool_call_id === id) return m.content; return ""; };
+  const told = (id) => { for (const req of seen) for (const m of req.messages) if (m.role === "tool" && m.tool_call_id === id) return typeof m.content === "string" ? m.content.replace(/^\[Subagent output: [^\n]*\]\n/, "") : m.content; return ""; };
   return { events, seen, told, cmds };
 }
 
@@ -192,7 +192,7 @@ test("S10 agent files: YAML frontmatter with skills, memory, omitClaudeMd, initi
   assert.equal(p.def.mcpServers[0], "github"); assert.equal(p.def.mcpServers[1].playwright.command, "npx");
   assert.equal(p.def.background, true);
   assert.equal(G.parseAgentFile("---\nname: x\n\tdescription: y\n---\n").skip, "its YAML doesn't parse");
-  assert.match(G.agentFilesScript(), /^find \.claude\/agents -type f -name '\*\.md'.*LC_ALL=C sort/);
+  assert.match(G.agentFilesScript(), /find \.claude\/agents -type f -name '\*\.md'.*LC_ALL=C sort/); // (from each folder up to the top since 2026-11-28: subagents-cc-1128b SR10)
   const { defs } = G.customAgentsFrom([{ file: ".claude/agents/review/explore.md", text: "---\nname: Explore\ndescription: Mine\nmodel: grok-4.7\n---\nMy explorer." }]);
   assert.equal(defs[0].name, "Explore");
 });
@@ -241,7 +241,7 @@ test("S14 a custom agent's preloaded skills and memory reach its system prompt; 
   let system = "", tools = [];
   await job([say("", [call("agent", { description: "api", prompt: "build", subagent_type: "api", run_in_background: false }, "a1")]), say("done")], {
     skills: [conv, quiet], mode: "auto",
-    exec: async (x) => (x.command.startsWith("find .claude/agents") ? { code: 0, output: G.AGENT_FILES_MARK + agents[0].file + "\n" + agents[0].text + "\n" } : /MEMORY\.md/.test(x.command) ? { code: 0, output: "- [style](style.md)\n" } : null),
+    exec: async (x) => (x.command.includes("find .claude/agents") ? { code: 0, output: G.AGENT_FILES_MARK + agents[0].file + "\n" + agents[0].text + "\n" } : /MEMORY\.md/.test(x.command) ? { code: 0, output: "- [style](style.md)\n" } : null),
     sub: (req) => { system = sys(req); tools = (req.tools || []).map((t) => t.function.name); return say("", [call("subagent_handback", { message: "ok" }, "h")]); },
   });
   assert.match(system, /<preloaded-skill name="conv">\nBase directory for this skill: \/work\/shop\/\.claude\/skills\/conv\n\nUse REST in \/work\/shop\/\.claude\/skills\/conv\.\n<\/preloaded-skill>/);

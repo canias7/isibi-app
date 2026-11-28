@@ -54,6 +54,26 @@ I fixed six gaps between Coder's helpers and Claude Code's, following its subage
 - **A new chat's / menu lists the repository's skills right away.** Coder reads them from GitHub when the chat is made. Before, they only showed up after the first message.
 - **Found and fixed while testing:** the Explore and Plan helpers were still getting CLAUDE.md, because the chat's context had already been turned into text by the time it reached them. They now start without it, as Claude Code's do. I also checked that a skill's allowed-tools permission ends when you send your next message.
 
+## 2026-11-28: Helper agents, the rest of Claude Code's rules
+
+I went through the helper-agent rows still marked missing on the comparison sheet and built them Claude Code's
+way (not tried live yet):
+- **A helper's report is checked before Coder reads it.** Text that pretends to be Coder's own messages (tags like
+  `<system-reminder>`, lines starting `Human:`) gets a backslash so it reads as plain text, and a warning line goes on
+  top when it does that or talks about permission settings. The report also comes under a header saying it is the
+  helper's words, not yours, so nothing in it counts as your approval.
+- **Long helpers summarize themselves** when their own memory fills, the same way the chat does (your compact
+  settings apply to them too), and the summary is logged in the helper's transcript. An agent file can set
+  `autoCompactWindow: 150000` to make that helper summarize sooner.
+- **A helper whose answer got cut off** at Grok's length limit is asked again for the whole answer, shorter.
+- **Agent files in subfolders**: every `.claude/agents` from the folder Coder is in up to the repo's top is read,
+  and the closest one wins when two have the same name.
+- **A rule a helper's run added for the rest of the chat** now covers the chat too.
+- **Helpers in their own worktree** now start from the main branch (not from whatever Coder had checked out), and
+  any git command of theirs that reaches into your main checkout is refused, as are commands too tangled to check.
+  If their worktree disappears, their commands fail instead of running in your checkout.
+- Not done, and why: things Coder has no counterpart for (a per-helper Stop button, model settings downloaded
+  from the maker, the web-fetch helper's terminal signs); marked "Doesn't apply" on the sheet.
 
 ## 2026-11-28: Skills and subagents work like Claude Code's
 

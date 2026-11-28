@@ -2962,7 +2962,7 @@ export async function pushRepo({ dir, repo, branch, token, headers = [], message
  * worktree git lists under .claude/worktrees/ of that repository, and its branch. The sandbox is not changed.
  * op "add": { main, name } → { ok, path, branch } | { ok: false, why }. op "remove": { main, path, branch } → { ok } | { ok: false, why }.
  */
-export async function worktreeNow({ op, main, name, path, branch, dirs, gitRoot = GIT_ROOT, root = PROJECT_ROOT, owner = DEV, quiet = quietly }) {
+export async function worktreeNow({ op, main, name, path, branch, dirs, baseRef = "", gitRoot = GIT_ROOT, root = PROJECT_ROOT, owner = DEV, quiet = quietly }) {
   const no = (why) => ({ ok: false, why });
   const top = (Array.isArray(dirs) ? dirs : []).find((d) => typeof main === "string" && resolve(main) === d);
   if (!top) return no("that folder is not one of this chat's repositories");
@@ -2991,7 +2991,10 @@ export async function worktreeNow({ op, main, name, path, branch, dirs, gitRoot 
       }
       if ((await realpath(dirname(target)).catch(() => "")) !== dirname(target)) return no(dirname(target) + " leads somewhere else, so no worktree was made there");
       if (await lstat(target).then(() => true, () => false)) return no("A worktree named " + n + " already exists at " + target + "; pass it as path to enter it");
-      const a = await gitIn(top, ["worktree", "add", "-q", "-b", br, target, "HEAD"], o);
+      // (A subagent's, Claude Code's isolation "worktree": "By default, the copy branches from your default branch rather than the
+      // parent session's HEAD" (`baseRef` "fresh"): the remote's default branch as cached, origin/HEAD, else HEAD. 2026-11-28.)
+      const from = baseRef === "fresh" && (await gitIn(top, ["rev-parse", "-q", "--verify", "refs/remotes/origin/HEAD^{commit}"], o)).code === 0 ? "refs/remotes/origin/HEAD" : "HEAD";
+      const a = await gitIn(top, ["worktree", "add", "-q", "--no-track", "-b", br, target, from], o);
       if (a.code !== 0) return no("git could not create the worktree: " + String(a.output || "").trim().slice(0, 200));
       await new Promise((r) => spawn("chmod", ["-R", "u+rwX,go+rX,go-w", join(o.gitDir, "worktrees")]).on("close", r).on("error", r));
       if (owner) { const g = await giveTree(target, owner, { root, inside: top }); if (g) return no(g); }

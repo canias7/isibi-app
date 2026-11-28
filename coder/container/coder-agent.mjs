@@ -22,7 +22,7 @@
 // message continues from the same messages.
 import { toolChoiceSets, toolChoiceAskWhy } from "./coder-toolchoices.mjs";
 import { isMemoryPath } from "./memory-files.mjs";
-import { recordedSystem, summaryRequest, summaryMessage, cutPoint, isSummary, viewedFile, filesTouched, compactSettings, compactLimits, compactLevel, contextWarning, conversationTokens, contextUsage, COMPACT_FAILURES_MAX, REFILL_TURNS, REFILL_TIMES, PRECOMPACT_OUTPUT_MAX, CHARS_PER_TOKEN, COMPACTED_SHOWN, THRASHING, contextLimitShown, compactPrompt, summaryText, hasSummary, dropOldestRounds, tokenGap, COMPACT_PTL_RETRIES, COMPACT_TOO_LONG, tooShortToCompact, TOO_SHORT_TO_COMPACT } from "./coder-compact.mjs";
+import { recordedSystem, summaryRequest, summaryMessage, cutPoint, isSummary, viewedFile, filesTouched, compactSettings, compactLimits, compactLevel, contextWarning, conversationTokens, contextUsage, COMPACT_FAILURES_MAX, REFILL_TURNS, REFILL_TIMES, PRECOMPACT_OUTPUT_MAX, CHARS_PER_TOKEN, COMPACTED_SHOWN, THRASHING, contextLimitShown, compactPrompt, summaryText, hasSummary, dropOldestRounds, tokenGap, COMPACT_PTL_RETRIES, COMPACT_TOO_LONG, tooShortToCompact, TOO_SHORT_TO_COMPACT, subagentCompactRoom, compactBoundary } from "./coder-compact.mjs";
 // A command that views one file counts as reading it (moved to coder-compact.mjs, which the Worker uses too).
 export { viewedFile };
 import { retryLine, apiErrorText, modelWindow, CUT_OFF_ERROR, CODER_MODELS } from "./coder-model.mjs";
@@ -38,6 +38,7 @@ import { wsPrivateHost, PRIVATE_DEST, PICS_MARK, WRITE_MARK, FACTS_MARK, WRITE_S
 import { okHost, HEADER_RE, PREFIXES, listProblem } from "./coder-secrets.mjs";
 import { credentialHost, credentialHeader, credentialPrefix, neverKeyWhy } from "./coder-secrets.mjs";
 import { inputCheckFor } from "./coder-inputs.mjs";
+import { worktreeCommandCheck, protectedCheckouts } from "./coder-worktree.mjs";
 import { CC_TOOLS as CC_EXTRA_TOOLS, checkEnterWorktree, checkExitWorktree, checkEndConversation, checkSendFeedback, checkReportFindings, randomWorktreeName, enterNewScript, enterPathScript, whereScript, whereOf, enterMadeScript, exitFactsScript, exitScript, markOf, exitState, atRiskWords, exitRefusedText, exitBusyText, busyScript, jobInWorktree, NO_WORKTREE, findingsResult, findingsText, FEEDBACK_QUEUED, FEEDBACK_MAX, ENDED_RESULT, endConversationDenied, enterResult, exitResult, feedbackQuietText } from "./coder-worktree.mjs";
 // (A reply's calls side by side, in Claude Code's groups: coder-parallel.mjs. 2026-11-14.)
 import { safeCall, groupEnd, earlyRuns, RoundClosing, closedAs, interruptedNote, SKIPPED_BY_CHECK, INTERRUPTED_TOOL_USE } from "./coder-parallel.mjs";
@@ -84,7 +85,7 @@ import { needsCheck, stepWords, stepSends, gloopyCheck, gloopyMonitor, MONITOR_E
 import { cleanPermissions, permissionLabel } from "./gloopy-permissions.mjs";
 import { asText, asNumber } from "./coder-text.mjs";
 import { agentHooksOf, registerSkillHooks, onceSucceeded, withoutHook, hookSourceLabel, permissionSuggestions, authNotifications, ELICIT_NOTIFY_MS } from "./coder-fmhooks.mjs";
-import { subagentConnectors, forkLabel } from "./coder-agents.mjs";
+import { subagentConnectors, forkLabel, subagentCutAgain, SUBAGENT_CUT_AGAIN_MAX } from "./coder-agents.mjs";
 import { connectAgentServers } from "./coder-agentmcp.mjs";
 import { AGENT_TOOL, LIST_AGENTS_TOOL, SEND_MESSAGE_TOOL, WORKFLOW_TOOL, SUBAGENT_HANDBACK_TOOL, AGENT_TOOL_NAMES, AGENT_TYPES, SUBAGENT_SYSTEM, SUBAGENT_ROUNDS, SUBAGENT_MS, WORKFLOW_PASS_S, subagentCaps, subagentBudget, subagentTools, agentToolCall, startAgent, takeBgAgents, stopBgTask, customAgentsFrom, agentFilesScript, agentFilesOf, agentWorktreeScript, agentWorktreeFinishScript, AGENT_ALIASES, agentToolFor } from "./coder-agents.mjs";
 /** A contact entry from the owner's Vault in one line (as gloopy-agent.mjs's contactWords, kept here to import nothing of it). */
@@ -1847,13 +1848,13 @@ export function modeChangeNote(from, to, { planExited = PLAN_EXITED, autoExit = 
  * makes the branch and the worktree as root (server.mjs worktreeNow), then the shell copies the .worktreeinclude files and
  * moves in (enterMadeScript). → { r, main } (r: that last script's answer) or { error }.
  */
-export async function makeWorktreeByService(deps, run, name) {
+export async function makeWorktreeByService(deps, run, name, { base = "" } = {}) {
   const f = markOf((await run(whereScript(), "Find the repository")).output);
   if (!f || f.kind !== "WHERE") return { error: f && f.kind === "ERR" ? f.rest : "could not find the repository" };
   const w = whereOf(f.rest);
   if (w.inwt) return { error: "Already in a worktree session: from inside a worktree only path works, under .claude/worktrees/" };
   let made;
-  try { made = await deps.worktree({ op: "add", main: w.main, name }); } catch (e) { made = { ok: false, why: String((e && e.message) || e) }; }
+  try { made = await deps.worktree({ op: "add", main: w.main, name, ...(base ? { baseRef: base } : {}) }); } catch (e) { made = { ok: false, why: String((e && e.message) || e) }; }
   if (!made || !made.ok) return { error: String((made && made.why) || "git could not create the worktree").slice(0, 300) };
   return { r: await run(enterMadeScript({ path: made.path, branch: made.branch, main: w.main }), "Enter worktree"), main: w.main };
 }
@@ -2063,8 +2064,16 @@ export function inFolder(deps, cwd) {
       return out;
     },
     where: (p) => (String(p).startsWith("/") ? mapped(String(p)) : cwd + "/" + p),
-    exec: (o) => deps.exec(o && typeof o.command === "string" && !o.tool && !o.inBg && !o.monitor ? { ...o, command: "( cd -- " + q + " || exit 1\n" + o.command + "\n)" }
-      : o && o.tool && !o.hook && typeof o.command === "string" ? toolInFolder(o, cwd, mapped) : o),
+    // (CLAUDE CODE'S ISOLATION CHECKS, worktrees.md "How Claude Code enforces isolation", 2026-11-28: a command, a background one
+    // or a monitor's included, that points git at the main checkout, or whose git can't be verified from its text, is refused
+    // (coder-worktree.mjs worktreeCommandCheck); one whose worktree is gone fails instead of running in the main checkout.)
+    exec: (o) => {
+      const own = o && typeof o.command === "string" && !o.tool && !o.hook;
+      const no = own && top ? worktreeCommandCheck(o.command, { wt: cwd, mains: protectedCheckouts(top) }) : null;
+      if (no) return Promise.resolve({ code: 1, output: no, isolationBlocked: true });
+      return deps.exec(own && !o.inBg && !o.monitor ? { ...o, command: "( cd -- " + q + " 2>/dev/null || { echo '" + ("error: the worktree " + cwd + " of this subagent is gone, so the command was not run (it would have run in the main checkout)").replace(/'/g, "'\\''") + "' >&2; exit 1; }\n" + o.command + "\n)" }
+        : o && o.tool && !o.hook && typeof o.command === "string" ? toolInFolder(o, cwd, mapped) : o);
+    },
   };
 }
 /** Claude Code's note to a helper started with isolation "worktree" (its worktree, not the chat's folder, is where it works). */
@@ -4595,7 +4604,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       worktree: {
         // (A WorktreeCreate hook makes it instead; "When a subagent or a workflow agent finishes, Claude Code keeps the worktree
         // your WorktreeCreate hook made for it and doesn't run your WorktreeRemove hook".)
-        create: async (name) => { if (hasHooksFor("WorktreeCreate")) return worktreeByHook(name); if (typeof deps.worktree === "function") { const w = await makeWorktreeByService(deps, (cmd) => shRun("(\n" + cmd + "\n)", 120), name); if (w.error) return { error: w.error }; const m = markOf(w.r && w.r.output); if (!m || m.kind !== "OK") return { error: m && m.kind === "ERR" ? m.rest : "could not set up the worktree" }; const [path, branch] = m.rest.split("|"); return { path, branch, main: w.main }; } const r = await shRun(agentWorktreeScript(name), 120); const m = markOf(r && r.output); if (!m || m.kind !== "OK") return { error: m && m.kind === "ERR" ? m.rest : "git could not create the worktree" }; const [path, branch] = m.rest.split("|"); return { path, branch }; },
+        create: async (name) => { if (hasHooksFor("WorktreeCreate")) return worktreeByHook(name); if (typeof deps.worktree === "function") { const w = await makeWorktreeByService(deps, (cmd) => shRun("(\n" + cmd + "\n)", 120), name, { base: "fresh" }); if (w.error) return { error: w.error }; const m = markOf(w.r && w.r.output); if (!m || m.kind !== "OK") return { error: m && m.kind === "ERR" ? m.rest : "could not set up the worktree" }; const [path, branch] = m.rest.split("|"); return { path, branch, main: w.main }; } const r = await shRun(agentWorktreeScript(name), 120); const m = markOf(r && r.output); if (!m || m.kind !== "OK") return { error: m && m.kind === "ERR" ? m.rest : "git could not create the worktree" }; const [path, branch] = m.rest.split("|"); return { path, branch }; },
         finish: async (wt) => { if (wt && wt.byHook) return { kept: true }; const m = markOf((await shRun(agentWorktreeFinishScript(wt, { service: typeof deps.worktree === "function" }), 120)).output); if (m && m.kind === "CLEAN" && typeof deps.worktree === "function") { const w = await deps.worktree({ op: "remove", main: m.rest.trim(), path: wt.path, branch: wt.branch }).catch(() => null); return { kept: !(w && w.ok) }; } return { kept: !(m && (m.kind === "REMOVED" || m.kind === "GONE")) }; },
       },
       // (SubagentStart: matched on the agent's type; its additionalContext goes to the agent. SubagentStop: a block or
@@ -4614,13 +4623,24 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         if (o.decision === "block") return o.blocks.join("\n") || o.reason || "";
         return o.context.length ? "SubagentStop hook feedback:\n" + o.context.join("\n") : "";
       },
-      startSub: async ({ type, prompt, messages: past, label, emit: subEmit, model: m, effort: ef, toolNames, system: sys, maxRounds: mr, cwd, agentId, stopReq, hooks: fmOwn, mode: subMode, depth: subDepth, contextOf, def: agentDef }) => {
+      startSub: async ({ type, prompt, messages: past, label, emit: subEmit, model: m, effort: ef, toolNames, system: sys, maxRounds: mr, cwd, agentId, stopReq, hooks: fmOwn, mode: subMode, depth: subDepth, contextOf, def: agentDef, compactWindow }) => {
         // (ITS OWN mcpServers, Claude Code's: inline servers "connected when the subagent starts, subject to the trust rule",
         // "disconnected when the last agent using them finishes"; a plugin agent's ignored; coder-agentmcp.mjs. 2026-11-28.)
         const inl = agentDef && !agentDef.plugin && Array.isArray(agentDef.mcpServers) && agentDef.mcpServers.length ? await connectAgentServers(agentDef.mcpServers, { trusted: repoTrusted === true, connected: connectorTools(connectors).flatMap((t) => [t.server, t.connector, t.label && t.label.split(":")[0]]).filter(Boolean), ...(typeof deps.fetch === "function" ? { fetchFn: deps.fetch } : {}) }).catch(() => null) : null;
         for (const n of inl ? inl.notes : []) emit({ type: "note", text: scrub(String(n)).slice(0, 400), warn: true });
         const subMcp = inl && inl.call ? (name, args, o) => (inl.has(name) ? inl.call(name, args) : typeof deps.mcp === "function" ? deps.mcp(name, args, o) : Promise.resolve({ text: "error: no such connector tool", isError: true })) : deps.mcp;
-        try { return await runCoder({ ...deps, ...(subMcp ? { mcp: subMcp } : {}), emit: subEmit, subagentBudget: agentBudget, ...(typeof deps.transcript === "function" ? { transcript: (c, o = {}) => { if (o && o.agent) return deps.transcript(c, o); try { deps.transcript(c, { ...o, agent: String(agentId || "") }); } catch { /* the main one still */ } return transcriptNow(); } } : {}), ...(cwd ? inFolder(deps, cwd) : {}), ...(typeof stopReq === "function" ? { stopped: async () => stopReq() || (await stopped()) } : {}) }, { text: prompt, messages: past || [], system: (sys || SUBAGENT_SYSTEM + (AGENT_TYPES[type] && AGENT_TYPES[type].note ? "\n\n" + AGENT_TYPES[type].note : "")) + (cwd ? "\n\n" + worktreeNotice(deps.root || "", cwd) : ""), tools: subagentTools(subTools, type, toolNames, { mode: subMode || modeNow() }), context: typeof contextOf === "function" ? contextOf(Array.isArray(ctxNow) ? ctxNow : context) : context, base, model: m || model, effort: ef || effort, mode: subMode || modeNow(), rules, hooks: Array.isArray(fmOwn) && fmOwn.length ? [...hookList, ...fmOwn] : hookList, denyInstead, nudges: false, who: "Coder's agent “" + label + "”", asHelper: true, github: false, tasksOff: true, maxRounds: mr || SUBAGENT_ROUNDS, maxMs: Math.min(SUBAGENT_MS, left), subagent: { id: agentId || "", type, depth: Number(subDepth) || 1 }, connectors: [...subagentConnectors(connectors, type, agentDef), ...(inl ? inl.tools : [])], connectorNotes, skills: Array.isArray(toolNames) && toolNames.includes("skill") && !toolDenied("skill") ? skillList : [] }); } finally { if (inl) await inl.close().catch(() => {}); } },
+        try { return await runCoder({ ...deps, ...(subMcp ? { mcp: subMcp } : {}), emit: subEmit, subagentBudget: agentBudget, ...(typeof deps.transcript === "function" ? { transcript: (c, o = {}) => { if (o && o.agent) return deps.transcript(c, o); try { deps.transcript(c, { ...o, agent: String(agentId || "") }); } catch { /* the main one still */ } return transcriptNow(); } } : {}), ...(cwd ? inFolder(deps, cwd) : {}), ...(typeof stopReq === "function" ? { stopped: async () => stopReq() || (await stopped()) } : {}) }, { text: prompt, messages: past || [], system: (sys || SUBAGENT_SYSTEM + (AGENT_TYPES[type] && AGENT_TYPES[type].note ? "\n\n" + AGENT_TYPES[type].note : "")) + (cwd ? "\n\n" + worktreeNotice(deps.root || "", cwd) : ""), tools: subagentTools(subTools, type, toolNames, { mode: subMode || modeNow() }), context: typeof contextOf === "function" ? contextOf(Array.isArray(ctxNow) ? ctxNow : context) : context, base, model: m || model, effort: ef || effort, mode: subMode || modeNow(), rules, hooks: Array.isArray(fmOwn) && fmOwn.length ? [...hookList, ...fmOwn] : hookList, denyInstead, nudges: false, who: "Coder's agent “" + label + "”", asHelper: true, github: false, tasksOff: true, maxRounds: mr || SUBAGENT_ROUNDS, maxMs: Math.min(SUBAGENT_MS, left), compactVars, sessionRules: { allow: [...hookSession.allow], ask: [...hookSession.ask], deny: [...hookSession.deny] }, subagent: { id: agentId || "", type, depth: Number(subDepth) || 1, ...(Number(compactWindow) > 0 ? { compactWindow: Number(compactWindow) } : {}) }, connectors: [...subagentConnectors(connectors, type, agentDef), ...(inl ? inl.tools : [])], connectorNotes, skills: Array.isArray(toolNames) && toolNames.includes("skill") && !toolDenied("skill") ? skillList : [] }); } finally { if (inl) await inl.close().catch(() => {}); } },
+      // (A LASTING APPROVAL IN A SUBAGENT COVERS THE SESSION, Claude Code's "applies your answer to the whole session, including
+      // your main conversation": the session rules its run added join this chat's, and the rules it saved join this job's
+      // rules at once (the Worker already has them from the agent's own rule steps). 2026-11-28.)
+      lasting: ({ sessionRules: sr, rulesAdded: ra }) => {
+        for (const kind of ["allow", "ask", "deny"]) for (const r of sr && Array.isArray(sr[kind]) ? sr[kind] : []) {
+          if (typeof r !== "string" || r.length > RULE_MAX || !parseRule(r)) continue;
+          if (!hookSession[kind].includes(r) && hookSession[kind].length < 50) hookSession[kind].push(r);
+          if (!ownRules[kind].includes(r)) ownRules[kind].push(r);
+        }
+        for (const r of Array.isArray(ra) ? ra : []) if (typeof r === "string" && r.length <= RULE_MAX && parseRule(r) && !ownRules.allow.includes(r)) ownRules.allow.push(r);
+      },
       step: typeof deps.workflowStep === "function" ? deps.workflowStep : async (a) => { const r = await appTool(deps, "workflow_step", a, { timeoutS: WORKFLOW_PASS_S }); try { return JSON.parse(r.output); } catch { return { status: "error", error: r.output.trim().slice(0, 400) || "the script's pass failed" }; } },
       writeText: async (p, text) => { const b64 = Buffer.from(String(text), "utf8").toString("base64"); const q = "'" + String(p).replace(/'/g, "'\\''") + "'"; const r = await shRun("mkdir -p -- \"$(dirname -- " + q + ")\" && printf %s '" + b64 + "' | base64 -d > " + q, 20); if (!r || r.code !== 0) throw new Error("could not write " + p); },
       readText: async (p) => { try { const r = await deps.exec({ command: "cat -- '" + String(p).replace(/'/g, "'\\''") + "'", timeoutS: 15, tool: true }); return r && r.code === 0 ? { text: String(r.output || "") } : { error: "could not read " + p }; } catch { return { error: "could not read " + p }; } },
@@ -4931,6 +4951,11 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   // threshold within 3 rounds of the last summary, 3 times in a row, the job ends with its "Autocompact is thrashing" error.
   // Not Gloopy's (its job keeps its own summary of its older steps, below).
   const cset = offered ? null : compactSettings(compactVars);
+  // (A subagent's own auto-compaction, Claude Code's: coder-compact.mjs subagentCompactRoom, from the chat's compact settings and
+  // the agent file's autoCompactWindow; undefined for Gloopy's helpers, which keep their own. And how many times in a row its
+  // answer was cut off at the output limit and asked again. 2026-11-28.)
+  const subRoom = offered && subagent && typeof subagent === "object" ? subagentCompactRoom({ vars: compactVars, window: Number(subagent.compactWindow) || 0, contextWindow: modelWindow(model) }) : undefined;
+  let subCuts = 0;
   if (cset && cset.warning && (!(Array.isArray(messages) && messages.length) || resumed === true)) emit({ type: "note", text: cset.warning });
   const ctxWindow = modelWindow(model);
   // WHAT GOES BEFORE THE CONVERSATION IN A REQUEST, for a count with no answer in it to count from (a chat's first request, or
@@ -5010,7 +5035,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     // (The files the whole conversation worked on, this job's last: those read again right after it.)
     const files = new Map(filesTouched(part).map((p, i) => [normPath(p), i + 1]));
     for (const [p, n] of touched) { files.delete(p); files.set(p, 100000 + n); }
-    convo.splice(0, convo.length, summaryMessage(scrub(text), "the conversation so far", [], part, { auto: true, headCut: made.headCut }));
+    convo.splice(0, convo.length, { ...summaryMessage(scrub(text), "the conversation so far", [], part, { auto: true, headCut: made.headCut }), compactBoundary: compactBoundary(L.chars ? Math.ceil(before / CHARS_PER_TOKEN) : before) });
     jobStart = 0;
     if (typeof deps.compacted === "function") { try { deps.compacted(); } catch { /* the service's own business */ } }
     emit({ type: "note", text: COMPACTED_SHOWN, compacted: { trigger: "auto", preTokens: L.chars ? Math.ceil(before / CHARS_PER_TOKEN) : before } });
@@ -5068,7 +5093,9 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     // A LONG JOB IS SUMMARIZED, NOT CUT (owner item 3, like Claude Code's auto-compact "when the context
     // window approaches capacity"): its older steps become one summary, its newest rounds stay whole. (Gloopy's jobs since
     // 2026-11-14: Coder's chats have Claude Code's own, above.)
-    const room = offered ? (deps.compactAt === 0 ? 0 : Number(deps.compactAt) || COMPACT_AT) : 0;
+    // (A subagent's, Claude Code's: where its own window fills, the chat's compact settings and its autoCompactWindow counted:
+    // subagentCompactRoom; none with auto-compact off. 2026-11-28.)
+    const room = offered ? (deps.compactAt === 0 ? 0 : Number(deps.compactAt) || (subRoom !== undefined ? (subRoom ? subRoom.chars : 0) : COMPACT_AT)) : 0;
     // Pictures do not count (they are sent beside the text, and a read keeps at most PICS_KEEP of them).
     // (Nor the chat's record of the tools its requests carried, `toolLocks`, which Grok is never sent: the cache fix.)
     const textNow = convo.map(unsent);
@@ -5085,7 +5112,9 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         let text = "";
         try { const r = await deps.send({ model, ...summaryRequest(convo.slice(jobStart + 1, cutAt), preC && preC.context.length ? scrub(preC.context.join("\n")).slice(0, 4000) : "", { gloopy: true }), webSearch: false }); text = String((r && r.message && r.message.content) || "").trim(); if (r && r.usage) usage.push(r.usage); } catch { text = ""; }
         if (text) {
-          convo.splice(jobStart + 1, cutAt - jobStart - 1, summaryMessage(scrub(text), "the earlier steps of this job, summarized to make room", [], convo.slice(jobStart + 1, cutAt), { gloopy: true }));
+          convo.splice(jobStart + 1, cutAt - jobStart - 1, { ...summaryMessage(scrub(text), "the earlier steps of this job, summarized to make room", [], convo.slice(jobStart + 1, cutAt), { gloopy: true }), ...(subagent ? { compactBoundary: compactBoundary(Math.ceil(sizeNow / CHARS_PER_TOKEN)) } : {}) });
+          // (A subagent's transcript logs it at once, Claude Code's compact_boundary entry.)
+          if (subagent) transcriptNow();
           compactions++;
           if (typeof deps.compacted === "function") { try { deps.compacted(); } catch { /* the service's own business */ } }
           emit({ type: "note", text: "Compacted: the earlier steps of this job are now a summary for " + who + ", to make room (like Claude Code's auto-compact). The chat still shows them all." });
@@ -5288,6 +5317,14 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     // (A round taken up again: Grok's answer is in the chat already, and was said then.)
     // AN ANSWER CUT OFF AT GROK'S OUTPUT LIMIT: its words are kept, none of its calls run (they may be half-written), and the
     // turn ends with Claude Code's error, so the owner can reply "continue".
+    // (A SUBAGENT'S, Claude Code v2.1.325 and v2.1.327: asked for the whole answer again, more briefly, instead of returning only
+    // its end, at most SUBAGENT_CUT_AGAIN_MAX times; the cut answer is not kept. 2026-11-28.)
+    if (!back && answer && answer.cutOff && answer.message && subagent && subCuts < SUBAGENT_CUT_AGAIN_MAX) {
+      subCuts++;
+      emit({ type: "note", text: who + " was cut off at the output limit; asked for its whole answer again, more briefly." });
+      convo.push({ role: "user", appNote: true, content: subagentCutAgain(subCuts) });
+      continue;
+    }
     if (!back && answer && answer.cutOff && answer.message) {
       const cutSaid = typeof answer.message.content === "string" ? answer.message.content : "";
       convo.push({ role: "assistant", content: cutSaid, ...(tsUpfrontNew ? { toolsDeclared: tsUpfrontNew } : {}), ...(tsLocksNew ? { toolLocks: tsLocksNew, toolLocksV: TOOLS_V } : {}), ...sysMark() });

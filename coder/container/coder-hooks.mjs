@@ -1154,6 +1154,14 @@ export function transcriptLines(messages, { session = "", cwd = "", model = "", 
   for (let i = Math.max(0, from); i < list.length; i++) {
     const m = list[i];
     if (!m || typeof m !== "object" || m.role === "system") continue;
+    // (A summary an auto-compaction made: Claude Code's compact_boundary entry before it, {"type": "system", "subtype":
+    // "compact_boundary", "compactMetadata": {"trigger": "auto", "preTokens": N}}, as it logs one in a subagent's transcript.
+    // 2026-11-28.)
+    if (m.compactBoundary && typeof m.compactBoundary === "object") {
+      const b = m.compactBoundary, buuid = uuidOf("b" + i);
+      out.push(JSON.stringify({ parentUuid: prev, isSidechain: !!agent, ...(agent ? { agentId: String(agent) } : {}), userType: "external", cwd: String(cwd), sessionId: String(session), type: "system", subtype: "compact_boundary", content: "Conversation compacted", compactMetadata: { trigger: b.trigger === "manual" ? "manual" : "auto", preTokens: Math.max(0, Math.round(Number(b.preTokens) || 0)) }, uuid: buuid, timestamp: stamp }));
+      prev = buuid;
+    }
     let entry;
     if (m.role === "assistant") {
       const blocks = [];
