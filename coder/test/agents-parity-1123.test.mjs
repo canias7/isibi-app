@@ -147,8 +147,10 @@ test("tool search: the catalog holds up to 10,000 tools; found tools are dropped
   assert.deepEqual(gloopy.toolsLoaded, ["mcp__x__y"], "Gloopy's unchanged");
 });
 
-test("a skill that sets allowed-tools, disallowed-tools or hooks asks before it is used", () => {
-  assert.equal(SK.skillAsks({ name: "x", "allowed-tools": "Bash(git *)" }), "allowed-tools");
-  assert.equal(SK.skillAsks({ hooks: "", "disallowed-tools": "Write" }), "disallowed-tools, hooks");
+// (2026-11-28, Claude Code's skills docs: allowed-tools pre-approves tools for the turn and disallowed-tools only narrows, so
+// neither makes loading ask; a skill's hooks still do. skills-agents-1128.test.mjs.)
+test("a skill that sets hooks asks before it is used; allowed-tools and disallowed-tools don't", () => {
+  assert.equal(SK.skillAsks({ name: "x", "allowed-tools": "Bash(git *)" }), "");
+  assert.equal(SK.skillAsks({ hooks: "", "disallowed-tools": "Write" }), "hooks");
   assert.equal(SK.skillAsks({ name: "x", description: "y" }), "");
 });

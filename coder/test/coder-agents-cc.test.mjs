@@ -33,7 +33,7 @@ test("agent's inputs are Claude Code's AgentInput, with Coder's models; its desc
   assert.match(d, /use a single message with multiple agent calls/);
   assert.match(d, /you will be automatically notified when it completes/);
   assert.match(d, /isolation: "worktree"/);
-  assert.match(d, /\.claude\/agents\/\*\.md/);
+  assert.match(d, /\.md file in \.claude\/agents\/ \(subfolders too\)/); // (recursive, 2026-11-28: skills-agents-1128.test.mjs)
   assert.match(d, /The old name of this tool, Task, still works/);
   assert.match(d, /no agent teams and no remote agents/);
   assert.deepEqual(Object.keys(G.WORKFLOW_TOOL.function.parameters.properties), ["script", "name", "scriptPath", "args", "resumeFromRunId", "title", "description"]);
@@ -75,7 +75,7 @@ test("custom agents: .claude/agents/*.md frontmatter (name, description, tools, 
   const files = G.agentFilesOf(G.AGENT_FILES_MARK + ".claude/agents/reviewer.md\n" + file + "\n" + G.AGENT_FILES_MARK + ".claude/agents/README.md\n# notes\n");
   const got = G.customAgentsFrom(files);
   assert.deepEqual(got.defs.map((d) => d.name), ["reviewer"]);
-  assert.match(G.agentFilesScript(), /\.claude\/agents\/\*\.md/);
+  assert.match(G.agentFilesScript(), /find \.claude\/agents -type f -name '\*\.md'/); // (recursive, 2026-11-28)
 });
 
 test("a custom agent runs with its own instructions, tools, effort and step limit; an unknown type is refused with the list", async () => {

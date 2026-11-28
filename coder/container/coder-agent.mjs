@@ -25,7 +25,8 @@ import { isMemoryPath } from "./memory-files.mjs";
 import { recordedSystem, summaryRequest, summaryMessage, cutPoint, isSummary, viewedFile, filesTouched, compactSettings, compactLimits, compactLevel, contextWarning, conversationTokens, contextUsage, COMPACT_FAILURES_MAX, REFILL_TURNS, REFILL_TIMES, PRECOMPACT_OUTPUT_MAX, CHARS_PER_TOKEN, COMPACTED_SHOWN, THRASHING, contextLimitShown, compactPrompt, summaryText, hasSummary, dropOldestRounds, tokenGap, COMPACT_PTL_RETRIES, COMPACT_TOO_LONG, tooShortToCompact, TOO_SHORT_TO_COMPACT } from "./coder-compact.mjs";
 // A command that views one file counts as reading it (moved to coder-compact.mjs, which the Worker uses too).
 export { viewedFile };
-import { retryLine, apiErrorText, modelWindow, CUT_OFF_ERROR } from "./coder-model.mjs";
+import { retryLine, apiErrorText, modelWindow, CUT_OFF_ERROR, CODER_MODELS } from "./coder-model.mjs";
+const EFFORT_ORDER_SK = ["low", "medium", "high", "xhigh", "max"];
 import { gitOperationOf, noOutputExpected } from "./coder-bashfacts.mjs";
 import { commandProblem, capOutput, capText, readTimeout, scrub, splitSetup, MAX_OUTPUT_CHARS, MAX_COMMAND_CHARS, MAX_TIMEOUT_S, DEFAULT_TIMEOUT_S, bashResultText, BASH_INLINE_MAX, BASH_READ_BACK, ccDuration, secretVar } from "./coder-checks.mjs";
 import { SLEEP_BLOCK_S, exitMeaning, sleepBlocked, leadsWithSleep, writeTargets, dangerousRm, realPath, leadsTo, pathExists, RM_UNCHECKED, RM_UNCHECKED_NO_RM, rmCardReason, ghWriteBlocked } from "./coder-bashcheck.mjs";
@@ -66,7 +67,7 @@ import { outputRewrite, checkHookInput, sameInput } from "./coder-hookcheck.mjs"
 import { psDescription, psCommand, psSleepWhat } from "./coder-ps.mjs";
 import { psParseResult, psParseFail, psExitOf, PS_PARSE_RETRYABLE, psCommands, psFileRedirections, psCmdlet, psWriteTargets } from "./coder-psparse.mjs";
 import { posix as pathPosix } from "node:path";
-import { readSkills as _readSkills, skillsListing, skillLoaded, slashSkill, skillRule, SKILL_TOOL } from "./coder-skills.mjs";
+import { readSkills as _readSkills, skillsListing, skillLoaded, slashSkill, skillRule, SKILL_TOOL, renderSkill, hasShell, exitOk, skillGrant, skillDenied, nestedSkillRoots, nestedSkillsFor, pathsMatch } from "./coder-skills.mjs";
 import { PLUGIN_TOOLS, PLUGIN_TOOL_NAMES, pluginTool } from "./coder-plugins.mjs";
 import { PROJECTS_TOOL, PROJECTS_TOOL_NAME, projectsTool } from "./coder-projects.mjs";
 import { CHROME_TOOLS, CHROME_TOOL_NAMES, chromeTool } from "./coder-chrome.mjs";
@@ -2338,7 +2339,7 @@ export function ruleHoldsSecret(rule) {
   }
   return false;
 }
-export async function runCoder(deps, { notices = [], lost = [], stalls = [], promptNotify = true, timeouts = null, outLimits = null, noBg = false, respondToBash = true, shell = "", cmdShell = "", compactVars = null, messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, mode = "auto", rules = null, editDiff = false, readBlock = false, writeBlock = false, checker = false, checkerInPlan = true, checkWhere = null, emailMark = "", diskWarnGib = 0, memWarnGib = 0, hooks = null, autoMode = null, denyInstead = false, autoOff = false, planExit = "auto", hostLists = null, powershell = null, connectors = [], connectorNotes = [], connectorsWaiting = [], connectorsFailed = [], connectorsGone = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS , rmChecksOff = null, fileEdits = true, startMode = "", resumed = false, lastAt = 0, sessionRules = null, language = "", cleanupDays = 0, customTitle = "", compact = null, system = CODER_SYSTEM, tools = null, nudges = true, who = "Coder", browserRules: rulesIn = [], granted: grantedIn = [], schedules = [], opening = "user", permissions: permsIn = null, sites: sitesIn = [], monitor = false, ownerSaid: ownerSaidList = null, asHelper = false, helper = null, pages = [], savedLogins = [], savedCards = [], contacts = [], webhooks = [], hookBase = "/api/coder/gloopy-hook/", attached = [], attachedLeft = 0, workNote = "", marked = null, taught = null, files: keptFiles = [], background = false, checkWrites = false, denied: deniedIn = [], zone = "", searchLimits = null, takeUp = null, tasksOff = false, mentionsOff = false, holdBack = null, suggest = false, stopCap = STOP_BLOCK_CAP, box = false, skills = [], pluginAgents = null, checkpoints = true, searchTools = false, cleared = false, hookFacts = null, schedule = null, subagent = null, refreshTools = false, mcpHeadersHelper = "", goal = null, repoTrusted = false } = {}) {
+export async function runCoder(deps, { notices = [], lost = [], stalls = [], promptNotify = true, timeouts = null, outLimits = null, noBg = false, respondToBash = true, shell = "", cmdShell = "", compactVars = null, messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, mode = "auto", rules = null, editDiff = false, readBlock = false, writeBlock = false, checker = false, checkerInPlan = true, checkWhere = null, emailMark = "", diskWarnGib = 0, memWarnGib = 0, hooks = null, autoMode = null, denyInstead = false, autoOff = false, planExit = "auto", hostLists = null, powershell = null, connectors = [], connectorNotes = [], connectorsWaiting = [], connectorsFailed = [], connectorsGone = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS , rmChecksOff = null, fileEdits = true, startMode = "", resumed = false, lastAt = 0, sessionRules = null, language = "", cleanupDays = 0, customTitle = "", compact = null, system = CODER_SYSTEM, tools = null, nudges = true, who = "Coder", browserRules: rulesIn = [], granted: grantedIn = [], schedules = [], opening = "user", permissions: permsIn = null, sites: sitesIn = [], monitor = false, ownerSaid: ownerSaidList = null, asHelper = false, helper = null, pages = [], savedLogins = [], savedCards = [], contacts = [], webhooks = [], hookBase = "/api/coder/gloopy-hook/", attached = [], attachedLeft = 0, workNote = "", marked = null, taught = null, files: keptFiles = [], background = false, checkWrites = false, denied: deniedIn = [], zone = "", searchLimits = null, takeUp = null, tasksOff = false, mentionsOff = false, holdBack = null, suggest = false, stopCap = STOP_BLOCK_CAP, box = false, skills = [], pluginAgents = null, checkpoints = true, searchTools = false, cleared = false, hookFacts = null, schedule = null, subagent = null, refreshTools = false, mcpHeadersHelper = "", goal = null, repoTrusted = false, skillShellOff = false } = {}) {
   // (A connector's headersHelper, the environment's CODER_MCP_HEADERS_HELPER: its headers go with each connector call, and a
   // helper that fails stops the call. coder-mcphelper.mjs; 2026-11-23.)
   if (mcpHeadersHelper && typeof deps.mcp === "function" && typeof deps.exec === "function") deps = { ...deps, mcp: withHeadersHelper(deps.mcp, headersHelperFor(mcpHeadersHelper, deps.exec)) };
@@ -2354,6 +2355,22 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   if (Array.isArray(tools)) tools = webFetchTools(tools, webFetch);
   // THE REPOSITORY'S SKILLS (coder-skills.mjs; the audit, 2026-11-20): Coder's chats only, never Gloopy's or a job from GitHub.
   let skillList = Array.isArray(skills) && !Array.isArray(tools) && !github ? skills.filter((s) => s && typeof s.name === "string" && typeof s.body === "string").slice(0, 100) : [];
+  // (SKILLS AND SUBAGENTS ROUND, 2026-11-28, Claude Code's skills docs: nested .claude/skills folders load when Coder first
+  // touches a file there; a skill with `paths` is listed once a file it covers is touched; ${CLAUDE_*} variables.)
+  let nestedRoots = [];
+  try { nestedRoots = skillList.length || (Array.isArray(skills) && !Array.isArray(tools) && !github && typeof deps.root === "string" && deps.root && deps.nestedSkills !== false) ? (Array.isArray(deps.nestedSkillRoots) ? deps.nestedSkillRoots : nestedSkillRoots(deps.root)) : []; } catch { nestedRoots = []; }
+  const nestedLoaded = new Set();
+  let skillsNews = false;
+  const skillVars = (sk) => ({ skillDir: sk && sk.dir, sessionId: String(deps.chatId || ""), effort: String(effort || ""), projectDir: String(deps.root || "") });
+  /** A file Coder touched: the nested skills it brings, and the `paths` skills it turns on (told before Grok's next answer). */
+  const skillsTouched = (rel) => {
+    if (github || Array.isArray(tools) || typeof rel !== "string" || !rel) return;
+    try {
+      const got = nestedRoots.length ? nestedSkillsFor(deps.root, rel, nestedRoots, nestedLoaded, skillList) : { skills: [] };
+      if (got.skills.length) { skillList = [...skillList, ...got.skills].slice(0, 150); skillsNews = true; }
+      for (const sk of skillList) if (!sk.active && pathsMatch(sk, rel)) { sk.active = true; skillsNews = true; }
+    } catch { /* the skills as they were */ }
+  };
   const offered = Array.isArray(tools) ? new Set(tools.map((t) => t && t.function && t.function.name).filter(Boolean)) : null;
   // GLOOPY'S TOOLS HELD BACK UNTIL NEEDED (the owner, 2026-11-15: "yes fix it too"; gloopy-agent.mjs GLOOPY_HELD_BACK): those
   // of `holdBack` it is offered are named in tool search's note and sent only once tool_search has loaded them, from then on
@@ -2516,6 +2533,9 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   if (startMode === "plan" && !github && !(Array.isArray(messages) && messages.length) && normMode(mode) !== "plan") { startedPlan = true; setMode("plan", "settings"); emit({ type: "note", text: "This repository's settings (.claude/settings.json, defaultMode) start chats in Plan mode." }); }
   if (autoOff === true && !github && !startedPlan && normMode(mode) === "auto") { setMode("acceptEdits", "autoOff"); emit({ type: "note", text: "Auto mode is turned off, so this chat works in Accept edits." }); }
   const ownRules = { allow: [], ask: [], deny: [] };
+  // (A skill's allowed-tools and disallowed-tools, for this turn: Claude Code's "The grant clears when you send your next
+  // message"; each message of the owner's is a turn of its own here. 2026-11-28.)
+  const turnGrants = [], turnDenies = [];
   for (const k of ["allow", "ask", "deny"]) for (const r of Array.isArray(rules && rules[k]) ? rules[k].slice(0, 200) : []) if (typeof r === "string" && r.length <= RULE_MAX + 20 && parseRule(r)) ownRules[k].push(r);
   // (Which settings each deny and ask rule came from, the owner's or the repository's, for a `!` file rule: rulesSources.)
   ownRules.sources = rulesSources(rules);
@@ -2580,6 +2600,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     picked = toolChoiceSets(nr);
     for (const r of rulesAdded) if (!ownRules.allow.includes(r)) ownRules.allow.push(r);
     for (const k of ["allow", "ask", "deny"]) for (const r of [...hookSession[k], ...(hookSaved[k] || [])]) if (!ownRules[k].includes(r)) ownRules[k].push(r);
+    for (const r of turnGrants) if (!ownRules.allow.includes(r)) ownRules.allow.push(r);
+    for (const r of turnDenies) if (!ownRules.deny.includes(r)) ownRules.deny.push(r);
   };
   // (In Auto, a command every part of which a narrow allow rule of the owner's approves runs without the checker; broad ones,
   // such as Bash or Bash(python *), are dropped in Auto: droppedInAuto.)
@@ -2997,6 +3019,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   let hookList = [...okHooks(hooks), ...skillHooks];
   /** A skill just invoked: its frontmatter hooks join the chat's (once per skill), within Claude Code's limits per source. */
   const skillInvoked = (sk) => {
+    skillTurn(sk);
     if (!sk || !sk.hooks || offered) return;
     const r = registerSkillHooks(skillHooks, sk, sk.plugin ? String(sk.plugin) : sk.owner ? "personal" : "project");
     if (r.refused) { emit({ type: "note", text: scrub(r.refused).slice(0, 300), warn: true }); return; }
@@ -3004,6 +3027,47 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     const fresh = okHooks(r.list.slice(skillHooks.length));
     skillHooks = [...skillHooks, ...fresh]; hookList = [...hookList, ...fresh]; keepSkillHooks();
   };
+  /**
+   * WHAT A SKILL CHANGES FOR ITS TURN (Claude Code's frontmatter): allowed-tools "Tools Claude can use without asking
+   * permission during the turn that invokes this skill"; disallowed-tools "Tools removed from Claude's available pool while
+   * this skill is active"; effort "Effort level for the rest of the current turn". Not for a forked skill (its subagent takes
+   * its model and effort).
+   */
+  function skillTurn(sk) {
+    if (!sk || offered || github) return;
+    for (const r of skillGrant(sk, skillVars(sk))) if (typeof r === "string" && r.length <= RULE_MAX && parseRule(r) && !ownRules.allow.includes(r)) { ownRules.allow.push(r); turnGrants.push(r); }
+    for (const r of skillDenied(sk)) if (parseRule(r) && !ownRules.deny.includes(r)) { ownRules.deny.push(r); turnDenies.push(r); }
+    if (sk.effort && !sk.fork) { const spec = CODER_MODELS.find((x) => x.id === model); if (!spec || spec.efforts.includes(sk.effort)) effort = sk.effort; else { const want = EFFORT_ORDER_SK.indexOf(sk.effort); effort = [...spec.efforts].sort((a, b) => Math.abs(EFFORT_ORDER_SK.indexOf(a) - want) - Math.abs(EFFORT_ORDER_SK.indexOf(b) - want))[0] || effort; } }
+  }
+  /**
+   * A SKILL'S TEXT, ITS DYNAMIC CONTEXT RUN (Claude Code's "Inject dynamic context"): each command checked against the chat's
+   * rules first ("Injected commands never prompt for permission"): a deny aborts; outside Auto anything but allow aborts; in
+   * Auto it becomes an instruction to run the command first (not in a forked skill that sets agent). It runs as Coder's bash
+   * does, 2 minutes at most; a failed command aborts the whole invocation (exit code 1 from a search or a diff is a result).
+   * disableSkillShellExecution puts Claude Code's placeholder in each command's place. → { text } | { error }.
+   */
+  async function skillText(sk, args) {
+    const vars = skillVars(sk);
+    if (!hasShell(sk)) return { text: skillLoaded(sk, args, vars) };
+    return renderSkill(sk, args, { vars, off: skillShellOff === true, run: async (cmd, p) => {
+      let d = null;
+      try { d = bashDecision(cmd, { mode: modeNow(), rules: ownRules, cwd: deps.root || "/", workdirs: [deps.root || "/"], home: deps.home || "" }); } catch { d = null; }
+      const v = d && d.verdict;
+      if (v === "deny") return { error: "Shell command permission check failed for pattern \"" + p.raw + "\"" };
+      if (v !== "allow") {
+        if (modeNow() === "auto" && !(sk.fork && sk.agent)) return { output: "[Before you follow this skill, run this command with bash and use its output here: " + cmd + "]" };
+        return { error: "Shell command permission check failed for pattern \"" + p.raw + "\": it needs the owner's OK, and a skill's commands never ask (allow it in the skill's allowed-tools or a permission rule)" };
+      }
+      let r;
+      try { r = await deps.exec({ command: cmd, timeoutS: 120, tool: true }); } catch (e) { r = { code: -1, output: String((e && e.message) || e) }; }
+      if (!r || !exitOk(cmd, r.code)) return { error: "Shell command failed for pattern \"" + p.raw + "\": " + scrub(String((r && r.output) || "")).slice(0, 2000) };
+      const out = scrub(String(r.output || ""));
+      return { output: out.length > 30_000 ? out.slice(0, 30_000) + "\n[output cut at 30,000 characters]" : out };
+    } });
+  }
+  /** A forked skill's Agent call (Claude Code: "starts a new subagent of the type set in the agent field and gives it the skill content as its prompt"; in the background unless background: false). */
+  const forkCall = (sk, id, text) => ({ id: id + "-fork", name: "agent", args: { description: ("Skill " + sk.name).slice(0, 80), prompt: text, subagent_type: sk.agent || "general-purpose", run_in_background: sk.background !== false, ...(sk.modelName && sk.modelName !== "inherit" && CODER_MODELS.some((x) => x.id === sk.modelName) ? { model: sk.modelName } : {}), ...(sk.effort ? { effort: sk.effort } : {}) } });
+  let pendingFork = null;
   /** A `once` skill hook that ran successfully: removed (Claude Code: "removes the hook after its first successful run"). */
   const onceRan = (h) => { skillHooks = withoutHook(skillHooks, h); hookList = withoutHook(hookList, h); keepSkillHooks(); };
   // (THE OWNER'S MESSAGE'S ID, Claude Code's prompt_id: "UUID identifying the user prompt currently being processed … Absent
@@ -3802,7 +3866,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   // or the machine's zsh), as Claude Code's Bash description names the user's shell; `shell` is the owner's own `!` command,
   // which it had been given by mistake, so it never said zsh. The cache fix's follow-up, 2026-11-14.)
   const ownOffered = (t) => { if (t && t.function) tsCatalog.set(t.function.name, t); return !(t && t.function && (toolDenied(t.function.name) || (denyInstead === true && PROMPT_TOOLS.includes(t.function.name)))); };
-  const chatTools = [...withPs(toolsFor(github ? GITHUB_TOOLS : CODER_TOOLS, { noBg: noBg === true, inlineMax: Math.min(lim.inlineMax, lim.readBack), bgMaxMs: timeouts && timeouts.bgMaxMs, defaultMs: timeouts && timeouts.defaultMs, maxMs: timeouts && timeouts.maxMs, bgDefaultMs: timeouts && timeouts.bgDefaultMs, shell: cmdShell })).map((t) => (t && t.function && t.function.name === "agent" && pluginAgents ? agentToolFor(pluginAgents) : t)).map(withHosts).filter((t) => searchTools === true || searchBack || !(t && t.function && SEARCH_NAMES.has(t.function.name))).filter(ownOffered),...(mcpDeferred ? [searchTool(mcpTools)] : []), ...mcpUpfront.map((t) => asFn(t)), ...(skillList.length && !github && !offered && !toolDenied("skill") && skillsListing(skillList) ? [SKILL_TOOL] : [])];
+  const chatTools = [...withPs(toolsFor(github ? GITHUB_TOOLS : CODER_TOOLS, { noBg: noBg === true, inlineMax: Math.min(lim.inlineMax, lim.readBack), bgMaxMs: timeouts && timeouts.bgMaxMs, defaultMs: timeouts && timeouts.defaultMs, maxMs: timeouts && timeouts.maxMs, bgDefaultMs: timeouts && timeouts.bgDefaultMs, shell: cmdShell })).map((t) => (t && t.function && t.function.name === "agent" && pluginAgents ? agentToolFor(pluginAgents) : t)).map(withHosts).filter((t) => searchTools === true || searchBack || !(t && t.function && SEARCH_NAMES.has(t.function.name))).filter(ownOffered),...(mcpDeferred ? [searchTool(mcpTools)] : []), ...mcpUpfront.map((t) => asFn(t)), ...((skillList.length || nestedRoots.length) && !github && !offered && !toolDenied("skill") && (skillsListing(skillList) || nestedRoots.length || skillList.some((x) => x.model && Array.isArray(x.paths) && x.paths.length)) ? [SKILL_TOOL] : [])];
   // (WebFetch turned off, or its cache's own time: webFetchTools. 2026-11-14.)
   chatTools.splice(0, chatTools.length, ...webFetchTools(chatTools, webFetch));
   /** Whether the chat's tools include `name` (grep and glob are no longer among them: SEARCH_TOOLS). */
@@ -4111,7 +4175,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       const picNote = fitted.notes.length ? "\n\n(Note from Coder's app: " + fitted.notes.join(" ") + ")" : "";
       // THE SKILLS CODER MAY LOAD (Claude Code lists each skill's name and description; told again only when the list changed).
       // (And the page's / menu: the skills the owner may run, Claude Code's "/skill-name".)
-      if (skillList.some((x) => x.user)) emit({ type: "skills", list: skillList.filter((x) => x.user).map((x) => ({ name: x.name, description: scrub(x.description).slice(0, 200) })) });
+      if (skillList.some((x) => x.user)) emit({ type: "skills", list: skillList.filter((x) => x.user).map((x) => ({ name: x.name, description: scrub(x.description).slice(0, 200), ...(x.argHint ? { hint: scrub(x.argHint).slice(0, 100) } : {}) })) });
       { const ls = skillList.length && !toolDenied("skill") ? skillsListing(skillList) : ""; const told = [...convo].reverse().find((m) => m && typeof m.skillsList === "string"); if (ls && (!told || told.skillsList !== ls)) convo.push({ role: "user", appNote: true, skillsList: ls, content: "(Note from Coder's app, not the owner:\n" + ls + ")" }); }
       convo.push({ role: "user", content: text.trim() + picNote, ...(fitted.send.length ? { images: fitted.send.map((x) => "data:" + x.type + ";base64," + x.data) } : {}) });
       // The chat shows what the owner typed (`shown`); Coder also gets the notes added to it. (A scheduled run of Gloopy's,
@@ -4122,7 +4186,17 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       // THE OWNER'S /skill-name (Claude Code: "invoke it directly with /skill-name"): the skill's whole text goes to Coder with
       // the message, as Claude Code loads it, unless a rule denies that skill.
       const sl = skillList.length ? slashSkill(text, skillList) : null;
-      if (sl && !toolDenied("skill") && !skillRule(ownRules, "deny", sl.skill.name, parseRule)) { convo.push({ role: "user", appNote: true, content: "<command-name>/" + sl.skill.name + "</command-name>\n" + skillLoaded(sl.skill, sl.args) }); emit({ type: "note", text: "Loaded the skill " + sl.skill.name + "." }); skillInvoked(sl.skill); }
+      if (sl && !toolDenied("skill") && !skillRule(ownRules, "deny", sl.skill.name, parseRule)) {
+        const sk = sl.skill;
+        // (Claude Code's model: "Model for the turn when you run this skill with /name"; inherit, or a model Coder doesn't
+        // have, keeps the chat's. A forked skill's is its subagent's.)
+        if (!sk.fork && sk.modelName && sk.modelName !== "inherit" && CODER_MODELS.some((x) => x.id === sk.modelName)) model = sk.modelName;
+        skillInvoked(sk);
+        const r = await skillText(sk, sl.args);
+        if (r.error) { emit({ type: "note", text: scrub(r.error).slice(0, 2000), warn: true }); convo.push({ role: "user", appNote: true, content: "<command-name>/" + sk.name + "</command-name>\n(Note from Coder's app: the skill did not load: " + scrub(r.error).slice(0, 2000) + ")" }); }
+        else if (sk.fork) { pendingFork = { sk, text: r.text, id: "slash-" + randomUUID().slice(0, 8) }; emit({ type: "note", text: "Running the skill " + sk.name + " in a subagent." }); }
+        else { convo.push({ role: "user", appNote: true, content: "<command-name>/" + sk.name + "</command-name>\n" + r.text }); emit({ type: "note", text: "Loaded the skill " + sk.name + "." }); }
+      }
       }
     }
     // (No "Not signed in yet" note on every message: owner, 2026-11-16. Like Claude Code, Coder knows which connectors
@@ -4220,7 +4294,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   // The instruction files this job's start shows only in part (after the reset above, which would undo the marks).
   await markShownStart(deps, context);
   const watching = () => deps.seen === true && (followed || touched.size > 0);
-  const touch = (p) => { const k = normPath(p); if (!k || k.length > 500) return; touched.delete(k); touched.set(k, ++touchN); if (touched.size > 200) touched.delete(touched.keys().next().value); };
+  const touch = (p) => { const k = normPath(p); if (!k || k.length > 500) return; touched.delete(k); touched.set(k, ++touchN); if (touched.size > 200) touched.delete(touched.keys().next().value); skillsTouched(k); };
   // THE FILES THIS JOB'S WRITE AND EDIT CHANGED, by the project's own names (Rewind's "Restore code" puts back only those,
   // as Claude Code's checkpoints: "Claude Code tracks all changes made by its file editing tools"; the owner, 2026-11-13).
   // Only the project's own files (a path outside it, the scratch folder, another repository's, is no part of its commits).
@@ -4508,6 +4582,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     return {
       emit: emitK, reply, budget: agentBudget, agents: agentsStarted, runs: workflowRuns, isSub: isSubHere(), stopped, now,
       chat: { model, effort }, bg: agentBg, early: agentEarly, pluginAgents: Array.isArray(pluginAgents) ? pluginAgents : [],
+      // (Nesting, the permission mode a custom agent may set, preloaded skills and agent memory: coder-agents.mjs, 2026-11-28.)
+      depth: subagent && typeof subagent === "object" ? Number(subagent.depth) || 1 : 0, env: deps.spawnEnv || {}, typeDenied: (t) => !github && [...ownRules.deny, ...(rules && Array.isArray(rules.deny) ? rules.deny : [])].some((r) => typeof r === "string" && (r.trim() === "Agent(" + t + ")" || r.trim() === "Task(" + t + ")")), mode: modeNow(), autoOff: autoOff === true, skills: skillList, skillText: (sk) => skillLoaded(sk, "", skillVars(sk)), root: deps.root || "", home: deps.home || "",
       customAgents: () => (customAgentsP = customAgentsP || (typeof deps.customAgents === "function" ? Promise.resolve(deps.customAgents()) : shRun(agentFilesScript(), 20).then((r) => customAgentsFrom(agentFilesOf(r && r.output)).defs)).catch(() => [])),
       worktree: {
         // (A WorktreeCreate hook makes it instead; "When a subagent or a workflow agent finishes, Claude Code keeps the worktree
@@ -4531,7 +4607,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         if (o.decision === "block") return o.blocks.join("\n") || o.reason || "";
         return o.context.length ? "SubagentStop hook feedback:\n" + o.context.join("\n") : "";
       },
-      startSub: ({ type, prompt, messages: past, label, emit: subEmit, model: m, effort: ef, toolNames, system: sys, maxRounds: mr, cwd, agentId, stopReq, hooks: fmOwn }) => runCoder({ ...deps, emit: subEmit, subagentBudget: agentBudget, ...(typeof deps.transcript === "function" ? { transcript: (c, o = {}) => { if (o && o.agent) return deps.transcript(c, o); try { deps.transcript(c, { ...o, agent: String(agentId || "") }); } catch { /* the main one still */ } return transcriptNow(); } } : {}), ...(cwd ? inFolder(deps, cwd) : {}), ...(typeof stopReq === "function" ? { stopped: async () => stopReq() || (await stopped()) } : {}) }, { text: prompt, messages: past || [], system: (sys || SUBAGENT_SYSTEM + (AGENT_TYPES[type] && AGENT_TYPES[type].note ? "\n\n" + AGENT_TYPES[type].note : "")) + (cwd ? "\n\n" + worktreeNotice(deps.root || "", cwd) : ""), tools: subagentTools(subTools, type, toolNames, { mode: modeNow() }), context, base, model: m || model, effort: ef || effort, mode: modeNow(), rules, hooks: Array.isArray(fmOwn) && fmOwn.length ? [...hookList, ...fmOwn] : hookList, denyInstead, nudges: false, who: "Coder's agent “" + label + "”", asHelper: true, github: false, tasksOff: true, maxRounds: mr || SUBAGENT_ROUNDS, maxMs: Math.min(SUBAGENT_MS, left), subagent: { id: agentId || "", type } }),
+      startSub: ({ type, prompt, messages: past, label, emit: subEmit, model: m, effort: ef, toolNames, system: sys, maxRounds: mr, cwd, agentId, stopReq, hooks: fmOwn, mode: subMode, depth: subDepth, contextOf }) => runCoder({ ...deps, emit: subEmit, subagentBudget: agentBudget, ...(typeof deps.transcript === "function" ? { transcript: (c, o = {}) => { if (o && o.agent) return deps.transcript(c, o); try { deps.transcript(c, { ...o, agent: String(agentId || "") }); } catch { /* the main one still */ } return transcriptNow(); } } : {}), ...(cwd ? inFolder(deps, cwd) : {}), ...(typeof stopReq === "function" ? { stopped: async () => stopReq() || (await stopped()) } : {}) }, { text: prompt, messages: past || [], system: (sys || SUBAGENT_SYSTEM + (AGENT_TYPES[type] && AGENT_TYPES[type].note ? "\n\n" + AGENT_TYPES[type].note : "")) + (cwd ? "\n\n" + worktreeNotice(deps.root || "", cwd) : ""), tools: subagentTools(subTools, type, toolNames, { mode: subMode || modeNow() }), context: typeof contextOf === "function" ? contextOf(context) : context, base, model: m || model, effort: ef || effort, mode: subMode || modeNow(), rules, hooks: Array.isArray(fmOwn) && fmOwn.length ? [...hookList, ...fmOwn] : hookList, denyInstead, nudges: false, who: "Coder's agent “" + label + "”", asHelper: true, github: false, tasksOff: true, maxRounds: mr || SUBAGENT_ROUNDS, maxMs: Math.min(SUBAGENT_MS, left), subagent: { id: agentId || "", type, depth: Number(subDepth) || 1 } }),
       step: typeof deps.workflowStep === "function" ? deps.workflowStep : async (a) => { const r = await appTool(deps, "workflow_step", a, { timeoutS: WORKFLOW_PASS_S }); try { return JSON.parse(r.output); } catch { return { status: "error", error: r.output.trim().slice(0, 400) || "the script's pass failed" }; } },
       writeText: async (p, text) => { const b64 = Buffer.from(String(text), "utf8").toString("base64"); const q = "'" + String(p).replace(/'/g, "'\\''") + "'"; const r = await shRun("mkdir -p -- \"$(dirname -- " + q + ")\" && printf %s '" + b64 + "' | base64 -d > " + q, 20); if (!r || r.code !== 0) throw new Error("could not write " + p); },
       readText: async (p) => { try { const r = await deps.exec({ command: "cat -- '" + String(p).replace(/'/g, "'\\''") + "'", timeoutS: 15, tool: true }); return r && r.code === 0 ? { text: String(r.output || "") } : { error: "could not read " + p }; } catch { return { error: "could not read " + p }; } },
@@ -4946,6 +5022,13 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     }
     return "compacted";
   };
+  // (THE OWNER'S /name FOR A SKILL WITH context: fork: its subagent starts now, its result, or its launch in the background,
+  // reaching Coder with the message. 2026-11-28.)
+  if (pendingFork) {
+    const pf = pendingFork; pendingFork = null;
+    const got = await agentToolCall(forkCall(pf.sk, pf.id, pf.text), agentKit((out) => convo.push({ role: "user", appNote: true, content: "<command-name>/" + pf.sk.name + "</command-name>\n" + String(out) })));
+    for (const u of got.usage || []) usage.push(u);
+  }
   try {
   while (true) {
     // (A round taken up again after its job paused: no new answer from Grok; its calls go on from the one that waited.)
@@ -8030,12 +8113,13 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         if (!sk || !sk.model) { const m = "Unknown skill: " + nm.slice(0, 80); emit({ type: "result", id: c.id, code: 1, output: m }); reply(m); continue; }
         if (skillRule(ownRules, "deny", sk.name, parseRule)) { const m = "Permission to use Skill with skill " + sk.name + " has been denied."; emit({ type: "result", id: c.id, code: -1, ran: false, output: m }); reply(m); continue; }
         const askR0 = skillRule(ownRules, "ask", sk.name, parseRule);
-        // (A skill that sets allowed-tools, disallowed-tools or hooks asks first, as Claude Code's can, unless a Skill(name)
+        // (A skill that sets hooks asks first, as Claude Code's can, unless a Skill(name) (allowed-tools and disallowed-tools
+        // don't, since 2026-11-28: Claude Code's allowed-tools pre-approves tools for the turn)
         // allow rule covers it or the chat bypasses permissions. 2026-11-23.)
-        const askFields = !askR0 && typeof sk.asks === "string" && sk.asks && modeNow() !== "bypassPermissions" && !skillRule(ownRules, "allow", sk.name, parseRule) ? sk.asks : "";
+        const askFields = !askR0 && typeof sk.asks === "string" && /\bhooks\b/.test(sk.asks) && modeNow() !== "bypassPermissions" && !skillRule(ownRules, "allow", sk.name, parseRule) ? sk.asks : "";
         const askR = askR0 || askFields;
         if (askR) {
-          const card = { tool: "skill", id: c.id, what: "Load the skill " + sk.name, why: askR0 ? ruleAskWhy(askR0, modeNow(), "tool") : "This skill sets " + askFields + ", which change what Coder may do while it runs.", told: askedWhy("Skill") };
+          const card = { tool: "skill", id: c.id, what: "Load the skill " + sk.name, why: askR0 ? ruleAskWhy(askR0, modeNow(), "tool") : "This skill sets hooks, which run commands while it is in use.", told: askedWhy("Skill") };
           const a = canAsk() ? await askOwner(card) : await noOneHooks(card);
           if (!a) { reply(card.told); continue; }
           const o = answerOutcome(a);
@@ -8043,9 +8127,19 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           if (o === "said") { reply(saidReply(a)); continue; }
           if (o === "no" || o === "time") { reply(REJECTED); return noEnd(i, "stopped: the owner said no"); }
         }
-        emit({ type: "result", id: c.id, code: 0, output: "Loaded " + sk.name });
-        reply("Launching skill: " + sk.name + "\n\n" + skillLoaded(sk, String((c.args && c.args.args) || "")));
         skillInvoked(sk);
+        const loaded = await skillText(sk, String((c.args && c.args.args) || ""));
+        if (loaded.error) { emit({ type: "result", id: c.id, code: 1, output: scrub(loaded.error).slice(0, 2000) }); reply(loaded.error); continue; }
+        if (sk.fork) {
+          // (CONTEXT: FORK, Claude Code's "Run skills in a subagent": the skill's text is the prompt of a new subagent of the
+          // agent field's type, general-purpose when left out, in the background unless background: false. 2026-11-28.)
+          emit({ type: "result", id: c.id, code: 0, output: "Forked " + sk.name });
+          const got = await agentToolCall(forkCall(sk, c.id, loaded.text), agentKit(reply));
+          for (const u of got.usage || []) usage.push(u);
+          continue;
+        }
+        emit({ type: "result", id: c.id, code: 0, output: "Loaded " + sk.name });
+        reply("Launching skill: " + sk.name + "\n\n" + loaded.text);
       } else if (c.name === "rename_chat") {
         if (github) { reply("error: the chat is renamed from gofarther.dev, not from GitHub"); continue; }
         const title = chatTitleOf(scrub(String(c.args.title || "")));
@@ -8533,6 +8627,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     // BACKGROUND AGENTS THAT FINISHED during this round: their notifications, before Grok's next answer (Claude Code's task
     // notification arrives as a message of its own).
     { const an = takeAgentNotes(); if (an.length) convo.push({ role: "user", appNote: true, content: "(Note from Coder's app, not the owner: a background agent finished.\n" + an.join("\n\n") + ")" }); }
+    // (SKILLS A TOUCHED FILE BROUGHT: nested ones, and `paths` ones it turned on; the listing again, and the page's / menu.)
+    if (skillsNews) { skillsNews = false; const ls = !toolDenied("skill") ? skillsListing(skillList) : ""; if (ls) convo.push({ role: "user", appNote: true, skillsList: ls, content: "(Note from Coder's app, not the owner:\n" + ls + ")" }); if (skillList.some((x) => x.user)) emit({ type: "skills", list: skillList.filter((x) => x.user).map((x) => ({ name: x.name, description: scrub(x.description).slice(0, 200), ...(x.argHint ? { hint: scrub(x.argHint).slice(0, 100) } : {}) })) }); }
     // (A round that ended early: the job ends as its No, Stop or pause ends it, every call of the round answered or, for a
     // pause, left for the job that takes it up again. Round 5.)
     if (closing) return closedEnd();

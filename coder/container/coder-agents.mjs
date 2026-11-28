@@ -24,7 +24,7 @@
 import vm from "node:vm";
 import { CODER_MODELS } from "./coder-model.mjs";
 import { enterNewScript, shq, MARK } from "./coder-worktree.mjs";
-import { frontmatterHooks } from "./coder-yaml.mjs";
+import { frontmatterHooks, frontmatterOf } from "./coder-yaml.mjs";
 
 /** The caps' defaults, and the environment variables that change them. */
 export const SUBAGENTS_AT_ONCE = 3, SUBAGENTS_TOTAL = 10;
@@ -82,7 +82,7 @@ const capsWords = "at most 3 subagents run at the same time and at most 10 in al
 /** Claude Code's Agent tool, its inputs (AgentInput) and its description, in Coder's words. */
 export const AGENT_TOOL = Object.freeze({ type: "function", function: {
   name: "agent",
-  description: "Launch a new agent to handle complex, multi-step tasks autonomously.\n\nThe agent tool launches specialized agents (subprocesses) that autonomously handle complex tasks. Each agent type has specific capabilities and tools available to it.\n\nAvailable agent types and the tools they have access to:\n- general-purpose: " + AGENT_TYPES["general-purpose"].description + " (Tools: bash, read, edit, write, notebook_edit, grep, glob, web_fetch, web_search, agent)\n- Explore: " + AGENT_TYPES.Explore.description + " (Tools: bash, read, grep, glob, web_fetch, web_search)\n- Plan: " + AGENT_TYPES.Plan.description + " (Tools: bash, read, grep, glob, web_fetch, web_search)\n- web-fetch: " + AGENT_TYPES["web-fetch"].description + " (Tools: web_fetch)\n- the repository's custom agents: each file in " + AGENTS_DIR + "/*.md with a name and a description in its frontmatter (and optionally tools, disallowedTools, model, effort, maxTurns, isolation and background; the file's body is its instructions). list_agents lists them.\n\nWhen using the agent tool, specify a subagent_type parameter to select which agent type to use. If omitted, the general-purpose agent is used. The old name of this tool, Task, still works.\n\nWhen NOT to use the agent tool:\n- If you want to read a specific file path, use read or glob instead, to find the match more quickly\n- If you are searching for a specific class definition like \"class Foo\", use glob instead\n- If you are searching for code within a specific file or set of 2-3 files, use read instead\n- Other tasks that are not related to the agent descriptions above\n\nUsage notes:\n- Always include a short description (3-5 words) summarizing what the agent will do\n- Launch multiple agents concurrently whenever possible, to maximize performance; to do that, use a single message with multiple agent calls (they run side by side; " + capsWords + ")\n- When the agent is done, it will return a single message back to you. The result returned by the agent is not visible to the owner. To show the owner the result, you should send a text message back to the owner with a concise summary of the result.\n- run_in_background: left out, an agent you start from the main conversation runs in the background, and one a subagent starts is waited for (unless its definition sets background: true); set it to false to wait for the result, true to run in the background. When an agent runs in the background, you will be automatically notified when it completes; do not sleep, poll, or proactively check on its progress. Continue with other work or respond to the owner instead.\n- To continue a previously spawned agent, use send_message with the agent's ID or name as the `to` field. The agent resumes with its full context preserved. Each fresh agent invocation with a prompt starts without context, so provide a complete task description.\n- The agent's outputs should generally be trusted\n- Clearly tell the agent whether you expect it to write code or just to do research (search, file reads, web fetches, etc.), since it is not aware of the owner's intent\n- If the agent description mentions that it should be used proactively, then you should try your best to use it without the owner having to ask for it first. Use your judgement.\n- You can optionally set isolation: \"worktree\" to run the agent in a temporary git worktree, giving it an isolated copy of the repository. The worktree is automatically cleaned up if the agent makes no changes; if changes are made, the worktree path and branch are returned in the result.\n- model and effort run the agent on another of Coder's models (" + AGENT_MODELS.join(", ") + ") or effort level; the chat's are used when left out. An effort the model doesn't take runs at the nearest level it does.\n- Launching an agent never asks the owner; the agent's own steps are checked against the chat's rules and mode as it runs, and a step that needs the owner's OK shows the owner its card, as the chat's own steps do. A general-purpose subagent can start agents of its own (they share the job's caps).\n- Coder has no agent teams and no remote agents: team_name and mode are accepted for Claude Code's input and ignored, and isolation \"remote\" is refused.",
+  description: "Launch a new agent to handle complex, multi-step tasks autonomously.\n\nThe agent tool launches specialized agents (subprocesses) that autonomously handle complex tasks. Each agent type has specific capabilities and tools available to it.\n\nAvailable agent types and the tools they have access to:\n- general-purpose: " + AGENT_TYPES["general-purpose"].description + " (Tools: bash, read, edit, write, notebook_edit, grep, glob, web_fetch, web_search, agent)\n- Explore: " + AGENT_TYPES.Explore.description + " (Tools: bash, read, grep, glob, web_fetch, web_search)\n- Plan: " + AGENT_TYPES.Plan.description + " (Tools: bash, read, grep, glob, web_fetch, web_search)\n- web-fetch: " + AGENT_TYPES["web-fetch"].description + " (Tools: web_fetch)\n- the repository's custom agents: each .md file in " + AGENTS_DIR + "/ (subfolders too) with a name and a description in its frontmatter (and optionally tools, disallowedTools, model, effort, maxTurns, isolation, background, skills, memory, omitClaudeMd and permissionMode; the file's body is its instructions). One named like a built-in type replaces it. list_agents lists them.\n\nWhen using the agent tool, specify a subagent_type parameter to select which agent type to use. If omitted, the general-purpose agent is used. The old name of this tool, Task, still works.\n\nWhen NOT to use the agent tool:\n- If you want to read a specific file path, use read or glob instead, to find the match more quickly\n- If you are searching for a specific class definition like \"class Foo\", use glob instead\n- If you are searching for code within a specific file or set of 2-3 files, use read instead\n- Other tasks that are not related to the agent descriptions above\n\nUsage notes:\n- Always include a short description (3-5 words) summarizing what the agent will do\n- Launch multiple agents concurrently whenever possible, to maximize performance; to do that, use a single message with multiple agent calls (they run side by side; " + capsWords + ")\n- When the agent is done, it will return a single message back to you. The result returned by the agent is not visible to the owner. To show the owner the result, you should send a text message back to the owner with a concise summary of the result.\n- run_in_background: left out, an agent you start from the main conversation runs in the background, and one a subagent starts is waited for (unless its definition sets background: true); set it to false to wait for the result, true to run in the background. When an agent runs in the background, you will be automatically notified when it completes; do not sleep, poll, or proactively check on its progress. Continue with other work or respond to the owner instead.\n- To continue a previously spawned agent, use send_message with the agent's ID or name as the `to` field. The agent resumes with its full context preserved. Each fresh agent invocation with a prompt starts without context, so provide a complete task description.\n- The agent's outputs should generally be trusted\n- Clearly tell the agent whether you expect it to write code or just to do research (search, file reads, web fetches, etc.), since it is not aware of the owner's intent\n- If the agent description mentions that it should be used proactively, then you should try your best to use it without the owner having to ask for it first. Use your judgement.\n- You can optionally set isolation: \"worktree\" to run the agent in a temporary git worktree, giving it an isolated copy of the repository. The worktree is automatically cleaned up if the agent makes no changes; if changes are made, the worktree path and branch are returned in the result.\n- model and effort run the agent on another of Coder's models (" + AGENT_MODELS.join(", ") + ") or effort level; the chat's are used when left out. An effort the model doesn't take runs at the nearest level it does.\n- Launching an agent never asks the owner; the agent's own steps are checked against the chat's rules and mode as it runs, and a step that needs the owner's OK shows the owner its card, as the chat's own steps do. A general-purpose subagent can start agents of its own (they share the job's caps), up to three layers below the chat (CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH changes it); a nested agent runs on its parent's model unless the call or its definition names another.\n- Coder has no agent teams and no remote agents: team_name and mode are accepted for Claude Code's input and ignored, and isolation \"remote\" is refused.",
   parameters: { type: "object", properties: {
     description: { type: "string", description: "A short (3-5 word) description of the task" },
     prompt: { type: "string", description: "The task for the agent to perform" },
@@ -141,41 +141,51 @@ export const WORKFLOW_TOOL = Object.freeze({ type: "function", function: {
 const CC_TO_CODER = { Bash: "bash", Read: "read", Edit: "edit", Write: "write", NotebookEdit: "notebook_edit", Grep: "grep", Glob: "glob", LSP: "lsp", WebFetch: "web_fetch", WebSearch: "web_search", MultiEdit: "edit" };
 const toolEntry = (t) => { const n = String(t).trim().replace(/\(.*\)$/, "").trim(); return CC_TO_CODER[n] || n.toLowerCase(); };
 const listField = (v) => (Array.isArray(v) ? v : typeof v === "string" ? v.split(",") : []).map((x) => String(x).trim()).filter(Boolean);
-const unq = (v) => { const t = String(v).trim(); return /^(["']).*\1$/.test(t) ? t.slice(1, -1) : t; };
 
 const fmHooks = (src) => { try { return frontmatterHooks(src); } catch { return null; } };
-/** A custom agent's file (.claude/agents/<file>.md): { def } | { skip: why } (Claude Code's "Subagent files Claude Code skips"). */
+const boolField = (v) => v === true || /^(true|yes|on|1)$/i.test(String(v ?? "").trim());
+const strField = (v) => (v === null || v === undefined || typeof v === "object" ? "" : String(v).trim());
+/** Claude Code's permissionMode values ("manual as an alias for default"). */
+export const AGENT_MODES = Object.freeze(["default", "acceptEdits", "auto", "dontAsk", "bypassPermissions", "plan"]);
+/** Claude Code's memory scopes for a subagent. */
+export const AGENT_MEMORY_SCOPES = Object.freeze(["user", "project", "local"]);
+/**
+ * A custom agent's file (.claude/agents/<file>.md): { def } | { skip: why } (Claude Code's "Subagent files Claude Code skips").
+ * The frontmatter is read as YAML (coder-yaml.mjs), so lists and multi-line values work. SKILLS AND SUBAGENTS ROUND
+ * (2026-11-28): skills, memory, omitClaudeMd, initialPrompt, permissionMode and mcpServers are kept too.
+ */
 export function parseAgentFile(text, file = "") {
-  const src = String(text || "").replace(/^﻿/, "").replace(/\r\n?/g, "\n");
+  const src = String(text || "").replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n");
   if (!src.startsWith("---\n")) return { skip: "no frontmatter" };
   const end = src.indexOf("\n---", 3);
   if (end < 0) return { skip: "the frontmatter doesn't close" };
-  const fm = {};
-  let key = "";
-  for (const raw of src.slice(4, end).split("\n")) {
-    if (!raw.trim() || raw.trim().startsWith("#")) continue;
-    const item = /^\s+-\s*(.*)$/.exec(raw);
-    if (item && key) { if (!Array.isArray(fm[key])) fm[key] = []; fm[key].push(unq(item[1])); continue; }
-    const m = /^([A-Za-z][\w-]*)\s*:\s*(.*)$/.exec(raw);
-    if (!m) { if (/^\s/.test(raw)) continue; return { skip: "its YAML doesn't parse" }; }
-    key = m[1];
-    const v = m[2].trim();
-    fm[key] = v === "" ? "" : /^\[.*\]$/.test(v) ? v.slice(1, -1).split(",").map(unq).filter(Boolean) : unq(v);
-  }
-  const name = typeof fm.name === "string" ? fm.name.trim() : "";
+  const fm = frontmatterOf(src);
+  if (!fm) return { skip: "its YAML doesn't parse" };
+  const name = strField(fm.name);
   if (!name) return { skip: "no name" };
   if (name.startsWith("-") || name.includes(":") || name.length > 256) return { skip: "the name starts with -, holds : or is over 256 characters" };
-  if (typeof fm.description !== "string" || !fm.description.trim()) return { skip: "a name but no description" };
+  const description = typeof fm.description === "string" ? fm.description.trim() : strField(fm.description);
+  if (!description) return { skip: "a name but no description" };
   const turns = Number.parseInt(String(fm.maxTurns ?? ""), 10);
+  const mode = strField(fm.permissionMode) === "manual" ? "default" : strField(fm.permissionMode);
+  const mem = strField(fm.memory).toLowerCase();
+  const mcp = Array.isArray(fm.mcpServers) ? fm.mcpServers : fm.mcpServers && typeof fm.mcpServers === "object" ? Object.entries(fm.mcpServers).map(([k, v]) => ({ [k]: v })) : [];
   return { def: {
-    name, description: fm.description.trim().slice(0, 1000), file,
-    tools: fm.tools === undefined || fm.tools === "" ? null : listField(fm.tools),
+    name, description: description.slice(0, 1000), file,
+    tools: fm.tools === undefined || fm.tools === null || fm.tools === "" ? null : listField(fm.tools),
     disallowedTools: listField(fm.disallowedTools),
-    model: typeof fm.model === "string" ? fm.model.trim() : "",
-    effort: AGENT_EFFORTS.includes(String(fm.effort || "").trim()) ? String(fm.effort).trim() : "",
+    model: strField(fm.model),
+    effort: AGENT_EFFORTS.includes(strField(fm.effort)) ? strField(fm.effort) : "",
     maxTurns: Number.isFinite(turns) && turns > 0 ? Math.min(turns, SUBAGENT_ROUNDS) : 0,
-    isolation: fm.isolation === "worktree" ? "worktree" : "",
-    background: fm.background === "true",
+    isolation: strField(fm.isolation) === "worktree" ? "worktree" : "",
+    background: boolField(fm.background),
+    // (Claude Code: "skills: Skills to preload into the subagent's context at startup", "up to the first 32 distinct names".)
+    skills: [...new Set(listField(fm.skills))].slice(0, 32),
+    memory: AGENT_MEMORY_SCOPES.includes(mem) ? mem : "",
+    omitClaudeMd: boolField(fm.omitClaudeMd),
+    initialPrompt: strField(fm.initialPrompt).slice(0, 20_000),
+    permissionMode: AGENT_MODES.includes(mode) ? mode : "",
+    mcpServers: mcp.map((x) => (typeof x === "string" ? x.trim() : x && typeof x === "object" && !Array.isArray(x) ? Object.keys(x)[0] && { [Object.keys(x)[0]]: x[Object.keys(x)[0]] } : null)).filter(Boolean).slice(0, 20),
     prompt: src.slice(end + 4).replace(/^[^\n]*\n?/, "").trim().slice(0, 20_000),
     // (Its frontmatter hooks, Claude Code's settings shape: run only while it runs, its Stop as SubagentStop; coder-fmhooks.mjs.)
     ...(fmHooks(src) ? { hooks: fmHooks(src) } : {}),
@@ -577,10 +587,12 @@ async function runAgent(entry, prompt, past, k) {
   const fm = typeof k.agentHooks === "function" ? k.agentHooks(entry.def) || { own: [], stop: [], held: false } : { own: [], stop: [], held: false };
   if (fm.held && typeof k.note === "function") { try { k.note("The hooks in agent " + entry.def.name + "'s file did not run: turn on \"Trust this repository's settings\" in its permission rules first."); } catch { /* said once */ } }
   const tag = entry.id + (entry.sends ? "-m" + entry.sends : "") + "-";
+  // (ITS PRELOADED SKILLS AND ITS MEMORY, Claude Code's `skills` and `memory` fields, read when it starts. 2026-11-28.)
+  if (entry.startup === undefined) entry.startup = await startupOf(entry, k);
   const once = (text, messages) => k.budget.run(() => Promise.resolve().then(() => k.startSub({
     type: entry.type, prompt: text, messages, label, emit: taggedEmit(emit, tag, label),
-    model: entry.model, effort: entry.effort, toolNames: entry.toolNames,
-    system: systemFor(entry.type, entry.def) + (context.length ? "\n\n" + context.join("\n") : ""),
+    model: entry.model, effort: entry.effort, toolNames: entry.toolNames, mode: entry.mode, depth: entry.depth, contextOf: (c) => subagentContext(c, entry.type, entry.def),
+    system: systemFor(entry.type, entry.def) + entry.startup + (context.length ? "\n\n" + context.join("\n") : ""),
     maxRounds: entry.def && entry.def.maxTurns ? entry.def.maxTurns : SUBAGENT_ROUNDS,
     cwd: wt ? wt.path : "", agentId: entry.id, stopReq: () => entry.stopReq === true, ...(fm.own.length ? { hooks: fm.own } : {}),
   })).catch((e) => ({ status: "error", messages: [], usage: [], summary: String((e && e.message) || e).slice(0, 300) })));
@@ -627,6 +639,82 @@ async function runAgent(entry, prompt, past, k) {
   return { code: res.status === "done" ? 0 : 1, text, label: (entry.sends ? "Agent answered: " : "Agent finished: ") + label, usage: Array.isArray(res.usage) ? res.usage : [], stop: res.status === "stopped", result };
 }
 
+/** Claude Code's nesting limit: CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH layers below the main conversation (default 3; 1 turns nesting off). */
+export const SPAWN_DEPTH = 3, SPAWN_DEPTH_VAR = "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH";
+export const spawnDepthOf = (env) => capOf(env && env[SPAWN_DEPTH_VAR], SPAWN_DEPTH, 1, 10);
+
+/**
+ * A CUSTOM AGENT'S PERMISSION MODE (Claude Code's permissionMode rules): unset, a plugin's, or the chat in bypassPermissions,
+ * acceptEdits or auto: the chat's mode; the chat in plan: plan; the chat in default (Manual) or dontAsk: the agent's own,
+ * except bypassPermissions, auto when auto mode is off, and a mode Coder doesn't have.
+ */
+export function agentModeOf(parent, def, { autoOff = false } = {}) {
+  const p = String(parent || "auto");
+  const want = def && !def.plugin ? String(def.permissionMode || "") : "";
+  if (!want || ["bypassPermissions", "acceptEdits", "auto"].includes(p)) return p;
+  if (p === "plan") return "plan";
+  if (want === "bypassPermissions" || want === "dontAsk" || (want === "auto" && autoOff)) return p;
+  return ["auto", "acceptEdits", "plan", "default"].includes(want) ? want : p;
+}
+
+/**
+ * WHAT OF THE CHAT'S CONTEXT A SUBAGENT STARTS WITH (Claude Code's "What loads at startup"): never the chat's auto memory ("the
+ * main conversation's auto memory isn't loaded"); the CLAUDE.md files and the git status, except "The built-in Explore, Plan,
+ * and web-fetch agents skip this" (git status: Explore and Plan) and a definition with omitClaudeMd skips CLAUDE.md.
+ */
+export function subagentContext(context, type, def = null) {
+  const builtIn = !def;
+  const noMd = (builtIn && ["Explore", "Plan", "web-fetch"].includes(type)) || !!(def && def.omitClaudeMd);
+  const noGit = builtIn && ["Explore", "Plan", "web-fetch"].includes(type);
+  const keep = (p) => {
+    const key = String(p && p.key || ""), text = String(p && p.text || "").trimStart();
+    if (key === "i:YOUR MEMORY FOR THIS REPO") return false;
+    if (noMd && key.startsWith("i:") && /^(THE REPO'S OWN INSTRUCTIONS|MORE OF THE REPO'S INSTRUCTIONS)/.test(text)) return false;
+    if (noGit && key === "i:GIT STATUS") return false;
+    return true;
+  };
+  return Array.isArray(context) ? context.filter(keep) : context;
+}
+
+/** A subagent memory scope's folder (Claude Code: user ~/.claude/agent-memory/<name>/, project .claude/agent-memory/<name>/, local .claude/agent-memory-local/<name>/). */
+export function agentMemoryDir(def, { root = "", home = "" } = {}) {
+  if (!def || !def.memory) return "";
+  const n = String(def.name).replace(/[^\w.-]/g, "-");
+  if (def.memory === "user") return (home || "~") + "/.claude/agent-memory/" + n;
+  return (root || ".") + "/.claude/" + (def.memory === "local" ? "agent-memory-local/" : "agent-memory/") + n;
+}
+/** Claude Code loads "the first 200 lines or 25KB of MEMORY.md in the memory directory, whichever comes first". */
+export function memoryHead(text) {
+  const lines = String(text || "").split("\n").slice(0, 200).join("\n");
+  return Buffer.from(lines, "utf8").length > 25_000 ? Buffer.from(lines, "utf8").subarray(0, 25_000).toString("utf8").replace(/\uFFFD+$/, "") : lines;
+}
+/** The memory instructions a subagent with a memory scope is given. */
+export function memoryPrompt(dir, text) {
+  const head = memoryHead(text).trim();
+  return "\n\nYOUR AGENT MEMORY (persistent, kept across chats) is the folder " + dir + "/. Read it before you start when it may help, and as you work save what you learn there (the owner's preferences and corrections, project decisions and why), one topic file per memory, with MEMORY.md as the index: one line per memory pointing at its file. Only the first 200 lines or 25KB of MEMORY.md are loaded when you start; when it grows past that, curate it (merge or drop stale entries, move detail into topic files)."
+    + (head ? "\n\nMEMORY.md:\n" + head : "\n\n(MEMORY.md is empty so far.)");
+}
+
+/** What a subagent starts with beyond its prompt: its preloaded skills' full text, and its memory (k.skills, k.readText). */
+async function startupOf(entry, k) {
+  const def = entry.def;
+  if (!def) return "";
+  let out = "";
+  const skills = Array.isArray(k.skills) ? k.skills : [];
+  for (const n of Array.isArray(def.skills) ? def.skills : []) {
+    // (Claude Code: "You can't preload skills that set disable-model-invocation: true"; a missing one is skipped.)
+    const sk = skills.find((s) => s && s.model && s.name.toLowerCase() === String(n).toLowerCase());
+    if (sk && typeof k.skillText === "function") { try { out += "\n\n<preloaded-skill name=\"" + sk.name + "\">\n" + k.skillText(sk) + "\n</preloaded-skill>"; } catch { /* skipped */ } }
+  }
+  if (def.memory) {
+    const dir = agentMemoryDir(def, { root: k.root || "", home: k.home || "" });
+    let text = "";
+    if (typeof k.readText === "function") { try { const r = await k.readText(dir + "/MEMORY.md"); text = r && typeof r.text === "string" ? r.text : ""; } catch { text = ""; } }
+    out += memoryPrompt(dir, text);
+  }
+  return out;
+}
+
 /**
  * WHETHER AN AGENT RUNS IN THE BACKGROUND (Claude Code's run_in_background: "Left out, a call from the main conversation runs
  * the new agent in the background, and a call from a subagent waits for it", unless the agent's definition sets background).
@@ -648,8 +736,11 @@ export async function startAgent(c, k) {
   const type = args.subagent_type === undefined || args.subagent_type === "" ? "general-purpose" : String(args.subagent_type);
   if (!prompt) return { error: "error: give prompt: the task for the agent" };
   if (args.isolation !== undefined && args.isolation !== "worktree") return { error: args.isolation === "remote" ? "error: isolation \"remote\" runs Claude Code's agents in a cloud session, which Coder doesn't have; leave it out or use \"worktree\"" : "error: isolation is \"worktree\"" };
-  const defs = AGENT_TYPES[type] ? [] : await customOf(k);
-  const def = AGENT_TYPES[type] ? null : defs.find((d) => d && d.name === type) || null;
+  // (Claude Code: "A user or project subagent named Explore overrides the built-in and keeps its own model field".)
+  const defs = await customOf(k);
+  const def = defs.find((d) => d && d.name === type) || null;
+  // (Claude Code's "Disable specific subagents": Agent(name) in the deny rules, built-in and custom alike; Task(name) too.)
+  if (typeof k.typeDenied === "function" && k.typeDenied(type)) return { error: "error: Permission to use Agent with subagent_type " + oneLine(type, 80) + " has been denied." };
   if (!AGENT_TYPES[type] && !def) return { error: "error: Agent type '" + oneLine(type, 80) + "' not found. Available agents: " + [...Object.keys(AGENT_TYPES), ...defs.map((d) => d.name)].join(", ") };
   const tools = resolveAgentTools(type, def);
   if (tools.error) return { error: "error: " + tools.error };
@@ -659,7 +750,13 @@ export async function startAgent(c, k) {
   if (name && (name === "main" || [...k.agents.values()].some((a) => a.name === name))) return { error: "error: an agent named “" + name + "” already exists: send_message continues it" };
   if (!k.budget.take()) return { error: capNote(k) };
   const id = "agent-" + (k.agents.size + 1);
-  const entry = { id, name, type, description: description || oneLine(prompt, 80), status: "running", messages: [], sends: 0, model: mdl.model, effort: mdl.effort, toolNames: tools.names, def, isolation: args.isolation === "worktree" || (def && def.isolation === "worktree") ? "worktree" : "", background: backgroundOf(args.run_in_background, def, k.isSub) };
+  // (THE DEPTH LIMIT, Claude Code's CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH: "up to three layers below the main conversation. At
+  // the depth limit, Claude Code withholds the Agent tool". A memory scope turns on read, write and edit. 2026-11-28.)
+  const depth = (Number(k.depth) || 0) + 1;
+  let toolNames = tools.names;
+  if (depth >= spawnDepthOf(k.env)) toolNames = toolNames.filter((n) => n !== "agent");
+  if (def && def.memory) for (const n of ["read", "write", "edit"]) if (!toolNames.includes(n)) toolNames = [...toolNames, n];
+  const entry = { id, name, type, description: description || oneLine(prompt, 80), status: "running", messages: [], sends: 0, model: mdl.model, effort: mdl.effort, toolNames, def, depth, mode: agentModeOf(k.mode, def, { autoOff: k.autoOff === true }), isolation: args.isolation === "worktree" || (def && def.isolation === "worktree") ? "worktree" : "", background: backgroundOf(args.run_in_background, def, k.isSub) };
   k.agents.set(id, entry);
   entry.promise = runAgent(entry, prompt, [], k);
   entry.promise.catch(() => {});
@@ -899,7 +996,7 @@ export function customAgentsFrom(files) {
   const defs = [], skipped = [];
   for (const f of Array.isArray(files) ? files : []) {
     const p = parseAgentFile(f && f.text, f && f.file);
-    if (p.def) { if (!AGENT_TYPES[p.def.name] && !defs.some((d) => d.name === p.def.name)) defs.push(p.def); }
+    if (p.def) { if (!defs.some((d) => d.name === p.def.name)) defs.push(p.def); }
     else if (p.skip && p.skip !== "no frontmatter" && p.skip !== "no name") skipped.push((f && f.file) + ": " + p.skip);
   }
   return { defs: defs.slice(0, 50), skipped };
@@ -907,7 +1004,9 @@ export function customAgentsFrom(files) {
 /** The shell script that prints each .claude/agents/*.md file, each after a mark line (read as `dev` in the chat's sandbox). */
 export const AGENT_FILES_MARK = "@@CODER-AGENT-FILE ";
 export function agentFilesScript() {
-  return "for f in " + AGENTS_DIR + "/*.md; do [ -f \"$f\" ] || continue; printf '%s%s\\n' '" + AGENT_FILES_MARK + "' \"$f\"; head -c 40000 -- \"$f\"; printf '\\n'; done 2>/dev/null; true";
+  // (Claude Code "scans .claude/agents/ … recursively, so you can organize definitions into subfolders"; identity comes only
+  // from the name field. Sorted, so the first of two files with one name is the one kept. 2026-11-28.)
+  return "find " + AGENTS_DIR + " -type f -name '*.md' 2>/dev/null | LC_ALL=C sort | head -n 100 | while IFS= read -r f; do printf '%s%s\\n' '" + AGENT_FILES_MARK + "' \"$f\"; head -c 40000 -- \"$f\"; printf '\\n'; done 2>/dev/null; true";
 }
 /** That script's output, as [{ file, text }]. */
 export function agentFilesOf(output) {
@@ -917,7 +1016,7 @@ export function agentFilesOf(output) {
     if (line.startsWith(AGENT_FILES_MARK)) { cur = { file: line.slice(AGENT_FILES_MARK.length).trim(), lines: [] }; out.push(cur); }
     else if (cur) cur.lines.push(line);
   }
-  return out.slice(0, 50).map((x) => ({ file: x.file, text: x.lines.join("\n") }));
+  return out.slice(0, 100).map((x) => ({ file: x.file, text: x.lines.join("\n") }));
 }
 /** A subagent's worktree: the script that makes one without moving the chat's shell, and the one that cleans it up when unchanged. */
 export function agentWorktreeScript(name) { return "(\n" + enterNewScript(name) + "\n)"; }

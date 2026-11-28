@@ -113,9 +113,12 @@ test("DP6 (row 376) WebFetch: a redirect to another host comes back with its URL
   assert.equal(hops.at(-1), "https://example.com/b");
 });
 
-test("DP7 (row 326) a saved or plugin skill that sets allowed-tools keeps it, so loading it asks first", async () => {
-  const got = CP.withOwnerSkills([], [{ name: "tooly", body: "---\nallowed-tools: Bash(ls *)\n---\nrun ls" }, { name: "plug:x", body: "do x", asks: "hooks", source: "plugin plug" }, { name: "plain", body: "hi" }]);
-  assert.deepEqual(got.map((s) => s.asks), ["allowed-tools", "hooks", undefined]);
+// (2026-11-28, Claude Code's skills docs: allowed-tools pre-approves tools for the turn instead of asking; a skill's hooks still
+// ask. skills-agents-1128.test.mjs.)
+test("DP7 (row 326) a saved or plugin skill that sets hooks keeps it, so loading it asks first; allowed-tools is read as a grant", async () => {
+  const got = CP.withOwnerSkills([], [{ name: "tooly", body: "---\nallowed-tools: Bash(ls *)\nhooks:\n  PreToolUse:\n    - matcher: Bash\n      hooks:\n        - type: command\n          command: echo hi\n---\nrun ls" }, { name: "plug:x", body: "do x", asks: "hooks", source: "plugin plug" }, { name: "plain", body: "---\nallowed-tools: Read\n---\nhi" }]);
+  assert.deepEqual(got.map((s) => s.asks), ["hooks", "hooks", undefined]);
+  assert.deepEqual(got[2].allowed, ["Read"]);
   assert.equal(SP.cleanSkill({ name: "x", body: "b", asks: "allowed-tools" }).asks, "allowed-tools");
   assert.equal(SP.cleanSkill({ name: "x", body: "b", asks: "<script>" }).asks, undefined);
   assert.equal(MK.asksOf({ "allowed-tools": "Bash(ls *)", description: "d" }), "allowed-tools");
@@ -129,7 +132,7 @@ test("DP7 (row 326) a saved or plugin skill that sets allowed-tools keeps it, so
   }, { text: "go", mode: "default", skills: got });
   const card = events.find((e) => e.type === "permission" && e.tool === "skill");
   assert.ok(card, "a card");
-  assert.match(card.why, /allowed-tools/);
+  assert.match(card.why, /hooks/);
   assert.doesNotMatch(told(r, "s1"), /Launching skill/);
 });
 

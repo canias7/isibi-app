@@ -193,5 +193,5 @@ test("P2-8 /plugin:skill typed in the box runs that plugin's skill", () => {
   assert.equal(r.skill, sk); assert.equal(r.args, "main");
   assert.equal(slashSkill("/code-review:nope", [sk]), null);
   const js = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
-  assert.ok(js.includes("/^[A-Za-z0-9][\\w-]{0,63}(?::[A-Za-z0-9][\\w-]{0,63})?$/.test(String(x.name || ''))"));
+  assert.ok(js.includes("/^[A-Za-z0-9][\\w./-]{0,200}(?::[A-Za-z0-9][\\w-]{0,63})*$/.test(String(x.name || ''))")); // (nested dir:skill names too, 2026-11-28)
 });

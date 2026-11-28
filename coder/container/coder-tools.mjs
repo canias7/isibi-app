@@ -737,6 +737,7 @@ export const SETTINGS_SCHEMA = JSON.stringify({
   properties: {
     permissions: { type: "object", properties: { allow: { type: "array", items: { type: "string" } }, deny: { type: "array", items: { type: "string" } }, ask: { type: "array", items: { type: "string" } }, defaultMode: { enum: [...SETTING_MODES, "manual"] }, disableBypassPermissionsMode: { enum: ["disable"] }, disableAutoMode: { enum: ["disable"] }, blockReadsOutsideWorkingDirectories: { type: "boolean" }, blockWritesOutsideWorkingDirectories: { type: "boolean" }, denyInsteadOfPrompting: { type: "boolean" }, additionalDirectories: { type: "array", items: { type: "string" } } } },
     env: { type: "object" },
+    disableSkillShellExecution: { type: "boolean" },
     hooks: { type: "object" },
     disableAllHooks: { type: "boolean" },
     disableAutoMode: { enum: ["disable"] },

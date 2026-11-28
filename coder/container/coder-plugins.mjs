@@ -20,7 +20,7 @@ import { join } from "node:path";
 import { CC_TOOL } from "./coder-hooks.mjs";
 
 import { PLUGIN_TOOL_NAMES, PLUGIN_DEFERRED, PLUGIN_CC_NAMES, PLUGIN_HINTS } from "./coder-plugin-names.mjs";
-import { frontMatter, skillAsks } from "./coder-skills.mjs";
+import { frontMatter, skillAsks, skillFrom } from "./coder-skills.mjs";
 const frontMatterOf = (t) => frontMatter(String(t || "")).meta;
 export { PLUGIN_TOOL_NAMES, PLUGIN_DEFERRED, PLUGIN_CC_NAMES, PLUGIN_HINTS };
 Object.assign(CC_TOOL, PLUGIN_CC_NAMES);
@@ -96,10 +96,15 @@ export function withOwnerSkills(repo, owner) {
   for (const s of Array.isArray(owner) ? owner.slice(0, 100) : []) {
     if (!s || typeof s.name !== "string" || typeof s.body !== "string" || !/^[a-z0-9][\w:-]{0,128}$/i.test(s.name) || seen.has(s.name.toLowerCase())) continue;
     seen.add(s.name.toLowerCase());
-    // (A saved or plugin skill that sets allowed-tools, disallowed-tools or hooks asks before it loads, as a repository's does:
-    // its `asks`, or its own frontmatter when its text kept it. The spreadsheet's row 326, 2026-11-24.)
-    const asks = typeof s.asks === "string" && /^[a-z, -]{1,60}$/.test(s.asks) ? s.asks : skillAsks(frontMatterOf(s.body));
-    out.push({ name: s.name, description: String(s.description || "").replace(/\s+/g, " ").slice(0, 250), body: s.body.slice(0, 20_000), dir: "(" + String(s.source || "saved").slice(0, 80) + ": no folder)", model: true, user: true, source: String(s.source || "saved").slice(0, 80), ...(asks ? { asks } : {}) });
+    // (A saved or plugin skill that sets hooks asks before it loads, as a repository's does: its `asks`, or its own frontmatter
+    // when its text kept it. The spreadsheet's row 326, 2026-11-24. Since 2026-11-28, as Claude Code's: allowed-tools and
+    // disallowed-tools don't ask, and the rest of its frontmatter (arguments, allowed-tools, context: fork …) is read too.)
+    const asks = typeof s.asks === "string" && /\bhooks\b/.test(s.asks) ? "hooks" : skillAsks(frontMatterOf(s.body));
+    const dir = "(" + String(s.source || "saved").slice(0, 80) + ": no folder)";
+    let fields = null;
+    try { fields = skillFrom(s.body, s.name, dir); } catch { fields = null; }
+    const { asks: _a, hooks: _h, name: _n, description: _d, dir: _dir, model: _m, user: _u, ...rest } = fields || {};
+    out.push({ ...rest, name: s.name, description: String(s.description || "").replace(/\s+/g, " ").slice(0, 1536), body: s.body.slice(0, 20_000), dir, model: true, user: true, source: String(s.source || "saved").slice(0, 80), ...(asks ? { asks } : {}) });
   }
   return out.slice(0, 100);
 }

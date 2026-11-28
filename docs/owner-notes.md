@@ -5,6 +5,32 @@ The owner's running log, newest first, in plain English. Started fresh on
 log (81,000 lines) is in git history.
 
 
+## 2026-11-28: Skills and subagents work like Claude Code's
+
+I read Claude Code's skills, subagents and memory docs in full and made Coder's match them (not tried live yet):
+- **Skills' settings are all read now**, as proper YAML (lists and multi-line text work): when to use it, the hint
+  shown in the / menu, named arguments, the tools it may use without asking, the tools it must not use, its model
+  and effort, running it in a helper agent (`context: fork` with `agent:`), and which files turn it on (`paths`).
+- **`allowed-tools` was backwards**: loading such a skill used to ask you. Now, like Claude Code, it lets those
+  tools run without asking for that one message. `disallowed-tools` turns tools off for that message.
+- **Arguments**: `$0`, `$1`, `$ARGUMENTS[1]`, named ones like `$issue`, quotes for two-word values, and `\$1` to
+  write a dollar sign. `${CLAUDE_SKILL_DIR}`, `${CLAUDE_SESSION_ID}`, `${CLAUDE_EFFORT}` and `${CLAUDE_PROJECT_DIR}`
+  are filled in.
+- **Live context**: a skill line like `` !`git diff` `` runs before Grok sees the skill, checked against your rules
+  first (a blocked command stops the skill). `"disableSkillShellExecution": true` in the repo's settings turns that off.
+- **Skills in subfolders** (`apps/web/.claude/skills`) load the first time Coder works on a file there; one with the
+  same name as a root skill becomes `/apps/web:deploy`. Command files in subfolders are `/frontend:component`.
+- **Helper agents**: agent files are found in subfolders too; one named Explore replaces the built-in; they can
+  preload skills (`skills:`), keep their own memory (`memory:`), skip CLAUDE.md (`omitClaudeMd`) and set a mode
+  (`permissionMode`). `Agent(Explore)` in the deny rules turns one type off. Helpers can start helpers three levels
+  deep (CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH changes it). Explore and Plan start without CLAUDE.md and the git status,
+  and no helper gets the chat's memory, as in Claude Code.
+- Not done, and why: agent-file MCP servers (Coder's helpers have no connector tools yet); `initialPrompt` (only for
+  running a whole session as an agent, which Coder doesn't have); CLI-only things (`--agents`, the `/agents` wizard,
+  managed settings, `~/.claude` sync, colours).
+- The spreadsheet's skills tabs were rewritten: many rows still described Gloopy's helpers instead of Coder's own.
+  Tests: coder/test/skills-agents-1128.test.mjs.
+
 ## 2026-11-28: The hook fixes tried live
 
 On gofarther.dev (commit ddbf1d91), with Grok on Low (11 messages), in a new chat on the test repo:

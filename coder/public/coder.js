@@ -4446,10 +4446,10 @@
   // THE REPOSITORY'S SKILLS (Claude Code's "/skill-name"; the machine names them at each message): after Coder's own commands.
   function skillsSlash() {
     const ev = [...(S.events || [])].reverse().find((e) => e && e.type === 'skills' && Array.isArray(e.list));
-    return ev ? ev.list.filter((x) => x && /^[A-Za-z0-9][\w-]{0,63}(?::[A-Za-z0-9][\w-]{0,63})?$/.test(String(x.name || '')) && !SLASH.some(([c]) => c === '/' + x.name)).slice(0, 50).map((x) => ['/' + x.name, String(x.description || 'Skill').slice(0, 200), [], true]) : [];
+    return ev ? ev.list.filter((x) => x && /^[A-Za-z0-9][\w./-]{0,200}(?::[A-Za-z0-9][\w-]{0,63})*$/.test(String(x.name || '')) && !SLASH.some(([c]) => c === '/' + x.name)).slice(0, 80).map((x) => ['/' + x.name, (x.hint ? String(x.hint).slice(0, 100) + ' · ' : '') + String(x.description || 'Skill').slice(0, 200), [], true]) : [];
   }
   function slashMatches() {
-    if (GLOOPY || S.slashOff || !/^\/[\w:-]*$/.test(S.draft || '')) return [];
+    if (GLOOPY || S.slashOff || !/^\/[\w:./-]*$/.test(S.draft || '')) return [];
     const flat = (t) => t.toLowerCase().replace(/[-_:]/g, '');
     const q = flat(S.draft.slice(1));
     const hit = (name) => flat(name).startsWith(q) || name.toLowerCase().split(/[-_:]/).slice(1).some((w) => w.startsWith(q));
