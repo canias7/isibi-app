@@ -84,6 +84,8 @@ import { needsCheck, stepWords, stepSends, gloopyCheck, gloopyMonitor, MONITOR_E
 import { cleanPermissions, permissionLabel } from "./gloopy-permissions.mjs";
 import { asText, asNumber } from "./coder-text.mjs";
 import { agentHooksOf, registerSkillHooks, onceSucceeded, withoutHook, hookSourceLabel, permissionSuggestions, authNotifications, ELICIT_NOTIFY_MS } from "./coder-fmhooks.mjs";
+import { subagentConnectors, forkLabel } from "./coder-agents.mjs";
+import { connectAgentServers } from "./coder-agentmcp.mjs";
 import { AGENT_TOOL, LIST_AGENTS_TOOL, SEND_MESSAGE_TOOL, WORKFLOW_TOOL, SUBAGENT_HANDBACK_TOOL, AGENT_TOOL_NAMES, AGENT_TYPES, SUBAGENT_SYSTEM, SUBAGENT_ROUNDS, SUBAGENT_MS, WORKFLOW_PASS_S, subagentCaps, subagentBudget, subagentTools, agentToolCall, startAgent, takeBgAgents, stopBgTask, customAgentsFrom, agentFilesScript, agentFilesOf, agentWorktreeScript, agentWorktreeFinishScript, AGENT_ALIASES, agentToolFor } from "./coder-agents.mjs";
 /** A contact entry from the owner's Vault in one line (as gloopy-agent.mjs's contactWords, kept here to import nothing of it). */
 const contactWords = (x) => { const place = [x.line1, x.line2, x.city, [x.region, x.postal].filter(Boolean).join(" "), x.country].filter(Boolean).join(", "); return [x.nickname ? "“" + x.nickname + "”" : "", [x.name, place].filter(Boolean).join(", "), x.phone, x.email].filter(Boolean).join(" · "); };
@@ -2354,7 +2356,9 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   const webCacheKey = deps && typeof deps.chatId === "string" && deps.chatId ? "chat:" + deps.chatId : "job:" + randomUUID();
   if (Array.isArray(tools)) tools = webFetchTools(tools, webFetch);
   // THE REPOSITORY'S SKILLS (coder-skills.mjs; the audit, 2026-11-20): Coder's chats only, never Gloopy's or a job from GitHub.
-  let skillList = Array.isArray(skills) && !Array.isArray(tools) && !github ? skills.filter((s) => s && typeof s.name === "string" && typeof s.body === "string").slice(0, 100) : [];
+  // (A subagent has them too, Claude Code's "Subagents can still invoke unlisted project, user, and plugin skills through the
+  // Skill tool": its parent passes the list when the agent has the skill tool. 2026-11-28.)
+  let skillList = Array.isArray(skills) && (!Array.isArray(tools) || !!subagent) && !github ? skills.filter((s) => s && typeof s.name === "string" && typeof s.body === "string").slice(0, 100) : [];
   // (SKILLS AND SUBAGENTS ROUND, 2026-11-28, Claude Code's skills docs: nested .claude/skills folders load when Coder first
   // touches a file there; a skill with `paths` is listed once a file it covers is touched; ${CLAUDE_*} variables.)
   let nestedRoots = [];
@@ -3066,7 +3070,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     } });
   }
   /** A forked skill's Agent call (Claude Code: "starts a new subagent of the type set in the agent field and gives it the skill content as its prompt"; in the background unless background: false). */
-  const forkCall = (sk, id, text) => ({ id: id + "-fork", name: "agent", args: { description: ("Skill " + sk.name).slice(0, 80), prompt: text, subagent_type: sk.agent || "general-purpose", run_in_background: sk.background !== false, ...(sk.modelName && sk.modelName !== "inherit" && CODER_MODELS.some((x) => x.id === sk.modelName) ? { model: sk.modelName } : {}), ...(sk.effort ? { effort: sk.effort } : {}) } });
+  // (Shown as the agent type it runs as, Claude Code's Explore(...) step for a skill with agent: Explore. 2026-11-28.)
+  const forkCall = (sk, id, text) => ({ id: id + "-fork", name: "agent", args: { description: forkLabel(sk), prompt: text, subagent_type: sk.agent || "general-purpose", run_in_background: sk.background !== false, ...(sk.modelName && sk.modelName !== "inherit" && CODER_MODELS.some((x) => x.id === sk.modelName) ? { model: sk.modelName } : {}), ...(sk.effort ? { effort: sk.effort } : {}) } });
   let pendingFork = null;
   /** A `once` skill hook that ran successfully: removed (Claude Code: "removes the hook after its first successful run"). */
   const onceRan = (h) => { skillHooks = withoutHook(skillHooks, h); hookList = withoutHook(hookList, h); keepSkillHooks(); };
@@ -3827,7 +3832,9 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   // Coder's own tools. A call to one anyway is refused in the loop.)
   // (Every one of them in Coder's chats, as Claude Code, but those of a connector whose last check failed, as Claude Code's
   // failed servers offer none; Gloopy's as before, gloopyConnectorTools. 2026-11-14.)
-  const mcpTools = !github && typeof deps.mcp === "function" ? (offered ? gloopyConnectorTools(connectorTools(connectors)) : connectorTools(connectors).filter((t) => !t.failed)).filter((t) => !toolDenied(t.name)) : [];
+  // (A subagent's, Claude Code's "Subagents inherit the ... MCP tools available in the main conversation": the chat's rules,
+  // not Gloopy's; subagentConnectors chose them. 2026-11-28.)
+  const mcpTools = !github && typeof deps.mcp === "function" ? (offered && !subagent ? gloopyConnectorTools(connectorTools(connectors)) : connectorTools(connectors).filter((t) => !t.failed)).filter((t) => !toolDenied(t.name)) : [];
   const mcpFailedTools = !github && !offered ? new Set(connectorTools(connectors).filter((t) => t.failed).map((t) => t.name)) : new Set();
   const mcpByName = new Map(mcpTools.map((t) => [t.name, t]));
   const mcpBg = new Map();
@@ -3851,7 +3858,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   const descUp = descMax || CONNECTOR_DESC_UPFRONT, descFound = descMax || CONNECTOR_DESC_FOUND;
   const asFn = (t, found = false) => ({ type: "function", function: { name: t.name, description: String(t.description).slice(0, found ? descFound : descUp), parameters: t.parameters } });
   // (Gloopy's connector_search only: Coder's own chats have Claude Code's tool search instead, tsOn below. 2026-11-14.)
-  const mcpDeferred = !!offered && mcpTools.length > 0 && deferConnectors(mcpTools);
+  const mcpDeferred = !!offered && !subagent && mcpTools.length > 0 && deferConnectors(mcpTools);
   // (A tool its server marks `_meta["anthropic/alwaysLoad"]` is loaded at the start even with tool search.)
   const mcpUpfront = mcpDeferred ? mcpTools.filter((t) => t.alwaysLoad) : mcpTools;
   const mcpLoaded = new Set(mcpUpfront.map((t) => t.name));
@@ -4175,7 +4182,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       const picNote = fitted.notes.length ? "\n\n(Note from Coder's app: " + fitted.notes.join(" ") + ")" : "";
       // THE SKILLS CODER MAY LOAD (Claude Code lists each skill's name and description; told again only when the list changed).
       // (And the page's / menu: the skills the owner may run, Claude Code's "/skill-name".)
-      if (skillList.some((x) => x.user)) emit({ type: "skills", list: skillList.filter((x) => x.user).map((x) => ({ name: x.name, description: scrub(x.description).slice(0, 200), ...(x.argHint ? { hint: scrub(x.argHint).slice(0, 100) } : {}) })) });
+      if (!subagent && skillList.some((x) => x.user)) emit({ type: "skills", list: skillList.filter((x) => x.user).map((x) => ({ name: x.name, description: scrub(x.description).slice(0, 200), ...(x.argHint ? { hint: scrub(x.argHint).slice(0, 100) } : {}) })) });
       { const ls = skillList.length && !toolDenied("skill") ? skillsListing(skillList) : ""; const told = [...convo].reverse().find((m) => m && typeof m.skillsList === "string"); if (ls && (!told || told.skillsList !== ls)) convo.push({ role: "user", appNote: true, skillsList: ls, content: "(Note from Coder's app, not the owner:\n" + ls + ")" }); }
       convo.push({ role: "user", content: text.trim() + picNote, ...(fitted.send.length ? { images: fitted.send.map((x) => "data:" + x.type + ";base64," + x.data) } : {}) });
       // The chat shows what the owner typed (`shown`); Coder also gets the notes added to it. (A scheduled run of Gloopy's,
@@ -4607,7 +4614,13 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         if (o.decision === "block") return o.blocks.join("\n") || o.reason || "";
         return o.context.length ? "SubagentStop hook feedback:\n" + o.context.join("\n") : "";
       },
-      startSub: ({ type, prompt, messages: past, label, emit: subEmit, model: m, effort: ef, toolNames, system: sys, maxRounds: mr, cwd, agentId, stopReq, hooks: fmOwn, mode: subMode, depth: subDepth, contextOf }) => runCoder({ ...deps, emit: subEmit, subagentBudget: agentBudget, ...(typeof deps.transcript === "function" ? { transcript: (c, o = {}) => { if (o && o.agent) return deps.transcript(c, o); try { deps.transcript(c, { ...o, agent: String(agentId || "") }); } catch { /* the main one still */ } return transcriptNow(); } } : {}), ...(cwd ? inFolder(deps, cwd) : {}), ...(typeof stopReq === "function" ? { stopped: async () => stopReq() || (await stopped()) } : {}) }, { text: prompt, messages: past || [], system: (sys || SUBAGENT_SYSTEM + (AGENT_TYPES[type] && AGENT_TYPES[type].note ? "\n\n" + AGENT_TYPES[type].note : "")) + (cwd ? "\n\n" + worktreeNotice(deps.root || "", cwd) : ""), tools: subagentTools(subTools, type, toolNames, { mode: subMode || modeNow() }), context: typeof contextOf === "function" ? contextOf(context) : context, base, model: m || model, effort: ef || effort, mode: subMode || modeNow(), rules, hooks: Array.isArray(fmOwn) && fmOwn.length ? [...hookList, ...fmOwn] : hookList, denyInstead, nudges: false, who: "Coder's agent “" + label + "”", asHelper: true, github: false, tasksOff: true, maxRounds: mr || SUBAGENT_ROUNDS, maxMs: Math.min(SUBAGENT_MS, left), subagent: { id: agentId || "", type, depth: Number(subDepth) || 1 } }),
+      startSub: async ({ type, prompt, messages: past, label, emit: subEmit, model: m, effort: ef, toolNames, system: sys, maxRounds: mr, cwd, agentId, stopReq, hooks: fmOwn, mode: subMode, depth: subDepth, contextOf, def: agentDef }) => {
+        // (ITS OWN mcpServers, Claude Code's: inline servers "connected when the subagent starts, subject to the trust rule",
+        // "disconnected when the last agent using them finishes"; a plugin agent's ignored; coder-agentmcp.mjs. 2026-11-28.)
+        const inl = agentDef && !agentDef.plugin && Array.isArray(agentDef.mcpServers) && agentDef.mcpServers.length ? await connectAgentServers(agentDef.mcpServers, { trusted: repoTrusted === true, connected: connectorTools(connectors).flatMap((t) => [t.server, t.connector, t.label && t.label.split(":")[0]]).filter(Boolean), ...(typeof deps.fetch === "function" ? { fetchFn: deps.fetch } : {}) }).catch(() => null) : null;
+        for (const n of inl ? inl.notes : []) emit({ type: "note", text: scrub(String(n)).slice(0, 400), warn: true });
+        const subMcp = inl && inl.call ? (name, args, o) => (inl.has(name) ? inl.call(name, args) : typeof deps.mcp === "function" ? deps.mcp(name, args, o) : Promise.resolve({ text: "error: no such connector tool", isError: true })) : deps.mcp;
+        try { return await runCoder({ ...deps, ...(subMcp ? { mcp: subMcp } : {}), emit: subEmit, subagentBudget: agentBudget, ...(typeof deps.transcript === "function" ? { transcript: (c, o = {}) => { if (o && o.agent) return deps.transcript(c, o); try { deps.transcript(c, { ...o, agent: String(agentId || "") }); } catch { /* the main one still */ } return transcriptNow(); } } : {}), ...(cwd ? inFolder(deps, cwd) : {}), ...(typeof stopReq === "function" ? { stopped: async () => stopReq() || (await stopped()) } : {}) }, { text: prompt, messages: past || [], system: (sys || SUBAGENT_SYSTEM + (AGENT_TYPES[type] && AGENT_TYPES[type].note ? "\n\n" + AGENT_TYPES[type].note : "")) + (cwd ? "\n\n" + worktreeNotice(deps.root || "", cwd) : ""), tools: subagentTools(subTools, type, toolNames, { mode: subMode || modeNow() }), context: typeof contextOf === "function" ? contextOf(Array.isArray(ctxNow) ? ctxNow : context) : context, base, model: m || model, effort: ef || effort, mode: subMode || modeNow(), rules, hooks: Array.isArray(fmOwn) && fmOwn.length ? [...hookList, ...fmOwn] : hookList, denyInstead, nudges: false, who: "Coder's agent “" + label + "”", asHelper: true, github: false, tasksOff: true, maxRounds: mr || SUBAGENT_ROUNDS, maxMs: Math.min(SUBAGENT_MS, left), subagent: { id: agentId || "", type, depth: Number(subDepth) || 1 }, connectors: [...subagentConnectors(connectors, type, agentDef), ...(inl ? inl.tools : [])], connectorNotes, skills: Array.isArray(toolNames) && toolNames.includes("skill") && !toolDenied("skill") ? skillList : [] }); } finally { if (inl) await inl.close().catch(() => {}); } },
       step: typeof deps.workflowStep === "function" ? deps.workflowStep : async (a) => { const r = await appTool(deps, "workflow_step", a, { timeoutS: WORKFLOW_PASS_S }); try { return JSON.parse(r.output); } catch { return { status: "error", error: r.output.trim().slice(0, 400) || "the script's pass failed" }; } },
       writeText: async (p, text) => { const b64 = Buffer.from(String(text), "utf8").toString("base64"); const q = "'" + String(p).replace(/'/g, "'\\''") + "'"; const r = await shRun("mkdir -p -- \"$(dirname -- " + q + ")\" && printf %s '" + b64 + "' | base64 -d > " + q, 20); if (!r || r.code !== 0) throw new Error("could not write " + p); },
       readText: async (p) => { try { const r = await deps.exec({ command: "cat -- '" + String(p).replace(/'/g, "'\\''") + "'", timeoutS: 15, tool: true }); return r && r.code === 0 ? { text: String(r.output || "") } : { error: "could not read " + p }; } catch { return { error: "could not read " + p }; } },

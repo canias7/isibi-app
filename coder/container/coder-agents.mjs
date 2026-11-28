@@ -60,9 +60,9 @@ export function subagentBudget(caps) {
 
 /** The kinds of subagent (Claude Code's built-in general-purpose, Explore and Plan), and the tools each gets. */
 export const AGENT_TYPES = Object.freeze({
-  "general-purpose": { tools: ["bash", "read", "edit", "write", "notebook_edit", "grep", "glob", "web_fetch", "web_search", "agent"], note: "", description: "General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you." },
-  Explore: { tools: ["bash", "read", "grep", "glob", "web_fetch", "web_search"], note: "You are an Explore agent: search and read only. Never change a file: no edits, no writes, no commands that change anything (no installs, no git commit, no rm, no redirects into files).", description: "Fast agent specialized for exploring codebases. Use this when you need to quickly find files by patterns, search code for keywords, or answer questions about the codebase (read-only)." },
-  Plan: { tools: ["bash", "read", "grep", "glob", "web_fetch", "web_search"], note: "You are a Plan agent: research the code and design an implementation plan (the steps, the files, the risks). Never change a file: no edits, no writes, no commands that change anything.", description: "Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task: it returns step-by-step plans, identifies critical files, and considers architectural trade-offs (read-only)." },
+  "general-purpose": { tools: ["bash", "read", "edit", "write", "notebook_edit", "grep", "glob", "web_fetch", "web_search", "skill", "agent"], note: "", description: "General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you." },
+  Explore: { tools: ["bash", "read", "grep", "glob", "web_fetch", "web_search", "skill"], note: "You are an Explore agent: search and read only. Never change a file: no edits, no writes, no commands that change anything (no installs, no git commit, no rm, no redirects into files).", description: "Fast agent specialized for exploring codebases. Use this when you need to quickly find files by patterns, search code for keywords, or answer questions about the codebase (read-only)." },
+  Plan: { tools: ["bash", "read", "grep", "glob", "web_fetch", "web_search", "skill"], note: "You are a Plan agent: research the code and design an implementation plan (the steps, the files, the risks). Never change a file: no edits, no writes, no commands that change anything.", description: "Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task: it returns step-by-step plans, identifies critical files, and considers architectural trade-offs (read-only)." },
   // CLAUDE CODE'S web-fetch (2026-11-23; its tools reference: "the subagent built into Claude Code that reads web pages for
   // Claude … The subagent calls WebFetch, reads the page, and sends Claude the answer"; "reads pages of up to about 48,000
   // characters in full"): its web_fetch gives the page's own text, up to 48,000 characters a call (coder-agent.mjs). The
@@ -70,7 +70,9 @@ export const AGENT_TYPES = Object.freeze({
   "web-fetch": { tools: ["web_fetch"], note: "You are the web-fetch agent: fetch the URL you were given with web_fetch (its result is the page's own text, up to about 48,000 characters a call; fetch on with offset when the page goes on and the question needs more), read it, and answer the question about it in your report. Fetch nothing else.", description: "Reads a web page for Coder: give it the URL and a question about the page; it fetches the page, reads up to about 48,000 characters of it in full, and answers the question." },
 });
 /** The tools a subagent can ever have (Claude Code's "tools available to subagents", in Coder's names). */
-export const SUBAGENT_AVAILABLE = Object.freeze(["bash", "read", "edit", "write", "notebook_edit", "grep", "glob", "lsp", "web_fetch", "web_search", "agent"]);
+// (skill, Claude Code's Skill: "Subagents can still invoke unlisted project, user, and plugin skills through the Skill tool";
+// "To prevent a subagent from invoking skills entirely, omit Skill from the tools list or add it to disallowedTools". 2026-11-28.)
+export const SUBAGENT_AVAILABLE = Object.freeze(["bash", "read", "edit", "write", "notebook_edit", "grep", "glob", "lsp", "web_fetch", "web_search", "skill", "agent"]);
 /** The models an agent can run on: Coder's own (coder-model.mjs), and the effort levels Claude Code's input takes. */
 export const AGENT_MODELS = Object.freeze(CODER_MODELS.map((m) => m.id));
 export const AGENT_EFFORTS = Object.freeze(["low", "medium", "high", "xhigh", "max"]);
@@ -82,7 +84,7 @@ const capsWords = "at most 3 subagents run at the same time and at most 10 in al
 /** Claude Code's Agent tool, its inputs (AgentInput) and its description, in Coder's words. */
 export const AGENT_TOOL = Object.freeze({ type: "function", function: {
   name: "agent",
-  description: "Launch a new agent to handle complex, multi-step tasks autonomously.\n\nThe agent tool launches specialized agents (subprocesses) that autonomously handle complex tasks. Each agent type has specific capabilities and tools available to it.\n\nAvailable agent types and the tools they have access to:\n- general-purpose: " + AGENT_TYPES["general-purpose"].description + " (Tools: bash, read, edit, write, notebook_edit, grep, glob, web_fetch, web_search, agent)\n- Explore: " + AGENT_TYPES.Explore.description + " (Tools: bash, read, grep, glob, web_fetch, web_search)\n- Plan: " + AGENT_TYPES.Plan.description + " (Tools: bash, read, grep, glob, web_fetch, web_search)\n- web-fetch: " + AGENT_TYPES["web-fetch"].description + " (Tools: web_fetch)\n- the repository's custom agents: each .md file in " + AGENTS_DIR + "/ (subfolders too) with a name and a description in its frontmatter (and optionally tools, disallowedTools, model, effort, maxTurns, isolation, background, skills, memory, omitClaudeMd and permissionMode; the file's body is its instructions). One named like a built-in type replaces it. list_agents lists them.\n\nWhen using the agent tool, specify a subagent_type parameter to select which agent type to use. If omitted, the general-purpose agent is used. The old name of this tool, Task, still works.\n\nWhen NOT to use the agent tool:\n- If you want to read a specific file path, use read or glob instead, to find the match more quickly\n- If you are searching for a specific class definition like \"class Foo\", use glob instead\n- If you are searching for code within a specific file or set of 2-3 files, use read instead\n- Other tasks that are not related to the agent descriptions above\n\nUsage notes:\n- Always include a short description (3-5 words) summarizing what the agent will do\n- Launch multiple agents concurrently whenever possible, to maximize performance; to do that, use a single message with multiple agent calls (they run side by side; " + capsWords + ")\n- When the agent is done, it will return a single message back to you. The result returned by the agent is not visible to the owner. To show the owner the result, you should send a text message back to the owner with a concise summary of the result.\n- run_in_background: left out, an agent you start from the main conversation runs in the background, and one a subagent starts is waited for (unless its definition sets background: true); set it to false to wait for the result, true to run in the background. When an agent runs in the background, you will be automatically notified when it completes; do not sleep, poll, or proactively check on its progress. Continue with other work or respond to the owner instead.\n- To continue a previously spawned agent, use send_message with the agent's ID or name as the `to` field. The agent resumes with its full context preserved. Each fresh agent invocation with a prompt starts without context, so provide a complete task description.\n- The agent's outputs should generally be trusted\n- Clearly tell the agent whether you expect it to write code or just to do research (search, file reads, web fetches, etc.), since it is not aware of the owner's intent\n- If the agent description mentions that it should be used proactively, then you should try your best to use it without the owner having to ask for it first. Use your judgement.\n- You can optionally set isolation: \"worktree\" to run the agent in a temporary git worktree, giving it an isolated copy of the repository. The worktree is automatically cleaned up if the agent makes no changes; if changes are made, the worktree path and branch are returned in the result.\n- model and effort run the agent on another of Coder's models (" + AGENT_MODELS.join(", ") + ") or effort level; the chat's are used when left out. An effort the model doesn't take runs at the nearest level it does.\n- Launching an agent never asks the owner; the agent's own steps are checked against the chat's rules and mode as it runs, and a step that needs the owner's OK shows the owner its card, as the chat's own steps do. A general-purpose subagent can start agents of its own (they share the job's caps), up to three layers below the chat (CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH changes it); a nested agent runs on its parent's model unless the call or its definition names another.\n- Coder has no agent teams and no remote agents: team_name and mode are accepted for Claude Code's input and ignored, and isolation \"remote\" is refused.",
+  description: "Launch a new agent to handle complex, multi-step tasks autonomously.\n\nThe agent tool launches specialized agents (subprocesses) that autonomously handle complex tasks. Each agent type has specific capabilities and tools available to it.\n\nAvailable agent types and the tools they have access to:\n- general-purpose: " + AGENT_TYPES["general-purpose"].description + " (Tools: bash, read, edit, write, notebook_edit, grep, glob, web_fetch, web_search, skill, agent, and the chat's connector tools)\n- Explore: " + AGENT_TYPES.Explore.description + " (Tools: bash, read, grep, glob, web_fetch, web_search, skill, and the chat's connector tools)\n- Plan: " + AGENT_TYPES.Plan.description + " (Tools: bash, read, grep, glob, web_fetch, web_search, skill, and the chat's connector tools)\n- web-fetch: " + AGENT_TYPES["web-fetch"].description + " (Tools: web_fetch)\n- the repository's custom agents: each .md file in " + AGENTS_DIR + "/ (subfolders too) with a name and a description in its frontmatter (and optionally tools, disallowedTools, model, effort, maxTurns, isolation, background, skills, memory, omitClaudeMd and permissionMode; the file's body is its instructions). One named like a built-in type replaces it. list_agents lists them.\n\nWhen using the agent tool, specify a subagent_type parameter to select which agent type to use. If omitted, the general-purpose agent is used. The old name of this tool, Task, still works.\n\nWhen NOT to use the agent tool:\n- If you want to read a specific file path, use read or glob instead, to find the match more quickly\n- If you are searching for a specific class definition like \"class Foo\", use glob instead\n- If you are searching for code within a specific file or set of 2-3 files, use read instead\n- Other tasks that are not related to the agent descriptions above\n\nUsage notes:\n- Always include a short description (3-5 words) summarizing what the agent will do\n- Launch multiple agents concurrently whenever possible, to maximize performance; to do that, use a single message with multiple agent calls (they run side by side; " + capsWords + ")\n- When the agent is done, it will return a single message back to you. The result returned by the agent is not visible to the owner. To show the owner the result, you should send a text message back to the owner with a concise summary of the result.\n- run_in_background: left out, an agent you start from the main conversation runs in the background, and one a subagent starts is waited for (unless its definition sets background: true); set it to false to wait for the result, true to run in the background. When an agent runs in the background, you will be automatically notified when it completes; do not sleep, poll, or proactively check on its progress. Continue with other work or respond to the owner instead.\n- To continue a previously spawned agent, use send_message with the agent's ID or name as the `to` field. The agent resumes with its full context preserved. Each fresh agent invocation with a prompt starts without context, so provide a complete task description.\n- The agent's outputs should generally be trusted\n- Clearly tell the agent whether you expect it to write code or just to do research (search, file reads, web fetches, etc.), since it is not aware of the owner's intent\n- If the agent description mentions that it should be used proactively, then you should try your best to use it without the owner having to ask for it first. Use your judgement.\n- You can optionally set isolation: \"worktree\" to run the agent in a temporary git worktree, giving it an isolated copy of the repository. The worktree is automatically cleaned up if the agent makes no changes; if changes are made, the worktree path and branch are returned in the result.\n- model and effort run the agent on another of Coder's models (" + AGENT_MODELS.join(", ") + ") or effort level; the chat's are used when left out. An effort the model doesn't take runs at the nearest level it does.\n- Launching an agent never asks the owner; the agent's own steps are checked against the chat's rules and mode as it runs, and a step that needs the owner's OK shows the owner its card, as the chat's own steps do. A general-purpose subagent can start agents of its own (they share the job's caps), up to three layers below the chat (CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH changes it); a nested agent runs on its parent's model unless the call or its definition names another.\n- Coder has no agent teams and no remote agents: team_name and mode are accepted for Claude Code's input and ignored, and isolation \"remote\" is refused.",
   parameters: { type: "object", properties: {
     description: { type: "string", description: "A short (3-5 word) description of the task" },
     prompt: { type: "string", description: "The task for the agent to perform" },
@@ -138,7 +140,7 @@ export const WORKFLOW_TOOL = Object.freeze({ type: "function", function: {
 } });
 
 /** Claude Code's tool names, in Coder's (for a custom agent's tools and disallowedTools lists). */
-const CC_TO_CODER = { Bash: "bash", Read: "read", Edit: "edit", Write: "write", NotebookEdit: "notebook_edit", Grep: "grep", Glob: "glob", LSP: "lsp", WebFetch: "web_fetch", WebSearch: "web_search", MultiEdit: "edit" };
+const CC_TO_CODER = { Bash: "bash", Read: "read", Edit: "edit", Write: "write", NotebookEdit: "notebook_edit", Grep: "grep", Glob: "glob", LSP: "lsp", WebFetch: "web_fetch", WebSearch: "web_search", MultiEdit: "edit", Skill: "skill" };
 const toolEntry = (t) => { const n = String(t).trim().replace(/\(.*\)$/, "").trim(); return CC_TO_CODER[n] || n.toLowerCase(); };
 const listField = (v) => (Array.isArray(v) ? v : typeof v === "string" ? v.split(",") : []).map((x) => String(x).trim()).filter(Boolean);
 
@@ -202,11 +204,34 @@ export function resolveAgentTools(type, def = null) {
   if (def && Array.isArray(def.tools) && def.tools.length) {
     const want = def.tools.map(toolEntry);
     names = SUBAGENT_AVAILABLE.filter((n) => want.includes(n));
-    if (!names.length) return { error: "Agent '" + def.name + "' would be spawned with zero tools: no entry of its tools list (" + def.tools.join(", ") + ") is a tool a subagent can use in Coder (" + SUBAGENT_AVAILABLE.join(", ") + "; Claude Code's names such as Read, Grep and Bash work too)." };
+    // (A tools list of only connector tools, such as mcp__github__*, is not "zero tools": subagentConnectors keeps them.)
+    if (!names.length && !def.tools.some((t) => /^mcp__/i.test(String(t).trim()))) return { error: "Agent '" + def.name + "' would be spawned with zero tools: no entry of its tools list (" + def.tools.join(", ") + ") is a tool a subagent can use in Coder (" + SUBAGENT_AVAILABLE.join(", ") + "; Claude Code's names such as Read, Grep and Bash work too)." };
   }
   if (def && def.disallowedTools.length) { const no = def.disallowedTools.map(toolEntry); names = names.filter((n) => !no.includes(n)); }
   return { names };
 }
+
+/**
+ * A SUBAGENT'S CONNECTOR (MCP) TOOLS (Claude Code: "Subagents inherit the built-in tools and MCP tools available in the main
+ * conversation"; `tools` "Inherits every tool available to subagents if omitted"; its MCP entries: `mcp__github__*` in tools
+ * gives "every tool from one server", `mcp__github` or `mcp__github__*` in disallowedTools withholds one server's, `mcp__*`
+ * every MCP tool; disallowedTools wins). The built-in web-fetch agent has only web_fetch. `list`: the chat's connector tools
+ * ({ name, ... }). -> the ones this agent gets. 2026-11-28.
+ */
+export function subagentConnectors(list, type, def = null) {
+  const all = (Array.isArray(list) ? list : []).filter((t) => t && typeof t.name === "string" && t.name.startsWith("mcp__"));
+  if (!def && type === "web-fetch") return [];
+  const raw = (v) => (Array.isArray(v) ? v : []).map((x) => String(x).trim().replace(/\(.*\)$/, "").trim()).filter((x) => /^mcp__/i.test(x));
+  const inTools = (n, e) => n === e || e === "mcp__*" || (e.endsWith("__*") && n.startsWith(e.slice(0, -1)));
+  const inDeny = (n, e) => inTools(n, e) || n.startsWith(e + "__");
+  let out = all;
+  if (def && Array.isArray(def.tools) && def.tools.length) { const want = raw(def.tools); out = out.filter((t) => want.some((e) => inTools(t.name, e))); }
+  if (def && Array.isArray(def.disallowedTools) && def.disallowedTools.length) { const no = raw(def.disallowedTools); out = out.filter((t) => !no.some((e) => inDeny(t.name, e))); }
+  return out;
+}
+
+/** A forked skill's step (Claude Code shows the agent type it runs as, such as Explore, with the skill's name). 2026-11-28. */
+export const forkLabel = (sk) => ((sk && sk.agent ? String(sk.agent) : "general-purpose") + ": " + String((sk && sk.name) || "skill")).slice(0, 80);
 
 /** The model and effort an agent runs on: the call's, else its definition's, else the chat's; only Coder's models. */
 export function resolveAgentModel({ model = "", effort = "" } = {}, def = null, chat = {}) {
@@ -591,7 +616,7 @@ async function runAgent(entry, prompt, past, k) {
   if (entry.startup === undefined) entry.startup = await startupOf(entry, k);
   const once = (text, messages) => k.budget.run(() => Promise.resolve().then(() => k.startSub({
     type: entry.type, prompt: text, messages, label, emit: taggedEmit(emit, tag, label),
-    model: entry.model, effort: entry.effort, toolNames: entry.toolNames, mode: entry.mode, depth: entry.depth, contextOf: (c) => subagentContext(c, entry.type, entry.def),
+    model: entry.model, effort: entry.effort, toolNames: entry.toolNames, mode: entry.mode, depth: entry.depth, contextOf: (c) => subagentContext(c, entry.type, entry.def), def: entry.def,
     system: systemFor(entry.type, entry.def) + entry.startup + (context.length ? "\n\n" + context.join("\n") : ""),
     maxRounds: entry.def && entry.def.maxTurns ? entry.def.maxTurns : SUBAGENT_ROUNDS,
     cwd: wt ? wt.path : "", agentId: entry.id, stopReq: () => entry.stopReq === true, ...(fm.own.length ? { hooks: fm.own } : {}),
@@ -688,9 +713,13 @@ export function memoryHead(text) {
   const lines = String(text || "").split("\n").slice(0, 200).join("\n");
   return Buffer.from(lines, "utf8").length > 25_000 ? Buffer.from(lines, "utf8").subarray(0, 25_000).toString("utf8").replace(/\uFFFD+$/, "") : lines;
 }
-/** The memory instructions a subagent with a memory scope is given. */
-export function memoryPrompt(dir, text) {
+/** The tools a memory scope turns on: read, write and edit; in plan mode, read only. */
+export const memoryToolsFor = (mode) => (mode === "plan" ? ["read"] : ["read", "write", "edit"]);
+/** The memory instructions a subagent with a memory scope is given (`readOnly`: in plan mode, read it but write nothing). */
+export function memoryPrompt(dir, text, { readOnly = false } = {}) {
   const head = memoryHead(text).trim();
+  if (readOnly) return "\n\nYOUR AGENT MEMORY (persistent, kept across chats) is the folder " + dir + "/. You are in plan mode, which is read-only: read your memory when it may help, but do not write, edit or create any memory file now (plan mode allows no file changes)."
+    + (head ? "\n\nMEMORY.md:\n" + head : "\n\n(MEMORY.md is empty so far.)");
   return "\n\nYOUR AGENT MEMORY (persistent, kept across chats) is the folder " + dir + "/. Read it before you start when it may help, and as you work save what you learn there (the owner's preferences and corrections, project decisions and why), one topic file per memory, with MEMORY.md as the index: one line per memory pointing at its file. Only the first 200 lines or 25KB of MEMORY.md are loaded when you start; when it grows past that, curate it (merge or drop stale entries, move detail into topic files)."
     + (head ? "\n\nMEMORY.md:\n" + head : "\n\n(MEMORY.md is empty so far.)");
 }
@@ -710,7 +739,7 @@ async function startupOf(entry, k) {
     const dir = agentMemoryDir(def, { root: k.root || "", home: k.home || "" });
     let text = "";
     if (typeof k.readText === "function") { try { const r = await k.readText(dir + "/MEMORY.md"); text = r && typeof r.text === "string" ? r.text : ""; } catch { text = ""; } }
-    out += memoryPrompt(dir, text);
+    out += memoryPrompt(dir, text, { readOnly: entry.mode === "plan" });
   }
   return out;
 }
@@ -755,8 +784,12 @@ export async function startAgent(c, k) {
   const depth = (Number(k.depth) || 0) + 1;
   let toolNames = tools.names;
   if (depth >= spawnDepthOf(k.env)) toolNames = toolNames.filter((n) => n !== "agent");
-  if (def && def.memory) for (const n of ["read", "write", "edit"]) if (!toolNames.includes(n)) toolNames = [...toolNames, n];
-  const entry = { id, name, type, description: description || oneLine(prompt, 80), status: "running", messages: [], sends: 0, model: mdl.model, effort: mdl.effort, toolNames, def, depth, mode: agentModeOf(k.mode, def, { autoOff: k.autoOff === true }), isolation: args.isolation === "worktree" || (def && def.isolation === "worktree") ? "worktree" : "", background: backgroundOf(args.run_in_background, def, k.isSub) };
+  const mode = agentModeOf(k.mode, def, { autoOff: k.autoOff === true });
+  // (AGENT MEMORY IN PLAN MODE: Claude Code turns on Read, Write and Edit for a memory scope, but plan mode stays read-only,
+  // "Write and Edit are denied", and a tool in disallowedTools stays removed; so in plan mode the memory is read, not written.
+  // 2026-11-28.)
+  if (def && def.memory) for (const n of memoryToolsFor(mode)) if (!toolNames.includes(n) && !(def.disallowedTools || []).map(toolEntry).includes(n)) toolNames = [...toolNames, n];
+  const entry = { id, name, type, description: description || oneLine(prompt, 80), status: "running", messages: [], sends: 0, model: mdl.model, effort: mdl.effort, toolNames, def, depth, mode, isolation: args.isolation === "worktree" || (def && def.isolation === "worktree") ? "worktree" : "", background: backgroundOf(args.run_in_background, def, k.isSub) };
   k.agents.set(id, entry);
   entry.promise = runAgent(entry, prompt, [], k);
   entry.promise.catch(() => {});
