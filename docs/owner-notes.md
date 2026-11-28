@@ -5,6 +5,18 @@ The owner's running log, newest first, in plain English. Started fresh on
 log (81,000 lines) is in git history.
 
 
+## 2026-11-28: The new hooks tried live
+
+On gofarther.dev (commit ac00a917), with Grok on Low (13 messages), I put one logging hook per new event in the test
+repo's settings and checked what Coder sent them. Working: InstructionsLoaded (CLAUDE.md at the start), WorktreeCreate
+(fires; a hook that prints a folder replaces git), DirectoryAdded (after adding a working folder), UserPromptExpansion
+(/review), PreToolUse inside a subagent (agent_id and agent_type), SubagentStop (its transcript file is real, plus
+background_tasks and session_crons). Problems found: after a hook-made worktree, Coder's commands stay in the project
+folder and ExitWorktree says there is no worktree, so WorktreeRemove never runs; ConfigChange did not fire when Coder
+edited the settings mid-job; pressing Stop during a running command fired no PostToolUseFailure, so is_interrupt true
+was never seen. The model-switch hooks can't be tried: the chat offers only Grok 4.7. Results are in the "Tried live"
+column of the Hooks tabs in docs/claude-code-vs-coder.xlsx. The test hooks, files, working folder and chats were removed.
+
 ## 2026-11-28: A plan for Coder in the terminal
 
 I wrote docs/terminal-coder-plan.md: how a `coder` command on your own computer (Mac first, then Linux and Windows) would
