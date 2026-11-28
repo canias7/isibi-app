@@ -18,7 +18,7 @@ const userText = (req) => (req.messages || []).filter((m) => m.role === "user").
 const base = (send, extra = {}) => ({ send, exec: async () => ({ code: 0, output: "" }), emit: () => {}, here: () => ROOT, root: ROOT, home: "/home/dev", chatId: "agents-t", where: (p) => (p.startsWith("/") ? p : ROOT + "/" + p), toolSearch: "false", ...extra });
 const opts = (text) => ({ text, mode: "auto", rules: { allow: [], ask: [], deny: [] } });
 // (A foreground report's no-authority header, 2026-11-28, left off here: subagents-cc-1128b tests it.)
-const toolAnswer = (r, id) => String((r.messages.find((m) => m.role === "tool" && m.tool_call_id === id) || {}).content || "").replace(/^\[Subagent output: [^\n]*\]\n/, "");
+const toolAnswer = (r, id) => String((r.messages.find((m) => m.role === "tool" && m.tool_call_id === id) || {}).content || "").replace(/^\[Subagent hand-back\][^\n]*\n/, "").replace(/^  /gm, "");
 
 /** A background workflow's result, from its task notification. */
 const wfResult = (r, id) => { for (const m of r.messages) { const x = new RegExp("<task-id>" + id + "</task-id>[\\s\\S]*?<result>\\n([\\s\\S]*?)\\n</result>").exec(String(m.content || "")); if (x) return x[1]; } return ""; };

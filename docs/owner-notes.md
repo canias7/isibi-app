@@ -5,6 +5,20 @@ The owner's running log, newest first, in plain English. Started fresh on
 log (81,000 lines) is in git history.
 
 
+## 2026-11-28: Helper agents now match Claude Code exactly
+
+- **Report frame**: a helper agent's report now reaches Coder under Claude Code's own "[Subagent hand-back] …" header,
+  with every line of the report pushed in by two spaces, so a fake header inside a report can't pass for the real
+  one. Same for background helpers' reports.
+- **Local MCP servers**: a helper agent's file can now list a local (stdio) MCP server. Coder starts it inside the
+  chat's own sandbox when the helper starts and stops it when the helper is done (only once you trust the repository).
+- **Approval cards**: a helper's step that needs your OK already showed you a card; now "don't ask again" on that
+  card counts for the whole chat right away, including other helpers still working. Helpers are told the truth about
+  this (they used to be told the step would be refused).
+- **Memory in plan mode**: a helper with memory gets read, write and edit in plan mode too, like Claude Code; plan
+  mode's usual rules decide whether a write goes ahead.
+- Not yet tried live on gofarther.dev.
+
 ## 2026-11-28: Skills and subagents tried live
 
 I tried the skills and subagents changes on gofarther.dev with Grok (Low, 11 messages, 3 test chats, all deleted after):

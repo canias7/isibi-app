@@ -17,7 +17,7 @@ const say = (content, calls = []) => ({ message: { role: "assistant", content, .
 const isSub = (req) => (req.messages || []).some((m) => m.role === "system" && /You are an agent for Coder|You run as a subagent of Coder/.test(String(m.content)));
 const sys = (req) => String(((req.messages || []).find((m) => m.role === "system") || {}).content || "");
 const skill = (text, name = "x") => ({ ...K.skillFrom(text, name, ROOT + "/.claude/skills/" + name) });
-const agentExec = (files) => async (x) => (x.command.startsWith("find .claude/agents") ? { code: 0, output: files.map((f) => G.AGENT_FILES_MARK + f.file + "\n" + f.text + "\n").join("") } : null);
+const agentExec = (files) => async (x) => (x.command === G.agentFilesScript() ? { code: 0, output: files.map((f) => G.AGENT_FILES_MARK + f.file + "\n" + f.text + "\n").join("") } : null);
 
 async function job(steps, { text = "go", skills = [], rules = null, mode = "auto", exec = null, deps = {}, opts = {}, sub = null } = {}) {
   const events = [], seen = [];
@@ -129,17 +129,17 @@ test("P5 a forked skill's step is named by the agent type it runs as", async () 
   assert.ok(!t.events.some((e) => e.type === "bash" && /Skill deep/.test(String(e.command || ""))));
 });
 
-test("P6 agent memory in plan mode is read, not written: no write or edit tool, and a read-only memory prompt", async () => {
-  assert.deepEqual(G.memoryToolsFor("plan"), ["read"]);
+test("P6 agent memory in plan mode: read, write and edit are given, as Claude Code's (plan mode's own write handling decides)", async () => {
+  assert.deepEqual(G.memoryToolsFor("plan"), ["read", "write", "edit"]);
   assert.deepEqual(G.memoryToolsFor("auto"), ["read", "write", "edit"]);
-  assert.match(G.memoryPrompt("/m", "", { readOnly: true }), /plan mode, which is read-only[\s\S]*do not write/);
   const files = [{ file: ".claude/agents/rev.md", text: "---\nname: rev\ndescription: Reviews\ntools: Grep\nmemory: project\n---\nYou review." }];
   let system = "", tools = [];
   await job([say("", [call("agent", { description: "rev", prompt: "review", subagent_type: "rev", run_in_background: false }, "a1")]), say("done")], {
     mode: "plan", exec: agentExec(files), sub: (req) => { system = sys(req); tools = (req.tools || []).map((x) => x.function.name); return say("done reviewing"); },
   });
-  assert.ok(tools.includes("read") && !tools.includes("write") && !tools.includes("edit"), tools.join(","));
-  assert.match(system, /You are in plan mode, which is read-only/);
+  assert.ok(tools.includes("read") && tools.includes("write") && tools.includes("edit"), tools.join(","));
+  assert.match(system, /YOUR AGENT MEMORY/);
+  assert.doesNotMatch(system, /You are in plan mode, which is read-only: read your memory/);
   // (Outside plan mode, as before: read, write and edit; disallowedTools still wins.)
   const files2 = [{ file: ".claude/agents/rev.md", text: "---\nname: rev\ndescription: Reviews\ntools: Grep\ndisallowedTools: Write\nmemory: project\n---\nYou review." }];
   await job([say("", [call("agent", { description: "rev", prompt: "review", subagent_type: "rev", run_in_background: false }, "a1")]), say("done")], {
