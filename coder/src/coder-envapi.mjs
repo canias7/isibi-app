@@ -86,6 +86,15 @@ export async function handleEnvApi(request, env, { now = Date.now() } = {}) {
   if (body.action === "mcp_wait") return answer(await connectorWait(env, bucket, uid, id, turn, meta, body));
   // (Never in a job started from GitHub, whose text strangers can write: the tools are not offered there either.)
   if (meta.jobFromGithub === true || meta.kind === "gloopy") return answer({ error: "error: the environment cannot be looked up or changed in a job started from GitHub" }, 403);
+  // (AN INSTALLED PLUGIN'S FILES, 2026-11-28: the zip Coder kept when it was installed, so the machine can unpack the whole
+  // plugin where ${CLAUDE_PLUGIN_ROOT} points. Only this owner's own plugin zips.)
+  if (body.action === "plugin_zip") {
+    const key = String(body.key || "");
+    if (!key.startsWith("coder/" + uid + "/plugin-zips/") || key.includes("..")) return answer({ error: "error: not one of your plugins" }, 403);
+    const o = await bucket.get(key);
+    if (!o) return answer({ error: "error: that plugin's files are gone; update or reinstall it" }, 404);
+    return new Response(o.body, { status: 200, headers: { "content-type": "application/zip", "cache-control": "no-store" } });
+  }
   // (Plugins, saved skills and onboarding guides: coder-plugins.mjs, 2026-11-23.)
   { const p = await pluginsApi(env, bucket, uid, meta, body); if (p) return answer(p); }
   // (The owner's attached project, Claude Code's Projects tool: coder-owner-projects.mjs, 2026-11-23.)

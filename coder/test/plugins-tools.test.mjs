@@ -102,7 +102,7 @@ test("Worker routes: GET /plugins (installed and catalog), POST installs, DELETE
   assert.equal(await W.pluginsApi({}, b, "u1", {}, { action: "get" }), null);
   assert.equal((await W.handlePluginRoutes(new Request("https://x.test/", { method: "DELETE" }), b, "u1", ["plugins", "testing"])).status, 200);
   assert.match(read("src/coder-envapi.mjs"), /const p = await pluginsApi\(env, bucket, uid, meta, body\); if \(p\) return answer\(p\);/);
-  assert.match(read("src/coder-routes.mjs"), /const p = await handlePluginRoutes\(request, bucket, uid, parts\); if \(p\) return p;/);
+  assert.match(read("src/coder-routes.mjs"), /const p = await handlePluginRoutes\(request, bucket, uid, parts, \{ env \}\); if \(p\) return p;/);
 });
 
 test("Worker: an onboarding guide is shared under a new link and read through the shared view; a chat's id is not a guide's", async () => {

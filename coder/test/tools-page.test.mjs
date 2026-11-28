@@ -205,7 +205,7 @@ test("side menu: Plugins holds the plugin parts with their notes; the ! never op
     await page.click("#cdSideHelpers .gf-sname");
     await page.waitForSelector(".gf-sidelist");
     const helpers = await page.$$eval(".gf-sidelist li b", (b) => b.map((x) => x.textContent));
-    assert.deepEqual(helpers, ["general-purpose", "Explore", "Plan", "web-fetch", "shipit:code-reviewer"]);
+    assert.deepEqual(helpers, ["general-purpose", "Explore", "Plan", "web-fetch"]); // (Plugins' helpers are not shown on the page: owner, 2026-11-28.)
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, "helpers-list.png") });
     await page.click(".gf-sidelist .cd-notify-done");
     assert.deepEqual(errors, []);

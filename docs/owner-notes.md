@@ -17,6 +17,32 @@ I tried the skills and subagents changes on gofarther.dev with Grok (Low, 11 mes
   may have told it).
 - **To look at**: the helper agent set to `permissionMode: plan` still wrote its memory file (after asking you),
   and the / menu showed no skills in a brand-new chat until the first message was sent.
+## 2026-11-28: Plugins work like Claude Code's
+
+I read Claude Code's plugin docs in full (overview, manifest reference, components, loading, marketplaces, install, security,
+and what cloud sessions load) and made Coder's plugins match them. Not tried live yet, and not deployed.
+- **The whole plugin is kept**: the zip it came in is stored, and Coder's machine unpacks it into its own folder, so scripts,
+  `bin/` and the files beside each skill are there. `${CLAUDE_PLUGIN_ROOT}` and `${CLAUDE_PLUGIN_DATA}` work in hooks,
+  skills, agents and commands; a plugin's `bin/` is on the PATH of Coder's commands. Claude Code's download and zip limits stay.
+- **MCP servers in a plugin** (`.mcp.json` or `mcpServers`): remote ones are added to your Connectors (sign in with Connect).
+  Ones that run a local command are listed but can't run yet: Coder's connectors run on its server.
+- **Update button** per plugin: the marketplace is read again and the version worked out as Claude Code does (the plugin's
+  version, else the marketplace's, else the commit). Marketplaces have an Auto-update box (off by default, on for
+  Anthropic's official names), checked at most once an hour when a chat starts a job.
+- **On/off switch** per plugin (and `defaultEnabled`). Off: its skills, helpers, hooks and connectors stop.
+- **A repository's `enabledPlugins`** in `.claude/settings.json` (and `.local.json`) turns your installed plugins on or off
+  for that repository's chats, once you've ticked "Trust this repository's settings". `extraKnownMarketplaces` is not read:
+  Claude Code's cloud sessions don't read it either.
+- **Trust warning**: Claude Code's warning and the plugin's details show before every marketplace install. A marketplace
+  using one of Anthropic's names from somewhere other than github.com/anthropics is refused.
+- **Settings (userConfig)**: a form per plugin. Secret values are stored encrypted like your other secrets and never shown.
+- **Removing a marketplace uninstalls its plugins.** Agents in subfolders, custom paths in plugin.json, inline commands and
+  Claude Code's rule for plugins with the same name work too.
+- **The page** (your call, same day): each plugin shows only its skills and connectors ("2 skills · 1 connector"); plugin
+  helpers and hooks aren't listed anywhere on the page (they still work).
+- Not done, as they only fit the terminal or a local machine: the /plugin screen, `claude plugin` commands, install scopes,
+  company policy, npm/ssh/other-Git-host/local-folder sources, Windows, `validate`. Output styles: Coder has none.
+- The spreadsheet's Plugins tab is updated. Tests: `coder/test/plugins-1128.test.mjs`.
 
 ## 2026-11-28: Skills and subagents work like Claude Code's
 

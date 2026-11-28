@@ -1013,9 +1013,22 @@ export function hookShell(h, mark, root) {
   // (THE PATH PLACEHOLDER, Bash docs pass 8: in exec form "the resolved script path as one argument with no quoting", in
   // `command` and each of `args`; in a PowerShell shell-form command "rewrites the ${CLAUDE_PROJECT_DIR} … placeholders … to
   // PowerShell's ${env:NAME} form"; in a Bash shell-form command the shell reads the exported variable itself.)
-  const put = (x) => String(x).split("${CLAUDE_PROJECT_DIR}").join(String(root));
+  // (A PLUGIN'S HOOK, 2026-11-28, Claude Code's plugins reference "Environment variables" and "User configuration": in exec form
+  // ${CLAUDE_PLUGIN_ROOT}, ${CLAUDE_PLUGIN_DATA} and ${user_config.KEY} are put in `command` and each of `args`; every hook gets
+  // CLAUDE_PLUGIN_ROOT, CLAUDE_PLUGIN_DATA and CLAUDE_PLUGIN_OPTION_<KEY> in its environment; a shell-form command that names
+  // ${user_config.*} fails instead of running, "because the field's value is passed to a shell that would re-parse it".)
+  const plug = typeof h.pluginRoot === "string" && h.pluginRoot ? h : null;
+  const opts = plug && h.pluginOptions && typeof h.pluginOptions === "object" ? h.pluginOptions : {};
+  const optText = (v) => (Array.isArray(v) ? v.join(",") : String(v));
+  const put = (x) => {
+    let y = String(x).split("${CLAUDE_PROJECT_DIR}").join(String(root));
+    if (plug) y = y.split("${CLAUDE_PLUGIN_ROOT}").join(plug.pluginRoot).split("${CLAUDE_PLUGIN_DATA}").join(String(plug.pluginData || "")).replace(/\$\{user_config\.([A-Za-z_][A-Za-z0-9_]*)\}/g, (m, k) => (k in opts ? optText(opts[k]) : ""));
+    return y;
+  };
+  const plugEnv = plug ? " CLAUDE_PLUGIN_ROOT=" + shq(plug.pluginRoot) + " CLAUDE_PLUGIN_DATA=" + shq(String(plug.pluginData || "")) + Object.entries(opts).filter(([k]) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(k)).map(([k, v]) => " CLAUDE_PLUGIN_OPTION_" + k.toUpperCase() + "=" + shq(optText(v))).join("") : "";
+  if (plug && !Array.isArray(h.args) && /\$\{user_config\./.test(String(h.command))) h = { ...h, command: "echo " + shq("Plugin command references ${user_config.*} in a shell-form hook command: use exec form with args, or read CLAUDE_PLUGIN_OPTION_<KEY> from the environment") + " >&2; exit 1" };
   const cmd = Array.isArray(h.args) ? [put(h.command), ...h.args.map(put)].map(shq).join(" ") : h.shell === "powershell" ? PS_TERM + pwshRun(String(h.command).split("${CLAUDE_PROJECT_DIR}").join("${env:CLAUDE_PROJECT_DIR}") + (h.event === "PermissionRequest" ? "" : PS_HOOK_EXIT2)) : "sh -c " + shq(String(h.command));
-  return HOOK_SCRATCH_MAKE + "__in='@REQUEST'; __in=\"${__in#@}\"; __err=\"$(mktemp 2>/dev/null || echo /tmp/coder-hook-$$)\"; if [ -n \"${CLAUDE_ENV_FILE:-}\" ]; then mkdir -p \"${CLAUDE_ENV_FILE%/*}\" 2>/dev/null; fi; export CLAUDE_PROJECT_DIR=" + shq(root) + " CODER_PROJECT_DIR=" + shq(root) + " CLAUDE_CODE_REMOTE=true; (\n" + cmd + "\n) < \"$__in\" 2>\"$__err\"; __code=$?; printf '\\n%s\\n' '" + mark + "'; cat \"$__err\" 2>/dev/null; rm -f \"$__err\"; exit $__code";
+  return HOOK_SCRATCH_MAKE + "__in='@REQUEST'; __in=\"${__in#@}\"; __err=\"$(mktemp 2>/dev/null || echo /tmp/coder-hook-$$)\"; if [ -n \"${CLAUDE_ENV_FILE:-}\" ]; then mkdir -p \"${CLAUDE_ENV_FILE%/*}\" 2>/dev/null; fi; export CLAUDE_PROJECT_DIR=" + shq(root) + " CODER_PROJECT_DIR=" + shq(root) + " CLAUDE_CODE_REMOTE=true" + plugEnv + "; (\n" + cmd + "\n) < \"$__in\" 2>\"$__err\"; __code=$?; printf '\\n%s\\n' '" + mark + "'; cat \"$__err\" 2>/dev/null; rm -f \"$__err\"; exit $__code";
 }
 /** A command hook's output split at its `mark`: `{ stdout, stderr }` (a background one's file ends with Coder's own line). */
 export function splitHookOut(out, mark) {

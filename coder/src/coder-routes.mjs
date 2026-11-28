@@ -170,7 +170,7 @@ import { autoModeSetting } from "../container/coder-checker.mjs";
 import { descriptionOk, DESCRIPTION_MAX } from "../container/coder-envtools.mjs";
 import { modelAccess } from "./coder-model-gate.mjs";
 import { PROJECT_ID, SETUP_SCRIPT_MAX, scrub, secretVar } from "../container/coder-checks.mjs";
-import { handlePluginRoutes, sharedGuide, ownerSkills, ownerPluginParts, readCardStates } from "./coder-plugins.mjs";
+import { handlePluginRoutes, sharedGuide, ownerSkills, ownerPluginParts, readCardStates, autoUpdatePlugins } from "./coder-plugins.mjs";
 import { handleOwnerProjectRoutes } from "./coder-owner-projects.mjs";
 // (The check for a secret-looking variable is shared with Coder's machine, which tells Grok of them: coder-checks.mjs.)
 export { secretVar };
@@ -1766,7 +1766,7 @@ export async function handleCoder(request, env, ctx, deps) {
   }
 
   // (Plugins and the owner's saved skills, and a shared onboarding guide: coder-plugins.mjs, 2026-11-23.)
-  { const p = await handlePluginRoutes(request, bucket, uid, parts); if (p) return p; }
+  { const p = await handlePluginRoutes(request, bucket, uid, parts, { env }); if (p) return p; }
   // (The owner's projects, Claude Code's Projects tool: coder-owner-projects.mjs, 2026-11-23.)
   { const p = await handleOwnerProjectRoutes(request, bucket, uid, parts); if (p) return p; }
   if (parts[0] === "shared" && parts[1] && parts.length === 2 && request.method === "GET") { const g = await sharedGuide(bucket, parts[1], uid); if (g) return json(g); }
@@ -1835,7 +1835,7 @@ export async function handleCoder(request, env, ctx, deps) {
   const call = (path, init) => box().fetch(new Request("http://coder" + path, init));
   const postPlain = (path, body, more = {}) => call(path, { method: "POST", headers: { "content-type": "application/json", ...more }, body: JSON.stringify(body) });
   // (A Coder turn carries the owner's saved skills and their plugins' skills: coder-plugins.mjs, 2026-11-23.)
-  const post = async (path, body, more = {}) => postPlain(path, path === "/turn" && body && typeof body === "object" && !body.agent ? { ...body, ownerSkills: await ownerSkills(bucket, uid).catch(() => []), ...(await ownerPluginParts(bucket, uid).then((x) => ({ pluginHooks: x.hooks, pluginAgents: x.agents })).catch(() => ({}))) } : body, more);
+  const post = async (path, body, more = {}) => postPlain(path, path === "/turn" && body && typeof body === "object" && !body.agent ? { ...body, ownerSkills: await ownerSkills(bucket, uid).catch(() => []), ...(await ownerPluginParts(bucket, uid, env).then(async (x) => ({ pluginHooks: x.hooks, pluginAgents: x.agents, pluginFiles: x.files, pluginSkillsOff: await ownerSkills(bucket, uid, { off: true }).catch(() => []) })).catch(() => ({}))) } : body, more);
   // (How many commits its disk holds that GitHub does not: on the machine's record, so its disk is never reclaimed with them.)
   const markUnpushed = (n) => Promise.resolve(typeof deps.markUnpushed === "function" ? deps.markUnpushed(uid + "-" + id, n) : markFlyUnpushed(env, uid + "-" + id, n)).catch(() => {});
   // A SUMMARY BY CODER'S OWN MODEL (owner items 3 and 9), on this Worker (deps.summarize in tests).
@@ -2370,6 +2370,9 @@ export async function handleCoder(request, env, ctx, deps) {
       next.timing.w = wt;
       try {
       r = await post("/turn", { start: claim.id, secrets, egress, live, model: modelNow, extra: extraFor(meta), autoCompactWindow: Number.isInteger(meta.autoCompactWindow) ? meta.autoCompactWindow : 0, toolsPage: await toolChoicesOf(bucket, uid), ...connOn, project: id, chatUrl: chatLinkOf(env, id), coAuthor: await coAuthorFor(env, bucket, uid, fetchFn), emailMark: emailNow, cwd: typeof meta.cwd === "string" ? meta.cwd : "", mode: noAuto(normMode(meta.mode), saved), prePlanMode: noAuto(saved.mode === "acceptEdits" ? "acceptEdits" : "auto", saved), rules: await rulesOf(bucket, uid, meta.repo), ...sessionRulesOn(meta), hookFacts: hookNow.facts, ...customTitleOn(meta), ...wakeOn, ...scheduleOn, ...shellOn, ...compactOn, ...takeUpOn, ...bgOn, ...lastAtOn, ...clearOn, text: takeUp || wake || shell || compactJob ? "" : review ? review.text.split("BASE_BRANCH").join(meta.base) : (text || blankText) + fileMentions(text), shown: takeUp || wake || shell || compactJob ? "" : body.fromGithub === true && body.autofix !== true && typeof body.shown === "string" && body.shown.trim() ? body.shown.slice(0, 300) : body.autofix === true ? "Auto-fix: " + String((text.split("<<<GITHUB\n")[1] || text.split("\n").filter(Boolean)[1] || "").split("\n")[0]).slice(0, 160) : text || blankText, images: pics.images, ...attachedOn, messages, repo: meta.repo, base: meta.base, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn + 1), fetch: fetchWanted(meta, { fromGithub: body.fromGithub === true, autofix: body.autofix === true, review }), ...(meta.readOnly ? { readOnly: true } : {}), effort: pick.effort, prefs: machinePrefs(saved), hooks: machineHooks(saved), autoMode: machineAutoMode(saved), memory, memoryFiles, setup, github: body.fromGithub === true, away: body.fromGithub !== true && messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0, lastJob: lastJobFor(meta), environment, envMoved: meta.envMoved === true, cache: { make: copyOn && !copyWait, ...(copyWait ? { note: copyWait } : {}) }, ...(next.jobReplyTo ? { replyTo: next.jobReplyTo } : {}) }, useCopy ? { [FROM_COPY]: useCopy.snapshot, [FROM_COPY_GB]: String(Number(useCopy.size) || 0) } : {});
+      // (Plugin auto-update, Claude Code's: marketplaces with it on are refreshed and their plugins updated in the background,
+      // at most once an hour, while the job runs; an update loads in the chat's next job. coder-plugins.mjs, 2026-11-28.)
+      if (body.fromGithub !== true && !isGloopy(meta)) autoUpdatePlugins(bucket, uid, { fetchFn }).catch(() => {});
       } catch (e) {
         await notStarted();
         return json({ error: "Coder's machine could not be started (" + String((e && e.message) || e).replace(/\s+/g, " ").slice(0, 200) + "). Try again in a minute." }, 502);

@@ -69,6 +69,7 @@ import { piece } from "./coder-context.mjs";
 import { readSkills } from "./coder-skills.mjs";
 import { withOwnerSkills } from "./coder-plugins.mjs";
 import { pluginAgentsFrom } from "./coder-agents.mjs";
+import { applyPluginSwitches, repoEnabledPlugins, ensurePluginFiles, zipFetcher } from "./coder-pluginfiles.mjs";
 import { BUILTIN_RULES, parseRulesFile, checkEdit, editedText } from "./coder-security.mjs";
 export { globMatch, globAny, expandBraces };
 import { normNetwork, okPattern, netWalled, VAR_DROPPED_RE } from "./coder-secrets.mjs";
@@ -135,6 +136,8 @@ export const TOOL_OUTPUT_MAX = 24 * 1024 * 1024;
 // The user the AI's commands run as (the image makes `dev`, 1001); unset in tests.
 const RUN_UID = process.env.CODER_RUN_UID ? Number(process.env.CODER_RUN_UID) : undefined;
 const RUN_GID = process.env.CODER_RUN_GID ? Number(process.env.CODER_RUN_GID) : undefined;
+/** The bin/ folders of the plugins on in this machine's chat (set at each turn's start: coder-pluginfiles.mjs). */
+const PLUGIN_BINS = [];
 
 // LONG COMMANDS GO TO THE BACKGROUND (owner, 2026-11-05: Claude Code's
 // "background tasks"): a command still running at its time limit is not
@@ -1001,7 +1004,10 @@ export function hooksForTurn(root, account, { github = false, several = false, t
   // owner's own, each marked with its plugin; disableAllHooks turns them off with the rest. 2026-11-23, src/coder-plugins.mjs.)
   for (const p of Array.isArray(plugins) ? plugins.slice(0, 30) : []) {
     if (!p || typeof p.plugin !== "string" || !p.hooks || typeof p.hooks !== "object") continue;
-    for (const h of hooksFrom({ hooks: p.hooks }, "plugin").list) mine.list.push({ ...h, plugin: p.plugin.slice(0, 64) });
+    // (A marketplace plugin's hooks get its folder, its data folder and its options: CLAUDE_PLUGIN_ROOT, CLAUDE_PLUGIN_DATA and
+    // CLAUDE_PLUGIN_OPTION_<KEY>, as Claude Code's plugins reference gives them. 2026-11-28.)
+    const where = typeof p.root === "string" && p.root.startsWith("/opt/coder-plugins/") && typeof p.data === "string" && p.data.startsWith("/opt/coder-plugins/") ? { pluginRoot: p.root, pluginData: p.data, ...(p.options && typeof p.options === "object" && !Array.isArray(p.options) ? { pluginOptions: p.options } : {}) } : {};
+    for (const h of hooksFrom({ hooks: p.hooks }, "plugin").list) mine.list.push({ ...h, plugin: p.plugin.slice(0, 64), ...where });
   }
   const repo = { list: [], disabled: false, httpUrls: null, httpEnvVars: null };
   const offIn = {}; // each file's own disableAllHooks, when it sets one
@@ -1686,6 +1692,9 @@ function execNow(dir, command, timeoutS = 120, { uid = RUN_UID, gid = RUN_GID, k
     const pre = uid === null ? cleanEnv(null, { root: true }) : cleanEnv(home || dir);
     if (taskMark) extraEnv = { ...(extraEnv || {}), [TASK_MARK]: taskMark };
     const env = uid === null ? { ...(extraEnv || {}), ...pre, ...(box ? { CODER_SANDBOX: "1" } : {}) } : { ...pre, ...(extraEnv || {}), PATH: pre.PATH, HOME: pre.HOME, ...(box ? { CODER_SANDBOX: "1" } : {}) };
+    // (Enabled plugins' bin/ folders, after the PATH's own entries, so a plugin can't shadow git or ls: Claude Code's "Plugin
+    // bin/ directories come after the user's own PATH entries". 2026-11-28.)
+    if (PLUGIN_BINS.length && typeof env.PATH === "string") env.PATH += ":" + PLUGIN_BINS.join(":");
     const g = Number.isInteger(gid) ? gid : uid;
     const nonce = follow ? randomUUID().replace(/-/g, "").slice(0, 16) : "";
     // The command's own shell goes to its folder first, and follows where it ends.
@@ -5972,6 +5981,17 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       if (JSON.stringify(was.own || {}) !== JSON.stringify(rs.own || {})) ownMidJob(t, ownerRaw, rs.own, usePrefs(body.prefs));
     };
     t.readBlockOn = !!repoSet.blockReads;
+    // THE OWNER'S PLUGINS IN THIS CHAT (2026-11-28, coder-pluginfiles.mjs): the repository's enabledPlugins over the owner's
+    // switch, once its settings are trusted; never for Gloopy or a job from GitHub.
+    if (!gloopy && body.github !== true) applyPluginSwitches(body, repoEnabledPlugins(dir, !!(body.rules && body.rules.trust === true) && extraRepos(body).length === 0));
+    // (Each marketplace plugin's whole folder, unpacked where ${CLAUDE_PLUGIN_ROOT} points, before its hooks can run.)
+    const pluginVia = modelVia && !send ? modelTarget(body.model) : null;
+    if (pluginVia && !gloopy && body.github !== true && Array.isArray(body.pluginFiles)) {
+      const failed = await ensurePluginFiles(body.pluginFiles, zipFetcher(pluginVia), { uid: RUN_UID, gid: RUN_GID }).catch(() => []);
+      for (const f of failed) t.events.push({ at: Date.now(), type: "note", text: "Plugin " + f.id + " could not be unpacked: " + f.error });
+      PLUGIN_BINS.length = 0;
+      for (const f of body.pluginFiles) if (f && f.enabled !== false && typeof f.root === "string" && f.root.startsWith("/opt/coder-plugins/") && !failed.some((x) => x.id === f.id) && existsSync(join(f.root, "bin"))) PLUGIN_BINS.push(join(f.root, "bin"));
+    }
     // The real service's AI calls go through the Worker with this job's pass (no key on the machine).
     const via = modelVia && !send ? modelTarget(body.model) : null;
     // THE OWNER'S CONNECTORS (MCP, 2026-11-10): their tools' names and descriptions; each call goes to the Worker with this

@@ -56,6 +56,28 @@
 .cpx-modal .cpx-empty { font-size: 13px; color: #8a857c; margin: 6px 0; padding: 0; }
 .cpx-modal .cpx-note { padding: 8px 0 0; }
 #gfApp .cpx-fbcount { font-size: 13px; color: #6b6760; margin: 6px 0; }
+/* Installed plugins (2026-11-28): the on/off switch, Update, Settings (userConfig), and the trust warning before a marketplace install. */
+.cpx-modal .cpx-acts { flex: none; display: inline-flex; align-items: center; gap: 8px; }
+.cpx-modal .cpx-off .cpx-name b, .cpx-modal .cpx-off .cpx-name span { color: #8a857c; }
+.cpx-modal .cpx-link { align-self: flex-start; border: 0; background: none; font: inherit; font-size: 12.5px; color: #4a4741; text-decoration: underline; padding: 2px 0; cursor: pointer; }
+.cpx-modal .cpx-cfg { display: flex; flex-direction: column; gap: 8px; margin: 6px 0 2px; padding: 10px 12px; background: #f7f6f2; border-radius: 10px; }
+.cpx-modal .cpx-cfgrow { display: flex; align-items: center; gap: 10px; font-size: 13px; color: #1f1e1c; }
+.cpx-modal .cpx-cfgrow > span { flex: 0 0 38%; display: flex; flex-direction: column; gap: 1px; }
+.cpx-modal .cpx-cfgrow small { color: #8a857c; font-size: 12px; }
+.cpx-modal .cpx-cfgfoot { display: flex; justify-content: flex-end; }
+.cpx-modal .cpx-auto { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: #6b6760; white-space: nowrap; }
+.cpx-modal .cpx-trust { border: 1px solid #ece8e1; border-radius: 12px; padding: 12px 14px; margin: 10px 0; font-size: 13.5px; color: #1f1e1c; }
+.cpx-modal .cpx-trust-h { display: flex; align-items: baseline; gap: 10px; }
+.cpx-modal .cpx-trust-h span { color: #8a857c; font-size: 12px; }
+.cpx-modal .cpx-trust p { margin: 6px 0; color: #4a4741; }
+.cpx-modal .cpx-trust dl { display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; margin: 8px 0; font-size: 13px; }
+.cpx-modal .cpx-trust dt { color: #8a857c; }
+.cpx-modal .cpx-trust dd { margin: 0; overflow-wrap: anywhere; }
+.cpx-modal .cpx-warn { background: #fbf3e6; border: 1px solid #efdcbc; border-radius: 8px; padding: 8px 10px; color: #5c4a2a !important; }
+.cpx-modal .cpx-trust-row { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
+.cpx-modal .cpx-go { background: #1f1e1d; color: #fff; border-color: #1f1e1d; }
+.cpx-modal .cpx-go:hover { background: #33322f; }
+@media (max-width: 520px) { .cpx-modal .cpx-prow { flex-wrap: wrap; } .cpx-modal .cpx-acts { margin-left: 44px; } .cpx-modal .cpx-cfgrow { flex-direction: column; align-items: stretch; } }
 @media (max-width: 520px) { #gfApp .cpx-show, #gfApp .cpx-url { padding-left: 16px; } #gfApp .cpx-body { margin-left: 16px; } }
 @media (prefers-color-scheme: dark) {
   #gfApp .cpx-card { background: #262624; border-color: #3a3936; }
@@ -84,5 +106,11 @@
   .cpx-modal .cpx-seg button.on { background: #3a3936; color: #eeece6; }
   .cpx-modal .cpx-cat { color: #b9b5ad; border-color: #45433f; }
   .cpx-modal .cpx-prow, .cpx-modal .cpx-sl li { border-top-color: #3a3936; }
+  .cpx-modal .cpx-cfg { background: #1f1f1d; }
+  .cpx-modal .cpx-cfgrow, .cpx-modal .cpx-trust { color: #eeece6; }
+  .cpx-modal .cpx-trust { border-color: #3a3936; }
+  .cpx-modal .cpx-trust p, .cpx-modal .cpx-link { color: #c9c6bf; }
+  .cpx-modal .cpx-warn { background: #3a3124; border-color: #5a4a30; color: #eadcc2 !important; }
+  .cpx-modal .cpx-go { background: #eeece6; color: #1f1e1c; border-color: #eeece6; }
   .cpx-modal .cpx-panel .cd-notify-done { background: #eeece6; color: #1f1e1c; border-color: #eeece6; }
 }

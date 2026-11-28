@@ -41,7 +41,7 @@
       loadInstalled(false);
       const rows = (e.plugins || []).map((p) => {
         const on = p.installed || (st.installed && st.installed.has(p.name)) || st.done[key + ':' + p.name] === 'ok';
-        return rowHTML(ICON.plug, p.name, p.description, 'Contains: ' + p.contents, on ? '<span class="cpx-on">Installed</span>' : closed ? '' : '<button type="button" class="cpx-btn" data-cpx="install" data-cpx-id="' + esc(key) + '" data-cpx-name="' + esc(p.name) + '">Install</button>');
+        return rowHTML(ICON.plug, p.name, p.description, p.name + ': ' + shownContents(p), on ? '<span class="cpx-on">Installed</span>' : closed ? '' : '<button type="button" class="cpx-btn" data-cpx="install" data-cpx-id="' + esc(key) + '" data-cpx-name="' + esc(p.name) + '">Install</button>');
       }).join('');
       return '<div class="cpx-card" data-cpx-card="' + esc(key) + '"><div class="cpx-head"><b>Suggested plugins</b></div>' + (e.reason ? '<p class="cpx-why">' + esc(e.reason) + '</p>' : '') + rows + said + foot + '</div>';
     }
@@ -145,30 +145,52 @@
     return { box, close };
   }
   /** THE PLUGINS PANEL (the sidebar's Plugins ▸ Plugins): installed ones with Remove, the catalog with Install, a search. */
+  // WHAT A PLUGIN CONTAINS, ON THE PAGE (owner, 2026-11-28): only skills (slash commands count as skills) and connectors,
+  // "2 skills · 1 connector"; its helpers and hooks are not shown.
+  function shownContents(p) {
+    const n = (p.skills || []).length + (p.commands || []).length, c = (p.connectors || []).length;
+    return [n ? n + ' skill' + (n === 1 ? '' : 's') : '', c ? c + ' connector' + (c === 1 ? '' : 's') : ''].filter(Boolean).join(' · ') || 'no skills or connectors';
+  }
   async function pluginsPanel() {
     const { box, close } = modal('Plugins');
-    const v = { tab: 'installed', q: '', note: '', installed: [], catalog: [], markets: [], src: '', err: '', busy: '' };
+    const v = { tab: 'installed', q: '', note: '', installed: [], catalog: [], markets: [], src: '', err: '', busy: '', trust: '', confirm: null, cfg: '' };
     const load = async () => {
       const r = await X.call('/plugins');
-      if (r && r.status === 200 && r.data) { v.installed = r.data.installed || []; v.catalog = r.data.catalog || []; v.markets = r.data.marketplaces || []; v.err = ''; st.installed = new Set(v.installed.map((p) => p.name)); }
+      if (r && r.status === 200 && r.data) { v.installed = r.data.installed || []; v.catalog = r.data.catalog || []; v.markets = r.data.marketplaces || []; v.trust = r.data.trustWarning || ''; v.err = ''; st.installed = new Set(v.installed.map((p) => p.name)); }
       else v.err = (r && r.data && r.data.error) || 'Plugins could not be loaded.';
     };
-    const match = (p) => !v.q || (p.name + ' ' + p.description + ' ' + p.contents + ' ' + (p.category || '')).toLowerCase().includes(v.q.toLowerCase());
-    const row = (p) => '<li class="cpx-prow"><span class="cpx-ic">' + ICON.plug + '</span><div class="cpx-name"><b>' + esc(p.name) + '</b>' + (p.category ? '<i class="cpx-cat">' + esc(p.category) + '</i>' : '') + '<span>' + esc(p.description) + '</span><small>Contains: ' + esc(p.contents) + '</small>' +
-      (p.skills.length || p.commands.length ? '<small>Skills: ' + esc([...p.skills, ...p.commands].map((s) => p.name + ':' + s).join(', ')) + '</small>' : '') + '</div>' +
-      (v.busy === p.name ? '<span class="cpx-on">…</span>' : p.installed ? (v.tab === 'installed' ? '<button type="button" class="cpx-btn cpx-rm" data-pp="remove" data-pp-name="' + esc(p.name) + '">Remove</button>' : '<span class="cpx-on">Installed</span>') : '<button type="button" class="cpx-btn" data-pp="install" data-pp-name="' + esc(p.name) + '">Install</button>') + '</li>';
+    const match = (p) => !v.q || (p.name + ' ' + p.description + ' ' + shownContents(p) + ' ' + (p.category || '')).toLowerCase().includes(v.q.toLowerCase());
+    // (Installed, 2026-11-28, as Claude Code's Installed tab: each plugin's id and version, its on/off switch, Update for a
+    // marketplace plugin, and its userConfig options under Settings. A sensitive option shows only whether it is set.)
+    const cfgForm = (p) => '<form class="cpx-cfg" data-pp-cfg="' + esc(p.id) + '">' + Object.entries(p.userConfig).map(([k, o]) => '<label class="cpx-cfgrow"><span>' + esc(o.title || k) + (o.required ? ' *' : '') + (o.description ? '<small>' + esc(o.description) + '</small>' : '') + '</span>' +
+      (o.type === 'boolean' ? '<input type="checkbox" name="' + esc(k) + '"' + (o.value === true ? ' checked' : '') + '>'
+        : o.options && o.options.length ? '<select class="cpx-in" name="' + esc(k) + '"><option value=""></option>' + o.options.map((x) => '<option' + (x === o.value ? ' selected' : '') + '>' + esc(x) + '</option>').join('') + '</select>'
+          : '<input class="cpx-in" name="' + esc(k) + '" type="' + (o.sensitive ? 'password' : o.type === 'number' ? 'number' : 'text') + '" autocomplete="off" value="' + (o.sensitive ? '' : esc(Array.isArray(o.value) ? o.value.join(',') : o.value == null ? '' : String(o.value))) + '" placeholder="' + (o.sensitive ? (o.set ? 'Set (type to replace)' : 'Not set') : '') + '">') + '</label>').join('') +
+      '<div class="cpx-cfgfoot"><button type="submit" class="cpx-btn">Save</button></div></form>';
+    const row = (p) => '<li class="cpx-prow' + (v.tab === 'installed' && p.enabled === false ? ' cpx-off' : '') + '"><span class="cpx-ic">' + ICON.plug + '</span><div class="cpx-name"><b>' + esc(v.tab === 'installed' && p.id ? p.id : p.name) + '</b>' + (p.category ? '<i class="cpx-cat">' + esc(p.category) + '</i>' : '') + '<span>' + esc(p.description) + '</span><small>' + esc((v.tab === 'installed' && p.id ? p.id : p.name) + ': ' + shownContents(p)) + '</small>' +
+      (p.skills.length || p.commands.length ? '<small>Skills: ' + esc([...p.skills, ...p.commands].map((s) => (p.ns || p.name) + ':' + s).join(', ')) + '</small>' : '') +
+      (v.tab === 'installed' && p.version ? '<small>Version ' + esc(p.version) + '</small>' : '') +
+      (v.tab === 'installed' && p.notLoaded ? '<small class="cpx-err">Not loaded: ' + esc(p.notLoaded) + '</small>' : '') +
+            (v.tab === 'installed' && p.localServers ? '<small>Connectors that run a local command (not on Coder yet): ' + esc(p.localServers.join(', ')) + '</small>' : '') +
+      (v.tab === 'installed' && p.userConfig ? '<button type="button" class="cpx-link" data-pp="cfg" data-pp-name="' + esc(p.id) + '">' + (v.cfg === p.id ? 'Hide settings' : 'Settings') + '</button>' + (v.cfg === p.id ? cfgForm(p) : '') : '') + '</div>' +
+      (v.busy === (p.id || p.name) ? '<span class="cpx-on">…</span>' : p.installed ? (v.tab === 'installed' ? '<span class="cpx-acts">' + (p.marketplace ? '<button type="button" class="cpx-btn" data-pp="update" data-pp-name="' + esc(p.id) + '">Update</button>' : '') + '<label class="cx-switch" title="' + (p.enabled === false ? 'Off: turn on' : 'On: turn off') + '"><input type="checkbox" data-pp-on="' + esc(p.id || p.name) + '" aria-label="' + esc((p.id || p.name) + ' on') + '"' + (p.enabled === false ? '' : ' checked') + '><span></span></label><button type="button" class="cpx-btn cpx-rm" data-pp="remove" data-pp-name="' + esc(p.id || p.name) + '">Remove</button></span>' : '<span class="cpx-on">Installed</span>') : '<button type="button" class="cpx-btn" data-pp="install" data-pp-name="' + esc(p.name) + '">Install</button>') + '</li>';
+    // (THE TRUST WARNING, Claude Code's word for word, with the plugin's details, before a marketplace install: plugins/security.md.)
+    const confirmHTML = (c) => '<div class="cpx-trust"><div class="cpx-trust-h"><b>' + esc(c.name) + '@' + esc(c.mk.name) + '</b>' + (c.p.version ? '<span>Version ' + esc(c.p.version) + '</span>' : '') + '</div>' +
+      (c.p.description ? '<p>' + esc(c.p.description) + '</p>' : '') +
+      '<dl><dt>Marketplace</dt><dd>' + esc(c.mk.name) + (c.mk.tier && c.mk.tier !== 'third-party' ? ' (' + esc(c.mk.tier) + ')' : ' (third-party)') + '</dd><dt>Source</dt><dd>' + esc(c.mk.source && c.mk.source.repo ? 'github.com/' + c.mk.source.repo + (c.mk.source.ref ? '#' + c.mk.source.ref : '') : c.mk.source && c.mk.source.url || '') + '</dd>' + (c.p.homepage ? '<dt>Homepage</dt><dd>' + esc(c.p.homepage) + '</dd>' : '') + '<dt>Will install</dt><dd>Components will be discovered at installation</dd></dl>' +
+      '<p class="cpx-warn">' + esc(v.trust) + '</p><div class="cpx-trust-row"><button type="button" class="cpx-btn" data-pp="trust-no">Cancel</button><button type="button" class="cpx-btn cpx-go" data-pp="trust-yes">Install</button></div></div>';
     // MARKETPLACES (Claude Code's, 2026-11-23): added by Git URL (owner/repo or a GitHub address, #ref for a branch) or a
     // marketplace.json URL; each lists its plugins with Install. Downloads keep Claude Code's limits (src/coder-marketplace.mjs).
     const marketsHTML = () => '<form class="cpx-mkadd" data-pp-mkform><input class="cpx-in" name="src" placeholder="Git URL: owner/repo, https://github.com/owner/repo or a marketplace.json URL" aria-label="Marketplace Git URL" value="' + esc(v.src) + '"><button type="submit" class="cpx-btn"' + (v.busy === ':add' ? ' disabled' : '') + '>' + (v.busy === ':add' ? 'Adding…' : 'Add marketplace') + '</button></form>' +
-      (v.markets.length ? v.markets.map((mk) => '<div class="cpx-mk"><div class="cpx-mk-h"><b>' + esc(mk.name) + '</b><span>' + esc(mk.source && mk.source.repo ? mk.source.repo + (mk.source.ref ? '#' + mk.source.ref : '') : mk.source && mk.source.url || '') + (mk.owner ? ' · ' + esc(mk.owner) : '') + '</span><button type="button" class="cpx-btn cpx-rm" data-pp="mk-remove" data-pp-name="' + esc(mk.name) + '">Remove</button></div><ul class="cpx-list">' +
+      (v.markets.length ? v.markets.map((mk) => '<div class="cpx-mk"><div class="cpx-mk-h"><b>' + esc(mk.name) + '</b><span>' + esc(mk.source && mk.source.repo ? mk.source.repo + (mk.source.ref ? '#' + mk.source.ref : '') : mk.source && mk.source.url || '') + (mk.owner ? ' · ' + esc(mk.owner) : '') + '</span><label class="cpx-auto" title="Auto-update: refresh this marketplace and update its plugins in the background"><input type="checkbox" data-pp-auto="' + esc(mk.name) + '"' + (mk.autoUpdate ? ' checked' : '') + '> Auto-update</label><button type="button" class="cpx-btn" data-pp="mk-refresh" data-pp-name="' + esc(mk.name) + '">Update</button><button type="button" class="cpx-btn cpx-rm" data-pp="mk-remove" data-pp-name="' + esc(mk.name) + '">Remove</button></div><ul class="cpx-list">' +
         mk.plugins.filter(match).map((p) => '<li class="cpx-prow"><span class="cpx-ic">' + ICON.plug + '</span><div class="cpx-name"><b>' + esc(p.name) + '@' + esc(mk.name) + '</b>' + (p.category ? '<i class="cpx-cat">' + esc(p.category) + '</i>' : '') + '<span>' + esc(p.description) + '</span></div>' + (v.busy === p.name + '@' + mk.name ? '<span class="cpx-on">…</span>' : p.installed ? '<span class="cpx-on">Installed</span>' : '<button type="button" class="cpx-btn" data-pp="mk-install" data-pp-name="' + esc(p.name) + '" data-pp-mk="' + esc(mk.name) + '">Install</button>') + '</li>').join('') + '</ul></div>').join('') : '<p class="gf-none cpx-empty">No marketplaces yet. Add one by its Git URL: Coder reads its .claude-plugin/marketplace.json.</p>');
     const paint = () => {
       const list = (v.tab === 'installed' ? v.installed : v.catalog).filter(match);
-      box.innerHTML = '<div class="cd-sure-title">Plugins</div><div class="cd-sure-text">A plugin bundles skills, commands, agents, hooks and connectors, and is installed or removed as one. Installed plugins work in all your chats; their skills are named plugin:skill.</div>' +
+      box.innerHTML = '<div class="cd-sure-title">Plugins</div><div class="cd-sure-text">A plugin bundles skills and connectors, and is installed or removed as one. Installed plugins work in all your chats; their skills are named plugin:skill.</div>' +
         '<div class="cpx-bar"><div class="cpx-seg" role="tablist"><button type="button" role="tab" data-pp-tab="installed" aria-selected="' + (v.tab === 'installed') + '"' + (v.tab === 'installed' ? ' class="on"' : '') + '>Installed <i>' + v.installed.length + '</i></button><button type="button" role="tab" data-pp-tab="catalog" aria-selected="' + (v.tab === 'catalog') + '"' + (v.tab === 'catalog' ? ' class="on"' : '') + '>Discover</button><button type="button" role="tab" data-pp-tab="markets" aria-selected="' + (v.tab === 'markets') + '"' + (v.tab === 'markets' ? ' class="on"' : '') + '>Marketplaces <i>' + v.markets.length + '</i></button></div>' +
         '<input type="search" class="cpx-in cpx-q" placeholder="Search plugins" aria-label="Search plugins" value="' + esc(v.q) + '"></div>' +
         (v.note ? '<div class="cpx-note" role="status">' + esc(v.note) + '</div>' : '') + (v.err ? '<div class="cpx-note cpx-err">' + esc(v.err) + '</div>' : '') +
-        (v.tab === 'markets' ? marketsHTML() : list.length ? '<ul class="cpx-list">' + list.map(row).join('') + '</ul>' : '<p class="gf-none cpx-empty">' + (v.tab === 'installed' ? (v.installed.length ? 'No installed plugin matches.' : 'No plugins installed yet. Find some in Discover.') : 'No plugin matches.') + '</p>') +
+        (v.confirm ? confirmHTML(v.confirm) : v.tab === 'markets' ? marketsHTML() : list.length ? '<ul class="cpx-list">' + list.map(row).join('') + '</ul>' : '<p class="gf-none cpx-empty">' + (v.tab === 'installed' ? (v.installed.length ? 'No installed plugin matches.' : 'No plugins installed yet. Find some in Discover.') : 'No plugin matches.') + '</p>') +
         '<div class="cd-sure-row"><button type="button" class="cd-notify-done" data-pp="done">Done</button></div>';
       box.querySelectorAll('[data-pp-tab]').forEach((b) => { b.onclick = () => { v.tab = b.dataset.ppTab; v.note = ''; paint(); }; });
       const q = box.querySelector('.cpx-q'); q.oninput = () => { v.q = q.value; const at = q.selectionStart; paint(); const n = box.querySelector('.cpx-q'); n.focus(); try { n.setSelectionRange(at, at); } catch (e) {} };
@@ -183,15 +205,45 @@
         else v.note = (r && r.data && r.data.error) || 'The marketplace could not be added.';
         await load(); paint();
       };
+      box.querySelectorAll('[data-pp-on]').forEach((b) => { b.onchange = async () => {
+        const id = b.dataset.ppOn; v.busy = ''; b.disabled = true;
+        const r = await X.call('/plugins/' + encodeURIComponent(id) + '/enabled', { method: 'POST', body: JSON.stringify({ enabled: b.checked }) });
+        v.note = r && r.status === 200 ? id + (b.checked ? ' is on in your chats.' : ' is off: its skills, agents, hooks and connectors are not used until you turn it on.') : (r && r.data && r.data.error) || 'That did not work. Try again.';
+        await load(); paint(); redraw();
+      }; });
+      box.querySelectorAll('[data-pp-auto]').forEach((b) => { b.onchange = async () => {
+        const r = await X.call('/plugins/marketplaces/' + encodeURIComponent(b.dataset.ppAuto) + '/auto', { method: 'POST', body: JSON.stringify({ on: b.checked }) });
+        v.note = r && r.status === 200 ? 'Auto-update is ' + (b.checked ? 'on' : 'off') + ' for ' + b.dataset.ppAuto + '.' : (r && r.data && r.data.error) || 'That did not work.';
+        await load(); paint();
+      }; });
+      box.querySelectorAll('[data-pp-cfg]').forEach((f) => { f.onsubmit = async (ev) => {
+        ev.preventDefault();
+        const id = f.dataset.ppCfg, p = v.installed.find((x) => x.id === id), values = {};
+        for (const [k, o] of Object.entries((p && p.userConfig) || {})) { const el = f.elements[k]; if (!el) continue; values[k] = o.type === 'boolean' ? el.checked : el.value; }
+        const r = await X.call('/plugins/' + encodeURIComponent(id) + '/config', { method: 'POST', body: JSON.stringify({ values }) });
+        v.note = r && r.status === 200 ? 'Saved the settings of ' + id + '.' + (r.data && r.data.missing && r.data.missing.length ? ' Still needed: ' + r.data.missing.join(', ') + '.' : '') : (r && r.data && r.data.error) || 'That did not work.';
+        await load(); paint();
+      }; });
       box.querySelectorAll('[data-pp]').forEach((b) => { b.onclick = async () => {
         const name = b.dataset.ppName;
         if (b.dataset.pp === 'done') return close();
-        if (b.dataset.pp === 'mk-install' || b.dataset.pp === 'mk-remove') {
-          const mk = b.dataset.ppMk || name;
-          v.busy = b.dataset.pp === 'mk-install' ? name + '@' + mk : mk; paint();
-          const r = b.dataset.pp === 'mk-install' ? await X.call('/plugins', { method: 'POST', body: JSON.stringify({ name, marketplace: mk }) }) : await X.call('/plugins/marketplaces/' + encodeURIComponent(mk), { method: 'DELETE' });
+        if (b.dataset.pp === 'cfg') { v.cfg = v.cfg === name ? '' : name; paint(); return; }
+        if (b.dataset.pp === 'trust-no') { v.confirm = null; paint(); return; }
+        if (b.dataset.pp === 'mk-install') { const mk = v.markets.find((m) => m.name === b.dataset.ppMk); const p = mk && mk.plugins.find((x) => x.name === name); if (mk && p) { v.confirm = { name, mk, p }; v.note = ''; paint(); } return; }
+        if (b.dataset.pp === 'trust-yes' || b.dataset.pp === 'mk-remove' || b.dataset.pp === 'mk-refresh') {
+          const c = v.confirm, mk = c ? c.mk.name : name, pn = c ? c.name : '';
+          v.confirm = null; v.busy = c ? pn + '@' + mk : mk; paint();
+          const r = c ? await X.call('/plugins', { method: 'POST', body: JSON.stringify({ name: pn, marketplace: mk, accepted: true }) }) : b.dataset.pp === 'mk-refresh' ? await X.call('/plugins/marketplaces/' + encodeURIComponent(mk) + '/refresh', { method: 'POST' }) : await X.call('/plugins/marketplaces/' + encodeURIComponent(mk), { method: 'DELETE' });
           v.busy = '';
-          v.note = r && r.status === 200 ? (b.dataset.pp === 'mk-install' ? name + '@' + mk + ' is installed for all your chats.' : 'Removed the marketplace ' + mk + '.') : (r && r.data && r.data.error) || 'That did not work. Try again.';
+          v.note = r && r.status === 200 ? (c ? pn + '@' + mk + ' is installed for all your chats.' + (r.data && r.data.added && r.data.added.length ? ' Sign in to ' + r.data.added.join(' and ') + ' in Connectors.' : '') : b.dataset.pp === 'mk-refresh' ? 'Updated the marketplace ' + mk + '.' : 'Removed the marketplace ' + mk + (r.data && r.data.removed && r.data.removed.length ? ' and uninstalled ' + r.data.removed.join(', ') : '') + '.') : (r && r.data && r.data.error) || 'That did not work. Try again.';
+          await load(); paint(); redraw();
+          return;
+        }
+        if (b.dataset.pp === 'update') {
+          v.busy = name; paint();
+          const r = await X.call('/plugins/' + encodeURIComponent(name) + '/update', { method: 'POST' });
+          v.busy = '';
+          v.note = r && r.status === 200 && r.data ? (r.data.note || (r.data.updated ? name + ' is updated.' : name + ' is up to date.')) + (r.data.updated ? ' It loads in your chats’ next message.' : '') : (r && r.data && r.data.error) || 'That did not work. Try again.';
           await load(); paint(); redraw();
           return;
         }

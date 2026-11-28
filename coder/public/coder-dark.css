@@ -981,6 +981,19 @@ button.cd-vault-tab:hover:not(.is-on) { background: #2b2b2b }
 .cpx-modal .cpx-li small { color: #aba69f }
 .cpx-modal .cpx-empty { color: #8d887f }
 #gfApp .cpx-fbcount { color: #a9a59f }
+.cpx-modal .cpx-off .cpx-name b, .cpx-modal .cpx-off .cpx-name span { color: #8d887f }
+.cpx-modal .cpx-link { color: #c8c5c0 }
+.cpx-modal .cpx-cfg { background: #2d2d2a }
+.cpx-modal .cpx-cfgrow { color: #edeceb }
+.cpx-modal .cpx-cfgrow small { color: #8d887f }
+.cpx-modal .cpx-auto { color: #a9a59f }
+.cpx-modal .cpx-trust { border: 1px solid #494642; color: #edeceb }
+.cpx-modal .cpx-trust-h span { color: #8d887f }
+.cpx-modal .cpx-trust p { color: #c8c5c0 }
+.cpx-modal .cpx-trust dt { color: #8d887f }
+.cpx-modal .cpx-warn { background: #302e2c; border: 1px solid #56534e; color: #ccc8c1 !important }
+.cpx-modal .cpx-go { background: #e1e0df; color: #212121; border-color: #e2e1e0 }
+.cpx-modal .cpx-go:hover { background: #d9d8d5 }
 #gfApp .cpj-note { color: #c8c5c0 }
 #gfApp .cpj-err { color: #d96e68 }
 #gfApp .cpj-empty { color: #a9a59f }
@@ -1066,5 +1079,11 @@ button.cd-vault-tab:hover:not(.is-on) { background: #2b2b2b }
 .cpx-modal .cpx-seg button.on { background: #3a3936; color: #eeece6; }
 .cpx-modal .cpx-cat { color: #b9b5ad; border-color: #45433f; }
 .cpx-modal .cpx-prow, .cpx-modal .cpx-sl li { border-top-color: #3a3936; }
+.cpx-modal .cpx-cfg { background: #1f1f1d; }
+.cpx-modal .cpx-cfgrow, .cpx-modal .cpx-trust { color: #eeece6; }
+.cpx-modal .cpx-trust { border-color: #3a3936; }
+.cpx-modal .cpx-trust p, .cpx-modal .cpx-link { color: #c9c6bf; }
+.cpx-modal .cpx-warn { background: #3a3124; border-color: #5a4a30; color: #eadcc2 !important; }
+.cpx-modal .cpx-go { background: #eeece6; color: #1f1e1c; border-color: #eeece6; }
 .cpx-modal .cpx-panel .cd-notify-done { background: #eeece6; color: #1f1e1c; border-color: #eeece6; }
 }
