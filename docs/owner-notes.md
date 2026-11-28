@@ -5,6 +5,13 @@ The owner's running log, newest first, in plain English. Started fresh on
 log (81,000 lines) is in git history.
 
 
+## 2026-11-28: A plan for Coder in the terminal
+
+I wrote docs/terminal-coder-plan.md: how a `coder` command on your own computer (Mac first, then Linux and Windows) would
+work like Claude Code in the terminal, reusing Coder's agent loop and safety checks, with Grok called only through
+gofarther.dev after an emailed-code sign-in. It covers the screen, sign-in, the server doors needed, where chats are saved,
+safety on a personal computer, phases (about 6-8 weeks), tests and risks. Nothing is built yet, and no paid call was made.
+
 ## 2026-11-27: More rows of the tools comparison tried live
 
 On gofarther.dev (commit 3ade89aa), with Grok on Low, I tried the remaining rows that could be done and updated
