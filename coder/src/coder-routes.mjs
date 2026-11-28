@@ -171,6 +171,7 @@ import { descriptionOk, DESCRIPTION_MAX } from "../container/coder-envtools.mjs"
 import { modelAccess } from "./coder-model-gate.mjs";
 import { PROJECT_ID, SETUP_SCRIPT_MAX, scrub, secretVar } from "../container/coder-checks.mjs";
 import { handlePluginRoutes, sharedGuide, ownerSkills, ownerPluginParts, readCardStates, autoUpdatePlugins } from "./coder-plugins.mjs";
+import { repoSkillsMenu } from "./coder-repo-skills.mjs";
 import { handleOwnerProjectRoutes } from "./coder-owner-projects.mjs";
 // (The check for a secret-looking variable is shared with Coder's machine, which tells Grok of them: coder-checks.mjs.)
 export { secretVar };
@@ -1816,6 +1817,12 @@ export async function handleCoder(request, env, ctx, deps) {
     const mode = noAuto(MODES.includes(body.mode) ? body.mode : picks.mode === "acceptEdits" || picks.mode === "default" ? picks.mode : "auto", picks);
     const meta = { id, name: repo, repo, title: "", base, branch: "coder/" + id, turn: 0, saved: 0, status: "idle", pr: null, at: Date.now(), envId, mode, ...(r.readOnly ? { readOnly: true } : {}) };
     await saveMeta(bucket, uid, meta);
+    // ITS / MENU FROM THE START (2026-11-28, src/coder-repo-skills.mjs): the repository's skills, read from GitHub now, as the
+    // chat's first `skills` step, so a brand-new chat lists them before its first message, as Claude Code's / menu does.
+    try {
+      const list = await repoSkillsMenu((p) => ghRead(t.token, p, { fetchFn }), repo, base, await ownerSkills(bucket, uid).catch(() => []));
+      if (list.length) await putJson(bucket, keyOf(uid, id, "events.json"), [{ at: Date.now(), type: "skills", list }]);
+    } catch { /* the machine names them at the first message, as before */ }
     // Whose this branch is, so GitHub's news about its pull request (failed
     // checks, reviews) can reach the right chat (auto-fix, coder-mentions.mjs).
     // (A read-only chat's branch never reaches GitHub.)

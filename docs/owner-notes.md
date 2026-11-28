@@ -43,6 +43,17 @@ and what cloud sessions load) and made Coder's plugins match them. Not tried liv
 - Not done, as they only fit the terminal or a local machine: the /plugin screen, `claude plugin` commands, install scopes,
   company policy, npm/ssh/other-Git-host/local-folder sources, Windows, `validate`. Output styles: Coder has none.
 - The spreadsheet's Plugins tab is updated. Tests: `coder/test/plugins-1128.test.mjs`.
+## 2026-11-28: Coder's helpers (subagents) work more like Claude Code's
+
+I fixed six gaps between Coder's helpers and Claude Code's, following its subagents and skills docs. I haven't tried them live yet.
+- **Helpers can use your connectors now.** They get the chat's connector tools, as Claude Code's do. An agent file's `tools` list can narrow them (`mcp__github__*`) and `disallowedTools` can take them away (`mcp__github`, `mcp__*`).
+- **An agent file's `mcpServers` works now.** A name means one of your connectors. A server written out in full (with a url) is connected when the helper starts and closed when it ends, but only once you trust the repository's settings. Servers that run as a local program (stdio) aren't run.
+- **Helpers have the skill tool.** They can load the repository's skills, as Claude Code's can. `disallowedTools: Skill` takes it away.
+- **A skill that runs in a helper (`context: fork`) is now named by the helper type**, such as "Explore: deep", not "Skill deep".
+- **A helper in plan mode no longer writes its memory.** It can read its memory folder, but plan mode allows no writes, so it doesn't get the write and edit tools.
+- **A new chat's / menu lists the repository's skills right away.** Coder reads them from GitHub when the chat is made. Before, they only showed up after the first message.
+- **Found and fixed while testing:** the Explore and Plan helpers were still getting CLAUDE.md, because the chat's context had already been turned into text by the time it reached them. They now start without it, as Claude Code's do. I also checked that a skill's allowed-tools permission ends when you send your next message.
+
 
 ## 2026-11-28: Skills and subagents work like Claude Code's
 

@@ -251,7 +251,7 @@ test("TS10 connectors are deferred unless their server marks a tool alwaysLoad: 
   await job([say("", [call("mcp__linear__tool_1", { id: "1" }, "c1")]), say("done")], { deps: { mcp: async (n) => { ran2.push(n); return { text: "fine", isError: false }; } }, extra: { connectors: tools } });
   assert.deepEqual(ran2, ["mcp__linear__tool_1"]);
   // Gloopy (an agent with its own tools) is unchanged: connector_search past its threshold.
-  assert.match(read("container/coder-agent.mjs"), /const mcpDeferred = !!offered && mcpTools\.length > 0 && deferConnectors\(mcpTools\);/);
+  assert.match(read("container/coder-agent.mjs"), /const mcpDeferred = !!offered && !subagent && mcpTools\.length > 0 && deferConnectors\(mcpTools\);/);
 });
 
 test("TS11 a deferred tool called before it was loaded, with an input its check refuses: the error, then Claude Code's note (its rWs) with the tool's schema; once loaded, the error alone; one with a good input runs without loading", async () => {
