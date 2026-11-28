@@ -24,6 +24,7 @@
 import vm from "node:vm";
 import { CODER_MODELS } from "./coder-model.mjs";
 import { enterNewScript, shq, MARK } from "./coder-worktree.mjs";
+import { frontmatterHooks } from "./coder-yaml.mjs";
 
 /** The caps' defaults, and the environment variables that change them. */
 export const SUBAGENTS_AT_ONCE = 3, SUBAGENTS_TOTAL = 10;
@@ -142,6 +143,7 @@ const toolEntry = (t) => { const n = String(t).trim().replace(/\(.*\)$/, "").tri
 const listField = (v) => (Array.isArray(v) ? v : typeof v === "string" ? v.split(",") : []).map((x) => String(x).trim()).filter(Boolean);
 const unq = (v) => { const t = String(v).trim(); return /^(["']).*\1$/.test(t) ? t.slice(1, -1) : t; };
 
+const fmHooks = (src) => { try { return frontmatterHooks(src); } catch { return null; } };
 /** A custom agent's file (.claude/agents/<file>.md): { def } | { skip: why } (Claude Code's "Subagent files Claude Code skips"). */
 export function parseAgentFile(text, file = "") {
   const src = String(text || "").replace(/^﻿/, "").replace(/\r\n?/g, "\n");
@@ -175,6 +177,8 @@ export function parseAgentFile(text, file = "") {
     isolation: fm.isolation === "worktree" ? "worktree" : "",
     background: fm.background === "true",
     prompt: src.slice(end + 4).replace(/^[^\n]*\n?/, "").trim().slice(0, 20_000),
+    // (Its frontmatter hooks, Claude Code's settings shape: run only while it runs, its Stop as SubagentStop; coder-fmhooks.mjs.)
+    ...(fmHooks(src) ? { hooks: fmHooks(src) } : {}),
   } };
 }
 
@@ -567,13 +571,18 @@ async function runAgent(entry, prompt, past, k) {
   let context = [];
   if (typeof k.hookStart === "function") { try { const got = await k.hookStart(entry.id, entry.type); context = Array.isArray(got) ? got.filter((x) => typeof x === "string" && x.trim()) : []; } catch { context = []; } }
   const label = entry.name || entry.description;
+  // (ITS FRONTMATTER HOOKS, Claude Code's "Subagent hooks: Claude Code runs them only while that subagent is running", its Stop
+  // as SubagentStop; a project agent's only once the owner trusts the repository's settings. 2026-11-27, coder-fmhooks.mjs.)
+  // (k.agentHooks: coder-fmhooks.mjs agentHooksOf with the repository's trust, from coder-agent.mjs; this module stays light for the tools script.)
+  const fm = typeof k.agentHooks === "function" ? k.agentHooks(entry.def) || { own: [], stop: [], held: false } : { own: [], stop: [], held: false };
+  if (fm.held && typeof k.note === "function") { try { k.note("The hooks in agent " + entry.def.name + "'s file did not run: turn on \"Trust this repository's settings\" in its permission rules first."); } catch { /* said once */ } }
   const tag = entry.id + (entry.sends ? "-m" + entry.sends : "") + "-";
   const once = (text, messages) => k.budget.run(() => Promise.resolve().then(() => k.startSub({
     type: entry.type, prompt: text, messages, label, emit: taggedEmit(emit, tag, label),
     model: entry.model, effort: entry.effort, toolNames: entry.toolNames,
     system: systemFor(entry.type, entry.def) + (context.length ? "\n\n" + context.join("\n") : ""),
     maxRounds: entry.def && entry.def.maxTurns ? entry.def.maxTurns : SUBAGENT_ROUNDS,
-    cwd: wt ? wt.path : "", agentId: entry.id, stopReq: () => entry.stopReq === true,
+    cwd: wt ? wt.path : "", agentId: entry.id, stopReq: () => entry.stopReq === true, ...(fm.own.length ? { hooks: fm.own } : {}),
   })).catch((e) => ({ status: "error", messages: [], usage: [], summary: String((e && e.message) || e).slice(0, 300) })));
   let res = (await once(prompt, past)) || { status: "error", messages: [], usage: [] };
   const allUsage = [...(Array.isArray(res.usage) ? res.usage : [])];
@@ -581,7 +590,7 @@ async function runAgent(entry, prompt, past, k) {
   // the subagent running with the reason as its next instruction; at most STOP_AGAIN_MAX times in a row, as for Stop hooks).
   for (let n = 0; typeof k.hookStop === "function" && res.status === "done" && n < STOP_AGAIN_MAX; n++) {
     let again = "";
-    try { again = String((await k.hookStop({ agentId: entry.id, type: entry.type, active: n > 0, last: lastWords(res), messages: Array.isArray(res.messages) ? res.messages : [] })) || ""); } catch { again = ""; }
+    try { again = String((await k.hookStop({ agentId: entry.id, type: entry.type, active: n > 0, last: lastWords(res), messages: Array.isArray(res.messages) ? res.messages : [], ...(fm.stop.length ? { hooks: fm.stop } : {}) })) || ""); } catch { again = ""; }
     if (!again.trim()) break;
     const more = (await once(again, resumable(res.messages))) || { status: "error", messages: [], usage: [] };
     for (const u of Array.isArray(more.usage) ? more.usage : []) allUsage.push(u);

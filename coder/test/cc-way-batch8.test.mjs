@@ -63,7 +63,7 @@ test("MISS-79 CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS (or CODER_FILE_READ_MAX_OU
   const r = reqs.find((q) => q.tool === "read");
   assert.ok(r, "the read ran");
   assert.equal(r.args.read_chars, 1000);
-  assert.deepEqual(Object.keys(H.hookToolInput("read", { path: "a.txt", read_chars: 1000 })).sort(), ["file_path", "path"]);
+  assert.deepEqual(Object.keys(H.hookToolInput("read", { path: "a.txt", read_chars: 1000 })).sort(), ["file_path"]);
 });
 
 // ── M-c-56: HOOKS GET THE CONVERSATION'S FILE ────────────────────────────────────────────────────────────────────────
@@ -90,7 +90,7 @@ test("M-c-56 the conversation as Claude Code's transcript lines: user and assist
   assert.equal(e[0].userType, "external");
   assert.match(e[0].timestamp, /^\d{4}-\d\d-\d\dT/);
   assert.match(e[0].uuid, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-a[0-9a-f]{3}-[0-9a-f]{12}$/);
-  assert.deepEqual(e[1].message.content, [{ type: "text", text: "Looking." }, { type: "tool_use", id: "t1", name: "Read", input: { path: "cart.js", file_path: "cart.js" } }]);
+  assert.deepEqual(e[1].message.content, [{ type: "text", text: "Looking." }, { type: "tool_use", id: "t1", name: "Read", input: { file_path: "cart.js" } }]);
   assert.equal(e[1].message.model, "grok-4.7");
   assert.deepEqual(e[2].message.content, [{ type: "tool_result", tool_use_id: "t1", content: "     1\tlet total = 0" }]);
   assert.equal(e[3].isMeta, true);

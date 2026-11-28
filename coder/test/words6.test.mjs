@@ -105,7 +105,7 @@ test("WD2 in Coder's loop: the cards' lines and what Coder is told, Claude Code'
   assert.equal(t.told("w2"), "Cannot write to /work/shop/src/new.js while in plan mode.");
   // Plan mode: Coder's own pull request (as Claude Code's MCP tools that may change something).
   t = await job([say("", [call("pull_request", { title: "Fix the cart", body: "x" }, "p1")]), say("ok")], { mode: "plan" });
-  assert.deepEqual([t.cards[0].tool, t.cards[0].why], ["pull_request", "Cannot call pull_request while in plan mode."]);
+  assert.deepEqual([t.cards[0].tool, t.cards[0].why], ["pull_request", "Cannot call mcp__github__pull_request while in plan mode."]);
   // A protected file: Write's and Edit's own check, by the path in full; a .claude folder's settings file in its other words.
   t = await job([say("", [call("write", { path: ".husky/pre-commit", content: "npm test\n" }, "w1")]), say("ok")]);
   assert.equal(t.cards[0].why, "Coder requested permissions to edit /work/shop/.husky/pre-commit which is a sensitive file.");

@@ -1985,6 +1985,10 @@
     // /rename [name], CLAUDE CODE'S ("Rename the current conversation", the person types it; 2026-11-23): with a name, the chat
     // is renamed at once (no AI call); alone, the name box opens in the top bar, as Rename in its menu does.
     if (!GLOOPY && /^\/rename(?:\s|$)/i.test(text)) { boxEmpty(); renameCmd(text.replace(/^\/rename\s*/i, '')); return; }
+    // /add-dir <path>, CLAUDE CODE'S ("Add a new working directory to the current session"; 2026-11-27): the folder joins this
+    // repository's working folders (the permission rules' Working folders), and the chat's next message runs its DirectoryAdded
+    // hooks with source "slash_command". No AI call now.
+    if (!GLOOPY && /^\/add-dir(?:\s|$)/i.test(text)) { boxEmpty(); addDirCmd(text.replace(/^\/add-dir\s*/i, '')); return; }
     // /autofix-pr [off], CLAUDE CODE'S (Auto-fix pull requests, 2026-11-23): Coder watches this chat's pull request and fixes CI
     // failures and review comments, as the Auto-fix switch does; "off" stops it. No AI call now.
     if (!GLOOPY && /^\/autofix-pr(?:\s|$)/i.test(text)) { boxEmpty(); autofixCmd(text.replace(/^\/autofix-pr\s*/i, '')); return; }
@@ -2367,6 +2371,9 @@
     // STOP WHILE THE MESSAGE IS STILL ON ITS WAY (the frontend audit of 2026-11-24): the Worker puts the chat back with the
     // message kept in it, then "Stopped"; the start's own late answer then changes nothing here.
     const onWay = S.sending && S.sendingFor === id && S.sendWatch && S.sendWatch.id === id ? S.sendWatch : null;
+    // (NOTHING TO STOP, NOTHING SENT: a stop is only ever for what runs now (its job, the message on its way, or the card a
+    // paused job left open), never saved for a later job. 2026-11-27, the Esc bug.)
+    if (!GLOOPY && !S.running && !onWay && !(S.sending && S.sendingFor === id) && !S.project.parked) return;
     S.stopping = true; draw();
     let r;
     try { r = await call('/projects/' + encodeURIComponent(id) + '/stop', { method: 'POST' }); } finally { S.stopping = false; }
@@ -4434,7 +4441,7 @@
   // start of the box lists Coder's commands with a line each; ↑↓ to move, Enter or Tab or a click to pick, Esc to close.
   // (/btw, /init and /review: Claude Code's, round 6, 2026-11-21. /autocompact: Claude Code's, 2026-11-21, per chat here.
   // /clear with its other names /reset and /new: Claude Code's, batch 6, MISS-61; the Worker empties what Coder reads.)
-  const SLASH = [['/autocompact', 'Set the auto-compact window: auto, or a size such as 500k'], ['/autofix-pr', "Watch this chat's pull request and fix CI failures and review comments (off to stop)"], ['/btw', 'Ask a side question without adding to the conversation'], ['/clear', 'Start a new conversation with empty context', ['reset', 'new']], ['/compact', 'Shrink this chat into a short summary (add what to keep after it)'], ['/context', 'Visualize current context usage as a colored grid'], ['/effort', 'Set the effort level for the model'], ['/export', 'Export the current conversation as plain text'], ['/goal', 'Set a completion condition; Coder keeps working until it is met'], ['/init', 'Create or update CLAUDE.md for this repository'], ['/model', 'Set the AI model for this chat'], ['/permissions', 'Choose the mode: Auto, Accept edits or Plan', ['allowed-tools']], ['/rename', 'Rename the current conversation'], ['/review', 'Review the changes on this branch (--comment posts the findings on the pull request)', ['code-review']], ['/rewind', 'Go back to an earlier message', ['checkpoint', 'undo']], ['/scheduled', 'See and cancel scheduled tasks', ['crons', 'loop', 'routines']], ['/security-review', 'Complete a security review of the changes on this branch'], ['/team-onboarding', 'Write ONBOARDING.md for teammates and share it as a link']];
+  const SLASH = [['/add-dir', 'Add a new working directory to the current session'], ['/autocompact', 'Set the auto-compact window: auto, or a size such as 500k'], ['/autofix-pr', "Watch this chat's pull request and fix CI failures and review comments (off to stop)"], ['/btw', 'Ask a side question without adding to the conversation'], ['/clear', 'Start a new conversation with empty context', ['reset', 'new']], ['/compact', 'Shrink this chat into a short summary (add what to keep after it)'], ['/context', 'Visualize current context usage as a colored grid'], ['/effort', 'Set the effort level for the model'], ['/export', 'Export the current conversation as plain text'], ['/goal', 'Set a completion condition; Coder keeps working until it is met'], ['/init', 'Create or update CLAUDE.md for this repository'], ['/model', 'Set the AI model for this chat'], ['/permissions', 'Choose the mode: Auto, Accept edits or Plan', ['allowed-tools']], ['/rename', 'Rename the current conversation'], ['/review', 'Review the changes on this branch (--comment posts the findings on the pull request)', ['code-review']], ['/rewind', 'Go back to an earlier message', ['checkpoint', 'undo']], ['/scheduled', 'See and cancel scheduled tasks', ['crons', 'loop', 'routines']], ['/security-review', 'Complete a security review of the changes on this branch'], ['/team-onboarding', 'Write ONBOARDING.md for teammates and share it as a link']];
   // As Claude Code's / list: from the start of a name, of a word inside it, or of one of its other names; '-', '_' and ':' ignored.
   // THE REPOSITORY'S SKILLS (Claude Code's "/skill-name"; the machine names them at each message): after Coder's own commands.
   function skillsSlash() {
@@ -5504,6 +5511,15 @@
     paint();
   }
   // THE OWNER'S RULES FOR THIS REPOSITORY (Claude Code's /permissions: its allow, ask and deny rules, added and removed there).
+  /** /add-dir <path>: the folder added to this repository's working folders (as the permission rules' Working folders). */
+  async function addDirCmd(arg) {
+    const dir = String(arg || '').trim().replace(/^(["'])(.*)\1$/, '$2');
+    if (!S.project) return note('Open a chat first: working folders are kept for each repository.');
+    if (!dir) return note('Usage: /add-dir <path> (a full path, or ~/ for Coder’s home)');
+    const x = await call('/permissions', { method: 'POST', body: JSON.stringify({ repo: S.project.repo, kind: 'dirs', add: dir }) });
+    if (x.status === 200) return note('Added ' + dir + ' as a working directory. Coder can work there from your next message.');
+    note((x.data && x.data.error) || 'That folder could not be added.');
+  }
   async function showRules() {
     S.modeMenu = false; draw();
     if (!S.project) return note('Open a chat first: permission rules are kept for each repository.');
@@ -5605,6 +5621,35 @@
     if (!b) return;
     e.preventDefault(); e.stopPropagation();
     b.click();
+  }
+  /**
+   * ESC STOPS THE JOB THAT IS RUNNING NOW, AND ONLY IT (Claude Code: Esc interrupts Claude while it works; the bug of
+   * 2026-11-27: an Escape pressed after a settings or environment window had closed saved a stop, and the next message ended
+   * at once with "Stopped."). The key acts only on a job running at the moment it is pressed: it never waits for one, never
+   * queues a stop for a later job, and does nothing with no job running. Nor while a window, a menu or a card is open (each
+   * has its own Esc), while text is being typed, or when the key closed something already (defaultPrevented).
+   */
+  function escCanStop() {
+    return !GLOOPY && S.phase === 'chat' && !!S.project && S.running === true && !S.ending && !S.stopping && S.project.status !== 'idle';
+  }
+  function escStop(e) {
+    if (e.key !== 'Escape' || e.defaultPrevented || e.isComposing || e.repeat || e.altKey || e.shiftKey || e.ctrlKey || e.metaKey) return false;
+    if (!escCanStop()) return false;
+    if (!S.root || !S.root.isConnected || !S.root.getClientRects().length) return false;
+    if (document.querySelector('.cd-sure, .cx, #cdPageView, [role=dialog]') || S.titleMenu || S.rowMenu || S.showEnv || S.modeMenu || S.reviewMenu || S.ctxOpen || S.renaming || S.commenting) return false;
+    if (liveCardEl() || (typeof waitsOnYou === 'function' && waitsOnYou())) return false;
+    const a = document.activeElement;
+    if (a && a.id === 'cdIn') { if (String(a.value || '').trim() || slashMatches().length || mentionMatches().length) return false; }
+    else if (a && a !== document.body && a !== document.documentElement) {
+      if (!S.root.contains(a)) return false;
+      if (a.isContentEditable || (a.matches && a.matches('input, textarea, select'))) return false;
+    }
+    e.preventDefault();
+    // (Checked again as the stop goes out: the job it was pressed for, still running, or nothing.)
+    const id = S.project.id;
+    if (!escCanStop() || S.project.id !== id) return false;
+    stop();
+    return true;
   }
   function composerHTML() {
     const busy = (S.running && !S.ending) || S.sending;
@@ -6702,6 +6747,8 @@
       // waiting card, Enter allows it once, Cmd or Ctrl+Enter always; unless something else is being typed in (the box with
       // text in it keeps its own Esc and Enter), a window or menu is open, or the key is on the card itself (its own handler).
       if (!S.cardKeys) { S.cardKeys = true; document.addEventListener('keydown', (e) => cardKey(e), true); }
+      // (Esc stops the running job, and nothing else: escStop. Bubbling, after each window's and menu's own Esc.)
+      if (!S.escKeys && !GLOOPY) { S.escKeys = true; document.addEventListener('keydown', (e) => { escStop(e); }); }
       // The notifications panel opens from the tab that's showing (live test, 2026-11-13: opened straight into Gloopy, the
       // menu's Notifications did nothing, as only Coder's view listened). GitHub's return is Coder's.
       if (!S.notifyHook) { S.notifyHook = true; window.addEventListener('gf:notify', () => { if (S.root && S.root.isConnected && S.root.getClientRects().length) showNotifications(); }); }

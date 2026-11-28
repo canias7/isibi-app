@@ -1152,7 +1152,7 @@ export const MONITOR_BASH_DENIED = "Permission to use Monitor has been denied: i
  * `mcp__bf7c680d-5fdc-5ef4-b4a0-abadb619bf0a…`, each exactly (D2 of recheck 3; coder-envtools.mjs remoteAliases).
  */
 const CODER_NAME_OF = Object.freeze(Object.assign(Object.create(null), Object.fromEntries(Object.entries(REMOTE_TOOL_NAMES).map(([k, v]) => [v, k]))));
-const ruleNamesOf = (tool) => { const t = String(tool ?? ""); if (githubMcpName(t)) return [t, githubMcpName(t)]; const cc = CODER_NAME_OF[t] ? t : Object.hasOwn(REMOTE_TOOL_NAMES, t) ? REMOTE_TOOL_NAMES[t] : ""; return cc ? [cc, ...remoteAliases(cc), CODER_NAME_OF[cc]] : [t]; };
+const ruleNamesOf = (tool) => { const t = String(tool ?? ""); if (githubMcpName(t)) return [t, githubMcpName(t)]; { const bare = t.startsWith("mcp__" + GITHUB_CONNECTOR + "__") ? t.slice(("mcp__" + GITHUB_CONNECTOR + "__").length) : ""; if (bare && githubMcpName(bare)) return [bare, t]; } const cc = CODER_NAME_OF[t] ? t : Object.hasOwn(REMOTE_TOOL_NAMES, t) ? REMOTE_TOOL_NAMES[t] : ""; return cc ? [cc, ...remoteAliases(cc), CODER_NAME_OF[cc]] : [t]; };
 /** A rule of `kind` on all of a tool (`Bash`, `Bash(*)`, `Monitor`; a connector's `mcp__<server>__<tool>`, or `mcp__<server>` for all of
  * that connector's; an allow rule's wildcard only after a literal mcp__<server>__, as Claude Code's), or "". */
 export const wholeRule = (rules, kind, tool) => (Array.isArray(rules && rules[kind]) ? rules[kind] : []).find((r) => { const x = parseRule(r); return !!x && x.spec === null && ruleNamesOf(tool).some((n) => (x.glob ? (kind !== "allow" || anchoredGlob(x.tool)) && toolGlobMatches(x.tool, n) : x.tool === n || (x.mcp === true && n.startsWith(x.tool + "__")))); }) || "";

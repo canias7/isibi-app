@@ -76,9 +76,9 @@ test("CD383 hooks as Claude Code reads them: the settings' shape, its matchers, 
   const pr = out("PermissionRequest", [["p", { code: 0, stdout: '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"deny","message":"not on Fridays"}}}' }]], "Bash");
   assert.deepEqual([pr.decision, pr.reason], ["deny", "not on Fridays"]);
   // Inputs as Claude Code names them.
-  assert.deepEqual(H.hookToolInput("edit", { path: "a.ts", old_string: "a", new_string: "b" }), { path: "a.ts", old_string: "a", new_string: "b", file_path: "a.ts" });
+  assert.deepEqual(H.hookToolInput("edit", { path: "a.ts", old_string: "a", new_string: "b" }), { old_string: "a", new_string: "b", file_path: "a.ts" });
   assert.deepEqual(H.toolInputFromHook("write", { file_path: "b.ts", content: "x" }), { path: "b.ts", content: "x" });
-  assert.deepEqual([H.ccTool("bash"), H.ccTool("bash", true), H.ccTool("stop_job"), H.ccTool("pull_request")], ["Bash", "Monitor", "TaskStop", "pull_request"]);
+  assert.deepEqual([H.ccTool("bash"), H.ccTool("bash", true), H.ccTool("stop_job"), H.ccTool("pull_request")], ["Bash", "Monitor", "TaskStop", "mcp__github__pull_request"]);
   assert.doesNotMatch(read("container/coder-hooks.mjs"), /from "node:/);
 });
 
