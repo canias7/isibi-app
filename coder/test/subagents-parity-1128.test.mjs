@@ -17,7 +17,7 @@ const say = (content, calls = []) => ({ message: { role: "assistant", content, .
 const isSub = (req) => (req.messages || []).some((m) => m.role === "system" && /You are an agent for Coder|You run as a subagent of Coder/.test(String(m.content)));
 const sys = (req) => String(((req.messages || []).find((m) => m.role === "system") || {}).content || "");
 const skill = (text, name = "x") => ({ ...K.skillFrom(text, name, ROOT + "/.claude/skills/" + name) });
-const agentExec = (files) => async (x) => (x.command.startsWith("find .claude/agents") ? { code: 0, output: files.map((f) => G.AGENT_FILES_MARK + f.file + "\n" + f.text + "\n").join("") } : null);
+const agentExec = (files) => async (x) => (x.command === G.agentFilesScript() ? { code: 0, output: files.map((f) => G.AGENT_FILES_MARK + f.file + "\n" + f.text + "\n").join("") } : null);
 
 async function job(steps, { text = "go", skills = [], rules = null, mode = "auto", exec = null, deps = {}, opts = {}, sub = null } = {}) {
   const events = [], seen = [];
