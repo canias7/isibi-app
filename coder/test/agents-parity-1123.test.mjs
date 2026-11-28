@@ -22,7 +22,7 @@ const userText = (req) => (req.messages || []).filter((m) => m.role === "user").
 const base = (send, extra = {}) => ({ send, exec: async () => ({ code: 0, output: "" }), emit: () => {}, here: () => ROOT, root: ROOT, home: "/home/dev", chatId: "agents-1123", where: (p) => (p.startsWith("/") ? p : ROOT + "/" + p), toolSearch: "false", ...extra });
 const opts = (text, more = {}) => ({ text, mode: "auto", rules: { allow: [], ask: [], deny: [] }, ...more });
 // (A foreground report's no-authority header, 2026-11-28, left off here: subagents-cc-1128b tests it.)
-const toolAnswer = (r, id) => String((r.messages.find((m) => m.role === "tool" && m.tool_call_id === id) || {}).content || "").replace(/^\[Subagent output: [^\n]*\]\n/, "");
+const toolAnswer = (r, id) => String((r.messages.find((m) => m.role === "tool" && m.tool_call_id === id) || {}).content || "").replace(/^\[Subagent hand-back\][^\n]*\n/, "").replace(/^  /gm, "");
 const mainLoop = (main) => { let mi = 0; return () => main[Math.min(mi++, main.length - 1)]; };
 const noteOf = (r, id) => String((r.messages.find((m) => m.role === "user" && new RegExp("<task-id>" + id + "</task-id>").test(String(m.content || ""))) || {}).content || "");
 
@@ -64,7 +64,7 @@ test("a general-purpose subagent can start an agent of its own, which it waits f
     assert.ok(tools.includes("agent"), "the general-purpose subagent has agent");
     const answered = (req.messages || []).find((m) => m.role === "tool");
     if (!answered) return say("", [call("agent", { description: "inner", prompt: "INNER task" }, "n1")]);
-    assert.match(String(answered.content), /^(?:\[Subagent output: [^\n]*\]\n)?inner report/, "it waited for the inner agent");
+    assert.match(String(answered.content), /^(?:\[Subagent hand-back\][^\n]*\n  )?inner report/, "it waited for the inner agent");
     return say("", [call("subagent_handback", { message: "outer report" }, "ho")]);
   };
   const r = await A.runCoder(base(send), opts("go"));

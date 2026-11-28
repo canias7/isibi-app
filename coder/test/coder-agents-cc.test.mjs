@@ -19,7 +19,7 @@ const userText = (req) => (req.messages || []).filter((m) => m.role === "user").
 const base = (send, extra = {}) => ({ send, exec: async () => ({ code: 0, output: "" }), emit: () => {}, here: () => ROOT, root: ROOT, home: "/home/dev", chatId: "agents-cc", where: (p) => (p.startsWith("/") ? p : ROOT + "/" + p), toolSearch: "false", ...extra });
 const opts = (text, more = {}) => ({ text, mode: "auto", rules: { allow: [], ask: [], deny: [] }, ...more });
 // (A foreground report's no-authority header, 2026-11-28, left off here: subagents-cc-1128b tests it.)
-const toolAnswer = (r, id) => String((r.messages.find((m) => m.role === "tool" && m.tool_call_id === id) || {}).content || "").replace(/^\[Subagent output: [^\n]*\]\n/, "");
+const toolAnswer = (r, id) => String((r.messages.find((m) => m.role === "tool" && m.tool_call_id === id) || {}).content || "").replace(/^\[Subagent hand-back\][^\n]*\n/, "").replace(/^  /gm, "");
 const mainLoop = (main) => { let mi = 0; return () => main[Math.min(mi++, main.length - 1)]; };
 
 test("agent's inputs are Claude Code's AgentInput, with Coder's models; its description is Claude Code's, with the caps, custom agents, background and worktree", () => {

@@ -6103,6 +6103,19 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         // the chat's memory cap when the owner's CODER_TOOL_MEMORY_CGROUP_EXCLUDE caps language servers (`lsp`), whatever
         // call started it; the keeper is told the cap's cgroup (CODER_LSP_MEMCG), to say when a server is killed at it.
         // `alive`: whether it runs.
+        // A SUBAGENT'S STDIO MCP SERVER (Claude Code's inline `mcpServers` of type stdio: started as a process when the agent
+        // starts, stopped when it ends; coder-agentmcp.mjs speaks MCP over its stdin and stdout). Run as the AI's commands run:
+        // inside the chat's admin sandbox as dev when there is one, else in the room as the AI's user; never without the
+        // sandbox when it is down. -> a child process with piped stdin and stdout, or null.
+        spawnStdio: ({ command: line, env: extra = {} }) => {
+          if (t.boxDown || typeof line !== "string" || !line) return null;
+          const pre = cleanEnv(home || dir);
+          const env = { ...pre, ...(net.limited ? proxyEnv : {}), ...(extra || {}), PATH: pre.PATH, HOME: pre.HOME, ...(t.box ? { CODER_SANDBOX: "1" } : {}) };
+          const o = { cwd: t.box ? "/" : dir, env, detached: true, stdio: ["pipe", "pipe", "ignore"] };
+          return t.box ? spawn(NSENTER, sandboxArgs(t.box.pid, dir, "exec " + line), o)
+            : t.room ? spawn(NSENTER, roomArgs(RUN_UID, RUN_GID, "exec " + line), o)
+            : spawn("bash", ["-c", "exec " + line], { ...o, uid: RUN_UID, gid: RUN_GID });
+        },
         lsp: {
           alive: () => keeperAlive(project),
           start: () => {

@@ -30,7 +30,7 @@ async function job(steps, { text = "go", skills = [], rules = null, mode = "acce
     here: () => ROOT, root: ROOT, home: "/home/dev", chatId: "shop-1128", where: (p) => (p.startsWith("/") ? p : ROOT + "/" + p),
     ask: async () => ({ choice: "yes" }), toolSearch: "false", nestedSkills: false, ...deps,
   }, { text, mode, skills, rules, ...opts });
-  const told = (id) => { for (const req of seen) for (const m of req.messages) if (m.role === "tool" && m.tool_call_id === id) return typeof m.content === "string" ? m.content.replace(/^\[Subagent output: [^\n]*\]\n/, "") : m.content; return ""; };
+  const told = (id) => { for (const req of seen) for (const m of req.messages) if (m.role === "tool" && m.tool_call_id === id) return typeof m.content === "string" ? m.content.replace(/^\[Subagent hand-back\][^\n]*\n/, "").replace(/^  /gm, "") : m.content; return ""; };
   return { events, seen, told, cmds };
 }
 
