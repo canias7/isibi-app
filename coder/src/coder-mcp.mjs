@@ -1021,9 +1021,20 @@ export async function finishSignIn(env, bucket, { state, code, nonce, fetchFn = 
   c.box = await seal(env, { oauth: { ...tokenRecord(j, now), client: p.client, endpoint: p.where.token, resource: p.where.resource } });
   c.status = "ok"; c.error = "";
   try { c.tools = await listTools(c.url, String(j.access_token), { fetchFn }); c.toolsAt = now; c.instructions = (c.tools && c.tools.instructions) || ""; c.prompts = (c.tools && c.tools.prompts) || []; c.resources = (c.tools && c.tools.resources) || []; newConnection(c, c.tools && c.tools.era); } catch (e) { c.status = "error"; c.error = String(e.message || e).slice(0, 200); }
-  await writeConnectors(bucket, p.uid, list);
+  // (Each sign-in's outcome for the chat's Notification hooks, Claude Code's auth_success, or auth_storage_failure when the
+  // credentials could not be saved: noteAuth, read with the next message. 2026-11-27.)
+  try { await writeConnectors(bucket, p.uid, list); }
+  catch (e) { await noteAuth(bucket, p.uid, { type: "auth_storage_failure", connector: c.name, at: now }).catch(() => {}); throw e; }
+  await noteAuth(bucket, p.uid, { type: "auth_success", connector: c.name, at: now }).catch(() => {});
   return { uid: p.uid, id: c.id };
 }
+/** The owner's recent sign-in outcomes (the newest 10), for Notification hooks (coder-hookfacts.mjs). */
+export const authNotesKey = (uid) => "connectors/" + uid + "/auth-notes.json";
+export async function noteAuth(bucket, uid, n) {
+  const list = await getJson(bucket, authNotesKey(uid), []);
+  await putJson(bucket, authNotesKey(uid), [...(Array.isArray(list) ? list : []), { type: n.type, connector: String(n.connector || "").slice(0, 80), at: Number(n.at) || Date.now() }].slice(-10));
+}
+export async function authNotesOf(bucket, uid) { const v = await getJson(bucket, authNotesKey(uid), []); return Array.isArray(v) ? v : []; }
 
 /** A connector's token now (refreshed when it ends within a minute), or "" for none. Saves a refreshed one. */
 export async function tokenOf(env, bucket, uid, c, { fetchFn = fetch, now = Date.now(), force = false } = {}) {

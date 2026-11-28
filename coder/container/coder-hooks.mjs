@@ -9,7 +9,7 @@
 // is the part with no machine in it: reading the settings, matching, the input, and what a hook's output means. (No node:
 // modules: the Worker checks the owner's hooks with it.)
 import { pwshRun, PS_TERM } from "./coder-ps.mjs";
-import { ifRuleMatches } from "./coder-perms.mjs";
+import { ifRuleMatches, GITHUB_CONNECTOR, GITHUB_CONNECTOR_TOOLS, githubMcpName } from "./coder-perms.mjs";
 import { bashResultText } from "./coder-checks.mjs";
 import { checkRewrite, bashOutputText } from "./coder-zod.mjs";
 import { REMOTE_TOOL_NAMES, REMOTE_SERVER, REMOTE_SOURCE, remoteAliases } from "./coder-envtools.mjs";
@@ -135,6 +135,9 @@ export const ccTool = (name, monitor = false) => (monitor ? "Monitor" : CC_TOOL[
 Object.assign(CC_TOOL, REMOTE_TOOL_NAMES);
 // (Claude Code's scheduling tools by its names, 2026-11-23.)
 Object.assign(CC_TOOL, CRON_TOOL_CC);
+// (Coder's GitHub tools, its built-in connector "github", by their connector names, mcp__github__<tool>, as Claude Code's
+// GitHub MCP server's tools reach hooks. 2026-11-27.)
+for (const t of GITHUB_CONNECTOR_TOOLS) CC_TOOL[t] = githubMcpName(t);
 
 const strList = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === "string" && x.trim()).map((x) => x.trim()).slice(0, 100) : null);
 
@@ -166,7 +169,7 @@ export function hooksFrom(settings, source = "settings") {
         const type = String(h.type || "");
         if (!ALL_TYPES.includes(type)) { out.problems.push(event + ": a hook's type is command, http, mcp_tool, prompt or agent (not " + (type || "no type") + ")"); continue; }
         if (!typesFor(event).includes(type)) { out.problems.push(event + " doesn't take " + type + " hooks"); continue; }
-        const base = { event, matcher, type, timeout: timeoutFor(event, h.timeout, type), ...(Number.isFinite(Number(h.timeout)) && Number(h.timeout) > 0 ? { ownTimeout: true } : {}), ...(typeof h.if === "string" && h.if.trim() ? { if: h.if.trim() } : {}), ...(typeof h.statusMessage === "string" && h.statusMessage.trim() ? { statusMessage: h.statusMessage.trim().slice(0, 200) } : {}), source };
+        const base = { event, matcher, type, timeout: timeoutFor(event, h.timeout, type), ...(Number.isFinite(Number(h.timeout)) && Number(h.timeout) > 0 ? { ownTimeout: true } : {}), ...(typeof h.if === "string" && h.if.trim() ? { if: h.if.trim() } : {}), ...(typeof h.statusMessage === "string" && h.statusMessage.trim() ? { statusMessage: h.statusMessage.trim().slice(0, 200) } : {}), source, ...(source === "skill" && h.once === true ? { once: true } : {}) };
         const onFailure = h.onFailure === "block" ? { onFailure: "block" } : {};
         if (type === "command") {
           if (typeof h.command !== "string" || !h.command.trim()) { out.problems.push(event + ": a command hook needs its command"); continue; }
@@ -236,7 +239,7 @@ export function matcherMatches(matcher, value, narrow = false) {
 // are two handlers, and each runs when it matches; Claude Code: "If you define the same handler in more than one settings
 // file, it runs once". Bash docs pass 9.)
 // (An mcp_tool hook is its server, tool and input: Claude Code's `mcp_tool\0server\0tool\0input`.)
-const handlerKey = (h) => h.type + "\u0000" + (h.type === "command" ? h.command + "\u0000" + JSON.stringify(h.args || null) : h.type === "http" ? h.url : h.type === "mcp_tool" ? h.server + "\u0000" + h.tool + "\u0000" + JSON.stringify(h.input || {}) : h.prompt) + "\u0000" + String(h.if || "") + "\u0000" + String(h.shell || "");
+const handlerKey = (h) => h.type + "\u0000" + (h.type === "command" ? h.command + "\u0000" + JSON.stringify(h.args || null) : h.type === "http" ? h.url : h.type === "mcp_tool" ? h.server + "\u0000" + h.tool + "\u0000" + JSON.stringify(h.input || {}) : h.prompt) + "\u0000" + String(h.if || "") + "\u0000" + String(h.shell || "") + (h.skill ? "\u0000skill:" + h.skill : h.agent ? "\u0000agent:" + h.agent : "");
 
 /**
  * THE HOOKS THAT RUN FOR ONE EVENT, deduplicated: `value` is what the matcher filters (a tool's name, how a session started,
@@ -364,7 +367,7 @@ const FULL_PATH_TOOLS = new Set(["read", "write", "edit"]);
  * `at` ({ cwd, home }, round 6): read's, write's and edit's path in full, both names, as Claude Code's hooks get it (hookPath);
  * without it, as Grok gave it (PostToolBatch's: Claude Code gives that event the model's own input).
  */
-export function hookToolInput(name, args, at = null) {
+export function hookToolInput(name, args, at = null, { asSent = false } = {}) {
   const a = args && typeof args === "object" ? { ...args } : {};
   if ((name === "read" || name === "write" || name === "edit") && typeof a.path === "string" && a.file_path === undefined) a.file_path = a.path;
   // (The owner's read size, Coder's own input to its read: never Grok's, so never a hook's. Batch 8.)
@@ -374,6 +377,11 @@ export function hookToolInput(name, args, at = null) {
   // (NotebookEdit's own input names: notebook_path, never Coder's `path`. Batch 5.)
   if (name === "notebook_edit") { if (typeof a.notebook_path !== "string" && typeof a.path === "string") a.notebook_path = a.path; delete a.path; delete a.file_path; if (at && typeof a.notebook_path === "string") a.notebook_path = hookPath(a.notebook_path, at); }
   if (at && FULL_PATH_TOOLS.has(name)) for (const k of ["path", "file_path"]) if (typeof a[k] === "string") a[k] = hookPath(a[k], at);
+  // (Claude Code's Read, Write and Edit inputs carry file_path only, and Edit's old_string and new_string: Grok's old_str and
+  // new_str, which Coder's edit also takes, are given under Claude Code's names before any hook runs. 2026-11-27.)
+  // (Not for PostToolBatch, `asSent`: it gets Grok's calls as sent.)
+  if (!asSent && (name === "read" || name === "write" || name === "edit") && typeof a.file_path === "string") delete a.path;
+  if (!asSent && name === "edit") for (const [k, cc] of [["old_str", "old_string"], ["new_str", "new_string"]]) { if (typeof a[cc] !== "string" && typeof a[k] === "string") a[cc] = a[k]; delete a[k]; }
   if (name === "ask_user") {
     // (The single question of before, as Claude Code's list of one.)
     if (!(Array.isArray(a.questions) && a.questions.length) && a.question !== undefined) a.questions = [{ question: a.question, header: a.header, options: a.options, multi_select: a.multi_select }];
@@ -823,6 +831,11 @@ export function hooksOutcome(event, runs, { tool = "", rewrite = null } = {}) {
     if (observe && result.kind === "block") { out.notices.push(label + " hook error: " + hookName(hook) + ": " + (result.reason || "No stderr output")); continue; }
     if (observe) continue;
     if (typeof spec.sessionTitle === "string" && spec.sessionTitle.trim() && (event === "SessionStart" || event === "UserPromptSubmit")) out.sessionTitle = spec.sessionTitle.trim().slice(0, 200);
+    // (SessionStart's initialUserMessage, "used as the first user message of the session … A prompt you do pass follows as the
+    // next turn", capped at 10,000 characters; and reloadSkills, "re-scans the skill and command directories after the
+    // SessionStart hooks complete". The hooks round of 2026-11-27, part 2.)
+    if (event === "SessionStart" && typeof spec.initialUserMessage === "string" && spec.initialUserMessage.trim() && !out.initialUserMessage) out.initialUserMessage = cap(spec.initialUserMessage.trim());
+    if (event === "SessionStart" && spec.reloadSkills === true) out.reloadSkills = true;
     if (typeof spec.additionalContext === "string" && spec.additionalContext.trim()) out.context.push(cap(spec.additionalContext));
     if (result.text && result.text.trim() && (event === "UserPromptSubmit" || event === "SessionStart" || event === "PreCompact")) out.context.push(event === "PreCompact" ? result.text.trim() : cap(result.text.trim()));
     // A BLOCK IN CLAUDE CODE'S WORDS (2.1.322, tried in its command-line version on 2026-11-11, the owner: "yes copy all of
@@ -849,7 +862,7 @@ export function hooksOutcome(event, runs, { tool = "", rewrite = null } = {}) {
       // (Exit 2: its stderr, unless its JSON also denies with a reason: Claude Code then "uses that decision's reason instead".)
       const jsonDeny = result.kind === "block" && (spec.permissionDecision === "deny" || j.decision === "block") && why.trim() !== "";
       if (d === "deny") blockBy(result.kind === "block" && !jsonDeny ? result.reason : jsonDeny ? cap(why) : why, jsonDeny);
-      if (rank[d] !== undefined && rank[d] > rank[out.decision]) { out.decision = d; out.reason = d === "deny" ? out.blocks[out.blocks.length - 1] : cap(why); }
+      if (rank[d] !== undefined && rank[d] > rank[out.decision]) { out.decision = d; out.reason = d === "deny" ? out.blocks[out.blocks.length - 1] : cap(why); out.from = hook; }
       // (Each hook's new input, checked in turn by Coder's loop as Claude Code checks one, coder-hookcheck.mjs; the last one is
       // the input. None with "deny"; none with "defer" either: Claude Code's "For "defer", ignored".)
       if (spec.updatedInput && typeof spec.updatedInput === "object" && !Array.isArray(spec.updatedInput) && d !== "deny" && spec.permissionDecision !== "defer") { out.updatedInput = spec.updatedInput; out.updatedInputs.push(spec.updatedInput); }
@@ -1026,6 +1039,7 @@ export function withMcpServer(event, extra, server = "") {
   const t = String(extra.tool_name || "");
   if (!t.startsWith("mcp__")) return extra;
   if (Object.values(REMOTE_TOOL_NAMES).includes(t)) return { ...extra, mcp_server: { name: REMOTE_SERVER, source: REMOTE_SOURCE } };
+  if (t.startsWith("mcp__" + GITHUB_CONNECTOR + "__") && GITHUB_CONNECTOR_TOOLS.includes(t.slice(("mcp__" + GITHUB_CONNECTOR + "__").length))) return { ...extra, mcp_server: { name: GITHUB_CONNECTOR, source: "claudeai" } };
   let name = "";
   try { name = typeof server === "function" ? server(t) : server; } catch { name = ""; }
   return typeof name === "string" && name ? { ...extra, mcp_server: { name, source: "claudeai" } } : extra;

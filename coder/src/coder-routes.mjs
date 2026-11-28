@@ -206,7 +206,7 @@ import { keepBackup, readBackup, forgetSite, WORK_MAX, BROWSER_MAX } from "./glo
 import { watchJob, watchKey, watchBackground, WATCH_PREFIX } from "./coder-watch.mjs";
 import { livePass, LIVE_PATH, readLive, dropLive, wholeSteps, interruptedSteps, prunePics, dropPics } from "./coder-live.mjs";
 import { gitAccess } from "./coder-git.mjs";
-import { readConnectors, connectorOut, setPerms, suggestConnectors, CATALOG, CATALOG_LATER, addConnector, removeConnector, finishSignIn, toolsFor as connectorTools, keepJobTools, refreshTools, clientDoc, jobConnectors, expandConnectorRefs, readConnectorSettings, writeConnectorSettings, setConnectorState, STATE_COOKIE as MCP_COOKIE, CALLBACK_PATH as MCP_CALLBACK, jobTool, callTool } from "./coder-mcp.mjs";
+import { authNotesOf, readConnectors, connectorOut, setPerms, suggestConnectors, CATALOG, CATALOG_LATER, addConnector, removeConnector, finishSignIn, toolsFor as connectorTools, keepJobTools, refreshTools, clientDoc, jobConnectors, expandConnectorRefs, readConnectorSettings, writeConnectorSettings, setConnectorState, STATE_COOKIE as MCP_COOKIE, CALLBACK_PATH as MCP_CALLBACK, jobTool, callTool } from "./coder-mcp.mjs";
 import { githubReady, makeState, readState, newNonce, STATE_COOKIE, signInUrl, installUrl, exchangeCode, saveConnection, forgetConnection, userToken, gh, ghRead, repoAccess, listRepos, openPullRequest, editPullRequest, prFailNote, postReview, branchNameOk, defaultBranchOf, branchAt, OWN_MARK, REPO, BRANCH, seal, unseal } from "./coder-github.mjs";
 
 const MAX_PROJECTS = 50;
@@ -2318,7 +2318,7 @@ export async function handleCoder(request, env, ctx, deps) {
       if (ownTz) next.tz = ownTz;
       // (What the chat's hooks need about this message: a model switch, a Settings change, working folders added since the last
       // one. coder-hookfacts.mjs; 2026-11-27.)
-      const hookNow = hookFactsFor(meta, { model: pick.model, via: body.modelVia, prefsAt: Number(saved.prefsAt) || 0, dirs: (await rulesOf(bucket, uid, meta.repo)).dirs });
+      const hookNow = hookFactsFor(meta, { model: pick.model, via: body.modelVia, prefsAt: Number(saved.prefsAt) || 0, dirs: (await rulesOf(bucket, uid, meta.repo)).dirs, auth: await authNotesOf(bucket, uid).catch(() => []) });
       Object.assign(next, hookNow.seen);
       const scheduleOn = { schedule: { ...(await cronTurnOn(env, bucket, uid, id, ownTz).catch(() => ({}))), repo: meta.repo } };
       const wakeOn = wake ? { wake: true } : {}, shellOn = shell ? { shell } : {}, compactOn = compactJob ? { compact: compactJob } : {};

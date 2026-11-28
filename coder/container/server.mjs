@@ -34,6 +34,7 @@ import { planStore, plansDirectoryFor, plansDirWarning } from "./coder-plan-file
 import { envCaller } from "./coder-envtools.mjs";
 import { ownWorktreePath } from "./coder-worktree.mjs";
 import { memoryLoaded, memorySafe } from "./coder-tools.mjs";
+import { IDLE_PROMPT_MS } from "./coder-fmhooks.mjs";
 import { hooksFrom, hooksFor, hookInput, transcriptLines, hookShell, splitHookOut, asyncHookTexts, sessionEndBudget, sessionEndHookLimit, httpUrlAllowed, runMcpToolHook, stopCapOf } from "./coder-hooks.mjs";
 import { autoModeSetting } from "./coder-checker.mjs";
 /** The owner's auto mode rules as the Worker sent them, checked again here (autoModeSetting), or null. */
@@ -417,6 +418,8 @@ export const BG_EXITS = new Map();
  */
 export const JOBS = new Map();
 /** Per chat: the files its FileChanged hooks watch (watchPaths) and how they were when last looked at. */
+/** Each chat's registered skill hooks (coder-fmhooks.mjs), kept between its messages while this machine runs. */
+export const SKILL_HOOKS = new Map();
 export const HOOK_WATCH = new Map();
 export const BG_LIMIT_MS = 30 * 60 * 1000, BG_LIMIT_MAX_MS = 2 * 60 * 60 * 1000;
 /** How long an ended background command is remembered after Coder was told (its log goes with it). */
@@ -5010,7 +5013,7 @@ export function wakeStarters(jobs, { cont = (pid) => { try { process.kill(pid, "
 /** Why the gate didn't start when the environment's CODER_TEST_NETWORK_GATE_FAIL switch is on (a test of its failing closed). */
 export const GATE_TEST_FAIL = "switched off for a test: the environment sets CODER_TEST_NETWORK_GATE_FAIL";
 
-export function createApp({ kept = null, gitVia = false, modelVia = false, liveFetch = null, setupRoot = null, keepaliveMs = KEEPALIVE_MS, streamMs = SCREEN_STREAM_MS, root = PROJECT_ROOT, env = process.env, send = null, remote = DEFAULT_REMOTE, gitRoot = GIT_ROOT, memRoot = MEM_ROOT, bgRoot = BG_DIR, proxyDir = "/srv/coder-proxy", proxyOpts = {}, apt = null, home = null, room = false, sandbox = false, data = null, image = "", tools = "", holdMs = HOLD_MS, copySetupMaxMs = COPY_SETUP_MAX_MS, parkMs = 0, copyNeedsBox = true, checker = false, hookQuietMs = 10_000, browserRoot = null, vaultFetch = null, filesFetch = null } = {}) {
+export function createApp({ kept = null, gitVia = false, modelVia = false, liveFetch = null, setupRoot = null, keepaliveMs = KEEPALIVE_MS, streamMs = SCREEN_STREAM_MS, root = PROJECT_ROOT, env = process.env, send = null, remote = DEFAULT_REMOTE, gitRoot = GIT_ROOT, memRoot = MEM_ROOT, bgRoot = BG_DIR, proxyDir = "/srv/coder-proxy", proxyOpts = {}, apt = null, home = null, room = false, sandbox = false, data = null, image = "", tools = "", holdMs = HOLD_MS, copySetupMaxMs = COPY_SETUP_MAX_MS, parkMs = 0, copyNeedsBox = true, checker = false, hookQuietMs = 10_000, idlePromptMs = IDLE_PROMPT_MS, browserRoot = null, vaultFetch = null, filesFetch = null } = {}) {
   // The setup script's packages are installed as root (this service's own user), never as `dev`.
   const aptRun = apt || ((dir, command, timeoutS, o) => execIn(dir, command, timeoutS, { ...o, uid: null, gid: null, kill: true, extraEnv: { DEBIAN_FRONTEND: "noninteractive" } }));
   const sendFn = send || coderSend(env);
@@ -5569,6 +5572,10 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     addDirs.push(...[...new Set([...ownAdded, ...repoAdded])].filter((d) => !workRoots.includes(d)));
     repoOnlyDirs.push(...repoAdded.filter((d) => !ownAdded.includes(d)));
     workRoots.push(...addDirs);
+    // (The worktrees WorktreeCreate hooks made for this chat, kept in its home's record (coder-hookevents.mjs HOOK_WT_FILE):
+    // working folders too, so the chat's shell may stay in one across messages until exit_worktree, as in a git-made one.
+    // 2026-11-27, the live test: the shell was put back in the project.)
+    try { for (const l of (await readFile(join(home || DEV_HOME, ".coder", "hook-worktrees"), "utf8")).split("\n")) { const p = l.split("|")[0]; if (p && p.startsWith("/") && !workRoots.includes(p)) workRoots.push(await realpath(p).catch(() => p)); } } catch { /* none */ }
     // (The job's other working folders as one live list: a PermissionRequest hook's addDirectories changes it mid-job.)
     const otherRoots = workRoots.slice(1);
     // ONE THAT IS NOT THERE IS SAID, not left out without a word (round 5).
@@ -5989,6 +5996,9 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       if (data) { try { writeFileSync(join(data, USED_NOTE), String(Date.now())); } catch { /* read-only */ } }
       const { notices, lost, stalls } = backgroundNews();
       const turnHooks = hooksForTurn(dir, body.hooks, { github: body.github === true, several: extraRepos(body).length > 0, trust: !!(body.rules && body.rules.trust === true), plugins: body.pluginHooks });
+      // (The job's first look at the hooks is these, so a settings file Coder edits mid-job is a change: its ConfigChange hooks run
+      // and the new hooks apply. 2026-11-27, the live test: the first edit was taken as the first look, and nothing fired.)
+      t.hooksNext = turnHooks;
       const turnDeps = {
         send: timedSend(t.timing, via ? coderSend(retryEnv(env, rawVars), { via }) : send ? sendFn : coderSend(retryEnv(env, rawVars))),
         // (And the chat's mcp_tool hooks call its connectors' tools the same way: connectorHookCaller. Fix round 4, CL4.)
@@ -6018,6 +6028,10 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         // THE CHAT'S TRANSCRIPT, for its hooks' transcript_path (batch 8): Coder's chats only.
         ...(gloopy ? {} : { transcript: (convo, o = {}) => (o && typeof o.agent === "string" && /^[\w-]{1,80}$/.test(o.agent) ? writeTranscript(join(memRoot, project + ".transcript", "subagents", "agent-" + o.agent + ".jsonl"), convo, (transcriptState.agents = transcriptState.agents || {})[o.agent] = transcriptState.agents[o.agent] || {}, { session: project, cwd: dir, model: String(o.model || ""), agent: o.agent }) : writeTranscript(transcriptFileFor(memRoot, project), convo, transcriptState, { session: project, cwd: dir, model: String((o && o.model) || "") })) }),
         hookWatch: { get: () => HOOK_WATCH.get(project) || null, set: (v) => { HOOK_WATCH.set(project, v); } },
+        // (The skills' frontmatter hooks registered in this chat, kept between its messages; /clear empties them. And the skills
+        // read again when a SessionStart hook says reloadSkills. 2026-11-27, coder-fmhooks.mjs.)
+        skillHooks: { get: () => SKILL_HOOKS.get(project) || [], set: (v) => { SKILL_HOOKS.set(project, Array.isArray(v) ? v.slice(0, 2048) : []); } },
+        reloadSkills: () => (gloopy || body.github === true ? [] : withOwnerSkills(readSkills(dir), body.ownerSkills)),
         // GREP'S AND GLOB'S SETTINGS (coder-search.mjs; Claude Code's CLAUDE_CODE_GLOB_TIMEOUT_SECONDS, CLAUDE_CODE_GLOB_HIDDEN and
         // CLAUDE_CODE_GLOB_NO_IGNORE, under Coder's names), for their runs on this machine.
         searchSettings: searchSettingsFrom(rawVars),
@@ -6073,7 +6087,9 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
             return t.lspStarting;
           },
         },
-        exec: async ({ command, timeoutS, tool, payload, here = false, follow = false, inBg = false, sleepFirst = false, desc = "", limitMs = 0, monitor = false, ws = false, hook = false, hookEnv = false, hookGate = false, kind = "", hookAsync = null, hosts = null, shown = "", ps = false, noPrefix = false, toolCwd = "" }) => {
+        exec: async ({ command, timeoutS, tool, payload, here = false, follow = false, inBg = false, sleepFirst = false, desc = "", limitMs = 0, monitor = false, ws = false, hook = false, hookEnv = false, hookGate = false, kind = "", hookAsync = null, hosts = null, shown = "", ps = false, noPrefix = false, toolCwd = "", addRoot = "" }) => {
+          // (A worktree a WorktreeCreate hook made, entered now: one of the job's working folders from here on.)
+          if (typeof addRoot === "string" && addRoot.startsWith("/")) { const rp = await realpath(addRoot).catch(() => addRoot); if (!workRoots.includes(rp)) workRoots.push(rp); }
           // NOT WITHOUT THE ADMIN SANDBOX (fix 7): a command, the AI's or the owner's `!`, is not started; Coder's own helpers
           // and the owner's hooks still run, as Claude Code's hooks run outside its sandbox.
           if (t.boxDown && !tool && !hook) return { code: -1, notStarted: true, output: boxDownTold(t.boxDown) };
@@ -6429,7 +6445,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         t.answerDone = true;
         return { status: "error", messages, crashed: true, summary: why };
       };
-      picsIn(Array.isArray(body.messages) ? body.messages : [], picsTo).then((msgsIn) => runCoder(turnDeps, { notices, lost, stalls, ...(takeUp ? { takeUp: { ...takeUp, ...(envNote ? { note: envNote } : {}) } } : {}), timeouts: t.tmo, outLimits: t.outLimits, cmdShell: t.shell, compactVars: compactVarsFor(rawVars), noBg: t.noBg, diskWarnGib: warnGibFrom(body.setup && body.setup.vars, "DISK", PREFS.diskWarnGib), memWarnGib: warnGibFrom(body.setup && body.setup.vars, "MEMORY", PREFS.memWarnGib), searchLimits: t.searchLimits, hooks: turnHooks, autoMode: autoModeIn(body.autoMode), denyInstead: PREFS.denyInstead === true, tasksOff: varOff(rawVars.CODER_ENABLE_TASKS) || !taskToolsAvailable({ cloud: true, optIn: varOn(rawVars.CLAUDE_CODE_ENABLE_TODO_TOOLS) }), refreshTools: !gloopy && varOn(rawVars.CODER_ENABLE_REFRESH_MCP_TOOLS), mcpHeadersHelper: !gloopy && typeof rawVars.CODER_MCP_HEADERS_HELPER === "string" ? rawVars.CODER_MCP_HEADERS_HELPER : "", mentionsOff: varOn(rawVars.CODER_DISABLE_FILE_MENTIONS), stopCap: stopCapOf(rawVars.CODER_STOP_HOOK_BLOCK_CAP), box: !!t.box, autoOff: PREFS.autoOff === true || repoSet.autoOff, suggest: !gloopy && PREFS.suggestOff !== true && process.env.CODER_ENABLE_PROMPT_SUGGESTION !== "false", fileEdits: repoSet.defaultMode === "acceptEdits", startMode: repoSet.defaultMode, resumed, lastAt: Number(body.lastAt) || 0, hostLists: hostListsFor(nn.mode), rmChecksOff: { subst: varOn(rawVars.CODER_DISABLE_SUBSTITUTION_RM_PROMPT), inline: varOn(rawVars.CODER_DISABLE_INLINE_SHELL_RM_PROMPT), mounted: varOn(rawVars.CODER_DISABLE_MOUNTED_DRIVE_RM_PROMPT), timeout: varOn(rawVars.CODER_DISABLE_DANGEROUS_RM_TIMEOUT) }, powershell: psOn ? { bypass: !varOn(rawVars.CODER_POWERSHELL_RESPECT_EXECUTION_POLICY), defaultShell: String(rawVars.CODER_DEFAULT_SHELL || "").trim().toLowerCase() === "powershell", parseMs: Number(rawVars.CODER_PWSH_PARSE_TIMEOUT_MS) > 0 ? Math.min(Number(rawVars.CODER_PWSH_PARSE_TIMEOUT_MS), 60000) : 0 } : null, planExit: body.prePlanMode === "acceptEdits" ? "acceptEdits" : "auto", respondToBash: !varOff(rawVars.CODER_RESPOND_TO_BASH_COMMANDS), promptNotify: !varOn(rawVars.CODER_DISABLE_PERMISSION_PROMPT_NOTIFY_HOOKS), readBlock: varOn(rawVars.CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockReads, writeBlock: varOn(rawVars.CODER_BLOCK_WRITES_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockWrites, connectors: mcpCall ? connectors : [], connectorNotes: mcpCall && Array.isArray(body.connectorNotes) ? body.connectorNotes.slice(0, 10) : [], connectorsWaiting: Array.isArray(body.connectorsWaiting) ? body.connectorsWaiting.map(String).slice(0, 20) : [], connectorsFailed: Array.isArray(body.connectorsFailed) ? body.connectorsFailed.slice(0, 20) : [], connectorsGone: body.connectorsGone && typeof body.connectorsGone === "object" && !Array.isArray(body.connectorsGone) ? body.connectorsGone : null, checker, checkerInPlan: !varOff(rawVars.CODER_USE_AUTO_MODE_DURING_PLAN), checkWhere: { key: project, repo: String(body.repo || ""), branch: String(body.branch || (body.repo ? "coder/" + project : "")) }, emailMark: typeof body.emailMark === "string" && /^\d{1,3}:[0-9a-f]{64}(?:,\d{1,3}:[0-9a-f]{64})?$/.test(body.emailMark) ? body.emailMark : "", editDiff: bashEditDiffOn({ vars: rawVars, prefs: PREFS, repoOff: repoSet.editDiffOff, mode: t.mode }), checkpoints: checkpointsOn(rawVars), searchTools: body.searchTools === true, cleared: !gloopy && body.cleared === true, hookFacts: !gloopy && body.hookFacts && typeof body.hookFacts === "object" ? body.hookFacts : null, schedule: !gloopy && body.schedule && typeof body.schedule === "object" ? body.schedule : null, goal: !gloopy && body.goal && typeof body.goal.condition === "string" ? { condition: body.goal.condition.slice(0, 4000) } : null, mode: t.mode, rules: withRepoRules(body.rules, repoSet), sessionRules: body.sessionRules && typeof body.sessionRules === "object" ? body.sessionRules : null, language: gloopy ? "" : repoSet.language, cleanupDays: gloopy ? 0 : Number(repoSet.cleanupDays) || 0, customTitle: !gloopy && typeof body.customTitle === "string" ? body.customTitle.slice(0, 200) : "", shell: typeof body.shell === "string" ? body.shell.slice(0, 100_000) : "", messages: msgsIn, text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), ...(body.compact && typeof body.compact === "object" ? { compact: { focus: String(body.compact.focus || "").slice(0, 300) } } : {}), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, readOnly: { main: body.readOnly === true, extra: extras.filter((x) => x.readOnly).map((x) => x.repo.toLowerCase()) }, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), replyTo: body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null, ...effortFor(body, repoSet, env, t) , skills: gloopy || body.github === true ? [] : (() => { try { return withOwnerSkills(readSkills(dir), body.ownerSkills); } catch { return []; } })(), pluginAgents: gloopy || body.github === true ? [] : pluginAgentsFrom(body.pluginAgents), ...(!gloopy && body.github !== true && Array.isArray(body.attached) ? { attached: body.attached.filter((x) => x && typeof x.id === "string").slice(0, 20), attachedLeft: Math.max(0, Math.min(1000, Number(body.attachedLeft) || 0)) } : {}), ...gloopyOpts }))
+      picsIn(Array.isArray(body.messages) ? body.messages : [], picsTo).then((msgsIn) => runCoder(turnDeps, { notices, lost, stalls, ...(takeUp ? { takeUp: { ...takeUp, ...(envNote ? { note: envNote } : {}) } } : {}), timeouts: t.tmo, outLimits: t.outLimits, cmdShell: t.shell, compactVars: compactVarsFor(rawVars), noBg: t.noBg, diskWarnGib: warnGibFrom(body.setup && body.setup.vars, "DISK", PREFS.diskWarnGib), memWarnGib: warnGibFrom(body.setup && body.setup.vars, "MEMORY", PREFS.memWarnGib), searchLimits: t.searchLimits, hooks: turnHooks, autoMode: autoModeIn(body.autoMode), denyInstead: PREFS.denyInstead === true, tasksOff: varOff(rawVars.CODER_ENABLE_TASKS) || !taskToolsAvailable({ cloud: true, optIn: varOn(rawVars.CLAUDE_CODE_ENABLE_TODO_TOOLS) }), refreshTools: !gloopy && varOn(rawVars.CODER_ENABLE_REFRESH_MCP_TOOLS), mcpHeadersHelper: !gloopy && typeof rawVars.CODER_MCP_HEADERS_HELPER === "string" ? rawVars.CODER_MCP_HEADERS_HELPER : "", mentionsOff: varOn(rawVars.CODER_DISABLE_FILE_MENTIONS), stopCap: stopCapOf(rawVars.CODER_STOP_HOOK_BLOCK_CAP), box: !!t.box, autoOff: PREFS.autoOff === true || repoSet.autoOff, suggest: !gloopy && PREFS.suggestOff !== true && process.env.CODER_ENABLE_PROMPT_SUGGESTION !== "false", fileEdits: repoSet.defaultMode === "acceptEdits", startMode: repoSet.defaultMode, resumed, lastAt: Number(body.lastAt) || 0, hostLists: hostListsFor(nn.mode), rmChecksOff: { subst: varOn(rawVars.CODER_DISABLE_SUBSTITUTION_RM_PROMPT), inline: varOn(rawVars.CODER_DISABLE_INLINE_SHELL_RM_PROMPT), mounted: varOn(rawVars.CODER_DISABLE_MOUNTED_DRIVE_RM_PROMPT), timeout: varOn(rawVars.CODER_DISABLE_DANGEROUS_RM_TIMEOUT) }, powershell: psOn ? { bypass: !varOn(rawVars.CODER_POWERSHELL_RESPECT_EXECUTION_POLICY), defaultShell: String(rawVars.CODER_DEFAULT_SHELL || "").trim().toLowerCase() === "powershell", parseMs: Number(rawVars.CODER_PWSH_PARSE_TIMEOUT_MS) > 0 ? Math.min(Number(rawVars.CODER_PWSH_PARSE_TIMEOUT_MS), 60000) : 0 } : null, planExit: body.prePlanMode === "acceptEdits" ? "acceptEdits" : "auto", respondToBash: !varOff(rawVars.CODER_RESPOND_TO_BASH_COMMANDS), promptNotify: !varOn(rawVars.CODER_DISABLE_PERMISSION_PROMPT_NOTIFY_HOOKS), readBlock: varOn(rawVars.CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockReads, writeBlock: varOn(rawVars.CODER_BLOCK_WRITES_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockWrites, connectors: mcpCall ? connectors : [], connectorNotes: mcpCall && Array.isArray(body.connectorNotes) ? body.connectorNotes.slice(0, 10) : [], connectorsWaiting: Array.isArray(body.connectorsWaiting) ? body.connectorsWaiting.map(String).slice(0, 20) : [], connectorsFailed: Array.isArray(body.connectorsFailed) ? body.connectorsFailed.slice(0, 20) : [], connectorsGone: body.connectorsGone && typeof body.connectorsGone === "object" && !Array.isArray(body.connectorsGone) ? body.connectorsGone : null, checker, checkerInPlan: !varOff(rawVars.CODER_USE_AUTO_MODE_DURING_PLAN), checkWhere: { key: project, repo: String(body.repo || ""), branch: String(body.branch || (body.repo ? "coder/" + project : "")) }, emailMark: typeof body.emailMark === "string" && /^\d{1,3}:[0-9a-f]{64}(?:,\d{1,3}:[0-9a-f]{64})?$/.test(body.emailMark) ? body.emailMark : "", editDiff: bashEditDiffOn({ vars: rawVars, prefs: PREFS, repoOff: repoSet.editDiffOff, mode: t.mode }), checkpoints: checkpointsOn(rawVars), searchTools: body.searchTools === true, cleared: !gloopy && body.cleared === true, hookFacts: !gloopy && body.hookFacts && typeof body.hookFacts === "object" ? body.hookFacts : null, schedule: !gloopy && body.schedule && typeof body.schedule === "object" ? body.schedule : null, goal: !gloopy && body.goal && typeof body.goal.condition === "string" ? { condition: body.goal.condition.slice(0, 4000) } : null, mode: t.mode, rules: withRepoRules(body.rules, repoSet), sessionRules: body.sessionRules && typeof body.sessionRules === "object" ? body.sessionRules : null, language: gloopy ? "" : repoSet.language, cleanupDays: gloopy ? 0 : Number(repoSet.cleanupDays) || 0, customTitle: !gloopy && typeof body.customTitle === "string" ? body.customTitle.slice(0, 200) : "", shell: typeof body.shell === "string" ? body.shell.slice(0, 100_000) : "", messages: msgsIn, text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), ...(body.compact && typeof body.compact === "object" ? { compact: { focus: String(body.compact.focus || "").slice(0, 300) } } : {}), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, readOnly: { main: body.readOnly === true, extra: extras.filter((x) => x.readOnly).map((x) => x.repo.toLowerCase()) }, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), replyTo: body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null, ...effortFor(body, repoSet, env, t) , skills: gloopy || body.github === true ? [] : (() => { try { return withOwnerSkills(readSkills(dir), body.ownerSkills); } catch { return []; } })(), pluginAgents: gloopy || body.github === true ? [] : pluginAgentsFrom(body.pluginAgents), repoTrusted: !!(body.rules && body.rules.trust === true), ...(!gloopy && body.github !== true && Array.isArray(body.attached) ? { attached: body.attached.filter((x) => x && typeof x.id === "string").slice(0, 20), attachedLeft: Math.max(0, Math.min(1000, Number(body.attachedLeft) || 0)) } : {}), ...gloopyOpts }))
         // (Its job is over: a connector's question still waiting closes, coder-elicit.mjs.)
         .finally(() => { t.over = true; })
         // The last steps are sent BEFORE the end is handed out, so the Worker never saves the job while some are on their way.
@@ -6461,6 +6477,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
             if (t.writes) t.writes.check = null;
             t.ended = Date.now();
             t.running = false;
+            if (!gloopy) idleSoon(project, t);
           }
         });
     };
@@ -6501,6 +6518,36 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
    * to the highest hook timeout given, at most 60; CODER_SESSIONEND_HOOKS_TIMEOUT_MS sets it). Their output is not used.
    * Answers how many ran.
    */
+  /**
+   * IDLE_PROMPT NOTIFICATIONS (Claude Code: "Claude finished responding about 60 seconds ago and you haven't typed since", and
+   * "only if … no background agent … is still running"): a minute after a chat's job ends, its Notification hooks matching
+   * idle_prompt, unless another message started meanwhile. Command and HTTP hooks, run as SessionEnd's are. 2026-11-27.
+   */
+  const idleSoon = (project, t) => {
+    if (!t || !Array.isArray(t.hooksLast) || !hooksFor(t.hooksLast, "Notification", "idle_prompt").length || !(idlePromptMs > 0)) return;
+    if (t.idleTimer) clearTimeout(t.idleTimer);
+    t.idleTimer = setTimeout(() => { t.idleTimer = null; idleNow(project, t).catch(() => {}); }, idlePromptMs);
+    if (typeof t.idleTimer.unref === "function") t.idleTimer.unref();
+  };
+  const idleNow = async (project, t) => {
+    if (turns.get(project) !== t || t.running || !t.turnDeps || typeof t.turnDeps.exec !== "function") return 0;
+    if (t.result && Array.isArray(t.result.agentsRunning) && t.result.agentsRunning.length) return 0;
+    const list = hooksFor(t.hooksLast, "Notification", "idle_prompt").filter((h) => h.type === "command" || h.type === "http");
+    const input = hookInput("Notification", { session: project, transcript: "", cwd: String(t.cwd || t.home0 || ""), mode: hookModeName(t.mode || "auto", t.fileEdits) }, { message: "Coder is waiting for your input", notification_type: "idle_prompt", title: "Coder" });
+    let n = 0;
+    for (const h of list) {
+      if (h.type === "http" && !httpUrlAllowed(h.url, h.urlsAllowed)) continue;
+      const mark = "<<coder-hook-stderr-" + randomUUID().replace(/-/g, "").slice(0, 10) + ">>";
+      const allowed = (Array.isArray(h.allowedEnvVars) ? h.allowedEnvVars : []).filter((v) => !Array.isArray(h.envAllowed) || h.envAllowed.includes(v));
+      const one = h.type === "http"
+        ? { command: "node --no-warnings " + TOOLS_SCRIPT + " @REQUEST", payload: JSON.stringify({ tool: "http_hook", args: { url: h.url, headers: h.headers || {}, allowed, body: JSON.stringify(input), timeoutMs: Math.round(h.timeout * 1000) } }) }
+        : { command: hookShell(h, mark, String(t.home0 || "")), payload: JSON.stringify(input) };
+      t.box = boxAtEnd(t.box, BOX);
+      await Promise.resolve(t.turnDeps.exec({ ...one, timeoutS: h.timeout, tool: true, here: true, hook: true, noPrefix: h.type === "command" && (Array.isArray(h.args) || h.shell === "powershell") })).catch(() => null);
+      n++;
+    }
+    return n;
+  };
   const sessionEnd = async (reason = "other", { signal = "" } = {}) => {
     const runs = [], said = [], chats = [], t0 = Date.now();
     for (const [project, t] of turns) {
@@ -7033,6 +7080,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       return send(404, { error: "not found" });
     } catch (e) { return send(500, { error: String((e && e.message) || e).slice(0, 200) }); }
   };
+  handle.idleNow = (project) => idleNow(project, turns.get(project));
   handle.sessionEnd = sessionEnd;
   // (Gloopy's link from the owner's computer: a WebSocket upgrade, and the tunnel it uses.)
   handle.upgrade = upgrade;

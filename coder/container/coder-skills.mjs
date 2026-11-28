@@ -3,10 +3,11 @@
 // .claude/skills with a SKILL.md (front matter with its name and description, then its instructions); a file under
 // .claude/commands is one too (its name the file's). Coder is told each skill's name and description, loads one's whole text
 // with its skill tool (Claude Code's Skill) when the task matches, and the owner runs one by typing /name. Front-matter
-// options past the name, the description, disable-model-invocation and user-invocable (allowed-tools, context: fork, hooks,
-// paths) are not read yet.
+// options past the name, the description, disable-model-invocation, user-invocable and hooks (registered when the skill is
+// invoked, coder-fmhooks.mjs; 2026-11-27) are not read yet (allowed-tools, context: fork, paths).
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { frontmatterHooks } from "./coder-yaml.mjs";
 
 export const SKILLS_MAX = 50;
 export const SKILL_TEXT_MAX = 20_000;
@@ -40,8 +41,11 @@ export function skillFrom(text, fallbackName, dir) {
   // (No description: Claude Code takes the first paragraph of the instructions.)
   const first = body.split(/\r?\n\s*\r?\n/).map((p) => p.replace(/^#+\s*/gm, "").trim()).find(Boolean) || "";
   const description = String(meta.description || first).replace(/\s+/g, " ").trim().slice(0, SKILL_DESC_MAX);
-  return { name, description, body: body.slice(0, SKILL_TEXT_MAX), dir, model: !isTrue(meta["disable-model-invocation"]), user: !isFalse(meta["user-invocable"]), ...(skillAsks(meta) ? { asks: skillAsks(meta) } : {}) };
+  return { name, description, body: body.slice(0, SKILL_TEXT_MAX), dir, model: !isTrue(meta["disable-model-invocation"]), user: !isFalse(meta["user-invocable"]), ...(skillAsks(meta) ? { asks: skillAsks(meta) } : {}), ...(skillHooksField(text) ? { hooks: skillHooksField(text) } : {}) };
 }
+
+/** A skill's frontmatter hooks (Claude Code's "Hooks in skills and agents"; coder-fmhooks.mjs), or null. */
+function skillHooksField(text) { try { return frontmatterHooks(text); } catch { return null; } }
 
 /** The skills of the project at `root`: .claude/skills/<name>/SKILL.md, then .claude/commands/<name>.md (a skill's name wins). */
 export function readSkills(root) {

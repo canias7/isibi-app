@@ -71,6 +71,7 @@ import { PLUGIN_TOOLS, PLUGIN_TOOL_NAMES, pluginTool } from "./coder-plugins.mjs
 import { PROJECTS_TOOL, PROJECTS_TOOL_NAME, projectsTool } from "./coder-projects.mjs";
 import { CHROME_TOOLS, CHROME_TOOL_NAMES, chromeTool } from "./coder-chrome.mjs";
 import { checkAction, actionShown, autoDenied, checkUnavailable, blockedShown, limitWhy, checkerState, countBlock, countAllowed, resume, droppedInAuto, NO_VERDICT, NO_VERDICT_STOP, NOT_RUN_ROW, STOPPED_NO_VERDICT, noVerdictTold, noVerdictStopTold, NO_VERDICT_STOP_SHOWN, noVerdictWait, noPromptDenied } from "./coder-checker.mjs";
+import { githubMcpName } from "./coder-perms.mjs";
 import { psDecision, psPlanFile, toolGlob, MODES, MODE_NAMES, normMode, bashDecision, MONITOR_SETTINGS, namedForMonitor, fetchDecision, fileToolDecision, fileRuleHit, readCommand, fileCommandTargets, parseRule, allowRuleCovers, readBlockWhy, sensitiveWhy, linkOutWhy, ruleAskWhy, askedWhy, hookAskWhy, hookAskTold, planWriteWhy, planCallWhy, ccPath, RULE_MAX, REJECTED, REJECTED_SAID, NOT_NOW, PLAN_NOTE, PLAN_EXITED, AUTO_NOTE, AUTO_EXITED, planApproved, wholeReadOnly, movesWorkTree, monitorRules, partsAllowedByRules, discardsWork, wsDecision, wsProblem, wsAskText, wholeRule, MONITOR_BASH_DENIED, toolSearchParamRule, toolSearchParamDenied } from "./coder-perms.mjs";
 // (Claude Code's plan mode and ExitPlanMode, with its plan file: the owner, 2026-11-14, "Do all the talk to you tools execpt
 // for the notify one".)
@@ -81,6 +82,7 @@ import { fileNameOf } from "./gloopy-browser.mjs";
 import { needsCheck, stepWords, stepSends, gloopyCheck, gloopyMonitor, MONITOR_EVERY, MONITOR_MAX, ownerWords, cleanRules, cleanSites, siteFor, plain, decide, formWords, markedNote, taughtNote, requestWords, bodyPreview, CARD_TTL_MS, signinCheck, signinWarning, WARNINGS, readsInFull } from "./gloopy-check.mjs";
 import { cleanPermissions, permissionLabel } from "./gloopy-permissions.mjs";
 import { asText, asNumber } from "./coder-text.mjs";
+import { agentHooksOf, registerSkillHooks, onceSucceeded, withoutHook, hookSourceLabel, permissionSuggestions, authNotifications, ELICIT_NOTIFY_MS } from "./coder-fmhooks.mjs";
 import { AGENT_TOOL, LIST_AGENTS_TOOL, SEND_MESSAGE_TOOL, WORKFLOW_TOOL, SUBAGENT_HANDBACK_TOOL, AGENT_TOOL_NAMES, AGENT_TYPES, SUBAGENT_SYSTEM, SUBAGENT_ROUNDS, SUBAGENT_MS, WORKFLOW_PASS_S, subagentCaps, subagentBudget, subagentTools, agentToolCall, startAgent, takeBgAgents, stopBgTask, customAgentsFrom, agentFilesScript, agentFilesOf, agentWorktreeScript, agentWorktreeFinishScript, AGENT_ALIASES, agentToolFor } from "./coder-agents.mjs";
 /** A contact entry from the owner's Vault in one line (as gloopy-agent.mjs's contactWords, kept here to import nothing of it). */
 const contactWords = (x) => { const place = [x.line1, x.line2, x.city, [x.region, x.postal].filter(Boolean).join(" "), x.country].filter(Boolean).join(", "); return [x.nickname ? "“" + x.nickname + "”" : "", [x.name, place].filter(Boolean).join(", "), x.phone, x.email].filter(Boolean).join(" · "); };
@@ -2336,7 +2338,7 @@ export function ruleHoldsSecret(rule) {
   }
   return false;
 }
-export async function runCoder(deps, { notices = [], lost = [], stalls = [], promptNotify = true, timeouts = null, outLimits = null, noBg = false, respondToBash = true, shell = "", cmdShell = "", compactVars = null, messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, mode = "auto", rules = null, editDiff = false, readBlock = false, writeBlock = false, checker = false, checkerInPlan = true, checkWhere = null, emailMark = "", diskWarnGib = 0, memWarnGib = 0, hooks = null, autoMode = null, denyInstead = false, autoOff = false, planExit = "auto", hostLists = null, powershell = null, connectors = [], connectorNotes = [], connectorsWaiting = [], connectorsFailed = [], connectorsGone = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS , rmChecksOff = null, fileEdits = true, startMode = "", resumed = false, lastAt = 0, sessionRules = null, language = "", cleanupDays = 0, customTitle = "", compact = null, system = CODER_SYSTEM, tools = null, nudges = true, who = "Coder", browserRules: rulesIn = [], granted: grantedIn = [], schedules = [], opening = "user", permissions: permsIn = null, sites: sitesIn = [], monitor = false, ownerSaid: ownerSaidList = null, asHelper = false, helper = null, pages = [], savedLogins = [], savedCards = [], contacts = [], webhooks = [], hookBase = "/api/coder/gloopy-hook/", attached = [], attachedLeft = 0, workNote = "", marked = null, taught = null, files: keptFiles = [], background = false, checkWrites = false, denied: deniedIn = [], zone = "", searchLimits = null, takeUp = null, tasksOff = false, mentionsOff = false, holdBack = null, suggest = false, stopCap = STOP_BLOCK_CAP, box = false, skills = [], pluginAgents = null, checkpoints = true, searchTools = false, cleared = false, hookFacts = null, schedule = null, subagent = null, refreshTools = false, mcpHeadersHelper = "", goal = null } = {}) {
+export async function runCoder(deps, { notices = [], lost = [], stalls = [], promptNotify = true, timeouts = null, outLimits = null, noBg = false, respondToBash = true, shell = "", cmdShell = "", compactVars = null, messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, mode = "auto", rules = null, editDiff = false, readBlock = false, writeBlock = false, checker = false, checkerInPlan = true, checkWhere = null, emailMark = "", diskWarnGib = 0, memWarnGib = 0, hooks = null, autoMode = null, denyInstead = false, autoOff = false, planExit = "auto", hostLists = null, powershell = null, connectors = [], connectorNotes = [], connectorsWaiting = [], connectorsFailed = [], connectorsGone = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS , rmChecksOff = null, fileEdits = true, startMode = "", resumed = false, lastAt = 0, sessionRules = null, language = "", cleanupDays = 0, customTitle = "", compact = null, system = CODER_SYSTEM, tools = null, nudges = true, who = "Coder", browserRules: rulesIn = [], granted: grantedIn = [], schedules = [], opening = "user", permissions: permsIn = null, sites: sitesIn = [], monitor = false, ownerSaid: ownerSaidList = null, asHelper = false, helper = null, pages = [], savedLogins = [], savedCards = [], contacts = [], webhooks = [], hookBase = "/api/coder/gloopy-hook/", attached = [], attachedLeft = 0, workNote = "", marked = null, taught = null, files: keptFiles = [], background = false, checkWrites = false, denied: deniedIn = [], zone = "", searchLimits = null, takeUp = null, tasksOff = false, mentionsOff = false, holdBack = null, suggest = false, stopCap = STOP_BLOCK_CAP, box = false, skills = [], pluginAgents = null, checkpoints = true, searchTools = false, cleared = false, hookFacts = null, schedule = null, subagent = null, refreshTools = false, mcpHeadersHelper = "", goal = null, repoTrusted = false } = {}) {
   // (A connector's headersHelper, the environment's CODER_MCP_HEADERS_HELPER: its headers go with each connector call, and a
   // helper that fails stops the call. coder-mcphelper.mjs; 2026-11-23.)
   if (mcpHeadersHelper && typeof deps.mcp === "function" && typeof deps.exec === "function") deps = { ...deps, mcp: withHeadersHelper(deps.mcp, headersHelperFor(mcpHeadersHelper, deps.exec)) };
@@ -2351,7 +2353,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   const webCacheKey = deps && typeof deps.chatId === "string" && deps.chatId ? "chat:" + deps.chatId : "job:" + randomUUID();
   if (Array.isArray(tools)) tools = webFetchTools(tools, webFetch);
   // THE REPOSITORY'S SKILLS (coder-skills.mjs; the audit, 2026-11-20): Coder's chats only, never Gloopy's or a job from GitHub.
-  const skillList = Array.isArray(skills) && !Array.isArray(tools) && !github ? skills.filter((s) => s && typeof s.name === "string" && typeof s.body === "string").slice(0, 100) : [];
+  let skillList = Array.isArray(skills) && !Array.isArray(tools) && !github ? skills.filter((s) => s && typeof s.name === "string" && typeof s.body === "string").slice(0, 100) : [];
   const offered = Array.isArray(tools) ? new Set(tools.map((t) => t && t.function && t.function.name).filter(Boolean)) : null;
   // GLOOPY'S TOOLS HELD BACK UNTIL NEEDED (the owner, 2026-11-15: "yes fix it too"; gloopy-agent.mjs GLOOPY_HELD_BACK): those
   // of `holdBack` it is offered are named in tool search's note and sent only once tool_search has loaded them, from then on
@@ -2559,7 +2561,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     let nh = null, nb = null;
     try { nh = typeof deps.hooksNow === "function" ? deps.hooksNow() : null; } catch { nh = null; }
     // (A change after the first look waits for the ConfigChange hooks when there are any: configNow.)
-    const applyHooks = Array.isArray(nh) && nh !== hooksSeen ? ((v) => () => { hookList = okHooks(v); })(nh) : null;
+    const applyHooks = Array.isArray(nh) && nh !== hooksSeen ? ((v) => () => { hookList = [...okHooks(v), ...skillHooks]; })(nh) : null;
     const firstLook = hooksSeen === null;
     if (applyHooks) hooksSeen = nh;
     try { nb = typeof deps.blocksNow === "function" ? deps.blocksNow() : null; } catch { nb = null; }
@@ -2749,7 +2751,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     const callArgs = call.args || {};
     const input0 = call.monitor ? hookToolInput("monitor", call.monitorArgs || { command: callArgs.command, description: callArgs.description }) : hookToolInput(card.hookTool || card.tool, callArgs, pathAt());
     // (Its suggestions as Claude Code's entries: "rules is an array of {toolName, ruleContent?} objects".)
-    const sugg = Array.isArray(card.rules) && card.rules.length ? card.rules.map((r) => ruleEntry(r)).filter(Boolean).map((e) => ({ type: "addRules", rules: [e], behavior: "allow", destination: "localSettings" })) : [];
+    // (And its mode options as setMode entries, as the card shows them: permissionSuggestions. 2026-11-27.)
+    const sugg = permissionSuggestions(card, { autoOff: autoOff === true, ruleEntry });
     const o = await runHooks("PermissionRequest", tool, { tool_name: tool, tool_input: input0, ...(sugg.length ? { permission_suggestions: sugg } : {}) }, { tool, input: input0, ctx: { cwd: hookCtx().cwd, root: deps.root || "/", home: deps.home || "" }, ws: call.monitor === true && !!callArgs.ws });
     if (o && o.decision === "allow" && !(card.tool === "plan" && !o.updatedInput)) {
       // (ITS NEW INPUT, CHECKED BEFORE THE CALL RUNS, as Claude Code checks one: the same as the input shown to the hook, or an
@@ -2861,6 +2864,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     // (`told`, what Coder would be told where no one answers, is not the card's: round 6; nor `hooksMayAllow` and `askStays`:
     // hookYesIgnored.)
     const { told: _told, hooksMayAllow: _hooksMayAllow, askStays: _askStays, ...shownCard } = card;
+    // (A hook's ask names where the hook came from, Claude Code's label: [settings], [plugin:<name>] or [skill]. 2026-11-27.)
+    { const cc = calls0.find((x) => x && card && x.id === card.id); if (cc && cc.hook && cc.hook.decision === "ask" && cc.hook.from && !shownCard.hookFrom) shownCard.hookFrom = cc.hook.from; }
     if (!owed) emit({ type: "permission", pid, ...shownCard });
     // (The card's NOTIFICATION hooks, "permission_prompt": 6 seconds after the card shows, and not when the owner or one of its
     // PermissionRequest hooks answered sooner, as Claude Code's; off with CODER_DISABLE_PERMISSION_PROMPT_NOTIFY_HOOKS. Bash docs
@@ -2981,7 +2986,26 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   // ones of an event together. The owner sees each one's message and each one that failed; Coder, what it adds or blocks.
   const okHooks = (list) => (Array.isArray(list) ? list.filter((h) => h && HOOK_EVENTS.includes(h.event) && (h.type === "http" ? typeof h.url === "string" : h.type === "prompt" || h.type === "agent" ? typeof h.prompt === "string" : h.type === "mcp_tool" ? typeof h.server === "string" && typeof h.tool === "string" : typeof h.command === "string")) : []);
   // (Read again when the repository's settings files change mid-job: freshRules.)
-  let hookList = okHooks(hooks);
+  // SKILL HOOKS (Claude Code: a skill's frontmatter hooks run once the skill is invoked, for the rest of the conversation, and
+  // are removed by /clear; `once` removes one after its first successful run): those registered in this chat so far, kept by
+  // Coder's machine between messages (deps.skillHooks), joined to the turn's. 2026-11-27, coder-fmhooks.mjs.
+  let skillHooks = [];
+  try { const kept = deps.skillHooks && typeof deps.skillHooks.get === "function" ? deps.skillHooks.get() : null; skillHooks = okHooks(Array.isArray(kept) ? kept : []); } catch { skillHooks = []; }
+  if (cleared === true && !(Array.isArray(messages) && messages.length)) skillHooks = [];
+  const keepSkillHooks = () => { try { if (deps.skillHooks && typeof deps.skillHooks.set === "function") deps.skillHooks.set(skillHooks); } catch { /* this job only */ } };
+  if (cleared === true) keepSkillHooks();
+  let hookList = [...okHooks(hooks), ...skillHooks];
+  /** A skill just invoked: its frontmatter hooks join the chat's (once per skill), within Claude Code's limits per source. */
+  const skillInvoked = (sk) => {
+    if (!sk || !sk.hooks || offered) return;
+    const r = registerSkillHooks(skillHooks, sk, sk.plugin ? String(sk.plugin) : sk.owner ? "personal" : "project");
+    if (r.refused) { emit({ type: "note", text: scrub(r.refused).slice(0, 300), warn: true }); return; }
+    if (!r.added) return;
+    const fresh = okHooks(r.list.slice(skillHooks.length));
+    skillHooks = [...skillHooks, ...fresh]; hookList = [...hookList, ...fresh]; keepSkillHooks();
+  };
+  /** A `once` skill hook that ran successfully: removed (Claude Code: "removes the hook after its first successful run"). */
+  const onceRan = (h) => { skillHooks = withoutHook(skillHooks, h); hookList = withoutHook(hookList, h); keepSkillHooks(); };
   // (THE OWNER'S MESSAGE'S ID, Claude Code's prompt_id: "UUID identifying the user prompt currently being processed … Absent
   // until the first user input"; Bash docs pass 8. A turn with no message of the owner's has none.)
   const promptId = typeof text === "string" && text.trim() ? randomUUID() : "";
@@ -3152,11 +3176,12 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   const callTool = (c) => (c.monitor ? "Monitor" : c.ps ? "PowerShell" : ccTool(c.name));
   // (What hooks see as a call's input: a monitor's own, never the background bash call Coder makes of it; Bash docs pass 9.)
   // (A file tool's path in full, as Claude Code gives its tool events; `at` null: as Grok gave it, for PostToolBatch. Round 6.)
-  const callInput = (c, at = pathAt()) => (c.monitor && c.monitorArgs ? hookToolInput("monitor", c.monitorArgs) : hookToolInput(c.name, c.args, at));
-  const runHooks = async (event, value, extra, call = null) => {
+  const callInput = (c, at = pathAt(), asSent = false) => (c.monitor && c.monitorArgs ? hookToolInput("monitor", c.monitorArgs) : hookToolInput(c.name, c.args, at, { asSent }));
+  const runHooks = async (event, value, extra, call = null, more = null) => {
     // (The call taken up again after its job paused ran its PreToolUse hooks before its card showed: not twice.)
     if (event === "PreToolUse" && taking && !taking.used && extra && extra.tool_use_id === taking.callId) return null;
-    const list = hookList.length ? hooksFor(hookList, event, value, call) : [];
+    // (`more`: hooks for this one run, a subagent's frontmatter SubagentStop hooks.)
+    const list = [...(hookList.length ? hooksFor(hookList, event, value, call) : []), ...(Array.isArray(more) && more.length ? hooksFor(more, event, value, call) : [])];
     if (!list.length) return null;
     // (An MCP tool's server, as Claude Code's tool events carry it: mcp_server, coder-hooks.mjs withMcpServer. D2 of recheck 3.)
     const input = hookInput(event, { ...hookCtx(), transcript: transcriptNow() }, withMcpServer(event, extra, (n) => (mcpByName.get(n) || {}).connector));
@@ -3174,7 +3199,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     // Claude Code's hooks reference. Bash docs pass 9.)
     const slots = { free: MODEL_HOOKS_AT_ONCE, wait: [] };
     const slot = async (h) => { if (h.type !== "prompt" && h.type !== "agent") return () => {}; if (slots.free > 0) slots.free--; else await new Promise((ok) => slots.wait.push(ok)); return () => { const next = slots.wait.shift(); if (next) next(); else slots.free++; }; };
-    const runs = await Promise.all(now0.map(async (h) => { const done = await slot(h); let ran; try { ran = await runHook(h, inputFor(h)); } finally { done(); } let kept = ran; try { kept = persistHookText(event, ran, saveText); } catch { /* as it ran */ } const r = hookResultSafe(event, kept, h); return { hook: h, result: h.noGrant ? withoutGrant(event, r) : r }; }));
+    const runs = await Promise.all(now0.map(async (h) => { const done = await slot(h); let ran; try { ran = await runHook(h, inputFor(h)); } finally { done(); } let kept = ran; try { kept = persistHookText(event, ran, saveText); } catch { /* as it ran */ } const r = hookResultSafe(event, kept, h); if (h.once && onceSucceeded(ran, r)) onceRan(h); return { hook: h, result: h.noGrant ? withoutGrant(event, r) : r }; }));
     // (A PostToolUse hook's new output, checked against the tool's output shape and shown through its own text: the call's
     // `rewrite`, coder-hookcheck.mjs.)
     const o = hooksOutcome(event, runs, { tool: value, rewrite: call && typeof call.rewrite === "function" ? call.rewrite : null });
@@ -3250,8 +3275,14 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         const shown = q.display && typeof q.display === "object" ? q.display : {};
         const words = Object.fromEntries([["title", 2000], ["displayName", 2000], ["description", 20_000]].filter(([k]) => typeof shown[k] === "string" && shown[k].trim()).map(([k, n]) => [k, scrub(shown[k]).slice(0, n)]));
         emit({ type: "elicit", pid, connector: String(q.server || "").slice(0, 80), tool: String(t.label || c.name).slice(0, 120), mode, message: scrub(String(q.message)).slice(0, 20_000), ...(mode === "url" ? { url: String(q.url).slice(0, 20_000) } : { requestedSchema: q.requestedSchema, order: Array.isArray(q.order) ? q.order.slice(0, 200) : Object.keys((q.requestedSchema && q.requestedSchema.properties) || {}) }), ...words });
+        // (Its Notification hooks, elicitation_dialog for a form or elicitation_url_dialog for a link, about six seconds after
+        // the card shows when it is still unanswered: Claude Code's "An MCP server opens an elicitation form and you haven't
+        // typed for about six seconds". 2026-11-27.)
+        const nMs = Number.isFinite(Number(deps.elicitNotifyMs)) && Number(deps.elicitNotifyMs) >= 0 ? Number(deps.elicitNotifyMs) : ELICIT_NOTIFY_MS;
+        const nType = mode === "url" ? "elicitation_url_dialog" : "elicitation_dialog";
+        const nTimer = hookList.some((h) => h && h.event === "Notification") ? setTimeout(() => { runHooks("Notification", nType, { message: String(q.server || server || "A connector") + (mode === "url" ? " asks you to open a link" : " asks you to fill in a form"), notification_type: nType, title: String(q.server || server || "").slice(0, 80) }).catch(() => {}); }, nMs) : null;
         let a = null;
-        try { a = await deps.ask(pid, { until: started + maxMs, gone: () => e.gone }); } catch { a = null; }
+        try { a = await deps.ask(pid, { until: started + maxMs, gone: () => e.gone }); } catch { a = null; } finally { if (nTimer) clearTimeout(nTimer); }
         // (Withdrawn by the server just as the owner answered: no answer goes.)
         if (e.gone && !(a && a.choice === "stop")) a = { choice: "gone" };
         if (a && a.choice === "stop") { stopped = true; for (const f of stopping.splice(0)) f(); }
@@ -4006,7 +4037,17 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     const cost = answered ? resumeCost({ chars: CODER_SYSTEM.length + String(context || "").length + JSON.stringify(messages.map((m) => (m && m.images ? { ...m, images: [] } : m))).length, lastAt, now: now() }) : {};
     const o = await runHooks("SessionStart", source, { source, ...(model ? { model } : {}), ...cost, ...titleOn() });
     if (o && o.context.length) convo.push({ role: "user", appNote: true, content: hookNote("SessionStart", o.context) });
+    // (reloadSkills: "re-scans the skill and command directories after the SessionStart hooks complete", so skills a hook wrote
+    // are there for this message: Coder's machine reads them again, deps.reloadSkills.)
+    if (o && o.reloadSkills && typeof deps.reloadSkills === "function" && !github && !Array.isArray(tools)) { try { const again = await deps.reloadSkills(); if (Array.isArray(again)) skillList = again.filter((x) => x && typeof x.name === "string" && typeof x.body === "string").slice(0, 100); } catch { /* the skills as read */ } }
+    // (initialUserMessage: "the first user message of the session … It becomes the first turn even if you pass no prompt. A
+    // prompt you do pass follows as the next turn": on a new conversation, never on a resume.)
+    if (o && o.initialUserMessage && source !== "resume") { const first = scrub(o.initialUserMessage); convo.push({ role: "user", content: first }); emit({ type: "note", text: "SessionStart hook's first message: " + first.slice(0, 2000), hook: "SessionStart" }); }
   }
+  // (Notification hooks for a connector's sign-in since the chat's last message: auth_success, or auth_storage_failure when it
+  // could not be saved; the Worker says which, hookFacts.auth. Claude Code: "Authentication completes"; "Fires in place of
+  // auth_success".)
+  if (hookList.length && hookFacts && Array.isArray(hookFacts.auth)) for (const n of authNotifications(hookFacts.auth)) await runHooks("Notification", n.notification_type, n).catch(() => null);
   // INSTRUCTIONSLOADED HOOKS (Claude Code: "Fires when a CLAUDE.md or .claude/rules/*.md file is loaded into context … at
   // session start for eagerly loaded files"; "It runs asynchronously for observability purposes"; matched on load_reason):
   // the instruction files in the chat's context when it starts or its machine started again, as SessionStart. 2026-11-27.
@@ -4081,7 +4122,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       // THE OWNER'S /skill-name (Claude Code: "invoke it directly with /skill-name"): the skill's whole text goes to Coder with
       // the message, as Claude Code loads it, unless a rule denies that skill.
       const sl = skillList.length ? slashSkill(text, skillList) : null;
-      if (sl && !toolDenied("skill") && !skillRule(ownRules, "deny", sl.skill.name, parseRule)) { convo.push({ role: "user", appNote: true, content: "<command-name>/" + sl.skill.name + "</command-name>\n" + skillLoaded(sl.skill, sl.args) }); emit({ type: "note", text: "Loaded the skill " + sl.skill.name + "." }); }
+      if (sl && !toolDenied("skill") && !skillRule(ownRules, "deny", sl.skill.name, parseRule)) { convo.push({ role: "user", appNote: true, content: "<command-name>/" + sl.skill.name + "</command-name>\n" + skillLoaded(sl.skill, sl.args) }); emit({ type: "note", text: "Loaded the skill " + sl.skill.name + "." }); skillInvoked(sl.skill); }
       }
     }
     // (No "Not signed in yet" note on every message: owner, 2026-11-16. Like Claude Code, Coder knows which connectors
@@ -4378,7 +4419,9 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   // (Without a rule, a push to the chat's own branch goes as Claude Code's cloud session's does, with no card.)
   // → { go: true } or { go: false, why, shown?, outcome?, a? }.
   const pushCommandOf = (kind, title) => (kind === "pull_request" ? "gh pr create --title " + JSON.stringify(String(title || "").slice(0, 200)) : "git push origin " + String((checkWhere && checkWhere.branch) || "HEAD"));
-  const pushGate = async (id, kind, title = "") => {
+  const pushGate = async (id, kind, title = "", c = null) => {
+    // (Its card and hooks are the GitHub tool's, mcp__github__<tool>, never Bash's. 2026-11-27.)
+    const ghTool = githubMcpName(kind) || kind;
     if (github || offered) return { go: true };
     const command = pushCommandOf(kind, title);
     const m = modeNow();
@@ -4386,7 +4429,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     try { d = bashDecision(command, { mode: m, rules: ownRules, cwd: deps.root || "/", workdirs: [deps.root || "/"], home: deps.home || "" }); } catch { d = null; }
     if (d && d.verdict === "deny" && d.rule) return { go: false, why: d.why };
     if (d && d.verdict === "ask" && d.rule) {
-      const card = { tool: "bash", id, what: scrub(command).slice(0, 300), why: d.why, told: d.told || "" };
+      const card = { tool: "bash", hookTool: ghTool, id, what: scrub(command).slice(0, 300), why: d.why, told: d.told || "" };
       const a = canAsk() ? await askOwner(card) : await noOneHooks(card);
       if (!a) return { go: false, why: d.told || d.why };
       const o = answerOutcome(a);
@@ -4396,11 +4439,11 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     if (checker && modeChecks(m)) {
       const v = await checkAction(deps, { model, convo, skipId: id, context, notes: checkerNotes, action: actionShown("bash", { command }), mode: m === "plan" ? "plan" : "auto", repo: (checkWhere && checkWhere.repo) || "", branch: (checkWhere && checkWhere.branch) || "", workdir: deps.root || "", auto: autoMode });
       if (v && v.usage) usage.push(v.usage);
-      if (v && !v.error && v.decision === "block") { const why0 = "[" + v.rule + "]" + (v.reason ? " " + v.reason : ""); return { go: false, why: autoDenied(why0), shown: blockedShown(v.rule, v.reason) }; }
+      if (v && !v.error && v.decision === "block") { const why0 = "[" + v.rule + "]" + (v.reason ? " " + v.reason : ""); const more = c ? await deniedHooks(c, why0) : ""; return { go: false, why: autoDenied(why0) + more, shown: blockedShown(v.rule, v.reason) }; }
       // (No verdict: the owner is asked, as Claude Code asks when its checker cannot answer.)
       if (v && v.error) {
         if (!canAsk()) return { go: false, why: checkUnavailable(model || "The classifier", "Bash", typeof v.why === "string" ? v.why : "") };
-        const a = await askOwner({ tool: "bash", id, what: scrub(command).slice(0, 300), why: "The auto mode checker could not decide about this push." });
+        const a = await askOwner({ tool: "bash", hookTool: ghTool, id, what: scrub(command).slice(0, 300), why: "The auto mode checker could not decide about this push." });
         const o = a ? answerOutcome(a) : "no";
         if (o !== "go") return { go: false, outcome: o, a, why: o === "said" ? saidReply(a) : REJECTED };
       }
@@ -4474,19 +4517,21 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       },
       // (SubagentStart: matched on the agent's type; its additionalContext goes to the agent. SubagentStop: a block or
       // additionalContext keeps the agent going with that as its next instruction.)
+      agentHooks: (def) => agentHooksOf(def, { trusted: repoTrusted === true }),
+      note: (t) => emit({ type: "note", text: scrub(String(t)).slice(0, 400), warn: true }),
       hookStart: async (id, type) => { const o = hookList.length ? await runHooks("SubagentStart", type, { agent_id: id, agent_type: type }) : null; return o ? o.context : []; },
-      hookStop: async ({ agentId, type, active, last, messages: subMsgs }) => {
-        if (!hookList.length) return "";
+      hookStop: async ({ agentId, type, active, last, messages: subMsgs, hooks: fmStop }) => {
+        if (!hookList.length && !(Array.isArray(fmStop) && fmStop.length)) return "";
         // (agent_transcript_path: "the subagent's own transcript stored in a nested subagents/ folder", written now;
         // background_tasks and session_crons: "scoped to the parent session, not the subagent". 2026-11-27.)
         let agentTranscript = "";
         if (typeof deps.transcript === "function" && Array.isArray(subMsgs)) { try { agentTranscript = String(deps.transcript(subMsgs, { model, agent: String(agentId || "") }) || ""); } catch { agentTranscript = ""; } }
-        const o = await runHooks("SubagentStop", type, { stop_hook_active: active, agent_id: agentId, agent_type: type, agent_transcript_path: agentTranscript, last_assistant_message: scrub(last).slice(0, 20000), background_tasks: backgroundTasks(jobs, agentBg), session_crons: sessionCrons(cronSt) });
+        const o = await runHooks("SubagentStop", type, { stop_hook_active: active, agent_id: agentId, agent_type: type, agent_transcript_path: agentTranscript, last_assistant_message: scrub(last).slice(0, 20000), background_tasks: backgroundTasks(jobs, agentBg), session_crons: sessionCrons(cronSt) }, null, Array.isArray(fmStop) ? okHooks(fmStop) : null);
         if (!o || o.stop) return "";
         if (o.decision === "block") return o.blocks.join("\n") || o.reason || "";
         return o.context.length ? "SubagentStop hook feedback:\n" + o.context.join("\n") : "";
       },
-      startSub: ({ type, prompt, messages: past, label, emit: subEmit, model: m, effort: ef, toolNames, system: sys, maxRounds: mr, cwd, agentId, stopReq }) => runCoder({ ...deps, emit: subEmit, subagentBudget: agentBudget, ...(typeof deps.transcript === "function" ? { transcript: (c, o = {}) => { if (o && o.agent) return deps.transcript(c, o); try { deps.transcript(c, { ...o, agent: String(agentId || "") }); } catch { /* the main one still */ } return transcriptNow(); } } : {}), ...(cwd ? inFolder(deps, cwd) : {}), ...(typeof stopReq === "function" ? { stopped: async () => stopReq() || (await stopped()) } : {}) }, { text: prompt, messages: past || [], system: (sys || SUBAGENT_SYSTEM + (AGENT_TYPES[type] && AGENT_TYPES[type].note ? "\n\n" + AGENT_TYPES[type].note : "")) + (cwd ? "\n\n" + worktreeNotice(deps.root || "", cwd) : ""), tools: subagentTools(subTools, type, toolNames, { mode: modeNow() }), context, base, model: m || model, effort: ef || effort, mode: modeNow(), rules, hooks, denyInstead, nudges: false, who: "Coder's agent “" + label + "”", asHelper: true, github: false, tasksOff: true, maxRounds: mr || SUBAGENT_ROUNDS, maxMs: Math.min(SUBAGENT_MS, left), subagent: { id: agentId || "", type } }),
+      startSub: ({ type, prompt, messages: past, label, emit: subEmit, model: m, effort: ef, toolNames, system: sys, maxRounds: mr, cwd, agentId, stopReq, hooks: fmOwn }) => runCoder({ ...deps, emit: subEmit, subagentBudget: agentBudget, ...(typeof deps.transcript === "function" ? { transcript: (c, o = {}) => { if (o && o.agent) return deps.transcript(c, o); try { deps.transcript(c, { ...o, agent: String(agentId || "") }); } catch { /* the main one still */ } return transcriptNow(); } } : {}), ...(cwd ? inFolder(deps, cwd) : {}), ...(typeof stopReq === "function" ? { stopped: async () => stopReq() || (await stopped()) } : {}) }, { text: prompt, messages: past || [], system: (sys || SUBAGENT_SYSTEM + (AGENT_TYPES[type] && AGENT_TYPES[type].note ? "\n\n" + AGENT_TYPES[type].note : "")) + (cwd ? "\n\n" + worktreeNotice(deps.root || "", cwd) : ""), tools: subagentTools(subTools, type, toolNames, { mode: modeNow() }), context, base, model: m || model, effort: ef || effort, mode: modeNow(), rules, hooks: Array.isArray(fmOwn) && fmOwn.length ? [...hookList, ...fmOwn] : hookList, denyInstead, nudges: false, who: "Coder's agent “" + label + "”", asHelper: true, github: false, tasksOff: true, maxRounds: mr || SUBAGENT_ROUNDS, maxMs: Math.min(SUBAGENT_MS, left), subagent: { id: agentId || "", type } }),
       step: typeof deps.workflowStep === "function" ? deps.workflowStep : async (a) => { const r = await appTool(deps, "workflow_step", a, { timeoutS: WORKFLOW_PASS_S }); try { return JSON.parse(r.output); } catch { return { status: "error", error: r.output.trim().slice(0, 400) || "the script's pass failed" }; } },
       writeText: async (p, text) => { const b64 = Buffer.from(String(text), "utf8").toString("base64"); const q = "'" + String(p).replace(/'/g, "'\\''") + "'"; const r = await shRun("mkdir -p -- \"$(dirname -- " + q + ")\" && printf %s '" + b64 + "' | base64 -d > " + q, 20); if (!r || r.code !== 0) throw new Error("could not write " + p); },
       readText: async (p) => { try { const r = await deps.exec({ command: "cat -- '" + String(p).replace(/'/g, "'\\''") + "'", timeoutS: 15, tool: true }); return r && r.code === 0 ? { text: String(r.output || "") } : { error: "could not read " + p }; } catch { return { error: "could not read " + p }; } },
@@ -5874,7 +5919,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           }
           if (args1) c.args = args1;
         } else if (pre && pre.updatedInput) { const ni = toolInputFromHook(c.name, pre.updatedInput); if (ni) c.args = ni; }
-        if (pre) c.hook = { decision: pre.decision, reason: scrub(pre.reason || ""), context: pre.context, ...(pre.updatedInput ? { updated: true } : {}) };
+        if (pre) c.hook = { decision: pre.decision, reason: scrub(pre.reason || ""), context: pre.context, ...(pre.updatedInput ? { updated: true } : {}), ...(pre.decision === "ask" && pre.from ? { from: hookSourceLabel(pre.from) } : {}) };
         postFor = c;
       }
       ranAt.set(c.id, now());
@@ -8000,6 +8045,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         }
         emit({ type: "result", id: c.id, code: 0, output: "Loaded " + sk.name });
         reply("Launching skill: " + sk.name + "\n\n" + skillLoaded(sk, String((c.args && c.args.args) || "")));
+        skillInvoked(sk);
       } else if (c.name === "rename_chat") {
         if (github) { reply("error: the chat is renamed from gofarther.dev, not from GitHub"); continue; }
         const title = chatTitleOf(scrub(String(c.args.title || "")));
@@ -8071,7 +8117,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
             if (here && here.kind === "HOOKWT") { no("error: Already in a worktree session: from inside a worktree only path works, under .claude/worktrees/"); continue; }
             const w = await worktreeByHook(name);
             if (w.error) { no("error: " + w.error); continue; }
-            const e = markOf((await run(enterHookWorktreeScript(w.path), "Enter worktree")).output);
+            let e0; try { e0 = await deps.exec({ command: enterHookWorktreeScript(w.path), timeoutS: 120, here: true, follow: true, desc: "Enter worktree", addRoot: w.path }); } catch (er) { e0 = { code: -1, output: String((er && er.message) || er) }; }
+            const e = markOf(e0 && e0.output);
             if (!e || e.kind !== "OK") { no("error: " + (e && e.kind === "ERR" ? e.rest : "could not enter the worktree")); continue; }
             const wtp = e.rest.split("|")[0];
             const saidH = "Created worktree at " + wtp + " (made by the WorktreeCreate hook). Your commands now start in the worktree. Use exit_worktree to leave it.";
@@ -8227,7 +8274,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // committed and pushed by the machine with the job's git pass; queued for the turn's end only when that cannot be
         // done here (a job started from GitHub, as before, or an older machine).
         if (!github) {
-          const g = await pushGate(c.id, "push_branch");
+          const g = await pushGate(c.id, "push_branch", "", c);
           if (!g.go) { if (g.outcome === "stop") return stopNow(reply); if (g.outcome === "no") { reply(REJECTED); return noEnd(i, "stopped: the owner said no"); } pushRefused(c.id, "push_branch", g, reply); continue; }
         }
         const now = github ? null : await pushNowStep(c.id, String((c.args && c.args.message) || ""));
@@ -8250,7 +8297,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // OPENED NOW (2026-11-16, like Claude Code's cloud session: its pull request exists mid-turn, and its comments can be
         // read in the same turn): pushed by the machine, then opened by Coder's server with the owner's token (never here).
         if (!github && typeof deps.pushNow === "function" && typeof deps.envApi === "function") {
-          const g = await pushGate(c.id, "pull_request", one.title);
+          const g = await pushGate(c.id, "pull_request", one.title, c);
           if (!g.go) { if (g.outcome === "stop") return stopNow(reply); if (g.outcome === "no") { reply(REJECTED); return noEnd(i, "stopped: the owner said no"); } pushRefused(c.id, "pull_request", g, reply); continue; }
           const p = await pushNowStep(c.id, one.title, "pull_request", repo ? "" : one.branch || "");
           if (p.ok) {
@@ -8464,8 +8511,11 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // (2026-11-19: a program error in one call, as from input of a type nothing expected, is that call's error answer,
         // as Claude Code answers a failed tool call; the job goes on.)
         if (!offered && (e instanceof TypeError || e instanceof RangeError)) {
-          if (postFor && postFor.id === calls[i].id) postFor = null;
           if (!answeredNow(calls[i].id)) convo.push({ role: "tool", tool_call_id: calls[i].id, content: "error: this call failed: " + String(e.message || e).slice(0, 200) });
+          // (Its PostToolUseFailure hooks run, as for any call that failed as it ran: Claude Code's "after a tool call fails".
+          // 2026-11-27.)
+          { const was = resultsSeen.get(calls[i].id); if (!was || was.ok || was.code === 0 || was.code === -1) resultsSeen.set(calls[i].id, { ...(was || {}), code: 1, ok: false, ran: true, crashed: true }); }
+          if (hookList.length && !(postFor && postFor.id !== calls[i].id)) postFor = calls[i];
           continue;
         }
         if (offered || !(e instanceof RoundClosing || (e instanceof Parked && !closing))) throw e;
@@ -8502,7 +8552,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         try { a = typeof f.arguments === "string" ? JSON.parse(f.arguments || "{}") : f.arguments; } catch { a = null; }
         return [t && typeof t.id === "string" && t.id ? t.id : "call_" + k, { name: String(f.name || ""), args: a }];
       }));
-      const sentInput = (c) => { const x = sent.get(c.id); return x && x.args && typeof x.args === "object" && !Array.isArray(x.args) ? hookToolInput(x.name, x.args) : callInput(c, null); };
+      const sentInput = (c) => { const x = sent.get(c.id); return x && x.args && typeof x.args === "object" && !Array.isArray(x.args) ? hookToolInput(x.name, x.args, null, { asSent: true }) : callInput(c, null, true); };
       const b = await runHooks("PostToolBatch", "", { tool_calls: calls.map((c) => ({ tool_name: callTool(c), tool_input: sentInput(c), tool_use_id: c.id, tool_response: answerOf(c.id) })) });
       if (b && b.context.length) roundNotes.push(hookNote("PostToolBatch", b.context));
       if (b && (b.stop || b.decision === "block")) {

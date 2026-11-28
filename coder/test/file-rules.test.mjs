@@ -753,10 +753,10 @@ test("R6R1 (round 6) read's, write's and edit's path reaches their hooks in full
   // over 4,096 characters; and a ~ one with no home folder known.
   for (const given of ["a /.", "x\u0000y", "a".repeat(4097)]) assert.equal(H.hookPath(given, at), given);
   assert.equal(H.hookPath("~/x", { cwd: ROOT }), "~/x");
-  // The input: both of Coder's names, in full, for read, write and edit only; without `at`, as Grok gave it.
-  assert.deepEqual(H.hookToolInput("write", { path: "src/a.ts", content: "x" }, at), { path: ROOT + "/sub/src/a.ts", content: "x", file_path: ROOT + "/sub/src/a.ts" });
+  // The input: Claude Code's file_path only (2026-11-27), in full, for read, write and edit only; without `at`, as Grok gave it.
+  assert.deepEqual(H.hookToolInput("write", { path: "src/a.ts", content: "x" }, at), { content: "x", file_path: ROOT + "/sub/src/a.ts" });
   assert.deepEqual(H.hookToolInput("read", { file_path: "~/n.md" }, at), { file_path: HOME + "/n.md" });
-  assert.deepEqual(H.hookToolInput("edit", { path: "a.ts", old_string: "a", new_string: "b" }), { path: "a.ts", old_string: "a", new_string: "b", file_path: "a.ts" });
+  assert.deepEqual(H.hookToolInput("edit", { path: "a.ts", old_string: "a", new_string: "b" }), { old_string: "a", new_string: "b", file_path: "a.ts" });
   assert.deepEqual(H.hookToolInput("grep", { pattern: "x", path: "src" }, at), { pattern: "x", path: "src" });
   assert.deepEqual(H.hookToolInput("glob", { pattern: "*.ts", path: "src" }, at), { pattern: "*.ts", path: "src" });
   assert.deepEqual(H.hookToolInput("lsp", { operation: "hover", filePath: "src/a.ts", line: 1, character: 1 }, at), { operation: "hover", filePath: "src/a.ts", line: 1, character: 1 });
@@ -801,7 +801,7 @@ test("R6R1 (round 6) read's, write's and edit's path reaches their hooks in full
   ], { here: sub, home: HOME, hooks, hookRun, ask, rules: { ask: ["Edit(src/e.txt)"] } });
   const ev = (name, tool) => t.hookCalls.filter((x) => x.hook_event_name === name && (!tool || x.tool_name === tool));
   const full = (f) => join(sub, "src", f);
-  assert.deepEqual(ev("PreToolUse", "Read").map((x) => [x.tool_input.file_path, x.tool_input.path]), [[full("a.txt"), full("a.txt")], [full("none.txt"), full("none.txt")]]);
+  assert.deepEqual(ev("PreToolUse", "Read").map((x) => [x.tool_input.file_path, x.tool_input.path]), [[full("a.txt"), undefined], [full("none.txt"), undefined]]);
   assert.deepEqual(ev("PostToolUse", "Read").map((x) => x.tool_input.file_path), [full("a.txt")]);
   assert.deepEqual(ev("PostToolUseFailure", "Read").map((x) => x.tool_input.file_path), [full("none.txt")]);
   assert.deepEqual(ev("PermissionRequest", "Write").map((x) => x.tool_input.file_path), [full("e.txt")]);
@@ -824,7 +824,7 @@ test("R6R1 (round 6) read's, write's and edit's path reaches their hooks in full
   assert.match(agentSrc, /const pathAt = \(\) => \(\{ cwd: hookCtx\(\)\.cwd, home: String\(deps\.home \|\| ""\) \}\);/);
   assert.equal((agentSrc.match(/hookToolInput\((?:x|c)\.name, (?:c\.)?args, pathAt\(\)\)/g) || []).length, 3, "PreToolUse: its if, its group's start, its turn");
   assert.match(agentSrc, /hookToolInput\(card\.hookTool \|\| card\.tool, callArgs, pathAt\(\)\)/);
-  assert.match(agentSrc, /const callInput = \(c, at = pathAt\(\)\) =>/);
+  assert.match(agentSrc, /const callInput = \(c, at = pathAt\(\), asSent = false\) =>/);
   assert.match(agentSrc, /tool_input: sentInput\(c\)/);
   assert.match(agentSrc, /hookInputCheck\(c\.name, u, "PreToolUse", c\.args\)/);
   assert.match(agentSrc, /hookInputCheck\(name0, upd, "PermissionRequest", callArgs\)/);

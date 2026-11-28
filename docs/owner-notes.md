@@ -23,6 +23,33 @@ I wrote docs/terminal-coder-plan.md: how a `coder` command on your own computer 
 work like Claude Code in the terminal, reusing Coder's agent loop and safety checks, with Grok called only through
 gofarther.dev after an emailed-code sign-in. It covers the screen, sign-in, the server doors needed, where chats are saved,
 safety on a personal computer, phases (about 6-8 weeks), tests and risks. Nothing is built yet, and no paid call was made.
+## 2026-11-27: Hooks finished the Claude Code way, and Escape no longer stops the next job
+
+- **Escape bug fixed:** pressing Escape after a settings or environment window had closed could leave a stop behind, and the
+  next message ended at once with "Stopped." Now Escape stops a job only if one is running at that moment. With nothing
+  running it does nothing, it never saves a stop for later, and it does nothing while a window, menu or card is open.
+- **Hooks in skills:** a skill's file can now have hooks, like Claude Code. They start when the skill is used, stay for the
+  rest of the chat, and /clear removes them. "once" removes one after it first works.
+- **Hooks in agent files:** an agent's hooks run only while that agent runs, and its Stop hook runs when it finishes. For a
+  repository's agent they run only after you turn on "Trust this repository's settings".
+- **SessionStart** hooks can now give the chat's first message (initialUserMessage) and ask Coder to read the skills again
+  (reloadSkills).
+- **New notifications for hooks:** idle (a minute after Coder finishes with no new message), connector sign-in finished or
+  not saved, and a connector's form or link still waiting after about 6 seconds.
+- **Approval cards:** Coder now works out where an asking hook came from ([settings], [plugin:name] or [skill]) and sends it
+  with the card, but the page doesn't show it (you asked for no hooks UI on the page). A PermissionRequest hook's
+  permission_suggestions now include the mode options the card shows.
+- **Fixed from the live test:** a worktree made by a WorktreeCreate hook now really becomes the chat's folder (and
+  exit_worktree finds it); ConfigChange now fires when Coder edits .claude/settings.json during a job; /add-dir is a command
+  now (it adds a working folder; DirectoryAdded hooks run with your next message). Pressing Stop while a command runs still
+  fires no PostToolUseFailure: Claude Code's docs say cancelling a running tool doesn't fire it.
+- **GitHub tools in hooks** are now named mcp__github__push_branch and so on, as Claude Code names connector tools. The push
+  card's hooks see the GitHub tool, not Bash. A checker refusal of a push now runs PermissionDenied hooks. A step that
+  crashes now runs PostToolUseFailure hooks. Edit's hook input uses old_string and new_string and no extra path field.
+- Still not done: a Bash step's stderr is still mixed into stdout for hooks.
+- The spreadsheet's Hook details and Hook input fields tabs are updated. Rows that can't fit a cloud chat (debug log, -p,
+  defer, managed settings, Windows, tmux, quota waits, terminal Esc, Cowork, Code Mode, plugin folder variables) are now
+  "Doesn't apply". Tests: coder/test/hooks-cc-1127b.test.mjs. Not tried live in the browser yet.
 
 ## 2026-11-27: More rows of the tools comparison tried live
 
