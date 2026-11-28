@@ -20,7 +20,8 @@
  * PAGE'S through /api/coder/plugins and /api/coder/owner-skills (handlePluginRoutes).
  */
 import { readConnectors, writeConnectors, cleanUrl, sameServer, CATALOG as CONNECTOR_CATALOG, CONNECTORS_MAX, removeConnector } from "./coder-mcp.mjs";
-import { fetchMarketplace, downloadPlugin, MARKETPLACES_MAX } from "./coder-marketplace.mjs";
+import { fetchMarketplace, downloadPlugin, MARKETPLACES_MAX, TRUST_WARNING, autoUpdateDefault, sourceText, tierOf, pluginRootOf, pluginDataOf } from "./coder-marketplace.mjs";
+import { seal, unseal } from "./coder-github.mjs";
 
 export const SAVED_SKILLS_MAX = 50;
 export const PLUGINS_MAX = 30;
@@ -154,7 +155,13 @@ export function contentsOf(p) {
   return [n(p.skills, "skill"), n(p.commands, "command"), n(p.agents, "agent"), n(Array.from({ length: hookCount(p.hooks) }), "hook"), p.connectors && p.connectors.length ? p.connectors.join(" and ") + " connector" + (p.connectors.length === 1 ? "" : "s") : ""].filter(Boolean).join(", ") || "nothing yet";
 }
 /** A plugin as the page and the machine see it (no skill text). */
-export const pluginOut = (p, installed = false) => ({ name: p.name, description: p.description, category: p.category || "", contents: contentsOf(p), skills: (p.skills || []).map((s) => s.name), commands: (p.commands || []).map((s) => s.name), agents: (p.agents || []).map(agentName), hooks: hookEvents(p.hooks), connectors: [...(p.connectors || [])], installed, ...(p.at ? { at: p.at } : {}) });
+export const pluginOut = (p, installed = false, secretsSet = null) => ({ name: p.name, description: p.description, category: p.category || "", contents: contentsOf(p), skills: (p.skills || []).map((s) => s.name), commands: (p.commands || []).map((s) => s.name), agents: (p.agents || []).map((a) => (a && a.sub ? a.sub + ":" : "") + agentName(a)), hooks: hookEvents(p.hooks), connectors: [...(p.connectors || []), ...Object.keys(p.mcpServers || {}).map((k) => "plugin:" + (p.manifestName || p.name) + ":" + k)], installed, ...(p.at ? { at: p.at } : {}),
+  // (2026-11-28: its id, switch, version and settings, as Claude Code's Installed tab shows them. A sensitive option's value is
+  // never sent: only whether it is set.)
+  ...(installed ? { id: p.marketplace ? p.name + "@" + p.marketplace : p.name, enabled: typeof p.enabled === "boolean" ? p.enabled : p.defaultEnabled !== false } : {}),
+  ...(p.marketplace ? { marketplace: p.marketplace } : {}), ...(p.manifestName && p.manifestName !== p.name ? { ns: p.manifestName } : {}), ...(p.version ? { version: p.version } : {}), ...(p.displayName ? { displayName: p.displayName } : {}), ...(p.homepage ? { homepage: p.homepage } : {}), ...(p.author ? { author: p.author } : {}),
+  ...(p.localServers && p.localServers.length ? { localServers: p.localServers.slice() } : {}), ...(p.skipped && p.skipped.length ? { skipped: p.skipped.slice() } : {}),
+  ...(p.userConfig && Object.keys(p.userConfig).length ? { userConfig: Object.fromEntries(Object.entries(p.userConfig).map(([k, o]) => [k, { ...o, ...(o.sensitive ? { set: !!(secretsSet && secretsSet.includes(k)) } : { value: p.config && k in p.config ? p.config[k] : o.default ?? "" }) }])) } : {}) });
 
 export async function readPlugins(bucket, uid) {
   const v = await getJson(bucket, pluginsKey(uid), []);
@@ -165,13 +172,25 @@ export async function readSavedSkills(bucket, uid) {
   return (Array.isArray(v) ? v : []).map((x) => { const s = cleanSkill(x); return s ? { ...s, at: Number(x.at) || 0 } : null; }).filter(Boolean).slice(0, SAVED_SKILLS_MAX);
 }
 
+/**
+ * A PLUGIN'S ID, as Claude Code writes it in enabledPlugins (plugins/loading.md "Find where a plugin came from"):
+ * name@marketplace for one from a marketplace; a built-in catalog plugin keeps its bare name (it is Coder's own, like a
+ * plugin synced from claude.ai, which loads as name@synced).
+ */
+export const pluginId = (p) => (p && p.marketplace ? p.name + "@" + p.marketplace : String((p && p.name) || ""));
+/** The name its components are namespaced under: the manifest's name (Claude Code's "Entry name and manifest name"). */
+export const nsOf = (p) => String((p && (p.manifestName || p.name)) || "");
+/** On or off (Claude Code's defaultEnabled: "Whether the plugin starts enabled when the user hasn't set it"; true by default). */
+export const isEnabled = (p) => (p && typeof p.enabled === "boolean" ? p.enabled : !(p && p.defaultEnabled === false));
+const findPlugin = (list, id) => { const want = String(id || "").trim().toLowerCase(); return list.find((x) => pluginId(x) === want) || list.find((x) => !x.marketplace && x.name === want) || (want.includes("@") ? null : list.find((x) => x.name === want)) || null; };
+
 /** Installs a catalog plugin: kept for the owner, its connectors added to their Connectors. → { ok, plugin, added } or { error }. */
 export async function installPlugin(bucket, uid, name, { now = Date.now(), catalog = PLUGIN_CATALOG } = {}) {
   const want = String(name || "").trim().toLowerCase();
   const p = catalog.find((x) => x.name === want);
   if (!p) return { error: "No plugin called \"" + clip(name, 64) + "\" is in the catalog." };
   const list = await readPlugins(bucket, uid);
-  if (list.some((x) => x.name === p.name)) return { ok: true, plugin: pluginOut(p, true), added: [], already: true };
+  if (list.some((x) => !x.marketplace && x.name === p.name)) return { ok: true, plugin: pluginOut(p, true), added: [], already: true };
   if (list.length >= PLUGINS_MAX) return { error: "You have " + PLUGINS_MAX + " plugins, the most there can be. Remove one first." };
   // (Its connectors: added to the owner's list as not signed in yet; Connect in Connectors signs in. One already there is kept.)
   const added = [];
@@ -191,44 +210,210 @@ export async function installPlugin(bucket, uid, name, { now = Date.now(), catal
 // ── MARKETPLACES (src/coder-marketplace.mjs: Claude Code's, added by Git URL; its download and archive limits) ──
 const marketsKey = (uid) => "coder/" + uid + "/marketplaces.json";
 export async function readMarketplaces(bucket, uid) { const v = await getJson(bucket, marketsKey(uid), []); return (Array.isArray(v) ? v : []).filter((m) => m && typeof m.name === "string" && Array.isArray(m.plugins)).slice(0, MARKETPLACES_MAX); }
-/** Adds a marketplace (or refreshes one of the same name). → { ok, marketplace } or { error }. */
+/** Whether a marketplace auto-updates: its own switch, else Claude Code's default for its name. */
+export const autoUpdateOf = (mk) => (mk && typeof mk.autoUpdate === "boolean" ? mk.autoUpdate : autoUpdateDefault(mk && mk.name));
+/** Adds a marketplace (or refreshes one of the same name, keeping its auto-update switch). → { ok, marketplace } or { error }. */
 export async function addMarketplace(bucket, uid, source, { fetchFn = fetch, now = Date.now() } = {}) {
   const r = await fetchMarketplace(source, { fetchFn });
   if (r.error) return { error: r.error };
-  const list = (await readMarketplaces(bucket, uid)).filter((m) => m.name !== r.marketplace.name);
+  const all = await readMarketplaces(bucket, uid);
+  const was = all.find((m) => m.name === r.marketplace.name);
+  const list = all.filter((m) => m.name !== r.marketplace.name);
   if (list.length >= MARKETPLACES_MAX) return { error: "You have " + MARKETPLACES_MAX + " marketplaces, the most there can be. Remove one first." };
-  const mk = { ...r.marketplace, at: now };
+  const mk = { ...r.marketplace, at: was ? was.at || now : now, lastUpdated: now, ...(was && typeof was.autoUpdate === "boolean" ? { autoUpdate: was.autoUpdate } : {}) };
   await putJson(bucket, marketsKey(uid), [...list, mk]);
   return { ok: true, marketplace: mk };
 }
-export async function removeMarketplace(bucket, uid, name) {
+/** Refreshes a marketplace from its source (Claude Code's `marketplace update`). */
+export async function refreshMarketplace(bucket, uid, name, opts = {}) {
+  const mk = (await readMarketplaces(bucket, uid)).find((m) => m.name === String(name || "").toLowerCase());
+  if (!mk) return { error: "No marketplace has that name." };
+  return addMarketplace(bucket, uid, sourceText(mk.source), opts);
+}
+export async function setMarketplaceAutoUpdate(bucket, uid, name, on) {
+  const list = await readMarketplaces(bucket, uid);
+  const mk = list.find((m) => m.name === String(name || "").toLowerCase());
+  if (!mk) return { error: "No marketplace has that name." };
+  mk.autoUpdate = on === true;
+  await putJson(bucket, marketsKey(uid), list);
+  return { ok: true, autoUpdate: mk.autoUpdate };
+}
+/**
+ * Removes a marketplace and, as Claude Code does ("remove the marketplace too, which uninstalls every plugin you installed
+ * from it"), uninstalls its plugins. → { ok, removed: [ids] }.
+ */
+export async function removeMarketplace(bucket, uid, name, env = null) {
   const list = await readMarketplaces(bucket, uid);
   if (!list.some((m) => m.name === name)) return { error: "No marketplace has that name." };
+  const removed = [];
+  for (const p of await readPlugins(bucket, uid)) if (p.marketplace === name) { await removePlugin(bucket, uid, pluginId(p), env); removed.push(pluginId(p)); }
   await putJson(bucket, marketsKey(uid), list.filter((m) => m.name !== name));
-  return { ok: true };
+  return { ok: true, removed };
 }
-/** Installs plugin `name` from marketplace `market`: downloaded within Claude Code's limits, kept as a catalog plugin is. */
-export async function installFromMarketplace(bucket, uid, name, market, { fetchFn = fetch, now = Date.now() } = {}) {
+
+/** Where a plugin version's zip is kept (the whole plugin folder, so its scripts and bin/ reach the machine). */
+export const pluginZipKey = (uid, id, version) => "coder/" + uid + "/plugin-zips/" + String(id).replace(/[^\w@.-]/g, "-") + "/" + String(version).replace(/[^\w.-]/g, "-").slice(0, 80) + ".zip";
+/** A plugin's MCP servers as Coder connectors: the remote ones (url), each named plugin:<plugin>:<server> as Claude Code names them. */
+function serverConnectors(p, id, now) {
+  const out = [], local = [];
+  for (const [k, v] of Object.entries(p.mcpServers || {})) {
+    const url = typeof v.url === "string" && !String(v.url).includes("${") ? cleanUrl(v.url) : null;
+    if (url) out.push({ id: "c" + Array.from(crypto.getRandomValues(new Uint8Array(5)), (b) => b.toString(36)).join("").slice(0, 9), name: clip("plugin:" + nsOf(p) + ":" + k, 60), url, auth: "none", tools: [], status: "auth", at: now, fromPlugin: id });
+    else local.push(k);
+  }
+  return { out, local };
+}
+
+/**
+ * Installs plugin `name` from marketplace `market`: downloaded within Claude Code's limits, its zip kept whole, its remote MCP
+ * servers added to the owner's Connectors. `accepted`: the owner saw Claude Code's trust warning ("Make sure you trust a plugin
+ * before installing, updating, or using it"), which the page shows before every marketplace install. → { ok, plugin, added }.
+ */
+export async function installFromMarketplace(bucket, uid, name, market, { fetchFn = fetch, now = Date.now(), accepted = true } = {}) {
   const mk = (await readMarketplaces(bucket, uid)).find((m) => m.name === String(market || "").toLowerCase());
   if (!mk) return { error: "No marketplace called \"" + clip(market, 64) + "\" has been added." };
   const entry = mk.plugins.find((p) => p.name === String(name || "").trim().toLowerCase());
   if (!entry) return { error: "The marketplace " + mk.name + " has no plugin called \"" + clip(name, 64) + "\"." };
+  if (accepted !== true) return { error: "Read the trust warning and choose Install: " + TRUST_WARNING, trust: TRUST_WARNING };
+  const id = entry.name + "@" + mk.name;
   const list = await readPlugins(bucket, uid);
-  if (list.some((x) => x.name === entry.name && x.marketplace !== mk.name)) return { error: "A plugin called " + entry.name + " is already installed from elsewhere. Remove it first." };
-  if (!list.some((x) => x.name === entry.name) && list.length >= PLUGINS_MAX) return { error: "You have " + PLUGINS_MAX + " plugins, the most there can be. Remove one first." };
+  const was = list.find((x) => pluginId(x) === id);
+  if (!was && list.length >= PLUGINS_MAX) return { error: "You have " + PLUGINS_MAX + " plugins, the most there can be. Remove one first." };
   const got = await downloadPlugin(mk, entry, { fetchFn });
   if (got.error) return { error: got.error };
-  await putJson(bucket, pluginsKey(uid), [...list.filter((x) => x.name !== entry.name), { ...got.plugin, at: now }]);
-  return { ok: true, plugin: pluginOut(got.plugin, true), added: [] };
+  const zipKey = pluginZipKey(uid, id, got.version);
+  await bucket.put(zipKey, got.bytes, { httpMetadata: { contentType: "application/zip" } });
+  const conns = await readConnectors(bucket, uid);
+  const { out, local } = serverConnectors(got.plugin, id, now);
+  const added = [];
+  for (const c of out) if (!conns.some((x) => x.fromPlugin === id && x.name === c.name) && conns.length < CONNECTORS_MAX) { conns.push(c); added.push(c.name); }
+  if (added.length) await writeConnectors(bucket, uid, conns);
+  const rec = { ...got.plugin, zip: { key: zipKey, base: got.base }, ...(local.length ? { localServers: local } : {}), at: was ? was.at || now : now, updatedAt: now,
+    ...(was && typeof was.enabled === "boolean" ? { enabled: was.enabled } : {}), ...(was && was.config ? { config: was.config } : {}) };
+  await putJson(bucket, pluginsKey(uid), [...list.filter((x) => pluginId(x) !== id), rec]);
+  if (was && was.zip && was.zip.key !== zipKey) await bucket.delete(was.zip.key).catch(() => {});
+  return { ok: true, plugin: pluginOut(rec, true), added, version: got.version };
 }
 
-/** Removes an installed plugin, and the connectors it added that are still as it left them (never signed in). */
-export async function removePlugin(bucket, uid, name) {
+/**
+ * UPDATES ONE PLUGIN, CLAUDE CODE'S WAY (plugins/loading.md "Versions and updates"): its marketplace is refreshed first, then the
+ * version is computed again (the manifest's version, the entry's, else the commit SHA or archive digest); the same version keeps
+ * the installed copy ("<name> is already at the latest version (<version>)"). The owner's on/off switch and settings stay.
+ */
+export async function updatePlugin(bucket, uid, id, { fetchFn = fetch, now = Date.now() } = {}) {
   const list = await readPlugins(bucket, uid);
-  const want = String(name || "").trim().toLowerCase();
-  if (!list.some((x) => x.name === want)) return { error: "No installed plugin has that name." };
-  for (const c of await readConnectors(bucket, uid)) if (c.fromPlugin === want && c.status === "auth") await removeConnector(bucket, uid, c.id);
-  await putJson(bucket, pluginsKey(uid), list.filter((x) => x.name !== want));
+  const p = findPlugin(list, id);
+  if (!p) return { error: "No installed plugin has that name." };
+  if (!p.marketplace) return { ok: true, same: true, version: p.version || "", note: nsOf(p) + " is one of Coder's built-in plugins: it updates with Coder." };
+  const r = await refreshMarketplace(bucket, uid, p.marketplace, { fetchFn, now });
+  const mk = r.ok ? r.marketplace : (await readMarketplaces(bucket, uid)).find((m) => m.name === p.marketplace);
+  if (!mk) return { error: "Its marketplace " + p.marketplace + " is no longer added." };
+  const entry = mk.plugins.find((x) => x.name === p.name);
+  if (!entry) return { error: p.name + " is no longer listed in " + mk.name + "." };
+  const got = await downloadPlugin(mk, entry, { fetchFn });
+  if (got.error) return { error: got.error };
+  if (got.version === p.version && got.version !== "unknown") return { ok: true, same: true, version: got.version, note: pluginId(p) + " is already at the latest version (" + got.version + ")." };
+  const done = await installFromMarketplace(bucket, uid, p.name, p.marketplace, { fetchFn, now });
+  return done.ok ? { ...done, updated: true, from: p.version || "", note: "Plugin updated: " + pluginId(p) + " · " + (p.version || "?") + " → " + done.version } : done;
+}
+
+/**
+ * AUTO-UPDATE (plugins/loading.md "When auto-update runs": after the first message of a session, every marketplace with
+ * auto-update on is refreshed and its plugins updated; they load in the next session). Coder runs it once an hour at most per
+ * owner, when a chat starts a job. → { ok, updated: [ids] }.
+ */
+export const AUTO_UPDATE_EVERY = 60 * 60 * 1000;
+export async function autoUpdatePlugins(bucket, uid, { fetchFn = fetch, now = Date.now() } = {}) {
+  const on = (await readMarketplaces(bucket, uid)).filter(autoUpdateOf);
+  if (!on.length) return { ok: true, updated: [] };
+  const k = "coder/" + uid + "/plugins-autoupdate.json";
+  const last = await getJson(bucket, k, {});
+  if (now - (Number(last && last.at) || 0) < AUTO_UPDATE_EVERY) return { ok: true, updated: [], skipped: true };
+  await putJson(bucket, k, { at: now });
+  const updated = [];
+  for (const mk of on) {
+    for (const p of await readPlugins(bucket, uid)) if (p.marketplace === mk.name) { const r = await updatePlugin(bucket, uid, pluginId(p), { fetchFn, now }).catch(() => null); if (r && r.updated) updated.push(pluginId(p)); }
+  }
+  return { ok: true, updated };
+}
+
+/**
+ * THE ON/OFF SWITCH (Claude Code's enable and disable: "To stop it without uninstalling, disable the plugin"). Off, its skills,
+ * commands, agents and hooks leave every chat and its connectors are switched off; on, they are back.
+ */
+export async function setPluginEnabled(bucket, uid, id, on) {
+  const list = await readPlugins(bucket, uid);
+  const p = findPlugin(list, id);
+  if (!p) return { error: "No installed plugin has that name." };
+  p.enabled = on === true;
+  await putJson(bucket, pluginsKey(uid), list);
+  const conns = await readConnectors(bucket, uid);
+  let n = 0;
+  for (const c of conns) if (c.fromPlugin === pluginId(p)) { c.disabled = !p.enabled; n++; }
+  if (n) await writeConnectors(bucket, uid, conns);
+  return { ok: true, enabled: p.enabled };
+}
+
+/**
+ * A PLUGIN'S userConfig VALUES (plugins-reference "User configuration": "Non-sensitive values are saved under pluginConfigs";
+ * "Sensitive values go to the platform's secure credential store instead"). Coder keeps the sensitive ones sealed, as it keeps
+ * the owner's GitHub token and environment secrets (coder-github.mjs seal); they are never sent to the page, which only learns
+ * that one is set. An empty sensitive field keeps the value already set.
+ */
+const pluginSecretsKey = (uid) => "coder/" + uid + "/plugin-secrets.json";
+export async function readPluginSecrets(env, bucket, uid) {
+  const o = await getJson(bucket, pluginSecretsKey(uid), null);
+  if (!o || !o.box) return {};
+  try { const v = await unseal(env, o.box); return v && typeof v === "object" ? v : {}; } catch { return {}; }
+}
+export async function setPluginConfig(env, bucket, uid, id, values) {
+  const list = await readPlugins(bucket, uid);
+  const p = findPlugin(list, id);
+  if (!p) return { error: "No installed plugin has that name." };
+  const schema = p.userConfig || {};
+  const v = values && typeof values === "object" ? values : {};
+  const config = { ...(p.config || {}) };
+  const secrets = await readPluginSecrets(env, bucket, uid);
+  const mine = { ...(secrets[pluginId(p)] || {}) };
+  for (const [k, o] of Object.entries(schema)) {
+    if (!(k in v)) continue;
+    let x = v[k];
+    if (o.type === "number") { if (x === "" || x === null) { delete config[k]; continue; } x = Number(x); if (!Number.isFinite(x)) return { error: o.title + " must be a number." }; }
+    else if (o.type === "boolean") x = x === true || x === "true";
+    else if (o.multiple) x = (Array.isArray(x) ? x : String(x || "").split(",")).map((y) => clip(y, 500).trim()).filter(Boolean).slice(0, 50);
+    else x = clip(x, 2000);
+    if (o.options && o.options.length && x !== "" && !o.options.includes(x)) return { error: o.title + " must be one of " + o.options.join(", ") + "." };
+    if (o.sensitive) { if (x !== "") mine[k] = x; continue; }
+    if (x === "") delete config[k]; else config[k] = x;
+  }
+  const missing = Object.entries(schema).filter(([k, o]) => o.required && !(o.sensitive ? k in mine : k in config || o.default !== undefined)).map(([, o]) => o.title);
+  p.config = config;
+  await putJson(bucket, pluginsKey(uid), list);
+  secrets[pluginId(p)] = mine;
+  await putJson(bucket, pluginSecretsKey(uid), { box: await seal(env, secrets) });
+  return { ok: true, ...(missing.length ? { missing } : {}) };
+}
+/** Every option's value for a plugin: { KEY: value } (sensitive ones included only when `withSecrets`). */
+export function optionValues(p, secrets = {}, withSecrets = false) {
+  const out = {};
+  for (const [k, o] of Object.entries(p.userConfig || {})) {
+    if (o.sensitive) { if (withSecrets && secrets && secrets[k] !== undefined) out[k] = secrets[k]; continue; }
+    const v = p.config && k in p.config ? p.config[k] : o.default;
+    if (v !== undefined) out[k] = v;
+  }
+  return out;
+}
+
+/** Removes an installed plugin, its zip, its secrets, and the connectors it added (a catalog plugin's: those still not signed in). */
+export async function removePlugin(bucket, uid, name, env = null) {
+  const list = await readPlugins(bucket, uid);
+  const p = findPlugin(list, name);
+  if (!p) return { error: "No installed plugin has that name." };
+  const id = pluginId(p);
+  for (const c of await readConnectors(bucket, uid)) if (c.fromPlugin === id && (p.marketplace || c.status === "auth")) await removeConnector(bucket, uid, c.id);
+  if (p.zip && p.zip.key) await bucket.delete(p.zip.key).catch(() => {});
+  if (env) { const sec = await readPluginSecrets(env, bucket, uid); if (sec[id]) { delete sec[id]; await putJson(bucket, pluginSecretsKey(uid), { box: await seal(env, sec) }); } }
+  await putJson(bucket, pluginsKey(uid), list.filter((x) => x !== p));
   return { ok: true };
 }
 
@@ -249,27 +434,72 @@ export async function removeSkill(bucket, uid, name) {
   return { ok: true };
 }
 
-/** Every skill the owner has outside the repository: saved ones, then installed plugins' skills and commands ("plugin:skill"). */
-export async function ownerSkills(bucket, uid) {
-  const out = (await readSavedSkills(bucket, uid)).map((s) => ({ name: s.name, description: s.description, body: s.body, ...(s.asks ? { asks: s.asks } : {}), source: "saved" }));
-  for (const p of await readPlugins(bucket, uid)) for (const s of [...(p.skills || []), ...(p.commands || [])]) {
-    const c = cleanSkill(s);
-    if (c) out.push({ name: p.name + ":" + c.name, description: c.description, body: c.body, ...(c.asks ? { asks: c.asks } : {}), source: "plugin " + p.name });
+/**
+ * WHICH COPY LOADS WHEN NAMES CLASH (plugins/loading.md "Name conflicts": an installed marketplace plugin before a plugin synced
+ * from claude.ai, which Coder's built-in catalog stands for; between two marketplace plugins of one manifest name, both load but
+ * only the first holds the name's hooks). → the plugins in load order, each with `hooksLeftOut` when another holds its hooks.
+ */
+export function loadOrder(list) {
+  const ordered = [...list.filter((p) => p.marketplace), ...list.filter((p) => !p.marketplace)];
+  const held = new Map(), out = [];
+  for (const p of ordered) {
+    const ns = nsOf(p).toLowerCase();
+    if (!p.marketplace && list.some((q) => q.marketplace && isEnabled(q) && nsOf(q).toLowerCase() === ns)) { out.push({ ...p, notLoaded: "the name \"" + nsOf(p) + "\" is already taken by " + pluginId(list.find((q) => q.marketplace && isEnabled(q) && nsOf(q).toLowerCase() === ns)) + ", which takes precedence" }); continue; }
+    if (isEnabled(p) && held.has(ns)) out.push({ ...p, hooksLeftOut: held.get(ns) }); else { if (isEnabled(p) && hookCount(p.hooks)) held.set(ns, pluginId(p)); out.push(p); }
+  }
+  return out;
+}
+/**
+ * A PLUGIN'S TEXT WITH ITS VARIABLES (plugins-reference "Environment variables" and "User configuration"): ${CLAUDE_PLUGIN_ROOT}
+ * and ${CLAUDE_PLUGIN_DATA} in skill, agent and command content, and ${user_config.KEY} with the non-sensitive values only ("a
+ * sensitive value there becomes a placeholder").
+ */
+export function withPluginVars(p, text) {
+  if (!p || !p.marketplace) return String(text || "");
+  const root = pluginRootOf(p.marketplace, p.name, p.version || "unknown"), data = pluginDataOf(pluginId(p));
+  const opts = optionValues(p);
+  return String(text || "").split("${CLAUDE_PLUGIN_ROOT}").join(root).split("${CLAUDE_PLUGIN_DATA}").join(data)
+    .replace(/\$\{user_config\.([A-Za-z_][A-Za-z0-9_]*)\}/g, (m, k) => (p.userConfig && p.userConfig[k] && p.userConfig[k].sensitive ? "[sensitive value: " + k + "]" : k in opts ? (Array.isArray(opts[k]) ? opts[k].join(",") : String(opts[k])) : m));
+}
+
+/**
+ * Every skill the owner has outside the repository: saved ones, then their enabled plugins' skills and commands
+ * ("plugin:skill", the manifest's name first). `{ off: true }`: the skills of the plugins switched off instead (a repository's
+ * enabledPlugins can turn one back on for its chats).
+ */
+export async function ownerSkills(bucket, uid, { off = false } = {}) {
+  const out = off ? [] : (await readSavedSkills(bucket, uid)).map((s) => ({ name: s.name, description: s.description, body: s.body, ...(s.asks ? { asks: s.asks } : {}), source: "saved" }));
+  for (const p of loadOrder(await readPlugins(bucket, uid))) {
+    if (p.notLoaded || isEnabled(p) === off) continue;
+    for (const s of [...(p.skills || []), ...(p.commands || [])]) {
+      const c = cleanSkill({ ...s, body: withPluginVars(p, s.body) });
+      if (!c) continue;
+      const name = nsOf(p) + ":" + c.name;
+      if (out.some((x) => x.name.toLowerCase() === name.toLowerCase())) continue;
+      out.push({ name, description: c.description, body: c.body, ...(c.asks ? { asks: c.asks } : {}), source: "plugin " + nsOf(p), plugin: pluginId(p), ...(p.marketplace && s.dir ? { dir: pluginRootOf(p.marketplace, p.name, p.version || "unknown") + "/" + s.dir } : {}) });
+    }
   }
   return out.slice(0, SAVED_SKILLS_MAX * 2);
 }
 
 /**
  * WHAT INSTALLED PLUGINS ADD TO A TURN (Claude Code: "Plugin hooks run from the moment the plugin loads"; a plugin's agents
- * are subagents the Agent tool can use): { hooks: [{ plugin, hooks }], agents: [{ plugin, file, text }] }. The machine merges
- * the hooks with the owner's (server.mjs hooksForTurn) and reads each agent file as a custom subagent named plugin:agent
- * (container/coder-agents.mjs parseAgentFile).
+ * are subagents the Agent tool can use): { hooks: [{ plugin, id, enabled, root, data, options, hooks }], agents: [{ plugin, id,
+ * enabled, file, sub, text }], files: [{ id, key, base, root, data }] }. Every installed plugin is listed with its switch, so a
+ * repository's enabledPlugins can turn one on or off for its chats (the machine decides: container/coder-pluginfiles.mjs). Its
+ * `files` are the zips the machine unpacks, so ${CLAUDE_PLUGIN_ROOT} holds the whole plugin. `env`: to read the sensitive
+ * options, which reach the plugin's hooks only (CLAUDE_PLUGIN_OPTION_<KEY>, and ${user_config.KEY} in exec-form args).
  */
-export async function ownerPluginParts(bucket, uid) {
-  const out = { hooks: [], agents: [] };
-  for (const p of await readPlugins(bucket, uid)) {
-    if (hookCount(p.hooks)) out.hooks.push({ plugin: p.name, hooks: p.hooks.hooks && typeof p.hooks.hooks === "object" ? p.hooks.hooks : p.hooks });
-    for (const a of Array.isArray(p.agents) ? p.agents : []) if (a && typeof a.text === "string") out.agents.push({ plugin: p.name, file: clip(a.file, 120), text: clip(a.text, 20_000) });
+export async function ownerPluginParts(bucket, uid, env = null) {
+  const out = { hooks: [], agents: [], files: [] };
+  const secrets = env ? await readPluginSecrets(env, bucket, uid) : {};
+  for (const p of loadOrder(await readPlugins(bucket, uid))) {
+    if (p.notLoaded) continue;
+    const id = pluginId(p), on = isEnabled(p);
+    const where = p.marketplace ? { root: pluginRootOf(p.marketplace, p.name, p.version || "unknown"), data: pluginDataOf(id) } : {};
+    if (p.marketplace && p.zip && p.zip.key) out.files.push({ id, enabled: on, key: p.zip.key, base: String(p.zip.base || ""), ...where });
+    if (hookCount(p.hooks) && !p.hooksLeftOut) out.hooks.push({ plugin: nsOf(p), id, enabled: on, ...where, ...(p.marketplace ? { options: optionValues(p, secrets[id], true) } : {}), hooks: p.hooks.hooks && typeof p.hooks.hooks === "object" ? p.hooks.hooks : p.hooks });
+    for (const a of Array.isArray(p.agents) ? p.agents : []) if (a && typeof a.text === "string") out.agents.push({ plugin: nsOf(p), id, enabled: on, file: clip(a.file, 120), ...(a.sub ? { sub: clip(a.sub, 120) } : {}), text: clip(withPluginVars(p, a.text), 20_000) });
   }
   out.agents = out.agents.slice(0, 30);
   return out;
@@ -415,7 +645,8 @@ export async function pluginsApi(env, bucket, uid, meta, body) {
     const hits = [...searchRows(all, q, pluginText).map((p) => pluginOut(p, names.has(p.name))), ...searchRows(fromMarkets, q, (p) => p.description + " " + p.category + " " + p.contents)];
     return { ok: true, plugins: hits.slice(0, q.trim() ? 10 : 200) };
   }
-  if (a === "plugins_install") { const m = /^([^@]+)@(.+)$/.exec(String(body.name || "")); return m ? installFromMarketplace(bucket, uid, m[1], m[2]) : installPlugin(bucket, uid, body.name); }
+  // (A marketplace plugin is installed on the Plugins page, after Claude Code's trust warning: plugins/security.md.)
+  if (a === "plugins_install") { const m = /^([^@]+)@(.+)$/.exec(String(body.name || "")); return m ? installFromMarketplace(bucket, uid, m[1], m[2], { accepted: body.accepted === true }) : installPlugin(bucket, uid, body.name); }
   if (a === "skills_owner") return { ok: true, skills: await ownerSkills(bucket, uid) };
   if (a === "skills_catalog") {
     const have = new Set((await readSavedSkills(bucket, uid)).map((s) => s.name.toLowerCase()));
@@ -431,7 +662,7 @@ export async function pluginsApi(env, bucket, uid, meta, body) {
  * /plugins/<name> removes. GET /owner-skills → { saved, plugin, catalog }; POST /owner-skills { name, description, body } or
  * { name } (a catalog skill) saves; DELETE /owner-skills/<name> removes. null when the path is not one of these.
  */
-export async function handlePluginRoutes(request, bucket, uid, parts, { fetchFn = fetch } = {}) {
+export async function handlePluginRoutes(request, bucket, uid, parts, { fetchFn = fetch, env = null } = {}) {
   if (parts[0] !== "plugins" && parts[0] !== "owner-skills" && parts[0] !== "feedback") return null;
   if (!bucket) return json({ error: "storage is not available" }, 503);
   const m = request.method;
@@ -466,18 +697,30 @@ export async function handlePluginRoutes(request, bucket, uid, parts, { fetchFn 
   const body = async () => { try { return await request.json(); } catch { return {}; } };
   if (parts[0] === "plugins") {
     if (parts.length === 1 && m === "GET") {
-      const mine = await readPlugins(bucket, uid), names = new Set(mine.map((p) => p.name));
-      const markets = (await readMarketplaces(bucket, uid)).map((mk) => ({ name: mk.name, owner: mk.owner, source: mk.source, plugins: mk.plugins.map((p) => ({ name: p.name, description: p.description, category: p.category, installed: mine.some((x) => x.name === p.name && x.marketplace === mk.name) })) }));
-      return json({ ok: true, installed: mine.map((p) => ({ ...pluginOut(p, true), ...(p.marketplace ? { marketplace: p.marketplace } : {}) })), catalog: PLUGIN_CATALOG.map((p) => pluginOut(p, names.has(p.name))), marketplaces: markets });
+      const mine = await readPlugins(bucket, uid), names = new Set(mine.filter((p) => !p.marketplace).map((p) => p.name));
+      const secrets = env ? await readPluginSecrets(env, bucket, uid) : {};
+      const order = loadOrder(mine);
+      const markets = (await readMarketplaces(bucket, uid)).map((mk) => ({ name: mk.name, owner: mk.owner, source: mk.source, tier: tierOf(mk.name), autoUpdate: autoUpdateOf(mk), ...(mk.lastUpdated ? { lastUpdated: mk.lastUpdated } : {}), plugins: mk.plugins.map((p) => ({ name: p.name, description: p.description, category: p.category, ...(p.version ? { version: p.version } : {}), ...(p.homepage ? { homepage: p.homepage } : {}), installed: mine.some((x) => x.name === p.name && x.marketplace === mk.name) })) }));
+      return json({ ok: true, trustWarning: TRUST_WARNING, installed: order.map((p) => ({ ...pluginOut(p, true, Object.keys(secrets[pluginId(p)] || {})), ...(p.notLoaded ? { notLoaded: p.notLoaded } : {}), ...(p.hooksLeftOut ? { hooksLeftOut: p.hooksLeftOut } : {}) })), catalog: PLUGIN_CATALOG.map((p) => pluginOut(p, names.has(p.name))), marketplaces: markets });
     }
-    // (Marketplaces: POST /plugins/marketplaces { source } adds one by its Git URL; DELETE /plugins/marketplaces/<name>.)
+    // (Marketplaces: POST /plugins/marketplaces { source } adds one by its Git URL; POST …/<name>/refresh reads it again; POST
+    // …/<name>/auto { on } is its auto-update switch; DELETE /plugins/marketplaces/<name> removes it and its plugins.)
     if (parts[1] === "marketplaces") {
       if (parts.length === 2 && m === "POST") { const r = await addMarketplace(bucket, uid, (await body()).source, { fetchFn }); return json(r, r.ok ? 200 : 400); }
-      if (parts.length === 3 && m === "DELETE") { const r = await removeMarketplace(bucket, uid, decodeURIComponent(parts[2])); return json(r, r.ok ? 200 : 404); }
+      if (parts.length === 4 && parts[3] === "refresh" && m === "POST") { const r = await refreshMarketplace(bucket, uid, decodeURIComponent(parts[2]), { fetchFn }); return json(r, r.ok ? 200 : 400); }
+      if (parts.length === 4 && parts[3] === "auto" && m === "POST") { const r = await setMarketplaceAutoUpdate(bucket, uid, decodeURIComponent(parts[2]), (await body()).on === true); return json(r, r.ok ? 200 : 404); }
+      if (parts.length === 3 && m === "DELETE") { const r = await removeMarketplace(bucket, uid, decodeURIComponent(parts[2]), env); return json(r, r.ok ? 200 : 404); }
       return json({ error: "method" }, 405);
     }
-    if (parts.length === 1 && m === "POST") { const b = await body(); { const at = /^([^@]+)@(.+)$/.exec(String(b.name || "")); if (at && !b.marketplace) { b.name = at[1]; b.marketplace = at[2]; } } const r = b.marketplace ? await installFromMarketplace(bucket, uid, b.name, b.marketplace, { fetchFn }) : await installPlugin(bucket, uid, b.name); return json(r, r.ok ? 200 : 400); }
-    if (parts.length === 2 && m === "DELETE") { const r = await removePlugin(bucket, uid, decodeURIComponent(parts[1])); return json(r, r.ok ? 200 : 404); }
+    if (parts.length === 1 && m === "POST") { const b = await body(); { const at = /^([^@]+)@(.+)$/.exec(String(b.name || "")); if (at && !b.marketplace) { b.name = at[1]; b.marketplace = at[2]; } } const r = b.marketplace ? await installFromMarketplace(bucket, uid, b.name, b.marketplace, { fetchFn, accepted: b.accepted === true }) : await installPlugin(bucket, uid, b.name); return json(r, r.ok ? 200 : 400); }
+    // (One installed plugin, by its id (name@marketplace, or a catalog plugin's name): update, its on/off switch, its settings.)
+    if (parts.length === 3 && m === "POST") {
+      const id = decodeURIComponent(parts[1]);
+      if (parts[2] === "update") { const r = await updatePlugin(bucket, uid, id, { fetchFn }); return json(r, r.ok ? 200 : 400); }
+      if (parts[2] === "enabled") { const r = await setPluginEnabled(bucket, uid, id, (await body()).enabled === true); return json(r, r.ok ? 200 : 404); }
+      if (parts[2] === "config") { if (!env) return json({ error: "settings are not available" }, 503); const r = await setPluginConfig(env, bucket, uid, id, (await body()).values); return json(r, r.ok ? 200 : 400); }
+    }
+    if (parts.length === 2 && m === "DELETE") { const r = await removePlugin(bucket, uid, decodeURIComponent(parts[1]), env); return json(r, r.ok ? 200 : 404); }
     return json({ error: "method" }, 405);
   }
   if (parts.length === 1 && m === "GET") {

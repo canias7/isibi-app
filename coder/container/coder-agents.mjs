@@ -308,7 +308,9 @@ export function pluginAgentsFrom(list) {
     if (p.skip === "no name") p = parseAgentFile(String(a.text || "").replace(/^\uFEFF?---\r?\n/, "---\nname: " + file.replace(/^.*\//, "").replace(/\.md$/, "") + "\n"), file);
     if (!p.def) continue;
     // (The prefix isn't doubled: a plugin "x" with agent "x-y" is x:x-y, as Claude Code names it.)
-    const name = a.plugin + ":" + p.def.name;
+    // (Subfolders of agents/ are part of the name: agents/review/security.md is plugin:review:security. 2026-11-28.)
+    const sub = typeof a.sub === "string" && /^[a-z0-9][\w-]{0,63}(:[a-z0-9][\w-]{0,63}){0,4}$/i.test(a.sub) ? a.sub + ":" : "";
+    const name = a.plugin + ":" + sub + p.def.name;
     if (out.some((d) => d.name === name)) continue;
     out.push({ ...p.def, name, plugin: a.plugin, file: "plugin " + a.plugin + (file ? " · " + file : "") });
   }

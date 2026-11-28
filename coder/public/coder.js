@@ -4242,7 +4242,8 @@
       if (!Array.isArray(groups)) continue;
       for (const g of groups) for (const h of (g && Array.isArray(g.hooks) ? g.hooks : [])) mine.push([ev + (g.matcher ? ' · ' + g.matcher : ''), (h.type || 'command') + ': ' + what(h).slice(0, 200)]);
     }
-    const fromPlugins = plug.flatMap((p) => (Array.isArray(p.hooks) ? p.hooks : []).map((h) => [typeof h === 'string' ? h : String((h && (h.event || h.name)) || 'Hook'), 'From the ' + p.name + ' plugin']));
+    // (Plugins' hooks are not listed on the page: owner, 2026-11-28, the page shows only a plugin's skills and connectors.)
+    const fromPlugins = [];
     const bad = typeof prefs.hooks === 'string' && prefs.hooks.trim() && !parsed;
     sideList('Hooks', [...mine, ...fromPlugins], bad ? 'Your hooks could not be read: fix them in Settings, under Advanced.' : 'Your own commands that run at set moments, like after every file edit. Plugins can add their own.', '', 'No hooks yet. Add one with Edit hooks.');
     const box = document.querySelector('.gf-sidelist');
@@ -4254,7 +4255,8 @@
   }
   async function showHelpers() {
     const plug = await installedPlugins();
-    const fromPlugins = plug.flatMap((p) => (Array.isArray(p.agents) ? p.agents : []).map((a) => [p.name + ':' + a, 'From the ' + p.name + ' plugin']));
+    // (Plugins' helpers are not listed on the page: owner, 2026-11-28.)
+    const fromPlugins = []; void plug;
     sideList('Helpers', [...HELPER_TYPES, ...fromPlugins], 'Helper AIs Coder can start for part of a job (its agent tool). Each uses more Grok. Plugins can add their own.', '', 'No helpers.');
   }
   // Archive or unarchive: only the chat's mark changes, on the server; nothing is deleted, and a failure leaves it as it was.

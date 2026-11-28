@@ -142,8 +142,61 @@ function frontmatter(text) {
 export const asksOf = (fields) => ["allowed-tools", "disallowed-tools", "hooks"].filter((k) => fields && Object.prototype.hasOwnProperty.call(fields, k)).join(", ");
 
 /**
- * A PLUGIN FROM A ZIP: its folder is `root` (or, left out, the folder holding .claude-plugin/plugin.json, else the zip's own
- * top folder). Skills (skills/<name>/SKILL.md), commands (commands/*.md), agents (agents/*.md) and hooks (hooks/hooks.json).
+ * WHERE A PLUGIN LIVES ON CODER'S MACHINE (2026-11-28, Claude Code's plugins/loading.md "Find plugins on disk": the plugin's
+ * files at cache/<marketplace>/<plugin>/<version>/, which ${CLAUDE_PLUGIN_ROOT} points at, and its own lasting folder at
+ * data/<plugin-id>/, ${CLAUDE_PLUGIN_DATA}, kept across updates; "<id> is the plugin identifier with every character other
+ * than a letter, digit, _ or - replaced by -"). Coder's plugins root is /opt/coder-plugins (container/coder-pluginfiles.mjs
+ * keeps the same paths).
+ */
+export const PLUGIN_HOME = "/opt/coder-plugins";
+const seg = (x) => String(x || "").replace(/[^\w.-]/g, "-").replace(/^\.+/, "-").slice(0, 100) || "unknown";
+export const pluginRootOf = (market, name, version) => PLUGIN_HOME + "/cache/" + seg(market) + "/" + seg(name) + "/" + seg(version);
+export const pluginDataOf = (id) => PLUGIN_HOME + "/data/" + String(id || "").replace(/[^A-Za-z0-9_-]/g, "-");
+
+/**
+ * Claude Code's path rules for a component path (plugins-reference "Path rules", loading.md "Paths that escape the plugin
+ * directory"): relative to the plugin root, with or without "./"; one that leaves the root, or holds a backslash (on Linux), is
+ * refused. → the clean relative path ("" for the root itself) or null.
+ */
+export function insidePath(p) {
+  if (typeof p !== "string" || p.includes("\\") || p.startsWith("/") || /^[a-z]:/i.test(p)) return null;
+  const out = [];
+  for (const x of p.split("/")) { if (x === "" || x === ".") continue; if (x === "..") return null; out.push(x); }
+  return out.join("/");
+}
+const asList = (v) => (v === undefined || v === null ? [] : Array.isArray(v) ? v : [v]);
+
+/** userConfig as kept: { key: { type, title, description, sensitive, required, default, multiple, options } }. */
+export function cleanUserConfig(raw) {
+  const out = {};
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return out;
+  for (const [k, o] of Object.entries(raw).slice(0, 30)) {
+    if (!/^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(k) || !o || typeof o !== "object") continue;
+    const type = ["string", "number", "boolean", "directory", "file"].includes(o.type) ? o.type : "string";
+    out[k] = { type, title: clip(o.title || k, 80), description: clip(o.description, 300), sensitive: o.sensitive === true, required: o.required === true,
+      ...(o.default !== undefined && o.sensitive !== true && ["string", "number", "boolean"].includes(typeof o.default) ? { default: o.default } : {}),
+      ...(o.multiple === true ? { multiple: true } : {}),
+      ...(Array.isArray(o.options) && type === "string" && o.multiple !== true && o.sensitive !== true ? { options: o.options.filter((x) => typeof x === "string" && x.length >= 1 && x.length <= 64).slice(0, 50) } : {}) };
+  }
+  return out;
+}
+
+/**
+ * A PLUGIN FROM A ZIP (2026-11-28: the whole plugin, as Claude Code keeps it). Its folder is `root` (or, left out, the folder
+ * holding .claude-plugin/plugin.json, else the zip's own top folder). The zip itself is kept (coder-plugins.mjs), so every
+ * file of the plugin reaches Coder's machine: scripts, bin/, and the files beside each SKILL.md. What is read here, as Claude
+ * Code's plugins reference ("Standard layout", "Component path forms") says:
+ *   - skills: skills/<name>/SKILL.md, plus each folder the manifest's `skills` names (a folder of <name>/SKILL.md folders, or
+ *     one holding SKILL.md itself); "adds to the default skills/ scan";
+ *   - commands: commands/**.md (a subfolder adds a segment: commands/db/migrate.md is db:migrate), or, when the manifest sets
+ *     `commands` (a path, a list of paths, or a map of name → { source | content, description }), only those;
+ *   - agents: agents/**.md (subfolders are part of the name: agents/review/security.md is plugin:review:security), or, when
+ *     the manifest sets `agents` (files only), only those, named without subfolders;
+ *   - hooks: hooks/hooks.json together with the manifest's `hooks` (a path, an object, or a list of either);
+ *   - MCP servers: .mcp.json together with the manifest's `mcpServers` (a path, an object, or a list); a later name replaces
+ *     an earlier one;
+ *   - userConfig, version, defaultEnabled, displayName, homepage.
+ * A component path that leaves the plugin folder is left out (Claude Code's "path escapes plugin directory").
  */
 export async function pluginFromZip(bytes, { root, name: wantName = "" } = {}) {
   const entries = zipEntries(bytes);
@@ -156,34 +209,121 @@ export async function pluginFromZip(bytes, { root, name: wantName = "" } = {}) {
     else { const tops = new Set(files.map((e) => e.name.split("/")[0])); base = tops.size === 1 && files.every((e) => e.name.includes("/")) ? [...tops][0] + "/" : ""; }
   }
   if (base && !base.endsWith("/")) base += "/";
-  const under = files.filter((e) => e.name.startsWith(base) && e.usize <= 256 * 1024);
+  const all = files.filter((e) => e.name.startsWith(base));
+  const under = all.filter((e) => e.usize <= 256 * 1024);
   const text = async (e) => new TextDecoder().decode(await zipRead(bytes, e));
   const find = (rel) => under.find((e) => e.name === base + rel);
+  const relOf = (e) => e.name.slice(base.length);
   let manifest = {};
   const mf = find(".claude-plugin/plugin.json");
   if (mf) { try { manifest = JSON.parse(await text(mf)); } catch { return { error: "the plugin's .claude-plugin/plugin.json is not valid JSON" }; } }
+  if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) manifest = {};
   const name = String(manifest.name || wantName || "").trim().toLowerCase();
   if (!NAME_RE.test(name)) return { error: "the plugin has no valid name (its .claude-plugin/plugin.json name)" };
-  const plugin = { name, description: clip(manifest.description, 300), category: clip(manifest.category, 40), skills: [], commands: [], agents: [], connectors: [] };
-  for (const e of under) {
-    const rel = e.name.slice(base.length);
-    let m;
-    if ((m = /^skills\/([^/]+)\/SKILL\.md$/.exec(rel)) && plugin.skills.length < 50) {
-      const f = frontmatter(await text(e));
-      plugin.skills.push({ name: clip(f.fields.name || m[1], 64), description: clip(f.fields.description, 250), body: clip(f.body.trim(), 20_000), ...(asksOf(f.fields) ? { asks: asksOf(f.fields) } : {}) });
-    } else if ((m = /^commands\/([^/]+)\.md$/.exec(rel)) && plugin.commands.length < 50) {
-      const f = frontmatter(await text(e));
-      plugin.commands.push({ name: clip(m[1], 64), description: clip(f.fields.description, 250), body: clip(f.body.trim(), 20_000), ...(asksOf(f.fields) ? { asks: asksOf(f.fields) } : {}) });
-    } else if ((m = /^agents\/([^/]+\.md)$/.exec(rel)) && plugin.agents.length < 30) {
-      plugin.agents.push({ file: clip(m[1], 120), text: clip(await text(e), 20_000) });
-    } else if (rel === "hooks/hooks.json") {
-      try { plugin.hooks = JSON.parse(await text(e)); } catch { /* a bad hooks file is left out */ }
-    }
+  const skipped = [];
+  const plugin = { name, manifestName: name, description: clip(manifest.description, 300), category: clip(manifest.category, 40), skills: [], commands: [], agents: [], connectors: [], files: all.length,
+    ...(typeof manifest.version === "string" && manifest.version.trim() ? { manifestVersion: clip(manifest.version.trim(), 64) } : {}),
+    ...(typeof manifest.defaultEnabled === "boolean" ? { defaultEnabled: manifest.defaultEnabled } : {}),
+    ...(typeof manifest.displayName === "string" && manifest.displayName.trim() ? { displayName: clip(manifest.displayName.trim(), 80) } : {}),
+    ...(typeof manifest.homepage === "string" && /^https?:\/\//.test(manifest.homepage) ? { homepage: clip(manifest.homepage, 300) } : {}),
+    ...(manifest.author && typeof manifest.author === "object" && manifest.author.name ? { author: clip(manifest.author.name, 100) } : {}) };
+  const uc = cleanUserConfig(manifest.userConfig);
+  if (Object.keys(uc).length) plugin.userConfig = uc;
+  const okName = (n) => /^[a-z0-9][\w:-]{0,127}$/i.test(n);
+  const addSkill = async (e, nm, dir) => {
+    if (plugin.skills.length >= 50 || plugin.skills.some((s) => s.name === nm)) return;
+    const f = frontmatter(await text(e));
+    plugin.skills.push({ name: clip(f.fields.name || nm, 64), description: clip(f.fields.description, 250), body: clip(f.body.trim(), 20_000), dir, ...(asksOf(f.fields) ? { asks: asksOf(f.fields) } : {}) });
+  };
+  const addCommand = async (nm, body, description, extra = {}) => {
+    if (plugin.commands.length >= 50 || plugin.commands.some((s) => s.name === nm)) return;
+    const f = frontmatter(body);
+    plugin.commands.push({ name: clip(nm, 128), description: clip(description || f.fields.description, 250), body: clip(f.body.trim(), 20_000), ...(asksOf(f.fields) ? { asks: asksOf(f.fields) } : {}), ...extra });
+  };
+  const below = (dir) => under.filter((e) => { const r = relOf(e); return dir === "" ? true : r.startsWith(dir + "/"); });
+  // SKILLS: the default skills/ folder, then each folder the manifest adds.
+  const skillDirs = ["skills", ...asList(manifest.skills).map((p) => { const q = insidePath(p); if (q === null) skipped.push("skills: " + clip(p, 80)); return q; }).filter((q) => q !== null)];
+  for (const d of skillDirs) {
+    const own = find((d ? d + "/" : "") + "SKILL.md");
+    if (own && d !== "skills") { await addSkill(own, d.split("/").pop() || name, d); continue; }
+    for (const e of below(d)) { const r = relOf(e).slice(d ? d.length + 1 : 0); const m = /^([^/]+)\/SKILL\.md$/.exec(r); if (m) await addSkill(e, m[1], (d ? d + "/" : "") + m[1]); }
   }
+  // COMMANDS: the manifest's (which replace the default scan), else commands/**.md.
+  const cmdName = (rel, dir) => rel.slice(dir ? dir.length + 1 : 0).replace(/\.md$/, "").split("/").join(":");
+  if (manifest.commands && typeof manifest.commands === "object" && !Array.isArray(manifest.commands)) {
+    for (const [k, v] of Object.entries(manifest.commands).slice(0, 50)) {
+      if (!v || typeof v !== "object" || !okName(k)) continue;
+      if (typeof v.content === "string" && typeof v.source !== "string") await addCommand(k, v.content, v.description);
+      else if (typeof v.source === "string" && typeof v.content !== "string") { const q = insidePath(v.source); const e = q && find(q); if (e) await addCommand(k, await text(e), v.description); else skipped.push("commands: " + clip(v.source, 80)); }
+    }
+  } else if (manifest.commands !== undefined) {
+    for (const p of asList(manifest.commands)) {
+      const q = insidePath(p);
+      if (q === null) { skipped.push("commands: " + clip(p, 80)); continue; }
+      const one = find(q);
+      if (one && q.endsWith(".md")) await addCommand(q.split("/").pop().replace(/\.md$/, ""), await text(one));
+      else for (const e of below(q)) if (relOf(e).endsWith(".md")) await addCommand(cmdName(relOf(e), q), await text(e));
+    }
+  } else for (const e of below("commands")) if (relOf(e).endsWith(".md")) await addCommand(cmdName(relOf(e), "commands"), await text(e));
+  // AGENTS: the manifest's files (named without subfolders), else agents/**.md (subfolders part of the name).
+  if (manifest.agents !== undefined) {
+    for (const p of asList(manifest.agents)) { const q = insidePath(p); const e = q && q.endsWith(".md") && find(q); if (e && plugin.agents.length < 30) plugin.agents.push({ file: clip(q.split("/").pop(), 120), text: clip(await text(e), 20_000) }); else skipped.push("agents: " + clip(p, 80)); }
+  } else for (const e of below("agents")) {
+    const r = relOf(e).slice("agents/".length);
+    if (!r.endsWith(".md") || plugin.agents.length >= 30) continue;
+    const sub = r.split("/").slice(0, -1).join(":");
+    plugin.agents.push({ file: clip(r.split("/").pop(), 120), text: clip(await text(e), 20_000), ...(sub ? { sub: clip(sub, 120) } : {}) });
+  }
+  // HOOKS: hooks/hooks.json, then the manifest's, merged event by event.
+  const hookParts = [];
+  const hf = find("hooks/hooks.json");
+  if (hf) { try { hookParts.push(JSON.parse(await text(hf))); } catch { skipped.push("hooks/hooks.json"); } }
+  for (const h of asList(manifest.hooks)) {
+    if (typeof h === "string") { const q = insidePath(h); const e = q && find(q); if (!e) { skipped.push("hooks: " + clip(h, 80)); continue; } if (q === "hooks/hooks.json") continue; try { hookParts.push(JSON.parse(await text(e))); } catch { skipped.push("hooks: " + clip(h, 80)); } }
+    else if (h && typeof h === "object") hookParts.push(h);
+  }
+  const hooks = {};
+  for (const part of hookParts) { const m = part && typeof part.hooks === "object" && part.hooks ? part.hooks : part; for (const [ev, groups] of Object.entries(m || {})) if (Array.isArray(groups)) hooks[ev] = [...(hooks[ev] || []), ...groups]; }
+  if (Object.keys(hooks).length) plugin.hooks = hooks;
+  // MCP SERVERS: .mcp.json, then the manifest's; a later name replaces an earlier one.
+  const servers = {};
+  const addServers = (m) => { const map = m && typeof m.mcpServers === "object" && m.mcpServers ? m.mcpServers : m; for (const [k, v] of Object.entries(map || {}).slice(0, 20)) if (/^[\w.-]{1,64}$/.test(k) && v && typeof v === "object" && !Array.isArray(v)) servers[k] = JSON.parse(JSON.stringify(v)); };
+  const mj = find(".mcp.json");
+  if (mj) { try { addServers(JSON.parse(await text(mj))); } catch { skipped.push(".mcp.json"); } }
+  for (const m of asList(manifest.mcpServers)) {
+    if (typeof m === "string") { const q = insidePath(m); const e = q && q.endsWith(".json") && find(q); if (!e) { skipped.push("mcpServers: " + clip(m, 80)); continue; } try { addServers(JSON.parse(await text(e))); } catch { skipped.push("mcpServers: " + clip(m, 80)); } }
+    else if (m && typeof m === "object") addServers(m);
+  }
+  if (Object.keys(servers).length) plugin.mcpServers = servers;
   plugin.skills = plugin.skills.filter((s) => s.body && /^[a-z0-9][\w-]{0,63}$/i.test(s.name));
-  plugin.commands = plugin.commands.filter((s) => s.body && /^[a-z0-9][\w-]{0,63}$/i.test(s.name));
+  plugin.commands = plugin.commands.filter((s) => s.body && okName(s.name));
+  if (skipped.length) plugin.skipped = skipped.slice(0, 20);
   if (!plugin.description) plugin.description = "Plugin " + name;
-  return { ok: true, plugin };
+  return { ok: true, plugin, base };
+}
+
+/** The zip's own comment: GitHub's archives carry their commit SHA there. → the 40-hex SHA or "". */
+export function zipCommit(bytes) {
+  const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  for (let i = bytes.length - 22; i >= Math.max(0, bytes.length - 22 - 65535); i--) if (dv.getUint32(i, true) === 0x06054b50) {
+    const n = dv.getUint16(i + 20, true);
+    const c = new TextDecoder().decode(bytes.subarray(i + 22, i + 22 + n)).trim();
+    return /^[0-9a-f]{40}$/.test(c) ? c : "";
+  }
+  return "";
+}
+
+/**
+ * THE VERSION CLAUDE CODE COMPUTES (plugins/loading.md "How Claude Code computes the version"): the manifest's `version`, then
+ * the marketplace entry's, then from the source: the commit SHA shortened to 12 for github (and a relative path inside a
+ * GitHub-hosted marketplace), the archive's SHA-256 shortened to 12 for an archive.
+ */
+export function computeVersion({ manifestVersion = "", entryVersion = "", commit = "", sha256 = "" } = {}) {
+  if (manifestVersion) return manifestVersion;
+  if (entryVersion) return entryVersion;
+  if (commit) return commit.slice(0, 12);
+  if (sha256) return sha256.slice(0, 12);
+  return "unknown";
 }
 
 // ── MARKETPLACES ──────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -208,9 +348,23 @@ export function readMarketplace(text) {
   const name = String(j.name || "").trim();
   if (!NAME_RE.test(name)) return { error: "marketplace.json needs a name (letters, digits, -, _ and ., at most 64)" };
   if (!Array.isArray(j.plugins)) return { error: "marketplace.json needs a plugins list" };
-  const plugins = j.plugins.slice(0, 200).filter((p) => p && NAME_RE.test(String(p.name || "")) && (typeof p.source === "string" || (p.source && typeof p.source === "object"))).map((p) => ({ name: String(p.name).toLowerCase(), description: clip(p.description, 300), category: clip(p.category, 40), source: typeof p.source === "string" ? clip(p.source, 300) : JSON.parse(JSON.stringify(p.source)) }));
+  const plugins = j.plugins.slice(0, 200).filter((p) => p && NAME_RE.test(String(p.name || "")) && (typeof p.source === "string" || (p.source && typeof p.source === "object"))).map((p) => ({ name: String(p.name).toLowerCase(), description: clip(p.description, 300), category: clip(p.category, 40), source: typeof p.source === "string" ? clip(p.source, 300) : JSON.parse(JSON.stringify(p.source)), ...(typeof p.version === "string" && p.version.trim() ? { version: clip(p.version.trim(), 64) } : {}), ...(typeof p.defaultEnabled === "boolean" ? { defaultEnabled: p.defaultEnabled } : {}), ...(typeof p.homepage === "string" && /^https?:\/\//.test(p.homepage) ? { homepage: clip(p.homepage, 300) } : {}) }));
   return { name: name.toLowerCase(), owner: clip(j.owner && j.owner.name, 100), plugins };
 }
+
+/** ANTHROPIC'S MARKETPLACE NAMES (plugins/security.md "Identify Anthropic's marketplaces by name"). */
+export const OFFICIAL_NAMES = Object.freeze(["claude-plugins-official", "claude-code-marketplace", "claude-code-plugins", "anthropic-marketplace", "anthropic-plugins", "agent-skills", "anthropic-agent-skills", "life-sciences", "knowledge-work-plugins", "claude-for-legal", "claude-for-financial-services", "financial-services-plugins", "first-party-plugins", "claude-tag-plugins"]);
+export const COMMUNITY_NAMES = Object.freeze(["claude-community", "claude-plugins-community", "healthcare"]);
+export const tierOf = (name) => (OFFICIAL_NAMES.includes(String(name)) ? "official" : COMMUNITY_NAMES.includes(String(name)) ? "community" : "third-party");
+/**
+ * AUTO-UPDATE'S DEFAULT (plugins/loading.md "Which marketplaces and plugins auto-update"): on for Anthropic's official
+ * marketplaces, off for knowledge-work-plugins and first-party-plugins, and off for every other marketplace.
+ */
+export const autoUpdateDefault = (name) => tierOf(name) === "official" && name !== "knowledge-work-plugins" && name !== "first-party-plugins";
+/** Claude Code's trust warning, word for word (plugins/security.md "Trust warning before you install"). */
+export const TRUST_WARNING = "Plugins can run code on your computer, with access to your files and shell. Make sure you trust a plugin before installing, updating, or using it. Anthropic does not control what MCP servers, files, or other software are included in plugins and cannot verify that they will work as intended or that they won't change. See each plugin's homepage for more information.";
+/** A marketplace's source as the owner typed it, for a refresh. */
+export const sourceText = (src) => (src && src.kind === "github" ? src.repo + (src.ref ? "#" + src.ref : "") : src && src.url ? src.url : "");
 
 /** Adds (or refreshes) a marketplace. → { ok, marketplace } or { error }. */
 export async function fetchMarketplace(raw, { fetchFn = fetch } = {}) {
@@ -222,6 +376,9 @@ export async function fetchMarketplace(raw, { fetchFn = fetch } = {}) {
   if (got.error) return got;
   const mk = readMarketplace(new TextDecoder().decode(got.bytes));
   if (mk.error) return mk;
+  // (Claude Code's untrusted-source check, plugins/security.md: an official or community name from outside
+  // github.com/anthropics/ is refused, "Marketplace is registered from an untrusted source".)
+  if (tierOf(mk.name) !== "third-party" && !(src.kind === "github" && /^anthropics\//i.test(src.repo))) return { error: "Marketplace is registered from an untrusted source: the name " + mk.name + " is one of Anthropic's, and only github.com/anthropics/ may use it" };
   return { ok: true, marketplace: { ...mk, source: src } };
 }
 
@@ -239,16 +396,17 @@ export function entryDownload(mk, entry) {
   return { error: "its source (" + clip(s.source, 20) + ") is not one Coder can download: a relative path, github or archive" };
 }
 
-/** Installs one entry: → { ok, plugin } (the plugin to keep) or { error }. */
+/**
+ * Installs one entry: → { ok, plugin, bytes, base, version } (the plugin to keep, the zip it came in and the plugin's folder in
+ * it, and the version Claude Code would compute) or { error }.
+ */
 export async function downloadPlugin(mk, entry, { fetchFn = fetch } = {}) {
   const d = entryDownload(mk, entry);
   if (d.error) return { error: "Plugin " + entry.name + ": " + d.error };
   const got = await fetchLimited(d.url, { maxBytes: ARCHIVE_MAX, timeoutMs: ARCHIVE_MS, maxRedirects: ARCHIVE_REDIRECTS, what: "the plugin's archive", fetchFn });
   if (got.error) return { error: "Plugin " + entry.name + ": " + got.error };
-  if (d.sha256) {
-    const h = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", got.bytes)), (b) => b.toString(16).padStart(2, "0")).join("");
-    if (h !== d.sha256) return { error: "Plugin " + entry.name + ": the archive does not match its sha256" };
-  }
+  const digest = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", got.bytes)), (b) => b.toString(16).padStart(2, "0")).join("");
+  if (d.sha256 && digest !== d.sha256) return { error: "Plugin " + entry.name + ": Plugin archive integrity check failed (the archive does not match its sha256)" };
   let root;
   if (d.top) {
     const entries = zipEntries(got.bytes);
@@ -258,5 +416,7 @@ export async function downloadPlugin(mk, entry, { fetchFn = fetch } = {}) {
   }
   const r = await pluginFromZip(got.bytes, { ...(root !== undefined ? { root } : {}), name: entry.name });
   if (r.error) return { error: "Plugin " + entry.name + ": " + r.error };
-  return { ok: true, plugin: { ...r.plugin, name: entry.name, description: r.plugin.description.startsWith("Plugin ") && entry.description ? entry.description : r.plugin.description, marketplace: mk.name } };
+  const version = computeVersion({ manifestVersion: r.plugin.manifestVersion, entryVersion: entry.version, commit: d.top ? zipCommit(got.bytes) : "", sha256: d.top ? "" : digest });
+  const defaultEnabled = typeof entry.defaultEnabled === "boolean" ? entry.defaultEnabled : r.plugin.defaultEnabled !== false;
+  return { ok: true, bytes: got.bytes, base: r.base, version, plugin: { ...r.plugin, name: entry.name, description: r.plugin.description.startsWith("Plugin ") && entry.description ? entry.description : r.plugin.description, marketplace: mk.name, version, defaultEnabled, ...(entry.homepage && !r.plugin.homepage ? { homepage: entry.homepage } : {}) } };
 }

@@ -254,6 +254,8 @@ test("Z4-9 page: the draft card's 1 / 2 twice / 0 keys; the Plugins panel's Mark
     await page.click('.cpx-mkadd button');
     await page.waitForSelector('[data-pp="mk-install"]');
     await page.click('[data-pp="mk-install"][data-pp-name="lint-fix"]');
+    // (Since 2026-11-28, Claude Code's trust warning comes first: plugins-1128.test.mjs.)
+    await page.click('[data-pp="trust-yes"]');
     await page.waitForFunction(() => document.querySelector(".cpx-note") && document.querySelector(".cpx-note").textContent.includes("lint-fix@acme-tools is installed"));
     if (SHOTS) await page.locator(".cpx-panel").screenshot({ path: path.join(SHOTS, "z4-plugins-marketplaces.png") });
     assert.deepEqual(errors, []);

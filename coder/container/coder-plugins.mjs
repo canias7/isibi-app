@@ -100,7 +100,8 @@ export function withOwnerSkills(repo, owner) {
     // when its text kept it. The spreadsheet's row 326, 2026-11-24. Since 2026-11-28, as Claude Code's: allowed-tools and
     // disallowed-tools don't ask, and the rest of its frontmatter (arguments, allowed-tools, context: fork …) is read too.)
     const asks = typeof s.asks === "string" && /\bhooks\b/.test(s.asks) ? "hooks" : skillAsks(frontMatterOf(s.body));
-    const dir = "(" + String(s.source || "saved").slice(0, 80) + ": no folder)";
+    // (A marketplace plugin's skill has its folder on the machine, with the files beside its SKILL.md: coder-pluginfiles.mjs.)
+    const dir = typeof s.dir === "string" && /^\/opt\/coder-plugins\/cache\/[^\0]{1,400}$/.test(s.dir) && !s.dir.includes("/../") ? s.dir : "(" + String(s.source || "saved").slice(0, 80) + ": no folder)";
     let fields = null;
     try { fields = skillFrom(s.body, s.name, dir); } catch { fields = null; }
     const { asks: _a, hooks: _h, name: _n, description: _d, dir: _dir, model: _m, user: _u, ...rest } = fields || {};
