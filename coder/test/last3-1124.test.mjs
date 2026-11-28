@@ -54,7 +54,7 @@ test("L1 (row 8) a helper with isolation worktree writes in its worktree, even b
   assert.ok(w, "the write ran");
   assert.equal(w.args.path, WT + "/iso.txt", "the full path into the chat's folder is the worktree's file");
   assert.equal(w.toolCwd, WT, "the file tools' short paths count from the worktree");
-  assert.ok(cmds.some((c) => c.startsWith("( cd -- '" + WT + "' || exit 1\ncat iso.txt")), "its command ran in the worktree");
+  assert.ok(cmds.some((c) => c.startsWith("( cd -- '" + WT + "' 2>/dev/null || {") && c.includes("exit 1; }\ncat iso.txt")), "its command ran in the worktree (a gone worktree fails: 2026-11-28)");
   assert.match(subSys[0], /You are operating in an isolated git worktree at .*agent-1-x/);
   assert.match(told(r, "a1"), /worktreePath: .*agent-1-x\nworktreeBranch: worktree-agent-1-x/);
 });

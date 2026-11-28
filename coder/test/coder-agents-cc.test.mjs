@@ -18,7 +18,8 @@ const sysOf = (req) => String(((req.messages || []).find((m) => m.role === "syst
 const userText = (req) => (req.messages || []).filter((m) => m.role === "user").map((m) => (typeof m.content === "string" ? m.content : JSON.stringify(m.content))).join("\n");
 const base = (send, extra = {}) => ({ send, exec: async () => ({ code: 0, output: "" }), emit: () => {}, here: () => ROOT, root: ROOT, home: "/home/dev", chatId: "agents-cc", where: (p) => (p.startsWith("/") ? p : ROOT + "/" + p), toolSearch: "false", ...extra });
 const opts = (text, more = {}) => ({ text, mode: "auto", rules: { allow: [], ask: [], deny: [] }, ...more });
-const toolAnswer = (r, id) => String((r.messages.find((m) => m.role === "tool" && m.tool_call_id === id) || {}).content || "");
+// (A foreground report's no-authority header, 2026-11-28, left off here: subagents-cc-1128b tests it.)
+const toolAnswer = (r, id) => String((r.messages.find((m) => m.role === "tool" && m.tool_call_id === id) || {}).content || "").replace(/^\[Subagent output: [^\n]*\]\n/, "");
 const mainLoop = (main) => { let mi = 0; return () => main[Math.min(mi++, main.length - 1)]; };
 
 test("agent's inputs are Claude Code's AgentInput, with Coder's models; its description is Claude Code's, with the caps, custom agents, background and worktree", () => {
@@ -75,7 +76,7 @@ test("custom agents: .claude/agents/*.md frontmatter (name, description, tools, 
   const files = G.agentFilesOf(G.AGENT_FILES_MARK + ".claude/agents/reviewer.md\n" + file + "\n" + G.AGENT_FILES_MARK + ".claude/agents/README.md\n# notes\n");
   const got = G.customAgentsFrom(files);
   assert.deepEqual(got.defs.map((d) => d.name), ["reviewer"]);
-  assert.match(G.agentFilesScript(), /find \.claude\/agents -type f -name '\*\.md'/); // (recursive, 2026-11-28)
+  assert.match(G.agentFilesScript(), /find \.claude\/agents -type f -name '\*\.md'/); // (recursive, 2026-11-28; each folder up to the top, 2026-11-28)
 });
 
 test("a custom agent runs with its own instructions, tools, effort and step limit; an unknown type is refused with the list", async () => {
@@ -164,7 +165,7 @@ test("isolation worktree: the agent's worktree is made without moving the chat's
   const r = await A.runCoder(base(send, { exec }), opts("go"));
   const made = cmds.find((c) => c.includes("worktree add"));
   assert.ok(made.startsWith("(\n"), "made in a subshell");
-  assert.ok(cmds.some((c) => c.startsWith("( cd -- '" + ROOT + "/.claude/worktrees/agent-1-x' || exit 1\nls -la")), "its command ran in the worktree");
+  assert.ok(cmds.some((c) => c.startsWith("( cd -- '" + ROOT + "/.claude/worktrees/agent-1-x' 2>/dev/null || {") && c.includes("exit 1; }\nls -la")), "its command ran in the worktree");
   assert.match(toolAnswer(r, "a1"), /worktreePath: .*agent-1-x\nworktreeBranch: worktree-agent-1-x/);
   assert.match(toolAnswer(r, "a2"), /isolation "remote" runs Claude Code's agents in a cloud session/);
 });

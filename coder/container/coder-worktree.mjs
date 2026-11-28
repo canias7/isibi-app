@@ -246,6 +246,64 @@ export const ENDED_RESULT = "The conversation has ended. Do not answer further."
 // ── WORKTREES, ON THE CHAT'S MACHINE ───────────────────────────────────────────────────────────────────────────────────
 /** A shell word, single-quoted. */
 export const shq = (s) => "'" + String(s).replace(/'/g, "'\\''") + "'";
+/**
+ * THE MAIN CHECKOUTS A WORKTREE SUBAGENT'S COMMANDS MUST STAY OUT OF (Claude Code: "This working-directory check covers the whole
+ * repository containing the directory you launched Claude Code from. When your session runs in a linked worktree of its own,
+ * the check also covers the main checkout that worktree is linked from"): the chat's checkout, and, when that is itself under
+ * <main>/.claude/worktrees/, that main checkout too. 2026-11-28.
+ */
+export function protectedCheckouts(top) {
+  const t = String(top || "").replace(/\/+$/, "");
+  if (!t) return [];
+  const at = t.indexOf("/" + WORKTREE_DIR + "/");
+  return at > 0 ? [t, t.slice(0, at)] : [t];
+}
+const normAbs = (p) => { const out = []; for (const part of String(p).split("/")) { if (!part || part === ".") continue; if (part === "..") out.pop(); else out.push(part); } return "/" + out.join("/"); };
+/**
+ * CLAUDE CODE'S ISOLATION CHECKS FOR A COMMAND OF A SUBAGENT IN ITS OWN WORKTREE (worktrees.md "How Claude Code enforces
+ * isolation"): "Git redirects: ... blocks a Bash or Monitor command that redirects git into the main checkout. The redirect can
+ * come through git -C, --git-dir, a GIT_DIR or GIT_WORK_TREE variable, or a cd into the main checkout before running git";
+ * "Command shape: ... blocks a Bash or Monitor command when it can't verify from the command text that any git the command runs
+ * stays inside the worktree ... when the command name is computed at runtime ... or when an expansion such as ${!name} or
+ * ${ command; } could run a command the text doesn't spell out". `wt`: the worktree, `mains`: protectedCheckouts. → null (it
+ * may run) or the refusal's text. Commands that write files without git (cp, a redirect) are not its business, as in Claude Code.
+ */
+export function worktreeCommandCheck(command, { wt = "", mains = [] } = {}) {
+  const cmd = String(command || "");
+  const w = String(wt || "").replace(/\/+$/, "");
+  if (!w || !Array.isArray(mains) || !mains.length) return null;
+  const inMain = (p) => { const a = normAbs(p); return !(a === w || a.startsWith(w + "/")) && mains.some((m) => a === m || a.startsWith(m + "/")); };
+  const mainOf = (p) => mains.find((m) => { const a = normAbs(p); return a === m || a.startsWith(m + "/"); }) || mains[0];
+  const head = "This subagent is isolated in the worktree " + w + ", but ";
+  const tail = " Run git on your worktree only, from " + w + ".";
+  // (Command shape: a command name computed at runtime, an indirect or command-running expansion, eval, or a shell run on text.)
+  const starts = "(?:^|[;&|(){}\\n]|\\b(?:then|do|else|elif|exec|command|builtin|xargs|time|nohup|env|sudo)\\s)\\s*";
+  const shape = [
+    [new RegExp(starts + "(?:[A-Za-z_][A-Za-z0-9_]*=\\S*\\s+)*[\"']?(?:\\$[A-Za-z_{(]|`)"), "its command name is computed at runtime"],
+    [/\$\{!/, "it uses an indirect expansion (${!name})"],
+    [/\$\{[ \t\n|]/, "it uses a ${ command; } expansion"],
+    [new RegExp(starts + "eval\\b"), "it runs text through eval"],
+  ];
+  if (/\bgit\b|\$|`|\beval\b/.test(cmd)) for (const [re, why] of shape) if (re.test(cmd)) return head + "this command is too complex to verify that its git stays inside the worktree: " + why + ". Refusing to run it. Split it into plain, separate commands without computed command names, and run them from " + w + ".";
+  if (!/\bgit\b/.test(cmd) && !/\bGIT_(?:DIR|WORK_TREE)\b/.test(cmd)) return null;
+  // (Git redirects: the folder each part names, read from the command text; relative ones from the folder a cd left it in.)
+  let here = w;
+  const abs = (p) => { const v = String(p || "").replace(/^["']|["']$/g, "").replace(/^~(?=\/|$)/, "/root"); return v.startsWith("/") ? normAbs(v) : normAbs(here + "/" + v); };
+  const parts = cmd.split(/(?:&&|\|\||;|\||\n)/);
+  for (const raw of parts) {
+    const part = raw.trim();
+    const cd = /^(?:cd|pushd)\s+(?:--\s+)?("[^"]*"|'[^']*'|\S+)/.exec(part);
+    if (cd) { here = abs(cd[1]); continue; }
+    for (const m of part.matchAll(/\b(GIT_DIR|GIT_WORK_TREE)=("[^"]*"|'[^']*'|\S+)/g)) if (inMain(abs(m[2]))) return head + "this command points git at the main checkout " + mainOf(abs(m[2])) + " through " + m[1] + "." + tail;
+    if (!/\bgit\b/.test(part)) continue;
+    for (const m of part.matchAll(/\bgit\b((?:\s+-[^\s]+(?:\s+(?!-)("[^"]*"|'[^']*'|\S+))?)*)/g)) {
+      const opts = m[1] || "";
+      for (const o of opts.matchAll(/(?:^|\s)(-C|--git-dir|--work-tree)(?:=|\s+)("[^"]*"|'[^']*'|\S+)/g)) if (inMain(abs(o[2]))) return head + "this command points git at the main checkout " + mainOf(abs(o[2])) + " with " + o[1] + "." + tail;
+    }
+    if (inMain(here)) return head + "this command runs git in the main checkout " + mainOf(here) + " (a cd into it before git)." + tail;
+  }
+  return null;
+}
 /** The marks the scripts print for Coder's loop (each on its own line). */
 export const MARK = "@@CODER-WT";
 // (Shared start: the repository's top, its main checkout and whether the commands are in one of its worktrees.)
@@ -261,13 +319,15 @@ const FACTS = [
 ].join("\n") + "\n";
 
 /** The script that makes a new worktree and moves into it. */
-export function enterNewScript(name) {
+export function enterNewScript(name, { fresh = false } = {}) {
   return FACTS + [
     "if [ \"$__inwt\" = 1 ]; then echo \"" + MARK + " ERR Already in a worktree session: from inside a worktree only path works, under " + WORKTREE_DIR + "/\"; exit 3; fi",
     "__wt=\"$__main/" + WORKTREE_DIR + "/\"" + shq(name) + "; __br=" + shq("worktree-" + name),
     "if [ -e \"$__wt\" ]; then echo \"" + MARK + " ERR A worktree named " + name.replace(/["$`\\]/g, "") + " already exists at $__wt; pass it as path to enter it\"; exit 3; fi",
     "if git -C \"$__main\" show-ref --verify --quiet \"refs/heads/$__br\"; then echo \"" + MARK + " ERR the branch $__br already exists\"; exit 3; fi",
-    "mkdir -p \"$(dirname \"$__wt\")\" && git -C \"$__main\" worktree add -q -b \"$__br\" \"$__wt\" HEAD >/dev/null 2>&1 || { echo \"" + MARK + " ERR git could not create the worktree\"; exit 3; }",
+    // (`fresh`: a subagent's, from the default branch, as Claude Code's isolation "worktree": origin/HEAD when cached, else HEAD.)
+    fresh ? "__from=HEAD; git -C \"$__main\" rev-parse -q --verify 'refs/remotes/origin/HEAD^{commit}' >/dev/null 2>&1 && __from=refs/remotes/origin/HEAD" : "__from=HEAD",
+    "mkdir -p \"$(dirname \"$__wt\")\" && git -C \"$__main\" worktree add -q --no-track -b \"$__br\" \"$__wt\" \"$__from\" >/dev/null 2>&1 || { echo \"" + MARK + " ERR git could not create the worktree\"; exit 3; }",
     INCLUDE_COPY,
     "cd -- \"$__wt\" && echo \"" + MARK + " OK $__wt|$__br|$__main|$__n\"",
   ].join("\n");
