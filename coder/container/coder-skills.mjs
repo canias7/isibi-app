@@ -273,7 +273,10 @@ export function bodyPieces(body) {
 /** Whether a skill's body has dynamic-context commands. */
 export const hasShell = (skill) => bodyPieces(skill && skill.body).some((p) => p.cmd !== undefined);
 
-const head = (skill) => "Base directory for this skill: " + skill.dir + "\n\n";
+// (A saved or plugin skill with no folder on the machine, whose dir is "(saved: no folder)", is named with none: a helper had
+// read "(saved: no folder)/…" as if it were a folder, and its step line said "a read failed". Live retest, 2026-11-28.)
+export const NO_FOLDER_SKILL = "This skill has no folder of its own: its whole text is below, with no files beside it to read.";
+const head = (skill) => (typeof skill.dir === "string" && skill.dir.startsWith("/") ? "Base directory for this skill: " + skill.dir : NO_FOLDER_SKILL) + "\n\n";
 function prepared(skill, args, vars) {
   const a = String(args || "").trim();
   const argv = splitArgs(a);

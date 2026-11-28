@@ -111,7 +111,7 @@ test("CD364 the card says Claude Code's sentence alone (no \"This command requir
   assert.match(agent, /why: scrub\(String\(\(rmWhy && rmCardReason\(rmWhy\)\) \|\| rmWhy \|\| \(ask \? ask\.why : limitCard \? limitCard\.why : dec\.why\)\)\)\.slice\(0, 800\)/);
   assert.match(agent, /reply\("not run yet: " \+ \(ask\.note \|\| ask\.why\)/);
   // (Through decideIn since round 6, the mode and Accept edits' way with file commands given.)
-  assert.match(agent, /home: deps\.home \|\| "", ownDirs: Array\.isArray\(deps\.ownDirs\) \? deps\.ownDirs : \[\], byCommand: byCmd, scratch: \[SCRATCH\], planFile: planPath\(\), memoryDir: [^,]+, \.\.\.\(c\.monitor \? \{ settings: MONITOR_SETTINGS \} : \{\}\) \}\)/);
+  assert.match(agent, /home: deps\.home \|\| "", ownDirs: ownDirsOf\(deps\), byCommand: byCmd, scratch: \[SCRATCH\], planFile: planPath\(\), memoryDir: [^,]+, \.\.\.\(c\.monitor \? \{ settings: MONITOR_SETTINGS \} : \{\}\) \}\)/);
   assert.match(agent, /let dec = github \? \{ verdict: "allow" \} : tooLongToRead \? \{ verdict: "ask", why: "", suggest: null \} : await decideIn\(modeB, fileEdits !== false\);/);
   // The read block's sentence is kept as Claude Code says it (it was lowercased into "This command requires approval: …").
   assert.match(agent, /ask = \{ kind: "readblock", paths: \[\], allow: \[allowRunText\(command\)\], why: rb, note: w, github: w \}/);

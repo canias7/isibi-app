@@ -123,7 +123,7 @@ test("CD352 the read block in Coder's loop: a command that reads outside asks in
 test("CD353 the machine gives the read block its setting and Coder's own folders; the page's card has its words", () => {
   const server = readFileSync(new URL("../container/server.mjs", import.meta.url), "utf8");
   assert.match(server, /readBlock: varOn\(rawVars\.CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES\)/);
-  assert.match(server, /ownDirs: \[bgDir, outDir\],/);
+  assert.match(server, /ownDirs: \[bgDir, outDir, AGENT_OUTPUT_DIR\],/);
   const page = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
   assert.match(page, /rblock = e\.kind === 'readblock'/);
   assert.match(page, /This command reads outside the project \(or can\\'t be traced\), which your read-block setting asks about first/);

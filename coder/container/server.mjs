@@ -68,7 +68,7 @@ import { contentFrom } from "./coder-elicit.mjs";
 import { piece } from "./coder-context.mjs";
 import { readSkills } from "./coder-skills.mjs";
 import { withOwnerSkills } from "./coder-plugins.mjs";
-import { pluginAgentsFrom } from "./coder-agents.mjs";
+import { pluginAgentsFrom, OUTPUT_DIR as AGENT_OUTPUT_DIR } from "./coder-agents.mjs";
 import { applyPluginSwitches, repoEnabledPlugins, ensurePluginFiles, zipFetcher } from "./coder-pluginfiles.mjs";
 import { BUILTIN_RULES, parseRulesFile, checkEdit, editedText } from "./coder-security.mjs";
 export { globMatch, globAny, expandBraces };
@@ -6214,7 +6214,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
           // background limit (Claude Code "doesn't enforce timeout on it"). One done in its first second answers at once.
           if (hook && hookAsync && typeof hookAsync === "object") {
             const hmark = newMark();
-            const r = await execIn(dir, command, 1, { bgDir, kill: false, home, room: t.room, box: t.box, onStart, prefix: "", ...(capped ? { memCg: t.memCgNow() } : {}), shellPrefix: noPrefix ? "" : t.shellPrefix || "", extraEnv: { ...(extraEnv || {}), CODER_MEMORY_FILE: memOn ? memFile : "", CODER_OUTPUT_DIRS: bgDir + ":" + outDir, [TASK_MARK]: hmark, ...(moved ? { CODER_CWD: t.cwd } : {}), ...(hookEnvFile ? { CLAUDE_ENV_FILE: hookEnvFile } : {}) }, ...(moved ? { start: t.cwd } : {}) });
+            const r = await execIn(dir, command, 1, { bgDir, kill: false, home, room: t.room, box: t.box, onStart, prefix: "", ...(capped ? { memCg: t.memCgNow() } : {}), shellPrefix: noPrefix ? "" : t.shellPrefix || "", extraEnv: { ...(extraEnv || {}), CODER_MEMORY_FILE: memOn ? memFile : "", CODER_OUTPUT_DIRS: bgDir + ":" + outDir + ":" + AGENT_OUTPUT_DIR, [TASK_MARK]: hmark, ...(moved ? { CODER_CWD: t.cwd } : {}), ...(hookEnvFile ? { CLAUDE_ENV_FILE: hookEnvFile } : {}) }, ...(moved ? { start: t.cwd } : {}) });
             if (leader) t.fg.delete(leader);
             if (mark) t.fgMarks.delete(mark);
             if (r && r.background && r.pid) {
@@ -6226,7 +6226,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
           }
           // (A file tool is told the owner's additional working folders, CODER_WORK_DIRS, which it treats as the project: Claude
           // Code's additionalDirectories, round 3, 2026-11-14.)
-          const r = await execIn(dir, command, timeoutS, { bgDir, kill: !!tool, home, room: t.room, box: t.box, onStart, prefix: tool ? "" : ps && t.psPrefix !== undefined ? t.psPrefix : t.prefix, ...(tool ? { ...(capped ? { memCg: t.memCgNow() } : {}), ...(hook ? { quietMs: hookQuietMs, shellPrefix: noPrefix ? "" : t.shellPrefix || "" } : {}) } : { onMove, onProgress: (lines) => { t.progress = { at: Date.now(), lines: lines.map((l) => scrub(l)) }; }, memCg: typeof t.memCgNow === "function" ? t.memCgNow() : "", shellPrefix: ps || noPrefix ? "" : t.shellPrefix || "", shell: t.shell || "bash", merge: true }), extraEnv: tool ? { ...(extraEnv || {}), CODER_MEMORY_FILE: memOn ? memFile : "", ...(planBox && planBox.current() ? { CODER_PLAN_FILE: planBox.current() } : {}), CODER_SEEN_DIR: seenDir, CODER_OUTPUT_DIRS: bgDir + ":" + outDir, ...(addDirs.length ? { CODER_WORK_DIRS: addDirs.join(":") } : {}),...(moved ? { CODER_CWD: t.cwd } : {}), ...(typeof toolCwd === "string" && toolCwd.startsWith(dir + "/") ? { CODER_CWD: toolCwd } : {}), ...(hookEnvFile ? { CLAUDE_ENV_FILE: hookEnvFile } : {}) } : { ...(extraEnv || {}), ...(pass ? px.env(pass) : {}), [TASK_MARK]: mark }, ...(tool ? { outMax: TOOL_OUTPUT_MAX } : { spillDir: outDir, spillAt: Math.min(t.outLimits.inlineMax, t.outLimits.readBack), keep: Math.max(t.outLimits.inlineMax, t.outLimits.readBack) + 10_000, stopAtTimeout: !!sleepFirst || (t.noBg && !monitor) }), ...(moved && (!tool || hook) ? { start: t.cwd } : {}), follow: !!(follow && !tool && !keepHome) });
+          const r = await execIn(dir, command, timeoutS, { bgDir, kill: !!tool, home, room: t.room, box: t.box, onStart, prefix: tool ? "" : ps && t.psPrefix !== undefined ? t.psPrefix : t.prefix, ...(tool ? { ...(capped ? { memCg: t.memCgNow() } : {}), ...(hook ? { quietMs: hookQuietMs, shellPrefix: noPrefix ? "" : t.shellPrefix || "" } : {}) } : { onMove, onProgress: (lines) => { t.progress = { at: Date.now(), lines: lines.map((l) => scrub(l)) }; }, memCg: typeof t.memCgNow === "function" ? t.memCgNow() : "", shellPrefix: ps || noPrefix ? "" : t.shellPrefix || "", shell: t.shell || "bash", merge: true }), extraEnv: tool ? { ...(extraEnv || {}), CODER_MEMORY_FILE: memOn ? memFile : "", ...(planBox && planBox.current() ? { CODER_PLAN_FILE: planBox.current() } : {}), CODER_SEEN_DIR: seenDir, CODER_OUTPUT_DIRS: bgDir + ":" + outDir + ":" + AGENT_OUTPUT_DIR, ...(addDirs.length ? { CODER_WORK_DIRS: addDirs.join(":") } : {}),...(moved ? { CODER_CWD: t.cwd } : {}), ...(typeof toolCwd === "string" && toolCwd.startsWith(dir + "/") ? { CODER_CWD: toolCwd } : {}), ...(hookEnvFile ? { CLAUDE_ENV_FILE: hookEnvFile } : {}) } : { ...(extraEnv || {}), ...(pass ? px.env(pass) : {}), [TASK_MARK]: mark }, ...(tool ? { outMax: TOOL_OUTPUT_MAX } : { spillDir: outDir, spillAt: Math.min(t.outLimits.inlineMax, t.outLimits.readBack), keep: Math.max(t.outLimits.inlineMax, t.outLimits.readBack) + 10_000, stopAtTimeout: !!sleepFirst || (t.noBg && !monitor) }), ...(moved && (!tool || hook) ? { start: t.cwd } : {}), follow: !!(follow && !tool && !keepHome) });
           // (Its output file is kept past either size, BASH_MAX_OUTPUT_LENGTH's too: Claude Code 2.1.325 saves such an output
           // whole, never cut, and a long one's preview ends with the file's last lines, read back here: bashResultText.)
           if (!tool && r && !r.background && typeof r.file === "string" && r.file && Number(r.size) > t.outLimits.readBack) Object.assign(r, await outputEnd(r.file, bashEndBytes(t.outLimits.readBack)));
@@ -6332,7 +6332,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
           return { dirs, kept };
         },
         // CODER'S OWN FOLDERS A READ MAY REACH under the read block (a background command's log, a long output's file).
-        ownDirs: [bgDir, outDir],
+        ownDirs: [bgDir, outDir, AGENT_OUTPUT_DIR],
         // CODER'S MEMORY FILE, which stays writable under the write block (Claude Code's auto memory does). None while memory is
         // off for the job (MISS-69: "Claude doesn't read from or write to the auto memory directory").
         memFile: memOn ? memFile : "",
